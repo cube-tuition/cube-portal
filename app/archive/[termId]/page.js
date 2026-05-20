@@ -1,32 +1,35 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { supabase } from '../../lib/supabase'
+import { useParams, useRouter } from 'next/navigation'
+import { supabase } from '../../../lib/supabase'
 import {
   fetchAllTerms,
-  getCurrentTerm,
   formatTermLabel,
   formatTermRange,
   filterByTerm,
-} from '../../lib/terms'
-import PortalNav from '../../components/PortalNav'
+} from '../../../lib/terms'
+import PortalNav from '../../../components/PortalNav'
 import CourseDetail, {
   inferSubject,
   subjectColor,
   subjectsMatch,
-} from '../../components/CourseDetail'
+} from '../../../components/CourseDetail'
 
-export default function Results() {
+export default function ArchiveTermPage() {
+  const params = useParams()
+  const router = useRouter()
+  const termId = params?.termId
+
   const [student, setStudent] = useState(null)
+  const [term, setTerm] = useState(null)
+  const [notFound, setNotFound] = useState(false)
   const [courses, setCourses] = useState([])
   const [activeCourseId, setActiveCourseId] = useState(null)
   const [quizzes, setQuizzes] = useState([])
   const [results, setResults] = useState([])
   const [attendance, setAttendance] = useState([])
-  const [currentTerm, setCurrentTerm] = useState(null)
   const [loading, setLoading] = useState(true)
-  const router = useRouter()
 
   useEffect(() => {
     const load = async () => {
@@ -37,12 +40,13 @@ export default function Results() {
         .from('students').select('*').eq('id', user.id).single()
       setStudent(profile)
 
-      // ── Current term ────────────────────────────────────────────────────
-      const terms = await fetchAllTerms()
-      const term = getCurrentTerm(terms)
-      setCurrentTerm(term)
+      // Find this archived term
+      const all = await fetchAllTerms()
+      const t = all.find(x => x.id === termId)
+      if (!t) { setNotFound(true); setLoading(false); return }
+      setTerm(t)
 
-      // ── Enrolled classes (try with `subject`, fall back without) ────────
+      // Enrolled courses (current enrolments — we don't track historical enrolment).
       let classData
       const r1 = await supabase
         .from('student_classes')
@@ -61,32 +65,27 @@ export default function Results() {
       setCourses(list)
       setActiveCourseId(list[0]?.id || null)
 
-      // ── Pull broad data; we'll filter by term in-memory ─────────────────
-      const { data: quizData } = await supabase
-        .from('quiz_results')
-        .select('subject, week, score, max_score, quiz_date, homework_grade')
-        .eq('student_id', user.id)
-        .order('quiz_date', { ascending: true })
-      setQuizzes(quizData || [])
-
-      const { data: examData } = await supabase
-        .from('results')
-        .select('score, created_at, exams(name, max_score, exam_date, subjects(name))')
-        .eq('student_id', user.id)
-        .order('created_at', { ascending: false })
-      setResults(examData || [])
-
-      const { data: attData } = await supabase
-        .from('attendance')
-        .select('class_id, session_date, status, notes')
-        .eq('student_id', user.id)
-        .order('session_date', { ascending: false })
-      setAttendance(attData || [])
-
+      const [{ data: qz }, { data: ex }, { data: at }] = await Promise.all([
+        supabase.from('quiz_results')
+          .select('subject, week, score, max_score, quiz_date, homework_grade')
+          .eq('student_id', user.id)
+          .order('quiz_date', { ascending: true }),
+        supabase.from('results')
+          .select('score, created_at, exams(name, max_score, exam_date, subjects(name))')
+          .eq('student_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase.from('attendance')
+          .select('class_id, session_date, status, notes')
+          .eq('student_id', user.id)
+          .order('session_date', { ascending: false }),
+      ])
+      setQuizzes(qz || [])
+      setResults(ex || [])
+      setAttendance(at || [])
       setLoading(false)
     }
     load()
-  }, [])
+  }, [termId])
 
   const activeCourse = useMemo(
     () => courses.find(c => c.id === activeCourseId) || null,
@@ -95,33 +94,31 @@ export default function Results() {
   const activeSubject = activeCourse ? inferSubject(activeCourse) : null
   const col = subjectColor(activeSubject)
 
-  // Term-scoped filters
-  const termQuizzes = useMemo(
-    () => filterByTerm(quizzes, 'quiz_date', currentTerm),
-    [quizzes, currentTerm]
-  )
-  const termResults = useMemo(
-    () => filterByTerm(results, 'exams.exam_date', currentTerm),
-    [results, currentTerm]
-  )
-  const termAttendance = useMemo(
-    () => filterByTerm(attendance, 'session_date', currentTerm),
-    [attendance, currentTerm]
-  )
+  const termQuizzes    = useMemo(() => filterByTerm(quizzes,    'quiz_date',          term), [quizzes, term])
+  const termResults    = useMemo(() => filterByTerm(results,    'exams.exam_date',    term), [results, term])
+  const termAttendance = useMemo(() => filterByTerm(attendance, 'session_date',       term), [attendance, term])
 
-  // Then per-course filters
-  const courseQuizzes = useMemo(
-    () => termQuizzes.filter(q => subjectsMatch(q.subject, activeSubject)),
-    [termQuizzes, activeSubject]
-  )
-  const courseExams = useMemo(
-    () => termResults.filter(r => subjectsMatch(r.exams?.subjects?.name, activeSubject)),
-    [termResults, activeSubject]
-  )
-  const courseAttendance = useMemo(
-    () => termAttendance.filter(a => a.class_id === activeCourse?.id),
-    [termAttendance, activeCourse?.id]
-  )
+  const courseQuizzes    = useMemo(() => termQuizzes.filter(q => subjectsMatch(q.subject, activeSubject)),                                  [termQuizzes, activeSubject])
+  const courseExams      = useMemo(() => termResults.filter(r => subjectsMatch(r.exams?.subjects?.name, activeSubject)),                    [termResults, activeSubject])
+  const courseAttendance = useMemo(() => termAttendance.filter(a => a.class_id === activeCourse?.id),                                       [termAttendance, activeCourse?.id])
+
+  if (notFound) {
+    return (
+      <div className="min-h-screen bg-white">
+        <PortalNav studentName={student?.full_name} />
+        <div className="max-w-3xl mx-auto px-6 md:px-10 py-20 text-center">
+          <div className="text-5xl mb-3">🔍</div>
+          <h1 className="text-2xl font-bold text-[#2A2035] font-display mb-2">Term not found</h1>
+          <p className="text-sm text-[#2A2035]/60 mb-6">
+            That term isn't in your archive — it may have been removed or the link is wrong.
+          </p>
+          <Link href="/archive" className="inline-block bg-[#325099] text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-[#062E63] transition">
+            Back to archive
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -129,30 +126,30 @@ export default function Results() {
 
       {/* HERO */}
       <section className="bg-gradient-to-r from-[#F8FAFF] via-[#EEF4FF] to-[#BFD1FF] border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-12 md:py-16">
+        <div className="max-w-7xl mx-auto px-6 md:px-10 py-10 md:py-14">
+          <Link
+            href="/archive"
+            className="inline-flex items-center gap-2 text-xs tracking-[0.25em] uppercase text-[#325099] font-semibold mb-5 hover:text-[#062E63] transition"
+          >
+            <span>←</span> Archive
+          </Link>
           <div className="flex items-center gap-2 mb-3">
             <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display">
-              How you're tracking
+              Archived term
             </p>
-            {currentTerm && (
+            {term && (
               <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#062E63] bg-white border border-[#DEE7FF] px-2.5 py-1 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#325099]" />
-                {formatTermLabel(currentTerm)}
+                {formatTermLabel(term)}
               </span>
             )}
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
-            Results & Analytics
+          <h1 className="text-3xl md:text-4xl font-bold leading-tight tracking-tight text-[#2A2035] mb-2 font-display">
+            {term ? formatTermLabel(term) : 'Term'}
           </h1>
-          <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
-            {currentTerm
-              ? `Showing this term's quizzes, homework, exams and attendance. ${formatTermRange(currentTerm)}.`
-              : "Pick a course — see your quizzes, homework, exams and attendance."}
-            {' '}
-            <Link href="/archive" className="text-[#325099] font-semibold hover:text-[#062E63]">
-              Past terms →
-            </Link>
-          </p>
+          {term && (
+            <p className="text-sm text-[#2A2035]/70">{formatTermRange(term)}</p>
+          )}
         </div>
       </section>
 
@@ -189,15 +186,14 @@ export default function Results() {
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
         {loading ? (
           <div className="rounded-2xl border border-[#DEE7FF] bg-white p-12 text-center text-sm text-[#2A2035]/50">
-            Loading your data…
+            Loading the archive…
           </div>
-        ) : courses.length === 0 ? (
+        ) : !activeCourse ? (
           <div className="rounded-2xl border border-[#DEE7FF] bg-white p-12 text-center">
-            <div className="text-4xl mb-2">📚</div>
-            <p className="text-sm font-semibold text-[#2A2035]">You're not enrolled in any classes yet.</p>
-            <p className="text-xs text-[#2A2035]/50 mt-1">Once you're enrolled, your courses will show up here as tabs.</p>
+            <div className="text-4xl mb-2">📭</div>
+            <p className="text-sm font-semibold text-[#2A2035]">Nothing recorded for this term.</p>
           </div>
-        ) : !activeCourse ? null : (
+        ) : (
           <CourseDetail
             course={activeCourse}
             subject={activeSubject}

@@ -1,0 +1,7 @@
+{
+  "crons": [
+    { "path": "/api/sync-students", "schedule": "0 14 * * *" },
+    { "path": "/api/sync-classes", "schedule": "0 14 * * *" },
+    { "path": "/api/sync-quizzes", "schedule": "0 14 * * *" }
+  ]
+}
