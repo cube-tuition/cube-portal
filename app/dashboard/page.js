@@ -67,6 +67,11 @@ export default function Dashboard() {
         setProfileError(profileErr || { message: 'No matching row in students table.' })
         return
       }
+      // Staff (tutors / admins) live at /tutor, not here.
+      if (profile.role === 'tutor' || profile.role === 'admin') {
+        router.push('/tutor')
+        return
+      }
       setStudent(profile)
 
       // Current term — drives the term chip in the hero

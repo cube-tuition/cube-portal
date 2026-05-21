@@ -3,22 +3,21 @@ import { createClient } from '@supabase/supabase-js'
 /*
  * /api/notify-booking
  * ─────────────────────────────────────────────────────────────────────────────
- * POST { bookingId } — looks up the dropin_signins row + linked student +
- * session, then sends a formatted email to bookings@cubetuition.com.au via
- * Resend.
+ * Sends a formatted email to bookings@cubetuition.com.au when a student books
+ * OR cancels a drop-in session.
  *
- * Called by the portal in fire-and-forget mode right after a successful
- * client-side insert — so it can't slow the booking confirmation down, and
- * email failures don't break the booking itself.
+ * POST body:
+ *   { action: 'booked',    bookingId }              — looks up by ID
+ *   { action: 'cancelled', snapshot: {...} }        — snapshot supplied by
+ *                                                     client (row is gone
+ *                                                     from DB after delete)
+ *
+ * If action is omitted, defaults to 'booked' (backward compat).
  *
  * Env vars:
- *   RESEND_API_KEY          required to actually send (skipped gracefully
- *                           if missing — booking still works)
+ *   RESEND_API_KEY          required (skipped gracefully if missing)
  *   BOOKINGS_EMAIL_TO       defaults to bookings@cubetuition.com.au
  *   BOOKINGS_EMAIL_FROM     defaults to "CUBE Bookings <onboarding@resend.dev>"
- *                           (works without domain verification while you set
- *                           up DNS; once cubetuition.com.au is verified in
- *                           Resend, switch to "CUBE Bookings <bookings@cubetuition.com.au>")
  */
 
 export const dynamic = 'force-dynamic'
@@ -31,31 +30,46 @@ export async function POST(request) {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { bookingId } = body || {}
-  if (!bookingId) {
-    return Response.json({ error: 'Missing bookingId' }, { status: 400 })
-  }
-  if (String(bookingId).startsWith('__demo_booking__')) {
-    return Response.json({ ok: true, emailed: false, reason: 'demo booking' })
+  const action = body?.action || 'booked'
+  if (!['booked', 'cancelled'].includes(action)) {
+    return Response.json({ error: 'Unknown action' }, { status: 400 })
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  )
+  // ── Resolve booking details: lookup by id, OR use a snapshot supplied
+  //    by the client (used for cancellations, since the row has been deleted)
+  let booking
+  if (body.snapshot) {
+    // Skip demo bookings entirely
+    if (String(body.snapshot.id || '').startsWith('__demo_booking__')) {
+      return Response.json({ ok: true, emailed: false, reason: 'demo booking' })
+    }
+    booking = body.snapshot
+  } else {
+    const { bookingId } = body
+    if (!bookingId) {
+      return Response.json({ error: 'Missing bookingId' }, { status: 400 })
+    }
+    if (String(bookingId).startsWith('__demo_booking__')) {
+      return Response.json({ ok: true, emailed: false, reason: 'demo booking' })
+    }
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
+    const { data, error } = await supabase
+      .from('dropin_signins')
+      .select(`
+        id, subject, question, signed_in_at,
+        students (full_name, school, school_year, email),
+        dropin_sessions (session_date, start_time, end_time, location, tutors)
+      `)
+      .eq('id', bookingId)
+      .single()
 
-  const { data: booking, error } = await supabase
-    .from('dropin_signins')
-    .select(`
-      id, subject, question, signed_in_at,
-      students (full_name, school, school_year, email),
-      dropin_sessions (session_date, start_time, end_time, location, tutors)
-    `)
-    .eq('id', bookingId)
-    .single()
-
-  if (error || !booking) {
-    return Response.json({ error: 'Booking not found' }, { status: 404 })
+    if (error || !data) {
+      return Response.json({ error: 'Booking not found' }, { status: 404 })
+    }
+    booking = data
   }
 
   if (!process.env.RESEND_API_KEY) {
@@ -66,29 +80,36 @@ export async function POST(request) {
   const toEmail   = process.env.BOOKINGS_EMAIL_TO   || 'bookings@cubetuition.com.au'
   const fromEmail = process.env.BOOKINGS_EMAIL_FROM || 'CUBE Bookings <onboarding@resend.dev>'
 
-  const student = booking.students || {}
-  const session = booking.dropin_sessions || {}
+  const student  = booking.students || booking.student || {}
+  const session  = booking.dropin_sessions || booking.session || {}
   const subjects = (booking.subject || '').split(/\s*,\s*/).filter(Boolean)
+  const isCancel = action === 'cancelled'
 
-  // Pretty-format the topics. We saved them as either plain text (single
-  // subject) or "[Subject]\ntext\n\n[Subject]\ntext" (multi-subject).
   const topicsHtml = formatTopicsHtml(booking.question)
 
-  const subjLine = `New drop-in booking: ${student.full_name || 'Student'} — ${session.session_date}`
-  const bookedAt = new Date(booking.signed_in_at).toLocaleString('en-AU', {
+  const subjLine = isCancel
+    ? `Drop-in cancelled: ${student.full_name || 'Student'} — ${session.session_date}`
+    : `New drop-in booking: ${student.full_name || 'Student'} — ${session.session_date}`
+
+  const timestamp = new Date(booking.signed_in_at || Date.now()).toLocaleString('en-AU', {
     timeZone: 'Australia/Sydney',
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+
+  // Visual tokens differ slightly so the inbox card reads at a glance.
+  const accent = isCancel
+    ? { gradient: 'linear-gradient(90deg,#FEE2E2,#FECACA,#FCA5A5)', label: 'Drop-in cancellation', heading: `${escapeHtml(student.full_name || 'A student')} cancelled` }
+    : { gradient: 'linear-gradient(90deg,#F8FAFF,#EEF4FF,#BFD1FF)', label: 'Drop-in booking',     heading: `${escapeHtml(student.full_name || 'A student')} booked a session` }
 
   const html = `<!doctype html>
 <html><body style="margin:0;padding:0;background:#F8FAFF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#2A2035">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFF;padding:32px 0">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #DEE7FF;border-radius:16px;overflow:hidden;max-width:600px">
-        <tr><td style="background:linear-gradient(90deg,#F8FAFF,#EEF4FF,#BFD1FF);padding:24px 28px">
-          <div style="font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#325099;font-weight:600;margin-bottom:6px">CUBE Tuition · Drop-in booking</div>
-          <h1 style="margin:0;font-size:22px;color:#2A2035;font-weight:700">${escapeHtml(student.full_name || 'A student')} booked a session</h1>
+        <tr><td style="background:${accent.gradient};padding:24px 28px">
+          <div style="font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:${isCancel ? '#991B1B' : '#325099'};font-weight:600;margin-bottom:6px">CUBE Tuition · ${accent.label}</div>
+          <h1 style="margin:0;font-size:22px;color:#2A2035;font-weight:700">${accent.heading}</h1>
         </td></tr>
         <tr><td style="padding:24px 28px">
           <div style="font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:#325099;font-weight:600;margin-bottom:6px">Student</div>
@@ -106,36 +127,35 @@ export async function POST(request) {
 
           <div style="font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:#325099;font-weight:600;margin-bottom:6px">Subject${subjects.length > 1 ? 's' : ''}</div>
           <p style="margin:0 0 16px">
-            ${subjects.map(s => `<span style="display:inline-block;background:#DEE7FF;color:#062E63;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-right:6px;margin-bottom:4px">${escapeHtml(s)}</span>`).join('')}
+            ${subjects.map(s => `<span style="display:inline-block;background:${isCancel ? '#FEE2E2' : '#DEE7FF'};color:${isCancel ? '#991B1B' : '#062E63'};font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-right:6px;margin-bottom:4px;text-decoration:${isCancel ? 'line-through' : 'none'}">${escapeHtml(s)}</span>`).join('')}
           </p>
 
-          <div style="font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:#325099;font-weight:600;margin-bottom:6px">Topics</div>
+          <div style="font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:#325099;font-weight:600;margin-bottom:6px">Topics${isCancel ? ' (now cancelled)' : ''}</div>
           <div style="background:#F8FAFF;border:1px solid #DEE7FF;border-radius:12px;padding:14px 16px">${topicsHtml}</div>
 
-          <p style="margin:24px 0 0;font-size:11px;color:#2A2035;opacity:0.5">Booked ${escapeHtml(bookedAt)} (Sydney time) · CUBE Tuition Portal</p>
+          <p style="margin:24px 0 0;font-size:11px;color:#2A2035;opacity:0.5">${isCancel ? 'Cancelled' : 'Booked'} ${escapeHtml(timestamp)} (Sydney time) · CUBE Tuition Portal</p>
         </td></tr>
       </table>
     </td></tr>
   </table>
 </body></html>`
 
-  // Plain-text fallback for clients that prefer it
   const text = [
-    `New drop-in booking`,
-    ``,
+    isCancel ? 'Drop-in cancellation' : 'New drop-in booking',
+    '',
     `Student:  ${student.full_name || '—'}`,
     `School:   ${student.school || '—'}${student.school_year ? ` · Year ${student.school_year}` : ''}`,
     student.email ? `Email:    ${student.email}` : null,
-    ``,
+    '',
     `Session:  ${session.session_date} · ${(session.start_time||'').slice(0,5)}–${(session.end_time||'').slice(0,5)}`,
     `Location: ${session.location || 'Chatswood centre'}`,
-    ``,
+    '',
     `Subject${subjects.length > 1 ? 's' : ''}: ${subjects.join(', ') || '—'}`,
-    ``,
-    `Topics:`,
+    '',
+    `Topics${isCancel ? ' (cancelled)' : ''}:`,
     booking.question || '(none)',
-    ``,
-    `Booked ${bookedAt} (Sydney time)`,
+    '',
+    `${isCancel ? 'Cancelled' : 'Booked'} ${timestamp} (Sydney time)`,
   ].filter(Boolean).join('\n')
 
   try {
@@ -158,7 +178,7 @@ export async function POST(request) {
       console.error('[notify-booking] Resend error:', resp.status, errText)
       return Response.json({ ok: false, error: errText }, { status: 502 })
     }
-    return Response.json({ ok: true, emailed: true })
+    return Response.json({ ok: true, emailed: true, action })
   } catch (e) {
     console.error('[notify-booking] Send failed:', e)
     return Response.json({ ok: false, error: e.message }, { status: 500 })
@@ -175,8 +195,6 @@ function escapeHtml(s) {
     .replaceAll("'", '&#39;')
 }
 
-// Convert "[Subject]\ntext\n\n[Subject]\ntext" → grouped HTML blocks.
-// Single-subject bookings are rendered as a single paragraph.
 function formatTopicsHtml(text) {
   if (!text) return '<span style="color:#2A2035;opacity:0.5">(none)</span>'
   const sections = []

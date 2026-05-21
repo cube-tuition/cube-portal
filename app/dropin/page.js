@@ -33,7 +33,7 @@ const SUBJECT_STYLES = {
   'All subjects': { bg: '#FEF3C7', fg: '#92400E' },
   Other:          { bg: '#E5E7EB', fg: '#374151' },
 }
-const ALL_SUBJECTS = ['Maths', 'English', 'Science', 'Chemistry', 'Physics', 'Biology', 'Economics', 'Other']
+const ALL_SUBJECTS = ['Maths', 'English', 'Science', 'Chemistry']
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DOW_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
@@ -256,7 +256,7 @@ export default function DropinPage() {
       fetch('/api/notify-booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId: data.id }),
+        body: JSON.stringify({ action: 'booked', bookingId: data.id }),
       }).catch(e => console.warn('Booking notification failed (booking itself was successful):', e))
     }
     setSubmitting(false)
@@ -265,24 +265,47 @@ export default function DropinPage() {
   const handleCancelBooking = async (bookingId) => {
     const ok = window.confirm('Cancel this booking? You can re-book up to 24 hours before the session.')
     if (!ok) return
-    const booking = myBookings.find(b => b.id === bookingId)
-    // Demo booking — only lives in local state
+    const inMemory = myBookings.find(b => b.id === bookingId)
+
+    // Demo booking — only lives in local state, no email
     if (String(bookingId).startsWith('__demo_booking__')) {
       setMyBookings(prev => prev.filter(b => b.id !== bookingId))
-      if (booking?.session_id) {
-        setBookedCounts(prev => ({ ...prev, [booking.session_id]: Math.max(0, (prev[booking.session_id] || 1) - 1) }))
+      if (inMemory?.session_id) {
+        setBookedCounts(prev => ({ ...prev, [inMemory.session_id]: Math.max(0, (prev[inMemory.session_id] || 1) - 1) }))
       }
       return
     }
+
+    // Snapshot the booking + student + session BEFORE deleting, so the
+    // cancellation email has everything it needs (the row is about to be
+    // gone from Supabase).
+    const { data: snapshot } = await supabase
+      .from('dropin_signins')
+      .select(`
+        id, subject, question, signed_in_at,
+        students (full_name, school, school_year, email),
+        dropin_sessions (session_date, start_time, end_time, location, tutors)
+      `)
+      .eq('id', bookingId)
+      .single()
+
     const { error: delErr } = await supabase
       .from('dropin_signins')
       .delete()
       .eq('id', bookingId)
-    if (!delErr) {
-      setMyBookings(prev => prev.filter(b => b.id !== bookingId))
-      if (booking?.session_id) {
-        setBookedCounts(prev => ({ ...prev, [booking.session_id]: Math.max(0, (prev[booking.session_id] || 1) - 1) }))
-      }
+    if (delErr) return
+
+    setMyBookings(prev => prev.filter(b => b.id !== bookingId))
+    if (inMemory?.session_id) {
+      setBookedCounts(prev => ({ ...prev, [inMemory.session_id]: Math.max(0, (prev[inMemory.session_id] || 1) - 1) }))
+    }
+
+    if (snapshot) {
+      fetch('/api/notify-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancelled', snapshot }),
+      }).catch(e => console.warn('Cancellation notification failed (cancel itself was successful):', e))
     }
   }
 
@@ -424,7 +447,7 @@ export default function DropinPage() {
                 { n: 1, title: 'Pick a date',     sub: 'From the calendar' },
                 { n: 2, title: 'Book your slot',  sub: 'Subject + topics you need' },
                 { n: 3, title: 'Walk in on time', sub: 'No need to check in again' },
-                { n: 4, title: 'Get matched',     sub: 'With a tutor, one-on-one' },
+                { n: 4, title: 'Walk out',     sub: 'Clear of confusion!' },
               ].map(s => (
                 <div key={s.n} className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-[#062E63]">
@@ -444,6 +467,7 @@ export default function DropinPage() {
               <p className="text-xs text-[#78350F] leading-relaxed">
                 Bookings close <strong>24 hours before</strong> the session starts.
                 Plan ahead — once that window closes the slot can't be locked in.
+                Maximum capacity per session - 5 students.
               </p>
             </div>
             <div className="rounded-xl px-4 py-3 mt-3 bg-[#F8FAFF] border border-[#DEE7FF]">
