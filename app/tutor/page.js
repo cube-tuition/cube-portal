@@ -8,17 +8,32 @@ import { normalizeDays } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 
 /*
- * Tutor portal — landing page (Phase 2)
+ * Tutor portal — landing page
  * ─────────────────────────────────────────────────────────────────────────────
- * The hero stays the same; below it three quick-action cards now carry live
- * counts and link to the detail pages. Underneath, a "Today" panel pulls
- * together everything happening on the current day — classes this tutor is
- * running plus drop-ins anyone on staff is on duty for.
- *
- * Mark-attendance still routes to a Phase-4 placeholder.
+ * Hero with today/this-week/this-fortnight stats. Two quick-action cards
+ * (My classes + My pay / Payroll). Lower panel: today's classes alongside
+ * this fortnight's pay summary.
  */
 
 const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+const PAY_ANCHOR = '2026-05-18'  // must match SQL pay_period_for() and /tutor/pay
+
+// Pay period containing the given ISO date — mirrors SQL pay_period_for().
+function payPeriod(dateIso) {
+  const a = new Date(PAY_ANCHOR + 'T00:00:00')
+  const d = new Date(dateIso + 'T00:00:00')
+  const diffDays = Math.floor((d - a) / 86400000)
+  const n = Math.floor(diffDays / 14)
+  const start = new Date(a); start.setDate(a.getDate() + n * 14)
+  const end   = new Date(start); end.setDate(start.getDate() + 13)
+  const iso = (x) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`
+  return { start: iso(start), end: iso(end) }
+}
+const fmtPeriodLabel = (p) => {
+  const d = (s) => new Date(s + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+  return `${d(p.start)} – ${d(p.end)}`
+}
+const fmtMoney = (n) => '$' + (Number(n) || 0).toFixed(2)
 
 function greeting() {
   const h = new Date().getHours()
@@ -55,15 +70,16 @@ function fmtTime(t) {
   const ampm = (h >= 1 && h <= 7) ? 'pm' : (h >= 8 && h <= 11) ? 'am' : (h === 12 ? 'pm' : 'am')
   return `${h}:${m}${ampm}`
 }
-function fmtSessionTime(t) { return t ? t.slice(0, 5) : '' }
-
 export default function TutorHome() {
   const [staff, setStaff] = useState(null)
   const [currentTerm, setCurrentTerm] = useState(null)
   const [classes, setClasses] = useState([])
   const [enrollmentCounts, setEnrollmentCounts] = useState({})
-  const [todayDropins, setTodayDropins] = useState([])
-  const [dropinCounts, setDropinCounts] = useState({}) // { [session_id]: n }
+  const [period, setPeriod] = useState(() => payPeriod(isoDate(new Date())))
+  // Shifts in the current pay period — scope depends on role:
+  //   tutor: own shifts only (RLS enforces)
+  //   admin: all shifts in the period
+  const [shifts, setShifts] = useState([])
   const [authErr, setAuthErr] = useState(null)
   const router = useRouter()
 
@@ -91,7 +107,8 @@ export default function TutorHome() {
       // Classes — admin sees all, tutor sees their own (matched by first name).
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0]
-      let cq = supabase.from('classes').select('*')
+      // Hide archived classes (Airtable sweep marks them with archived_at).
+      let cq = supabase.from('classes').select('*').is('archived_at', null)
       if (!isAdmin && firstName) cq = cq.ilike('teacher', firstName)
       const { data: cls } = await cq
       setClasses(cls || [])
@@ -108,20 +125,18 @@ export default function TutorHome() {
         setEnrollmentCounts(counts)
       }
 
-      // Today's drop-ins (visible to all staff — small team, everyone helps).
-      const today = isoDate(new Date())
-      const { data: sess } = await supabase
-        .from('dropin_sessions')
-        .select('*')
-        .eq('session_date', today)
-        .order('start_time', { ascending: true })
-      setTodayDropins(sess || [])
-
-      // Booking counts via the security-definer RPC the student page already uses.
-      const { data: caps } = await supabase.rpc('dropin_session_capacity')
-      const counts = {}
-      for (const row of caps || []) counts[row.session_id] = row.booked_count
-      setDropinCounts(counts)
+      // This fortnight's shifts. Tutor sees only own (RLS); admin sees all.
+      const currentPeriod = payPeriod(isoDate(new Date()))
+      setPeriod(currentPeriod)
+      let sq = supabase
+        .from('shifts')
+        .select('id, tutor_id, work_date, start_time, end_time, hours, rate_snapshot, kind, status, notes')
+        .gte('work_date', currentPeriod.start)
+        .lte('work_date', currentPeriod.end)
+        .order('work_date')
+      if (!isAdmin) sq = sq.eq('tutor_id', user.id)
+      const { data: sh } = await sq
+      setShifts(sh || [])
     }
     load()
   }, [])
@@ -165,8 +180,10 @@ export default function TutorHome() {
   const firstName = (staff.full_name || '').split(' ')[0] || 'there'
   const isAdmin   = staff.role === 'admin'
 
-  const todayDropinBookings = todayDropins.reduce(
-    (sum, s) => sum + (dropinCounts[s.id] || 0),
+  // Pay-period totals (own for tutor, everyone for admin)
+  const periodHours = shifts.reduce((sum, s) => sum + Number(s.hours || 0), 0)
+  const periodAmount = shifts.reduce(
+    (sum, s) => sum + Number(s.hours || 0) * Number(s.rate_snapshot || 0),
     0
   )
 
@@ -195,13 +212,12 @@ export default function TutorHome() {
             Teacher portal
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
-            Your home for today's drop-ins, class queues, and student progress.
+            Your home for class queues, attendance, and pay.
           </p>
 
           {/* Stat strip */}
-          <div className="grid grid-cols-3 gap-3 mt-8 max-w-2xl">
+          <div className="grid grid-cols-2 gap-3 mt-8 max-w-sm">
             <StatTile label="Today" value={todayClasses.length} suffix={`class${todayClasses.length === 1 ? '' : 'es'}`} />
-            <StatTile label="Drop-ins today" value={todayDropins.length} suffix={`session${todayDropins.length === 1 ? '' : 's'}`} />
             <StatTile label="This week" value={weekRows.length} suffix={`class${weekRows.length === 1 ? '' : 'es'}`} />
           </div>
         </div>
@@ -212,18 +228,7 @@ export default function TutorHome() {
         <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-4 font-display">
           Jump in
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-          <ActionCard
-            href="/tutor/dropin"
-            emoji="📋"
-            accent="#DEE7FF"
-            label="Today's drop-ins"
-            desc={
-              todayDropins.length === 0
-                ? 'No sessions today'
-                : `${todayDropins.length} session${todayDropins.length === 1 ? '' : 's'} · ${todayDropinBookings} student${todayDropinBookings === 1 ? '' : 's'} booked`
-            }
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
           <ActionCard
             href="/tutor/classes"
             emoji="🎓"
@@ -235,18 +240,35 @@ export default function TutorHome() {
                 : `${weekRows.length} this week · ${Object.values(enrollmentCounts).reduce((a, b) => a + b, 0)} student spots`
             }
           />
-          <ActionCard
-            href="#"
-            emoji="✅"
-            accent="#D1FAE5"
-            label="Mark attendance"
-            desc="Tick present/late/absent per class · Phase 4"
-            comingSoon
-          />
+          {isAdmin ? (
+            <ActionCard
+              href="/tutor/payroll"
+              emoji="💼"
+              accent="#DEE7FF"
+              label="Payroll"
+              desc={
+                shifts.length === 0
+                  ? `${fmtPeriodLabel(period)} · nothing logged yet`
+                  : `${fmtPeriodLabel(period)} · ${shifts.length} shift${shifts.length === 1 ? '' : 's'} · ${fmtMoney(periodAmount)}`
+              }
+            />
+          ) : (
+            <ActionCard
+              href="/tutor/pay"
+              emoji="💰"
+              accent="#D1FAE5"
+              label="My pay"
+              desc={
+                shifts.length === 0
+                  ? `${fmtPeriodLabel(period)} · no shifts yet`
+                  : `${fmtPeriodLabel(period)} · ${periodHours.toFixed(1)}h · ${fmtMoney(periodAmount)}`
+              }
+            />
+          )}
         </div>
 
         {/* MAIN ROW — today */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+        <div className="grid grid-cols-1 gap-5 mb-6">
           {/* Today's classes */}
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
             <div className="flex items-center justify-between mb-4">
@@ -294,70 +316,6 @@ export default function TutorHome() {
             )}
           </div>
 
-          {/* Today's drop-ins */}
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
-                  Today
-                </p>
-                <h2 className="text-lg font-semibold text-[#2A2035] font-display">
-                  Drop-in sessions
-                </h2>
-              </div>
-              <Link
-                href="/tutor/dropin"
-                className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63] tracking-wide"
-              >
-                See all →
-              </Link>
-            </div>
-            {todayDropins.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="text-4xl mb-2">☕</div>
-                <p className="text-sm font-semibold text-[#2A2035]">No drop-in today.</p>
-                <p className="text-xs text-[#2A2035]/50 mt-1">Enjoy the quiet.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {todayDropins.map(s => {
-                  const cap = s.max_capacity || 5
-                  const count = dropinCounts[s.id] || 0
-                  const full = count >= cap
-                  return (
-                    <Link
-                      key={s.id}
-                      href="/tutor/dropin"
-                      className="flex items-center gap-3 rounded-xl px-4 py-3 border border-[#DEE7FF] bg-[#F8FAFF] hover:border-[#BACBFF] hover:bg-white transition group"
-                    >
-                      <div className="w-1 h-10 rounded-full shrink-0 bg-[#10b981]" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm text-[#2A2035] tabular-nums">
-                          {fmtSessionTime(s.start_time)}–{fmtSessionTime(s.end_time)}
-                        </p>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
-                          <span>📍 {s.location || 'Chatswood centre'}</span>
-                          {s.tutors && s.tutors.length > 0 && <span>👤 {s.tutors.join(', ')}</span>}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end shrink-0">
-                        <span className={`text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-full ${
-                          count === 0
-                            ? 'bg-[#F4F4F4] text-[#9CA3AF]'
-                            : full
-                            ? 'bg-[#FEE2E2] text-[#991B1B]'
-                            : 'bg-[#DEE7FF] text-[#062E63]'
-                        }`}>
-                          {count}/{cap}
-                        </span>
-                        <span className="text-[#325099] transition-transform group-hover:translate-x-0.5 mt-0.5">→</span>
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </section>
 
@@ -382,6 +340,16 @@ function StatTile({ label, value, suffix }) {
         {value}
         <span className="text-sm font-medium text-[#2A2035]/50 ml-1">{suffix}</span>
       </p>
+    </div>
+  )
+}
+
+// Compact tile used inside the "This fortnight" panel.
+function MiniStat({ label, value }) {
+  return (
+    <div className="rounded-xl border border-[#DEE7FF] bg-white px-3 py-2">
+      <p className="text-[9px] tracking-[0.2em] uppercase text-[#325099]/80 font-semibold">{label}</p>
+      <p className="text-base font-bold text-[#2A2035] font-display tabular-nums">{value}</p>
     </div>
   )
 }

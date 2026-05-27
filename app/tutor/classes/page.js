@@ -6,6 +6,13 @@ import { supabase } from '../../../lib/supabase'
 import TutorNav from '../../../components/TutorNav'
 import { normalizeDays } from '../../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
+import { inferSubject } from '../../../components/CourseDetail'
+
+// Parse "Y8 Maths" → 8 ; returns null if no Y-prefix.
+const parseYearFromClass = (name) => {
+  const m = String(name || '').match(/^[Yy](\d{1,2})/)
+  return m ? parseInt(m[1], 10) : null
+}
 
 /*
  * Tutor classes view (Phase 2 — revised layout)
@@ -81,6 +88,42 @@ function fmtTime(t) {
   return `${h}:${m}${ampm}`
 }
 
+// "4:30–6pm" / "10–11:30am" — compact form for the weekly cards. Drops
+// trailing ":00" minutes, and drops the start's am/pm when it matches the
+// end's. Falls back to fmtTime if parsing fails.
+function fmtTimeRange(start, end) {
+  const parse = (t) => {
+    if (!t) return null
+    const [hRaw, mRaw] = String(t).split(':')
+    let h = parseInt(hRaw, 10)
+    const m = parseInt(mRaw || '0', 10) || 0
+    if (Number.isNaN(h)) return null
+    if (h >= 1 && h <= 7) h += 12        // legacy "1-7 = PM" rule
+    return { h, m }
+  }
+  const s = parse(start)
+  let e = parse(end)
+  if (!s || !e) return [fmtTime(start), fmtTime(end)].filter(Boolean).join('–')
+  if (e.h < s.h || (e.h === s.h && e.m < s.m)) e = { ...e, h: e.h + 12 }   // PM crossover
+
+  const piece = ({ h, m }, withAmPm) => {
+    const ampm = h >= 12 && h !== 24 ? 'pm' : 'am'
+    const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
+    const mm = m === 0 ? '' : `:${String(m).padStart(2, '0')}`
+    return `${hr}${mm}${withAmPm ? ampm : ''}`
+  }
+  const sameAmPm = (s.h >= 12) === (e.h >= 12)
+  return `${piece(s, !sameAmPm)}–${piece(e, true)}`
+}
+
+// Monday of the week containing d.
+function mondayOf(d) {
+  const x = new Date(d); x.setHours(0, 0, 0, 0)
+  const dow = (x.getDay() + 6) % 7   // 0 = Mon
+  x.setDate(x.getDate() - dow)
+  return x
+}
+
 // Date helpers — local time, no UTC drift
 function addDays(d, n) {
   const x = new Date(d)
@@ -98,6 +141,17 @@ function fmtDateLabel(d) {
   return `${DAY_SHORT[dayNameOf(d)]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`
 }
 
+// Returns "W6" given a weekStart date and the current term (which has start_date).
+// Falls back to null if the term is unknown or the week is outside the term.
+function termWeekLabel(weekStart, term) {
+  if (!term || !term.start_date) return null
+  const termStart = mondayOf(new Date(`${term.start_date}T00:00:00`))
+  const diffMs = weekStart.getTime() - termStart.getTime()
+  const weekNum = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1
+  if (weekNum < 1) return null
+  return `W${weekNum}`
+}
+
 export default function TutorClassesPage() {
   const [staff, setStaff] = useState(null)
   const [currentTerm, setCurrentTerm] = useState(null)
@@ -105,6 +159,7 @@ export default function TutorClassesPage() {
   const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, school_year }] }
   const [authErr, setAuthErr] = useState(null)
   const [expandedCourse, setExpandedCourse] = useState(null)   // course key (lowercased name)
+  const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()))
   const router = useRouter()
 
   useEffect(() => {
@@ -131,7 +186,8 @@ export default function TutorClassesPage() {
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0]
 
-      let q = supabase.from('classes').select('*')
+      // Hide archived classes (Airtable sweep marks them with archived_at).
+      let q = supabase.from('classes').select('*').is('archived_at', null)
       if (!isAdmin && firstName) q = q.ilike('teacher', firstName)
       const { data: cls } = await q
 
@@ -179,12 +235,18 @@ export default function TutorClassesPage() {
         const sections = []
         for (const row of course.rows) {
           const days = normalizeDays(row.day_of_week)
+          const common = {
+            classId: row.id,
+            time: row.start_time,
+            end: row.end_time,
+            room: row.room,
+            teacher: row.teacher,
+            rate: row.hourly_rate, // teacher pay rate, $/hr
+          }
           if (days.length === 0) {
-            sections.push({ classId: row.id, day: '', time: row.start_time, end: row.end_time, room: row.room, teacher: row.teacher })
+            sections.push({ ...common, day: '' })
           } else {
-            for (const d of days) {
-              sections.push({ classId: row.id, day: d, time: row.start_time, end: row.end_time, room: row.room, teacher: row.teacher })
-            }
+            for (const d of days) sections.push({ ...common, day: d })
           }
         }
         sections.sort((a, b) => {
@@ -213,14 +275,16 @@ export default function TutorClassesPage() {
       .sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [classes, rosters])
 
-  // ── Bottom section: explode classes into session occurrences in the next
-  // 7 days (today inclusive). One entry per (class × matching weekday).
+  // ── Bottom section: explode classes into session occurrences for the
+  // currently-viewed week (Mon-Sun). Driven by `weekStart`.
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+    [weekStart]
+  )
+
   const upcomingSessions = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const windowDays = Array.from({ length: 7 }, (_, i) => addDays(today, i))
     const out = []
-    for (const d of windowDays) {
+    for (const d of weekDays) {
       const dn = dayNameOf(d)
       for (const c of classes) {
         const days = normalizeDays(c.day_of_week)
@@ -239,9 +303,8 @@ export default function TutorClassesPage() {
       return startMinutes(a.cls.start_time) - startMinutes(b.cls.start_time)
     })
     return out
-  }, [classes])
+  }, [classes, weekDays])
 
-  // Bucket the upcoming sessions by date for the date-grouped layout
   const sessionsByDate = useMemo(() => {
     const map = new Map()
     for (const s of upcomingSessions) {
@@ -302,15 +365,13 @@ export default function TutorClassesPage() {
             What you're teaching this term, and what's coming up over the next week.
           </p>
 
-          <div className="grid grid-cols-3 gap-3 mt-8 max-w-2xl">
-            <StatTile label="This term"   value={courses.length}          suffix={`class${courses.length === 1 ? '' : 'es'}`} />
-            <StatTile label="Next 7 days" value={upcomingSessions.length} suffix={`session${upcomingSessions.length === 1 ? '' : 's'}`} />
-            <StatTile label="Students"    value={totalStudents}           suffix="enrolled" />
+          <div className="mt-8 max-w-xs">
+            <StatTile label="This term" value={courses.length} suffix={`class${courses.length === 1 ? '' : 'es'}`} />
           </div>
         </div>
       </section>
 
-      {/* SECTION 1 — Classes you teach this term */}
+      {/* SECTION 1 — Classes grouped by Year → Subject */}
       <section className="max-w-7xl mx-auto px-6 md:px-10 pt-10">
         <div className="flex items-baseline justify-between mb-4">
           <div>
@@ -318,90 +379,74 @@ export default function TutorClassesPage() {
               This term
             </p>
             <h2 className="text-lg font-semibold text-[#2A2035] font-display">
-              Classes you teach
+              {isAdmin ? 'All classes' : 'Classes you teach'}
             </h2>
           </div>
           <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-            {courses.length} course{courses.length === 1 ? '' : 's'}
+            {classes.length} class{classes.length === 1 ? '' : 'es'}
           </span>
         </div>
 
-        {courses.length === 0 ? (
+        {classes.length === 0 ? (
           <EmptyState isAdmin={isAdmin} firstName={firstName} />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {courses.map(course => (
-              <CourseCard
-                key={course.key}
-                course={course}
-                expanded={expandedCourse === course.key}
-                onToggle={() => setExpandedCourse(expandedCourse === course.key ? null : course.key)}
-                showTeacher={isAdmin}
-              />
-            ))}
-          </div>
+          <YearSubjectGrid classes={classes} rosters={rosters} showTeacher={isAdmin} />
         )}
       </section>
 
-      {/* SECTION 2 — Next 7 days */}
+      {/* SECTION 2 — Weekly calendar */}
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
-        <div className="flex items-baseline justify-between mb-4">
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
           <div>
             <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
-              Next 7 days
+              {weekStart.getTime() === mondayOf(new Date()).getTime() ? 'This week' : 'Week of'}
             </p>
             <h2 className="text-lg font-semibold text-[#2A2035] font-display">
-              Upcoming classes
+              {termWeekLabel(weekStart, currentTerm) ?? `${fmtDateLabel(weekDays[0])} – ${fmtDateLabel(weekDays[6])}`}
             </h2>
           </div>
-          <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-            {upcomingSessions.length} session{upcomingSessions.length === 1 ? '' : 's'}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setWeekStart(addDays(weekStart, -7))}
+              className="text-xs font-semibold text-[#062E63] bg-white border border-[#DEE7FF] hover:bg-[#F8FAFF] px-3 py-1.5 rounded-full transition"
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={() => setWeekStart(mondayOf(new Date()))}
+              className="text-xs font-semibold text-[#062E63] bg-white border border-[#DEE7FF] hover:bg-[#F8FAFF] px-3 py-1.5 rounded-full transition"
+            >
+              This week
+            </button>
+            <button
+              onClick={() => setWeekStart(addDays(weekStart, 7))}
+              className="text-xs font-semibold text-[#062E63] bg-white border border-[#DEE7FF] hover:bg-[#F8FAFF] px-3 py-1.5 rounded-full transition"
+            >
+              Next →
+            </button>
+            <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60 ml-2">
+              {upcomingSessions.length} session{upcomingSessions.length === 1 ? '' : 's'}
+            </span>
+          </div>
         </div>
 
         {upcomingSessions.length === 0 ? (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
             <div className="text-4xl mb-3">🌤️</div>
-            <p className="text-sm font-semibold text-[#2A2035] mb-1">Nothing on for the next week.</p>
+            <p className="text-sm font-semibold text-[#2A2035] mb-1">Nothing on this week.</p>
             <p className="text-xs text-[#2A2035]/60 max-w-md mx-auto">
-              Once your classes have a day_of_week set in Supabase, the next 7 days of sessions will land here.
+              Use the arrows to view other weeks.
             </p>
           </div>
         ) : (
-          <div className="space-y-6">
-            {[...sessionsByDate.entries()].map(([dateISO, sessions]) => {
-              const d = sessions[0].date
-              const isToday = dateISO === todayISO
-              return (
-                <div key={dateISO}>
-                  <div className="flex items-baseline gap-2 mb-3">
-                    <h3 className="text-base font-semibold text-[#2A2035] font-display">
-                      {fmtDateLabel(d)}
-                    </h3>
-                    {isToday && (
-                      <span className="text-[10px] font-bold tracking-widest uppercase text-[#065F46] bg-[#D1FAE5] px-2 py-0.5 rounded-full">
-                        Today
-                      </span>
-                    )}
-                    <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-                      {sessions.length} class{sessions.length === 1 ? '' : 'es'}
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {sessions.map(s => (
-                      <SessionCard
-                        key={s.key}
-                        session={s}
-                        roster={rosters[s.cls.id] || []}
-                        isToday={isToday}
-                        showTeacher={isAdmin}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <WeekCards
+            weekDays={weekDays}
+            sessionsByDate={sessionsByDate}
+            todayISO={todayISO}
+            showTeacher={isAdmin}
+            rosters={rosters}
+            currentTerm={currentTerm}
+          />
         )}
       </section>
 
@@ -430,6 +475,95 @@ function StatTile({ label, value, suffix }) {
   )
 }
 
+// Flat 4-col grid, sorted by Year ascending then Subject A→Z.
+// No section headers — the hierarchy is conveyed by the sort order plus the
+// subject pill on each card. Year band sits on the card as a small chip.
+function YearSubjectGrid({ classes, rosters, showTeacher }) {
+  const ordered = useMemo(() => {
+    return [...classes].sort((a, b) => {
+      const ya = parseYearFromClass(a.class_name) ?? 9999
+      const yb = parseYearFromClass(b.class_name) ?? 9999
+      if (ya !== yb) return ya - yb
+      const sa = (inferSubject(a) || 'Other')
+      const sb = (inferSubject(b) || 'Other')
+      const ds = sa.localeCompare(sb)
+      if (ds !== 0) return ds
+      return (a.class_name || '').localeCompare(b.class_name || '')
+    })
+  }, [classes])
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      {ordered.map(c => (
+        <ClassTile
+          key={c.id}
+          cls={c}
+          rosterCount={(rosters[c.id] || []).length}
+          showTeacher={showTeacher}
+        />
+      ))}
+    </div>
+  )
+}
+
+// Card layout:
+//   Heading  — class name (largest) + roster-count badge on the right
+//   Body     — Day + Time (prominent, single line)
+//              Room (smaller)
+//              Teacher (admin only, smaller)
+function ClassTile({ cls, rosterCount, showTeacher }) {
+  const col = pickSubjectColor(cls.class_name)
+  const days = normalizeDays(cls.day_of_week)
+
+  return (
+    <Link
+      href={`/tutor/classes/${cls.id}`}
+      className="group block rounded-2xl border border-[#DEE7FF] bg-white p-4 hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition relative overflow-hidden"
+    >
+      {/* Subject color stripe along the left edge */}
+      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: col.fg }} />
+
+      <div className="pl-2">
+        {/* Class name — biggest element. Roster badge sits to the right. */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <p className="text-base md:text-lg font-bold text-[#2A2035] font-display leading-tight truncate flex-1 min-w-0">
+            {cls.class_name}
+          </p>
+          <span
+            className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full shrink-0 ${
+              rosterCount === 0 ? 'bg-[#F4F4F4] text-[#9CA3AF]' : 'bg-[#DEE7FF] text-[#062E63]'
+            }`}
+            title={`${rosterCount} student${rosterCount === 1 ? '' : 's'} enrolled`}
+          >
+            {rosterCount}
+          </span>
+        </div>
+
+        {/* Day + time — prominent */}
+        {days.length > 0 && (
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-[#062E63] bg-[#F8FAFF] border border-[#DEE7FF] px-2 py-0.5 rounded-full">
+              {days.map(d => DAY_SHORT[d]).join(' · ')}
+            </span>
+            <span className="text-sm font-semibold text-[#2A2035] tabular-nums">
+              {fmtTime(cls.start_time)}–{fmtTime(cls.end_time)}
+            </span>
+          </div>
+        )}
+
+        {/* Room / teacher — quiet metadata */}
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[#2A2035]/55">
+          {cls.room && <span>📍 {cls.room}</span>}
+          {showTeacher && cls.teacher && <span>👤 {cls.teacher}</span>}
+        </div>
+
+        {/* Subtle arrow on hover */}
+        <span className="absolute right-3 top-3 text-[#325099]/0 group-hover:text-[#325099] transition">→</span>
+      </div>
+    </Link>
+  )
+}
+
 function EmptyState({ isAdmin, firstName }) {
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
@@ -446,9 +580,28 @@ function EmptyState({ isAdmin, firstName }) {
   )
 }
 
+// Summarise the teacher pay rate across all of a course's sections. Most
+// courses will have a single rate, but a course running as two separate
+// class rows could (in principle) carry different rates — surface that as a
+// range instead of silently picking one.
+function summariseRate(sections) {
+  const rates = sections
+    .map(s => s.rate)
+    .filter(r => r != null && !Number.isNaN(Number(r)))
+    .map(Number)
+  if (rates.length === 0) return { label: null, range: false, min: null, max: null }
+  const min = Math.min(...rates)
+  const max = Math.max(...rates)
+  const fmt = n => `$${Number.isInteger(n) ? n : n.toFixed(2)}`
+  return min === max
+    ? { label: fmt(min), range: false, min, max }
+    : { label: `${fmt(min)}–${fmt(max)}`, range: true, min, max }
+}
+
 function CourseCard({ course, expanded, onToggle, showTeacher }) {
   const col = pickSubjectColor(course.displayName)
   const count = course.roster.length
+  const rate = summariseRate(course.sections)
 
   return (
     <div className={`rounded-2xl border bg-white overflow-hidden transition ${
@@ -461,15 +614,7 @@ function CourseCard({ course, expanded, onToggle, showTeacher }) {
         <div className="w-1.5 h-12 rounded-full shrink-0" style={{ background: col.fg }} />
 
         <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-1">
-            <p className="text-sm font-semibold text-[#2A2035]">{course.displayName}</p>
-            <span
-              className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-              style={{ background: col.bg, color: col.fg }}
-            >
-              {course.sections.length} session{course.sections.length === 1 ? '' : 's'}/wk
-            </span>
-          </div>
+          <p className="text-sm font-semibold text-[#2A2035] mb-1">{course.displayName}</p>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[#2A2035]/60">
             {course.sections.map((s, i) => (
               <span key={i}>
@@ -490,64 +635,191 @@ function CourseCard({ course, expanded, onToggle, showTeacher }) {
             {count} student{count === 1 ? '' : 's'}
           </span>
           <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60 mt-1">
-            {expanded ? 'Hide ↑' : 'Roster ↓'}
+            {expanded ? 'Hide ↑' : 'Details ↓'}
           </span>
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t border-[#DEE7FF] bg-[#FBFCFF] px-5 md:px-6 py-5">
-          {count === 0 ? (
-            <p className="text-sm text-[#2A2035]/60 text-center py-4">
-              No students linked to this class yet.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {course.roster.map((s, i) => (
-                <StudentChip key={s.id || i} s={s} />
-              ))}
+        <div className="border-t border-[#DEE7FF] bg-[#FBFCFF] px-5 md:px-6 py-5 space-y-5">
+          {/* ── Teacher pay rate ─────────────────────────────────────────
+              Shows the rate(s) the assigned tutor is paid for this course.
+              If the course has multiple sections at the same rate, it's one
+              number. If sections carry different rates, we render a range
+              up top + a per-section breakdown below. */}
+          <div className="rounded-xl border border-[#DEE7FF] bg-white px-5 py-4 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+                Teacher pay rate
+              </p>
+              {rate.label ? (
+                <p className="text-2xl font-bold text-[#2A2035] font-display tabular-nums">
+                  {rate.label}
+                  <span className="text-sm font-medium text-[#2A2035]/50 ml-1">/ hr</span>
+                </p>
+              ) : (
+                <>
+                  <p className="text-base font-semibold text-[#2A2035]/50">Not set</p>
+                  <p className="text-[11px] text-[#2A2035]/40 mt-0.5">
+                    Add a value to <code className="font-mono bg-[#F4F4F4] px-1 rounded">classes.hourly_rate</code> in Supabase.
+                  </p>
+                </>
+              )}
+            </div>
+            {rate.range && (
+              <p className="text-[11px] text-[#2A2035]/60 text-right shrink-0">
+                Varies across<br />
+                {course.sections.length} sessions/wk
+              </p>
+            )}
+          </div>
+
+          {/* Per-section breakdown — only useful when rates differ */}
+          {rate.range && (
+            <div className="rounded-xl border border-[#DEE7FF] bg-white overflow-hidden">
+              <ul className="divide-y divide-[#DEE7FF]">
+                {course.sections.map((s, i) => (
+                  <li key={i} className="px-4 py-2.5 flex items-center justify-between text-[12px]">
+                    <span className="text-[#2A2035]">
+                      {s.day ? DAY_SHORT[s.day] : '—'} · {fmtTime(s.time)}
+                      {s.room ? ` · ${s.room}` : ''}
+                    </span>
+                    <span className="font-semibold text-[#062E63] tabular-nums">
+                      {s.rate != null ? `$${Number.isInteger(Number(s.rate)) ? Number(s.rate) : Number(s.rate).toFixed(2)}/hr` : '—'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
+
+          {/* Roster */}
+          <div>
+            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-2 font-display">
+              Students enrolled · {count}
+            </p>
+            {count === 0 ? (
+              <p className="text-sm text-[#2A2035]/60 text-center py-4">
+                No students linked to this class yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {course.roster.map((s, i) => (
+                  <StudentChip key={s.id || i} s={s} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-function SessionCard({ session, roster, isToday, showTeacher }) {
-  const c = session.cls
-  const col = pickSubjectColor(c.class_name)
-  const count = roster.length
+// ── Weekly card view ──────────────────────────────────────────────────────
+// One card per day. Each class is a soft subject-tinted block — no double
+// borders, no nested header strip. Optimised for a glance.
+// Compute the 1-based term week number for a given ISO date string.
+function termWeekNumber(dateISO, term) {
+  if (!term || !term.start_date) return null
+  const termStart = new Date(`${term.start_date}T00:00:00`)
+  const sessionDate = new Date(`${dateISO}T00:00:00`)
+  const diff = sessionDate.getTime() - termStart.getTime()
+  const week = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1
+  return week >= 1 ? week : null
+}
 
+function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, currentTerm }) {
   return (
-    <Link
-      href={`/tutor/classes/${c.id}/${session.dateISO}`}
-      className={`group block rounded-2xl border bg-white overflow-hidden transition hover:border-[#BACBFF] hover:bg-[#F8FAFF] ${
-        isToday ? 'border-[#A7F3D0]' : 'border-[#DEE7FF]'
-      }`}
-    >
-      <div className="w-full px-5 md:px-6 py-4 flex items-center gap-4 text-left">
-        <div className="w-1.5 h-10 rounded-full shrink-0" style={{ background: col.fg }} />
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
+      {weekDays.map(d => {
+        const iso = isoDate(d)
+        const isToday = iso === todayISO
+        const sessions = sessionsByDate.get(iso) || []
+        return (
+          <div
+            key={iso}
+            className={`rounded-2xl border p-3 flex flex-col min-h-[160px] transition ${
+              isToday
+                ? 'border-[#A7F3D0] bg-[#F0FDF4]/40'
+                : 'border-[#DEE7FF] bg-white'
+            }`}
+          >
+            {/* Day header — no background fill, no divider */}
+            <div className="flex items-baseline justify-between px-1 mb-2.5">
+              <div className="flex items-baseline gap-1.5">
+                <span className={`text-[10px] tracking-[0.25em] uppercase font-semibold ${isToday ? 'text-[#065F46]' : 'text-[#325099]/70'}`}>
+                  {DAY_SHORT[dayNameOf(d)]}
+                </span>
+                <span className={`text-base font-bold tabular-nums font-display leading-none ${isToday ? 'text-[#065F46]' : 'text-[#2A2035]'}`}>
+                  {d.getDate()}
+                </span>
+                <span className={`text-[10px] font-medium leading-none ${isToday ? 'text-[#065F46]/70' : 'text-[#2A2035]/35'}`}>
+                  {MONTH_SHORT[d.getMonth()]}
+                </span>
+              </div>
+              {isToday && (
+                <span className="text-[9px] font-bold tracking-[0.15em] uppercase text-[#065F46]">Today</span>
+              )}
+            </div>
 
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[#2A2035] mb-0.5">{c.class_name}</p>
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[#2A2035]/60">
-            <span>🕐 {fmtTime(c.start_time)}–{fmtTime(c.end_time)}</span>
-            {c.room && <span>📍 {c.room}</span>}
-            {showTeacher && c.teacher && <span>👤 {c.teacher}</span>}
+            {/* Class list */}
+            <div className="flex-1 space-y-1.5">
+              {sessions.length === 0 ? (
+                <div className="flex items-center justify-center h-full pb-3">
+                  <span className="text-[#2A2035]/20 text-lg leading-none">·</span>
+                </div>
+              ) : (
+                sessions.map(s => {
+                  const col = pickSubjectColor(s.cls.class_name)
+                  const count = (rosters?.[s.cls.id] || []).length
+                  const wk = termWeekNumber(s.dateISO, currentTerm)
+                  const href = wk
+                    ? `/tutor/classes/${s.cls.id}?week=${wk}`
+                    : `/tutor/classes/${s.cls.id}`
+                  return (
+                    <Link
+                      key={s.key}
+                      href={href}
+                      className="block rounded-lg px-2.5 py-1.5 transition hover:shadow-[0_2px_10px_-4px_rgba(50,80,153,0.25)]"
+                      style={{ background: col.bg + 'AA' }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className="text-[12px] font-bold truncate leading-tight"
+                            style={{ color: col.fg }}
+                          >
+                            {s.cls.class_name}
+                          </p>
+                          <p className="text-[10px] mt-0.5 leading-tight truncate" style={{ color: col.fg + 'AA' }}>
+                            {fmtTimeRange(s.cls.start_time, s.cls.end_time)}
+                            {s.cls.room && <> · {s.cls.room}</>}
+                          </p>
+                          {showTeacher && s.cls.teacher && (
+                            <p className="text-[10px] leading-tight truncate" style={{ color: col.fg + '88' }}>
+                              {s.cls.teacher}
+                            </p>
+                          )}
+                        </div>
+                        {count > 0 && (
+                          <span
+                            className="text-[9px] font-bold tabular-nums px-1.5 py-0.5 rounded-full bg-white/70 shrink-0"
+                            style={{ color: col.fg }}
+                          >
+                            {count}
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  )
+                })
+              )}
+            </div>
           </div>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0">
-          <span className={`text-xs font-bold tabular-nums px-2.5 py-1 rounded-full ${
-            count === 0 ? 'bg-[#F4F4F4] text-[#9CA3AF]' : 'bg-[#DEE7FF] text-[#062E63]'
-          }`}>
-            {count} student{count === 1 ? '' : 's'}
-          </span>
-          <span className="text-[#325099] transition-transform group-hover:translate-x-0.5">→</span>
-        </div>
-      </div>
-    </Link>
+        )
+      })}
+    </div>
   )
 }
 

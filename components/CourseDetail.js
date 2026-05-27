@@ -125,6 +125,14 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
     const pct = total ? Math.round((attended / total) * 100) : null
     return { total, tally, pct }
   }, [attendance])
+  // Attendance lookup keyed by session_date — used to find the row that
+  // matches each quiz week (they share the same date when saved together
+  // from the tutor portal's session page).
+  const attendanceByDate = useMemo(() => {
+    const map = new Map()
+    for (const a of attendance) map.set(a.session_date, a)
+    return map
+  }, [attendance])
 
   return (
     <div className="space-y-8">
@@ -191,7 +199,7 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-                    {['Week','Score','%','Progress','Homework'].map(h => (
+                    {['Week','Attendance','Score','%','Progress','Homework'].map(h => (
                       <th key={h} className="text-left px-6 py-3 text-[10px] tracking-[0.25em] uppercase font-semibold text-[#325099]">
                         {h}
                       </th>
@@ -202,9 +210,23 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
                   {quizzes.map((q, i) => {
                     const pct = Math.round((q.score / q.max_score) * 100)
                     const hw = homeworkPill(q.homework_grade)
+                    const att = attendanceByDate.get(q.quiz_date)
+                    const attStyle = att ? (ATT_STYLES[(att.status || '').toLowerCase()] || null) : null
                     return (
                       <tr key={i} className="border-b last:border-0 border-[#DEE7FF]">
                         <td className="px-6 py-3 font-medium text-[#2A2035]">{q.week}</td>
+                        <td className="px-6 py-3">
+                          {attStyle ? (
+                            <span
+                              className="inline-flex text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                              style={{ background: attStyle.bg, color: attStyle.fg }}
+                            >
+                              {attStyle.label}
+                            </span>
+                          ) : (
+                            <span className="text-[#2A2035]/40 text-xs">—</span>
+                          )}
+                        </td>
                         <td className="px-6 py-3 text-[#2A2035] tabular-nums">{q.score} / {q.max_score}</td>
                         <td className="px-6 py-3 font-semibold text-[#2A2035] tabular-nums">{pct}%</td>
                         <td className="px-6 py-3 w-44">
@@ -270,14 +292,6 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
         )}
       </SectionCard>
 
-      {/* ATTENDANCE */}
-      <SectionCard eyebrow="Attendance" title="Term sessions">
-        {attendance.length === 0 ? (
-          <EmptyMini emoji="🗓️" msg="No attendance recorded yet for this class." />
-        ) : (
-          <AttendanceView attendance={attendance} stats={attStats} />
-        )}
-      </SectionCard>
     </div>
   )
 }
@@ -320,63 +334,3 @@ export function EmptyMini({ emoji, msg }) {
   )
 }
 
-function AttendanceView({ attendance, stats }) {
-  const total = stats.total || 1
-  const seg = (n) => `${(n / total) * 100}%`
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs text-[#2A2035]/60">
-          <span className="font-semibold text-[#2A2035]">{stats.pct}%</span> attendance
-          <span className="text-[#2A2035]/40"> · {stats.total} session{stats.total === 1 ? '' : 's'}</span>
-        </p>
-        <div className="flex gap-2">
-          {Object.entries(stats.tally).filter(([, n]) => n > 0).map(([k, n]) => {
-            const s = ATT_STYLES[k]
-            return (
-              <span key={k} className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: s.bg, color: s.fg }}>
-                {n} {s.label.toLowerCase()}
-              </span>
-            )
-          })}
-        </div>
-      </div>
-      <div className="w-full h-2.5 rounded-full overflow-hidden flex bg-[#F4F4F4] mb-6">
-        {stats.tally.present > 0 && <div style={{ width: seg(stats.tally.present), background: ATT_STYLES.present.fg }} />}
-        {stats.tally.late > 0    && <div style={{ width: seg(stats.tally.late),    background: ATT_STYLES.late.fg }} />}
-        {stats.tally.excused > 0 && <div style={{ width: seg(stats.tally.excused), background: ATT_STYLES.excused.fg }} />}
-        {stats.tally.absent > 0  && <div style={{ width: seg(stats.tally.absent),  background: ATT_STYLES.absent.fg }} />}
-      </div>
-
-      <div className="-mx-6">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-[#F8FAFF] border-y border-[#DEE7FF]">
-              {['Date','Status','Notes'].map(h => (
-                <th key={h} className="text-left px-6 py-3 text-[10px] tracking-[0.25em] uppercase font-semibold text-[#325099]">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {attendance.slice(0, 12).map((a, i) => {
-              const s = ATT_STYLES[(a.status || 'present').toLowerCase()] || ATT_STYLES.present
-              return (
-                <tr key={i} className="border-b last:border-0 border-[#DEE7FF]">
-                  <td className="px-6 py-3 text-[#2A2035] tabular-nums">{a.session_date}</td>
-                  <td className="px-6 py-3">
-                    <span className="inline-flex text-[11px] font-semibold px-2.5 py-1 rounded-full" style={{ background: s.bg, color: s.fg }}>
-                      {s.label}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3 text-[#2A2035]/60 text-[12px]">{a.notes || '—'}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}

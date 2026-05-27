@@ -9,16 +9,28 @@ import { supabase } from '../lib/supabase'
  * staff never wonder which view they're in.
  */
 
-const LINKS = [
-  { label: 'Home',     href: '/tutor' },
-  { label: 'Classes',  href: '/tutor/classes' },
-  { label: 'Drop-ins', href: '/tutor/dropin' }
-  
+const BASE_LINKS = [
+  { label: 'Home',    href: '/tutor' },
+  { label: 'Classes', href: '/tutor/classes' },
+  { label: 'Info',    href: '/tutor/hub' },
+]
+const TUTOR_LINKS = [
+  { label: 'My pay',   href: '/tutor/pay' },
+]
+const ADMIN_LINKS = [
+  { label: 'Payroll',  href: '/tutor/payroll' },
+  { label: 'Reports',  href: '/tutor/reports' },
+  { label: 'Students', href: '/tutor/students' },
 ]
 
 export default function TutorNav({ staffName, isAdmin = false }) {
   const router = useRouter()
   const pathname = usePathname()
+  // Admins use the full admin payroll page; everyone else gets their own
+  // "My pay" link instead.
+  const LINKS = isAdmin
+    ? [...BASE_LINKS, ...ADMIN_LINKS]
+    : [...BASE_LINKS, ...TUTOR_LINKS]
 
   const handleLogout = async () => {
     await supabase.auth.signOut()

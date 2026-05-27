@@ -106,11 +106,16 @@ export async function GET(request) {
     const stats = {
       total_airtable_rows: records.length,
       classes_upserted: 0,
+      classes_archived: 0,          // present in Supabase, gone from Airtable
+      classes_reactivated: 0,       // archived_at cleared because they reappeared
       classes_skipped: [],          // rows we couldn't process
       enrolments_added: 0,
       enrolments_dropped: 0,
       students_not_matched: new Set(), // names we couldn't find
     }
+
+    // Track which Airtable IDs we saw this run — used by the sweep below.
+    const seenAirtableIds = new Set()
 
     // In dry runs, surface the Airtable field names we actually see so we
     // can fix any name mismatches without guessing.
@@ -125,6 +130,12 @@ export async function GET(request) {
       // Term filter
       const term = pickField(f, ['Term'])
       if (termFilter && term !== termFilter) continue
+
+      // Mark this Airtable row as "seen" BEFORE any per-row skip logic.
+      // The sweep uses this set to decide what to archive — rows that are
+      // present in Airtable but skipped here for any reason (no name, etc.)
+      // should NOT be treated as absent.
+      seenAirtableIds.add(rec.id)
 
       // "Courses" is the human-readable class label (e.g. "Y8 Maths Online")
       // shown to students. "Class ID" is a coded row identifier
@@ -154,21 +165,26 @@ export async function GET(request) {
       }
 
       let classId
+      let wasArchived = false
       if (dryRun) {
         // Resolve the existing id if any so the student-match step still works.
         // Count as "would upsert" regardless of whether the row exists yet.
         const { data: existing } = await supabase
           .from('classes')
-          .select('id')
+          .select('id, archived_at')
           .eq('airtable_id', rec.id)
           .maybeSingle()
         classId = existing?.id
+        wasArchived = !!existing?.archived_at
         stats.classes_upserted += 1
+        if (wasArchived) stats.classes_reactivated += 1
       } else {
+        // Clear archived_at on every upsert — if a class is back in Airtable,
+        // it's active again.
         const { data: upserted, error: upErr } = await supabase
           .from('classes')
-          .upsert(classRow, { onConflict: 'airtable_id' })
-          .select('id')
+          .upsert({ ...classRow, archived_at: null }, { onConflict: 'airtable_id' })
+          .select('id, archived_at')
           .single()
         if (upErr) {
           stats.classes_skipped.push({ airtable_id: rec.id, reason: upErr.message })
@@ -223,12 +239,42 @@ export async function GET(request) {
       }
     }
 
+    // ── 5. Sweep: archive Supabase classes that are no longer in Airtable ──
+    // Only safe on full pulls. Term-scoped pulls would otherwise archive every
+    // class outside the filtered term.
+    const archivePreview = []
+    if (!termFilter) {
+      const { data: allActive, error: actErr } = await supabase
+        .from('classes')
+        .select('id, airtable_id, class_name, archived_at')
+        .is('archived_at', null)
+        .not('airtable_id', 'is', null)
+      if (!actErr && allActive) {
+        const toArchive = allActive.filter(c => !seenAirtableIds.has(c.airtable_id))
+        for (const c of toArchive) {
+          archivePreview.push({ id: c.id, airtable_id: c.airtable_id, class_name: c.class_name })
+        }
+        if (!dryRun && toArchive.length > 0) {
+          const ids = toArchive.map(c => c.id)
+          const { error: arErr } = await supabase
+            .from('classes')
+            .update({ archived_at: new Date().toISOString() })
+            .in('id', ids)
+          if (!arErr) stats.classes_archived = ids.length
+        } else if (dryRun) {
+          stats.classes_archived = toArchive.length
+        }
+      }
+    }
+
     return Response.json({
       success: true,
       dry_run: dryRun,
       term_filter: termFilter || null,
+      sweep_skipped_due_to_term_filter: !!termFilter,
       ...stats,
       students_not_matched: [...stats.students_not_matched],
+      ...(dryRun ? { archive_preview: archivePreview } : {}),
       ...(fieldSamples ? { field_samples: fieldSamples } : {}),
     })
   } catch (error) {
