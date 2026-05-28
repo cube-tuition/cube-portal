@@ -417,7 +417,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             value={notesFromCube}
             onChange={setNotesFromCube}
             editable={isAdmin && !readOnly}
-            placeholder={isAdmin && !readOnly ? 'Anything the tutor should know about this session…' : 'Nothing from admin yet.'}
+            placeholder={isAdmin && !readOnly ? 'Anything the admin should know about this session…' : 'Nothing from admin yet.'}
           />
           <NotesGroup
             label="Notes to CUBE"
