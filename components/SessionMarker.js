@@ -52,7 +52,7 @@ function fmtSavedAt(iso) {
   })
 }
 
-export default function SessionMarker({ classId, dateISO, cls, staff }) {
+export default function SessionMarker({ classId, dateISO, cls, staff, readOnly = false }) {
   const isAdmin = staff?.role === 'admin'
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
@@ -73,6 +73,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff }) {
   const [isLocked, setIsLocked] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [armed, setArmed] = useState(false)
+  const [showValidation, setShowValidation] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Auto-cancel armed state after 5 s
@@ -84,6 +85,35 @@ export default function SessionMarker({ classId, dateISO, cls, staff }) {
 
   const handleSaveClick = () => {
     if (saving || isLocked) return
+
+    // Validate required fields before arming
+    const missing = []
+    for (const s of roster) {
+      const m = marks[s.id] || {}
+      const att = m.attendance || ''
+      const isAbsent = att === 'absent' || att === 'excused'
+      if (!att) {
+        missing.push(`${s.full_name} (attendance)`)
+        continue
+      }
+      if (!isAbsent) {
+        const issues = []
+        if (!m.hw) issues.push("prev week's HWK")
+        if (m.rq === '' || m.rq == null) issues.push('RQ')
+        if (issues.length) missing.push(`${s.full_name} (${issues.join(', ')})`)
+      }
+    }
+
+    if (missing.length > 0) {
+      setShowValidation(true)
+      setSaveError(`Required fields missing — ${missing.join(' · ')}`)
+      setSaveStatus('error')
+      return
+    }
+
+    setShowValidation(false)
+    setSaveError(null)
+    setSaveStatus('idle')
     if (!armed) { setArmed(true); return }
     setArmed(false)
     saveSession()
@@ -371,9 +401,10 @@ export default function SessionMarker({ classId, dateISO, cls, staff }) {
                 [studentId]: { ...(prev[studentId] || {}), [field]: value },
               }))
             }
-            isLocked={isLocked}
+            isLocked={isLocked || readOnly}
             savedAt={savedAt}
-            onEdit={() => setIsLocked(false)}
+            onEdit={readOnly ? undefined : () => { setIsLocked(false); setShowValidation(false); setSaveError(null); setSaveStatus('idle') }}
+            showValidation={showValidation}
             isOneToOne={/1.?:?.?1/i.test(cls?.class_name || '')}
           />
         )}
@@ -385,13 +416,13 @@ export default function SessionMarker({ classId, dateISO, cls, staff }) {
             sub="Admin → tutor. Heads-ups, guidance, asks."
             value={notesFromCube}
             onChange={setNotesFromCube}
-            editable={isAdmin}
-            placeholder={isAdmin ? 'Anything the tutor should know about this session…' : 'Nothing from admin yet.'}
+            editable={isAdmin && !readOnly}
+            placeholder={isAdmin && !readOnly ? 'Anything the tutor should know about this session…' : 'Nothing from admin yet.'}
           />
           <NotesGroup
             label="Notes to CUBE"
             sub="Tutor → admin. How the session went, workbook tweaks, homework set."
-            editable={staff?.role === 'tutor'}
+            editable={staff?.role === 'tutor' && !readOnly}
             sections={[
               { key: 'general',  label: 'General',                  value: notesGeneral,  onChange: setNotesGeneral,
                 placeholder: staff?.role === 'tutor' ? 'How the session went, blockers, asks…' : 'Nothing from the tutor yet.' },
@@ -406,34 +437,43 @@ export default function SessionMarker({ classId, dateISO, cls, staff }) {
 
       {/* Save session — always the last element */}
       {roster.length > 0 && (
-        <div className="bg-white rounded-2xl border border-[#DEE7FF] px-5 py-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-[11px] text-[#2A2035]/60 flex-1 min-w-[200px]">
-            {saveError ? (
-              <span className="text-[#B23A3A] font-semibold">{saveError}</span>
-            ) : saveStatus === 'saved' ? (
-              <span className="text-[#065F46] font-semibold">✓ Saved — these marks now show on the student portal.</span>
-            ) : armed ? (
-              <span className="text-[#991B1B] font-semibold">⚠ Click confirm to commit. Auto-cancels in 5s.</span>
-            ) : isLocked ? (
-              <span>Session locked. Press <strong>Edit</strong> to modify.</span>
+        readOnly ? (
+          <div className="bg-[#FEF3C7] rounded-2xl border border-[#FDE68A] px-5 py-4 flex items-center gap-3">
+            <span className="text-lg">🔒</span>
+            <p className="text-[11px] font-semibold text-[#92400E]">
+              This session is covered by a substitute teacher. Marking is read-only for you.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-[11px] text-[#2A2035]/60 flex-1 min-w-[200px]">
+              {saveError ? (
+                <span className="text-[#B23A3A] font-semibold">{saveError}</span>
+              ) : saveStatus === 'saved' ? (
+                <span className="text-[#065F46] font-semibold">✓ Saved — these marks now show on the student portal.</span>
+              ) : armed ? (
+                <span className="text-[#991B1B] font-semibold">⚠ Click confirm to commit. Auto-cancels in 5s.</span>
+              ) : isLocked ? (
+                <span>Session locked. Press <strong>Edit</strong> to modify.</span>
+              ) : (
+                <span>By saving this session, your shift will be recorded for payroll. Please ensure all required lesson details have been completed before saving.</span>
+              )}
+            </div>
+            {isLocked ? (
+              <button type="button" onClick={() => { setArmed(false); setIsLocked(false) }}
+                className="text-xs font-semibold bg-white text-[#062E63] border border-[#DEE7FF] hover:bg-[#F8FAFF] px-4 py-2 rounded-full transition">
+                Edit
+              </button>
             ) : (
-              <span>By saving this session, your shift will be recorded for payroll. Please ensure all required lesson details have been completed before saving.</span>
+              <button type="button" onClick={handleSaveClick} disabled={saving}
+                className={`text-xs font-semibold px-5 py-2 rounded-full transition ${
+                  armed ? 'bg-[#B23A3A] text-white hover:bg-[#991B1B]' : 'bg-[#325099] text-white hover:bg-[#062E63]'
+                } disabled:opacity-60`}>
+                {saving ? 'Saving…' : armed ? 'Click again to confirm' : 'Save session'}
+              </button>
             )}
           </div>
-          {isLocked ? (
-            <button type="button" onClick={() => { setArmed(false); setIsLocked(false) }}
-              className="text-xs font-semibold bg-white text-[#062E63] border border-[#DEE7FF] hover:bg-[#F8FAFF] px-4 py-2 rounded-full transition">
-              Edit
-            </button>
-          ) : (
-            <button type="button" onClick={handleSaveClick} disabled={saving}
-              className={`text-xs font-semibold px-5 py-2 rounded-full transition ${
-                armed ? 'bg-[#B23A3A] text-white hover:bg-[#991B1B]' : 'bg-[#325099] text-white hover:bg-[#062E63]'
-              } disabled:opacity-60`}>
-              {saving ? 'Saving…' : armed ? 'Click again to confirm' : 'Save session'}
-            </button>
-          )}
-        </div>
+        )
       )}
     </div>
   )
@@ -533,6 +573,7 @@ function MarkTable({
   onChange,
   isLocked, savedAt, onEdit,
   isOneToOne,
+  showValidation,
 }) {
 
   return (
@@ -560,18 +601,26 @@ function MarkTable({
           <thead>
             <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
               <Th className="text-left pl-5 pr-3 w-[26%]">Student name</Th>
-              <Th className="text-center px-3 w-[14%]">Attendance</Th>
-              <Th className="text-center px-3 w-[14%]">HW completion</Th>
-              <Th className="text-center px-3 w-[14%]">{isOneToOne ? 'Understanding %' : 'RQ mark %'}</Th>
+              <Th className="text-center px-3 w-[14%]">Attendance <span className="text-[#EF4444]">*</span></Th>
+              <Th className="text-center px-3 w-[14%]">HW completion <span className="text-[#EF4444]">*</span></Th>
+              <Th className="text-center px-3 w-[14%]">{isOneToOne ? 'Understanding %' : 'RQ mark %'} <span className="text-[#EF4444]">*</span></Th>
               <Th className="text-left px-5 bg-[#EEF4FF] text-[#062E63]">Additional comments</Th>
             </tr>
           </thead>
           <tbody>
             {roster.map(s => {
               const m = marks[s.id] || {}
-              const tint = rowTint(m.attendance)
+              const att = m.attendance || ''
+              const isAbsent = att === 'absent' || att === 'excused'
+              const tint = rowTint(att)
               const isOpen = expanded?.has(s.id)
               const sHist = history?.[s.id] || { quizzes: [], attendance: [] }
+
+              // Validation highlights — only shown after a failed save attempt
+              const attInvalid = showValidation && !att
+              const hwInvalid  = showValidation && !isAbsent && att && !m.hw
+              const rqInvalid  = showValidation && !isAbsent && att && (m.rq === '' || m.rq == null)
+
               return (
                 <Fragment key={s.id}>
                   <tr className="border-b last:border-0 border-[#DEE7FF] transition-colors"
@@ -601,25 +650,31 @@ function MarkTable({
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <PillSelect value={m.attendance || ''} options={ATTENDANCE_OPTIONS}
-                                  onChange={v => onChange(s.id, 'attendance', v)} disabled={isLocked} />
+                      <div className={attInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
+                        <PillSelect value={att} options={ATTENDANCE_OPTIONS}
+                                    onChange={v => onChange(s.id, 'attendance', v)} disabled={isLocked} />
+                      </div>
                     </td>
                     <td className="px-3 py-3">
-                      <PillSelect value={m.hw || ''} options={GRADE_OPTIONS}
-                                  onChange={v => onChange(s.id, 'hw', v)} disabled={isLocked} />
+                      <div className={hwInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
+                        <PillSelect value={m.hw || ''} options={GRADE_OPTIONS}
+                                    onChange={v => onChange(s.id, 'hw', v)} disabled={isLocked || isAbsent} />
+                      </div>
                     </td>
                     <td className="px-3 py-3">
-                      {isOneToOne ? (
-                        <PillSelect
-                          value={m.rq || ''}
-                          options={UNDERSTANDING_OPTIONS}
-                          onChange={v => onChange(s.id, 'rq', v)}
-                          disabled={isLocked}
-                        />
-                      ) : (
-                        <NumberPill value={m.rq || ''} min={1} max={100}
-                                    onChange={v => onChange(s.id, 'rq', v)} disabled={isLocked} />
-                      )}
+                      <div className={rqInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
+                        {isOneToOne ? (
+                          <PillSelect
+                            value={m.rq || ''}
+                            options={UNDERSTANDING_OPTIONS}
+                            onChange={v => onChange(s.id, 'rq', v)}
+                            disabled={isLocked || isAbsent}
+                          />
+                        ) : (
+                          <NumberPill value={m.rq || ''} min={1} max={100}
+                                      onChange={v => onChange(s.id, 'rq', v)} disabled={isLocked || isAbsent} />
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-3 bg-[#F5F8FF]/60">
                       <input
@@ -746,7 +801,7 @@ function HistoryPanel({ student, quizzes, attendance, term, currentWeek }) {
           value={stats.avgRq == null ? '—' : `${stats.avgRq}`}
           sub={stats.scored ? `${stats.scored} quiz${stats.scored === 1 ? '' : 'zes'}` : 'no quizzes'}
           tone={stats.avgRq == null ? 'neutral' : stats.avgRq >= 70 ? 'good' : stats.avgRq >= 50 ? 'warn' : 'bad'} />
-        <SummaryTile label="HW average"
+        <SummaryTile label="Prev week's HWK"
           value={stats.hwMode ?? '—'}
           sub={stats.hwTotal ? `${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'}` : 'no data'}
           tone={stats.hwMode == null ? 'neutral' : (stats.hwMode === 'A' || stats.hwMode === 'B') ? 'good' : stats.hwMode === 'C' ? 'warn' : 'bad'} />
@@ -762,7 +817,7 @@ function HistoryPanel({ student, quizzes, attendance, term, currentWeek }) {
               <Th className="text-left pl-4 pr-2 py-2 w-[18%]">Week</Th>
               <Th className="text-left px-2 py-2 w-[22%]">Date</Th>
               <Th className="text-center px-2 py-2 w-[20%]">Attendance</Th>
-              <Th className="text-center px-2 py-2 w-[18%]">HW</Th>
+              <Th className="text-center px-2 py-2 w-[18%]">Prev week's HWK</Th>
               <Th className="text-center px-2 py-2 w-[22%]">RQ</Th>
             </tr>
           </thead>

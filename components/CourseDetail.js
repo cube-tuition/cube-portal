@@ -167,9 +167,8 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
       {/* STATS STRIP */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Quiz average" value={quizAvg !== null ? `${quizAvg}%` : '—'} sub={`${quizzes.length} quiz${quizzes.length === 1 ? '' : 'zes'}`} />
-        <StatCard label="Latest HW"    value={latestHw || '—'}                       sub={latestHw ? 'Most recent grade' : 'No homework recorded'} />
+        <StatCard label="Average Homework" value={latestHw || '—'}                     sub={latestHw ? 'Most recent grade' : 'No homework recorded'} />
         <StatCard label="Attendance"   value={attStats.pct !== null ? `${attStats.pct}%` : '—'} sub={`${attStats.tally.present + attStats.tally.late}/${attStats.total} sessions`} />
-        <StatCard label="Exams sat"    value={String(exams.length)}                  sub={exams.length ? 'See below' : 'None yet'} />
       </div>
 
       {/* WEEKLY TRACKER */}
@@ -199,7 +198,7 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-                    {['Week','Attendance','Score','%','Progress','Homework'].map(h => (
+                    {['Week','Attendance','Score','%','Progress',"Previous week's HWK"].map(h => (
                       <th key={h} className="text-left px-6 py-3 text-[10px] tracking-[0.25em] uppercase font-semibold text-[#325099]">
                         {h}
                       </th>

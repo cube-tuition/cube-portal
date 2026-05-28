@@ -87,6 +87,8 @@ export default function ClassOverviewPage() {
   const [roster, setRoster] = useState([])
   const [attendance, setAttendance] = useState([])     // all rows for this class, this term
   const [quizzes, setQuizzes] = useState([])           // all rows for roster+subject, this term
+  const [allStaff, setAllStaff] = useState([])         // all tutors/admins for sub dropdown
+  const [subAssignments, setSubAssignments] = useState({}) // { [dateISO]: { id, sub_tutor_id } }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState(initialTab)           // 1..10
@@ -109,13 +111,23 @@ export default function ClassOverviewPage() {
         .from('classes').select('*').eq('id', classId).single()
       if (clsErr || !row) { setError('Class not found.'); setLoading(false); return }
 
-      // Soft-block: tutor can only see their own class
+      // Access check: admin → always OK; regular teacher → OK;
+      // sub teacher → OK if they have a sub_assignment for this class.
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0].toLowerCase()
       const teacherFirst = (row.teacher || '').split(' ')[0].toLowerCase()
-      if (!isAdmin && firstName && teacherFirst && firstName !== teacherFirst) {
-        setError("This class isn't assigned to you.")
-        setLoading(false); return
+      const isRegularTeacher = isAdmin || (firstName && teacherFirst && firstName === teacherFirst)
+      if (!isRegularTeacher) {
+        const { data: subCheck } = await supabase
+          .from('sub_assignments')
+          .select('id')
+          .eq('class_id', classId)
+          .eq('sub_tutor_id', profile.id)
+          .limit(1)
+        if (!subCheck?.length) {
+          setError("This class isn't assigned to you.")
+          setLoading(false); return
+        }
       }
       setCls(row)
 
@@ -157,6 +169,24 @@ export default function ClassOverviewPage() {
         const subj = inferSubject(row)
         setQuizzes((qzRows || []).filter(q => subjectsMatch(q.subject, subj)))
       }
+
+      // All staff for sub assignment dropdown (admin only, but fetch for everyone
+      // so the sub banner can show the sub's name for regular teachers too)
+      const { data: staffRows } = await supabase
+        .from('students')
+        .select('id, full_name, role')
+        .in('role', ['tutor', 'admin'])
+        .order('full_name')
+      setAllStaff(staffRows || [])
+
+      // Sub assignments for this class (all dates, so we can show badges on tabs)
+      const { data: subs } = await supabase
+        .from('sub_assignments')
+        .select('id, session_date, sub_tutor_id')
+        .eq('class_id', classId)
+      const subMap = {}
+      for (const s of subs || []) subMap[s.session_date] = s
+      setSubAssignments(subMap)
 
       // Pick the default tab: prefer ?week param, otherwise use current week
       if (!(weekParam >= 1 && weekParam <= 10)) {
@@ -273,6 +303,7 @@ export default function ClassOverviewPage() {
                 const active = tab === week
                 const primaryDate = dates[0]
                 const hasData = dates.some(d => attByDate.has(d))
+                const hasSub = dates.some(d => subAssignments[d])
                 return (
                   <button
                     key={week}
@@ -284,7 +315,8 @@ export default function ClassOverviewPage() {
                     }`}
                   >
                     Wk {week}
-                    {hasData && !active && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
+                    {hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" title="Sub assigned" />}
+                    {hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
                     {primaryDate && (
                       <span className={`ml-2 text-[10px] font-medium ${active ? 'text-white/70' : 'text-[#2A2035]/40'}`}>
                         {fmtDate(primaryDate)}
@@ -325,27 +357,9 @@ export default function ClassOverviewPage() {
           </div>
         )}
 
-        {/* TAB CONTENT — booklet for this week always at top, then SessionMarker(s) */}
+        {/* TAB CONTENT — teacher/sub section first, then booklet, then SessionMarker(s) */}
         {tab !== 'prepost' && weekDates.length > 0 && (
           <div className="space-y-8">
-            {/* Booklet — looked up from public.booklets (synced from Airtable
-                "Booklet Term View") by year + subject + term + week. Always
-                shown per Wk tab, even when there's no session date. */}
-            <div>
-              <div className="flex items-baseline justify-between mb-3">
-                <div>
-                  <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
-                    Workbook
-                  </p>
-                  <h3 className="text-lg font-semibold text-[#2A2035] font-display">Week {currentWeek.week}</h3>
-                </div>
-                <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-                  {term ? (term.name || `Term ${term.term_number}`) : ''}
-                </span>
-              </div>
-              <WeekBooklet cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin} />
-            </div>
-
             {currentWeek.dates.length === 0 ? (
               <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
                 <div className="text-4xl mb-2">📅</div>
@@ -359,9 +373,9 @@ export default function ClassOverviewPage() {
             ) : (
               <>
                 {currentWeek.dates.map((d, i) => (
-                <div key={d}>
+                <div key={d} className="space-y-8">
                   {currentWeek.dates.length > 1 && (
-                    <div className="flex items-baseline gap-2 mb-4">
+                    <div className="flex items-baseline gap-2">
                       <h3 className="text-base font-semibold text-[#2A2035] font-display">
                         {fmtDate(d)}
                       </h3>
@@ -370,12 +384,40 @@ export default function ClassOverviewPage() {
                       </span>
                     </div>
                   )}
+                  {/* Teacher / sub assignment — shown above the workbook */}
+                  <SubPicker
+                    classId={cls.id}
+                    dateISO={d}
+                    cls={cls}
+                    allStaff={allStaff}
+                    subAssignments={subAssignments}
+                    setSubAssignments={setSubAssignments}
+                    isAdmin={isAdmin}
+                  />
+                  {/* Booklet for this week */}
+                  {i === 0 && (
+                    <div>
+                      <div className="flex items-baseline justify-between mb-3">
+                        <div>
+                          <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+                            Workbook
+                          </p>
+                          <h3 className="text-lg font-semibold text-[#2A2035] font-display">Week {currentWeek.week}</h3>
+                        </div>
+                        <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
+                          {term ? (term.name || `Term ${term.term_number}`) : ''}
+                        </span>
+                      </div>
+                      <WeekBooklet cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin} />
+                    </div>
+                  )}
                   <SessionMarker
                     key={`${cls.id}-${d}`}
                     classId={cls.id}
                     dateISO={d}
                     cls={cls}
                     staff={staff}
+                    readOnly={!isAdmin && !!subAssignments[d] && staff?.id !== subAssignments[d]?.sub_tutor_id}
                   />
                 </div>
               ))}
@@ -389,6 +431,24 @@ export default function ClassOverviewPage() {
                 />
               )}
               </>
+            )}
+
+            {/* Booklet shown even when there's no session date for this week */}
+            {currentWeek.dates.length === 0 && (
+              <div>
+                <div className="flex items-baseline justify-between mb-3">
+                  <div>
+                    <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+                      Workbook
+                    </p>
+                    <h3 className="text-lg font-semibold text-[#2A2035] font-display">Week {currentWeek.week}</h3>
+                  </div>
+                  <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
+                    {term ? (term.name || `Term ${term.term_number}`) : ''}
+                  </span>
+                </div>
+                <WeekBooklet cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin} />
+              </div>
             )}
           </div>
         )}
@@ -406,6 +466,127 @@ export default function ClassOverviewPage() {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
+
+// ── SubPicker ────────────────────────────────────────────────────────────────
+// Admin: dropdown to assign/change/remove a sub for a specific session date.
+// Non-admin: read-only banner if a sub is assigned.
+function SubPicker({ classId, dateISO, cls, allStaff, subAssignments, setSubAssignments, isAdmin }) {
+  const existing = subAssignments[dateISO] || null
+  const [saving, setSaving] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  // Resolve sub's display name from allStaff
+  const subStaff = existing ? allStaff.find(s => s.id === existing.sub_tutor_id) : null
+  const subName = subStaff?.full_name || (existing ? 'Unknown sub' : null)
+
+  const handleAssign = async (staffId) => {
+    setSaving(true)
+    if (!staffId) {
+      // Remove sub assignment
+      if (existing) {
+        await supabase.from('sub_assignments').delete().eq('id', existing.id)
+        setSubAssignments(prev => { const n = { ...prev }; delete n[dateISO]; return n })
+      }
+    } else {
+      // Upsert sub assignment
+      const payload = {
+        class_id: Number(classId),
+        session_date: dateISO,
+        sub_tutor_id: staffId,
+      }
+      const { data: row } = await supabase
+        .from('sub_assignments')
+        .upsert(payload, { onConflict: 'class_id,session_date' })
+        .select()
+        .single()
+      if (row) {
+        setSubAssignments(prev => ({ ...prev, [dateISO]: row }))
+        // Re-attribute any existing draft shift to the sub
+        await supabase
+          .from('shifts')
+          .update({ tutor_id: staffId, notes: `Auto: ${cls.class_name} (sub)` })
+          .eq('source_table', 'class_session')
+          .eq('source_id', `${classId}_${dateISO}`)
+          .eq('status', 'draft')
+      }
+    }
+    setSaving(false)
+    setOpen(false)
+  }
+
+  if (!isAdmin) {
+    // Non-admin (regular teacher): just show a read-only banner if a sub is assigned
+    if (!existing) return null
+    return (
+      <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl bg-[#FEF3C7] border border-[#FDE68A]">
+        <span className="text-base">🔄</span>
+        <p className="text-xs font-semibold text-[#92400E]">
+          {subName} is covering this session — session marked by sub.
+        </p>
+      </div>
+    )
+  }
+
+  // Admin UI
+  const regularTeacher = cls.teacher || 'Regular teacher'
+  const isRegularSelected = !existing
+
+  return (
+    <div className="flex items-center gap-3 mb-4 px-4 py-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF]">
+      <span className="text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099] shrink-0">
+        Session teacher
+      </span>
+
+      {!open ? (
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {existing ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] px-2.5 py-1 rounded-full">
+              🔄 Sub: {subName}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#065F46] bg-[#D1FAE5] px-2.5 py-1 rounded-full">
+              👤 {regularTeacher}
+            </span>
+          )}
+          <button
+            onClick={() => setOpen(true)}
+            className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63] px-2.5 py-1 rounded-full hover:bg-[#DEE7FF] transition shrink-0"
+          >
+            Change →
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+          <select
+            defaultValue={existing?.sub_tutor_id || ''}
+            onChange={e => handleAssign(e.target.value || null)}
+            disabled={saving}
+            className="text-xs border border-[#DEE7FF] rounded-lg px-3 py-1.5 bg-white text-[#2A2035] focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] disabled:opacity-50"
+          >
+            <option value="">{regularTeacher} (regular)</option>
+            {allStaff
+              .filter(s => {
+                // Exclude whoever the regular teacher is by first-name match
+                const staffFirst = (s.full_name || '').split(' ')[0].toLowerCase()
+                const clsFirst = (cls.teacher || '').split(' ')[0].toLowerCase()
+                return staffFirst !== clsFirst
+              })
+              .map(s => (
+                <option key={s.id} value={s.id}>{s.full_name}</option>
+              ))}
+          </select>
+          {saving && <span className="text-[11px] text-[#325099]/60">Saving…</span>}
+          <button
+            onClick={() => setOpen(false)}
+            className="text-[11px] font-semibold text-[#2A2035]/50 hover:text-[#2A2035] px-2 py-1 rounded-full hover:bg-[#F0F0F4] transition"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function StatTile({ label, value, suffix }) {
   return (

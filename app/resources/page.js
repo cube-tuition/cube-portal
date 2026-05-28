@@ -3,37 +3,31 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import PortalNav from '../../components/PortalNav'
-import { inferSubject, subjectColor, subjectsMatch } from '../../components/CourseDetail'
+import { inferSubject, subjectColor } from '../../components/CourseDetail'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 
 /*
  * Resources / Booklets
  * ─────────────────────────────────────────────────────────────────────────────
- * Left:  one tab per enrolled course (e.g. "Y11 Chem"), deduped by class_name.
- * Right: the 10 weeks of the current term as rows. Each row is the booklet for
- *        that week (pulled from Supabase public.booklets which is synced from
- *        Airtable). If a booklet has multiple PDFs they show as separate
- *        rows under the same week.
- *        Click → opens the PDF inline in a viewer pane.
+ * Left:  one tab per enrolled class.
+ * Right: weeks 1–10 for the current term, showing booklets uploaded by admin
+ *        via the teacher portal (stored in public.class_booklets + Supabase
+ *        Storage bucket "class-booklets").
+ *        Click → generates a 10-minute signed URL and opens the PDF inline.
  */
 
-// Year is parsed from the class name, e.g. "Y11 Chem" → 11
-function parseYearFromCourse(courseName) {
-  if (!courseName) return null
-  const m = String(courseName).match(/Y(\d+)/i)
-  return m ? parseInt(m[1], 10) : null
-}
-
 export default function Resources() {
-  const [student, setStudent] = useState(null)
-  const [enrolledCourses, setEnrolledCourses] = useState([])
-  const [selectedCourse, setSelectedCourse] = useState(null)
-  const [booklets, setBooklets] = useState([])
-  const [currentTerm, setCurrentTerm] = useState(null)
-  const [viewing, setViewing] = useState(null) // { bookletId, idx, name, filename }
-  const [loading, setLoading] = useState(true)
+  const [student,        setStudent]        = useState(null)
+  const [enrolledClasses, setEnrolledClasses] = useState([])   // [{ id, class_name, subject }]
+  const [selectedClass,  setSelectedClass]  = useState(null)   // { id, class_name, subject }
+  const [classBooklets,  setClassBooklets]  = useState([])     // rows from class_booklets
+  const [currentTerm,    setCurrentTerm]    = useState(null)
+  const [viewing,        setViewing]        = useState(null)   // { storagePath, name, week }
+  const [loading,        setLoading]        = useState(true)
+  const [bookletsLoading, setBookletsLoading] = useState(false)
   const router = useRouter()
 
+  // ── Auth + enrolled classes + current term ──────────────────────────────────
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -43,78 +37,71 @@ export default function Resources() {
         .from('students').select('*').eq('id', user.id).single()
       setStudent(profile)
 
-      // Current term — drives which booklets to surface
       const terms = await fetchAllTerms()
       setCurrentTerm(getCurrentTerm(terms))
 
-      // Enrolled classes (subject column optional)
-      let classData
-      const r1 = await supabase
+      // Fetch enrolled classes with IDs so we can look up class_booklets.
+      // Note: classes table has no 'subject' column — subject is inferred
+      // from class_name by inferSubject() in CourseDetail.js.
+      const { data: links } = await supabase
         .from('student_classes')
-        .select('classes(class_name, subject)')
+        .select('classes(id, class_name)')
         .eq('student_id', user.id)
-      if (r1.error) {
-        const r2 = await supabase
-          .from('student_classes')
-          .select('classes(class_name)')
-          .eq('student_id', user.id)
-        classData = r2.data
-      } else {
-        classData = r1.data
-      }
-      const classes = (classData?.map(d => d.classes) || []).filter(Boolean)
 
-      // Unique course names, in first-seen order
+      const classes = (links || []).map(l => l.classes).filter(Boolean)
+
+      // Deduplicate by class_id (students shouldn't be in the same class twice,
+      // but guard against it anyway)
       const seen = new Set()
-      const courses = []
+      const unique = []
       for (const c of classes) {
-        const name = (c?.class_name || '').trim()
-        if (name && !seen.has(name)) {
-          seen.add(name)
-          courses.push(name)
+        if (c?.id && !seen.has(c.id)) {
+          seen.add(c.id)
+          unique.push(c)
         }
       }
-      setEnrolledCourses(courses)
-      setSelectedCourse(courses[0] || null)
-
-      // All booklets — we filter client-side by year + subject + term
-      const { data: bks } = await supabase
-        .from('booklets')
-        .select('id, booklet_name, year, subject, week, term_number, pdf_attachment_ids, pdf_filenames')
-        .order('week', { ascending: true })
-      setBooklets(bks || [])
-
+      setEnrolledClasses(unique)
+      setSelectedClass(unique[0] || null)
       setLoading(false)
     }
     load()
   }, [])
 
-  const selectedYear    = selectedCourse ? parseYearFromCourse(selectedCourse) : null
-  const selectedSubject = selectedCourse ? inferSubject({ class_name: selectedCourse }) : null
+  // ── Fetch booklets whenever the selected class or term changes ───────────────
+  useEffect(() => {
+    if (!selectedClass?.id || !currentTerm?.term_number) {
+      setClassBooklets([])
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      setBookletsLoading(true)
+      const { data } = await supabase
+        .from('class_booklets')
+        .select('id, booklet_name, storage_path, week, updated_at')
+        .eq('class_id', selectedClass.id)
+        .eq('term_number', currentTerm.term_number)
+        .order('week', { ascending: true })
+      if (!cancelled) {
+        setClassBooklets(data || [])
+        setBookletsLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [selectedClass?.id, currentTerm?.term_number])
+
+  const selectedSubject = selectedClass ? inferSubject(selectedClass) : null
   const accent          = subjectColor(selectedSubject)
 
-  // Filter booklets down to this course's year + subject + current term
-  const courseBooklets = useMemo(() => {
-    if (!selectedCourse) return []
-    return booklets.filter(b => {
-      if (selectedYear != null && b.year != null && b.year !== selectedYear) return false
-      if (!subjectsMatch(b.subject, selectedSubject) && !subjectsMatch(b.subject, selectedCourse)) return false
-      if (currentTerm && b.term_number != null && b.term_number !== currentTerm.term_number) return false
-      return true
-    })
-  }, [booklets, selectedCourse, selectedYear, selectedSubject, currentTerm])
-
-  // Bucket by week (1..10)
+  // Map week → booklet row for quick lookup
   const weeksMap = useMemo(() => {
     const map = new Map()
-    for (const b of courseBooklets) {
-      if (!b.week) continue
-      const list = map.get(b.week) || []
-      list.push(b)
-      map.set(b.week, list)
+    for (const b of classBooklets) {
+      if (b.week) map.set(b.week, b)
     }
     return map
-  }, [courseBooklets])
+  }, [classBooklets])
 
   return (
     <div className="min-h-screen bg-white">
@@ -148,7 +135,7 @@ export default function Resources() {
           <div className="rounded-2xl border border-[#DEE7FF] bg-white p-12 text-center text-sm text-[#2A2035]/50">
             Loading your booklets…
           </div>
-        ) : enrolledCourses.length === 0 ? (
+        ) : enrolledClasses.length === 0 ? (
           <div className="rounded-2xl border border-[#DEE7FF] bg-white p-12 text-center">
             <div className="text-4xl mb-2">📚</div>
             <p className="text-sm font-semibold text-[#2A2035]">No courses yet, so no booklets to show.</p>
@@ -163,14 +150,14 @@ export default function Resources() {
                 Choose a course
               </p>
               <div className="space-y-3">
-                {enrolledCourses.map(course => {
-                  const subj = inferSubject({ class_name: course })
-                  const a = subjectColor(subj)
-                  const isActive = selectedCourse === course
+                {enrolledClasses.map(cls => {
+                  const subj = inferSubject(cls)
+                  const a    = subjectColor(subj)
+                  const isActive = selectedClass?.id === cls.id
                   return (
                     <button
-                      key={course}
-                      onClick={() => { setSelectedCourse(course); setViewing(null) }}
+                      key={cls.id}
+                      onClick={() => { setSelectedClass(cls); setViewing(null) }}
                       className={`w-full text-left rounded-2xl border p-4 transition ${
                         isActive
                           ? 'border-[#062E63] bg-[#F8FAFF]'
@@ -185,7 +172,7 @@ export default function Resources() {
                           <span className="w-2.5 h-2.5 rounded-full" style={{ background: a.fg }} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-[#2A2035] font-display">{course}</p>
+                          <p className="font-semibold text-[#2A2035] font-display">{cls.class_name}</p>
                           <p className="text-[11px] text-[#2A2035]/50 mt-0.5">{subj}</p>
                         </div>
                         <span
@@ -207,9 +194,10 @@ export default function Resources() {
                 <BookletViewer viewing={viewing} onClose={() => setViewing(null)} accent={accent} />
               ) : (
                 <WeekList
-                  course={selectedCourse}
+                  cls={selectedClass}
                   accent={accent}
                   weeksMap={weeksMap}
+                  loading={bookletsLoading}
                   onOpen={setViewing}
                 />
               )}
@@ -230,9 +218,10 @@ export default function Resources() {
   )
 }
 
-// ── Week-by-week list ──────────────────────────────────────────────────────
-function WeekList({ course, accent, weeksMap, onOpen }) {
+// ── Week-by-week list ──────────────────────────────────────────────────────────
+function WeekList({ cls, accent, weeksMap, loading, onOpen }) {
   const weeks = Array.from({ length: 10 }, (_, i) => i + 1)
+
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
       <div className="px-5 py-4 border-b border-[#DEE7FF] flex items-center justify-between">
@@ -244,85 +233,74 @@ function WeekList({ course, accent, weeksMap, onOpen }) {
             <p className="text-[10px] tracking-[0.3em] uppercase font-semibold font-display" style={{ color: accent.fg }}>
               Term booklets
             </p>
-            <p className="font-semibold text-[#2A2035] font-display">{course || 'Choose a course'}</p>
+            <p className="font-semibold text-[#2A2035] font-display">{cls?.class_name || 'Choose a course'}</p>
           </div>
         </div>
         <p className="text-[11px] tracking-widest uppercase font-semibold text-[#325099]/60">Week 1 – 10</p>
       </div>
 
-      <ul className="divide-y divide-[#DEE7FF]">
-        {weeks.map(w => {
-          const items = weeksMap.get(w) || []
-          if (items.length === 0) {
-            return (
-              <li key={w} className="px-5 py-3.5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <WeekChip n={w} />
-                  <span className="text-sm text-[#2A2035]/40">— coming soon</span>
-                </div>
-              </li>
-            )
-          }
-          // One booklet row per PDF (so a row with two PDFs becomes two list items)
-          return items.flatMap(b => {
-            const pdfCount = (b.pdf_attachment_ids || []).length
-            if (pdfCount === 0) {
-              return [
-                <li key={`${b.id}-empty`} className="px-5 py-3.5 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <WeekChip n={w} accent={accent} />
-                    <div>
-                      <p className="text-sm font-semibold text-[#2A2035]">{b.booklet_name}</p>
-                      <p className="text-[11px] text-[#2A2035]/40">No PDF attached yet</p>
-                    </div>
-                  </div>
-                </li>
-              ]
-            }
-            return (b.pdf_attachment_ids || []).map((attId, i) => {
-              const filename = (b.pdf_filenames || [])[i] || `Booklet ${i + 1}.pdf`
+      {loading ? (
+        <div className="px-5 py-10 text-center text-sm text-[#2A2035]/40">
+          Loading booklets…
+        </div>
+      ) : (
+        <ul className="divide-y divide-[#DEE7FF]">
+          {weeks.map(w => {
+            const booklet = weeksMap.get(w)
+
+            if (!booklet) {
               return (
-                <li key={`${b.id}-${i}`} className="px-5 py-3.5 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <WeekChip n={w} accent={accent} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[#2A2035] truncate">{b.booklet_name}</p>
-                      <p className="text-[11px] text-[#2A2035]/50 truncate">
-                        {pdfCount > 1 ? `${filename} · ${i + 1} of ${pdfCount}` : filename}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onOpen({
-                      bookletId: b.id,
-                      idx: i,
-                      name: b.booklet_name,
-                      filename,
-                      week: w,
-                    })}
-                    className="shrink-0 text-xs font-semibold text-white rounded-full px-4 py-2 transition"
-                    style={{ background: accent.fg }}
-                  >
-                    View →
-                  </button>
+                <li key={w} className="px-5 py-3.5 flex items-center gap-3">
+                  <WeekChip n={w} />
+                  <span className="text-sm text-[#2A2035]/40">— not uploaded yet</span>
                 </li>
               )
-            })
-          })
-        })}
-      </ul>
+            }
+
+            return (
+              <li key={w} className="px-5 py-3.5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <WeekChip n={w} accent={accent} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[#2A2035] truncate">
+                      {booklet.booklet_name || `Week ${w} Booklet`}
+                    </p>
+                    <p className="text-[11px] text-[#2A2035]/50">
+                      {booklet.updated_at
+                        ? `Updated ${new Date(booklet.updated_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                        : 'PDF available'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onOpen({
+                    storagePath: booklet.storage_path,
+                    name: booklet.booklet_name || `Week ${w} Booklet`,
+                    week: w,
+                  })}
+                  className="shrink-0 text-xs font-semibold text-white rounded-full px-4 py-2 transition hover:opacity-90"
+                  style={{ background: accent.fg }}
+                >
+                  View →
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }
 
+// ── Week chip ──────────────────────────────────────────────────────────────────
 function WeekChip({ n, accent }) {
   return (
     <div
       className="w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 border"
       style={{
-        background: accent ? accent.bg : '#F8FAFF',
-        borderColor: accent ? accent.fg + '33' : '#DEE7FF',
-        color: accent ? accent.fg : '#325099',
+        background:   accent ? accent.bg  : '#F8FAFF',
+        borderColor:  accent ? accent.fg + '33' : '#DEE7FF',
+        color:        accent ? accent.fg  : '#325099',
       }}
     >
       <span className="text-[8px] tracking-widest uppercase font-bold leading-none">Wk</span>
@@ -331,10 +309,37 @@ function WeekChip({ n, accent }) {
   )
 }
 
-// ── PDF viewer ─────────────────────────────────────────────────────────────
+// ── PDF viewer ─────────────────────────────────────────────────────────────────
+// Generates a fresh signed URL the moment the viewer mounts, then
+// renders an iframe. Signed URLs expire after 10 minutes (600 s).
 function BookletViewer({ viewing, onClose, accent }) {
+  const [signedUrl,  setSignedUrl]  = useState(null)
+  const [urlLoading, setUrlLoading] = useState(true)
+  const [urlError,   setUrlError]   = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setUrlLoading(true)
+      setUrlError(null)
+      const { data, error } = await supabase.storage
+        .from('class-booklets')
+        .createSignedUrl(viewing.storagePath, 600)
+      if (cancelled) return
+      if (error || !data?.signedUrl) {
+        setUrlError('Could not load the PDF. Please try again.')
+      } else {
+        setSignedUrl(data.signedUrl)
+      }
+      setUrlLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [viewing.storagePath])
+
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
+      {/* Toolbar */}
       <div className="px-5 py-4 flex items-center justify-between border-b border-[#DEE7FF]">
         <div className="flex items-center gap-3 min-w-0">
           <button
@@ -350,22 +355,47 @@ function BookletViewer({ viewing, onClose, accent }) {
             <p className="font-semibold text-[#2A2035] font-display truncate">{viewing.name}</p>
           </div>
         </div>
-        <a
-          href={`/api/booklet/${viewing.bookletId}/pdf/${viewing.idx}`}
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs font-semibold text-[#325099] hover:text-[#062E63] transition"
-        >
-          Open in new tab ↗
-        </a>
+        {signedUrl && (
+          <div className="flex items-center gap-3 shrink-0">
+            <a
+              href={signedUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-semibold text-[#325099] hover:text-[#062E63] px-3 py-1.5 rounded-full hover:bg-[#F8FAFF] transition"
+            >
+              ↓ Download
+            </a>
+            <a
+              href={signedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-semibold text-[#325099] hover:text-[#062E63] transition"
+            >
+              Open in new tab ↗
+            </a>
+          </div>
+        )}
       </div>
-      <iframe
-        key={`${viewing.bookletId}-${viewing.idx}`}
-        src={`/api/booklet/${viewing.bookletId}/pdf/${viewing.idx}`}
-        className="w-full"
-        style={{ height: '75vh', border: 'none' }}
-        title={viewing.name}
-      />
+
+      {/* Body */}
+      {urlLoading ? (
+        <div className="flex items-center justify-center" style={{ height: '75vh' }}>
+          <p className="text-sm text-[#2A2035]/40">Loading PDF…</p>
+        </div>
+      ) : urlError ? (
+        <div className="flex items-center justify-center" style={{ height: '75vh' }}>
+          <p className="text-sm font-semibold text-[#991B1B]">{urlError}</p>
+        </div>
+      ) : (
+        <iframe
+          key={viewing.storagePath}
+          src={signedUrl}
+          className="w-full"
+          style={{ height: '75vh', border: 'none' }}
+          title={viewing.name}
+        />
+      )}
     </div>
   )
 }

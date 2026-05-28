@@ -157,6 +157,8 @@ export default function TutorClassesPage() {
   const [currentTerm, setCurrentTerm] = useState(null)
   const [classes, setClasses] = useState([])
   const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, school_year }] }
+  const [subSessions, setSubSessions] = useState([]) // [{ classId, dateISO, cls }] — sessions this tutor is subbing
+  const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
   const [authErr, setAuthErr] = useState(null)
   const [expandedCourse, setExpandedCourse] = useState(null)   // course key (lowercased name)
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()))
@@ -211,9 +213,59 @@ export default function TutorClassesPage() {
         }
         setRosters(grouped)
       }
+
+      // For non-admin tutors: also fetch any sub assignments for them
+      // within a 6-week window (past 1 week → 5 weeks ahead) so their
+      // subbed sessions show up in the weekly calendar.
+      if (!isAdmin) {
+        const today = isoDate(new Date())
+        const sixWeeksAhead = isoDate(addDays(new Date(), 35))
+        const oneWeekAgo = isoDate(addDays(new Date(), -7))
+        const { data: subRows } = await supabase
+          .from('sub_assignments')
+          .select('class_id, session_date')
+          .eq('sub_tutor_id', profile.id)
+          .gte('session_date', oneWeekAgo)
+          .lte('session_date', sixWeeksAhead)
+
+        if (subRows?.length) {
+          // Fetch the class rows for these sub assignments
+          const subClassIds = [...new Set(subRows.map(r => r.class_id))]
+          const { data: subClasses } = await supabase
+            .from('classes').select('*').in('id', subClassIds)
+          const clsById = {}
+          for (const c of subClasses || []) clsById[c.id] = c
+
+          setSubSessions(subRows.map(r => ({
+            classId: r.class_id,
+            dateISO: r.session_date,
+            cls: clsById[r.class_id],
+          })).filter(r => r.cls))
+        }
+      }
     }
     load()
   }, [])
+
+  // ── Fetch sub assignments for the visible week ────────────────────────────
+  // Re-runs whenever the week or the class list changes. Populates subDates
+  // so session pills on own classes can be highlighted amber when a sub is
+  // covering them.
+  useEffect(() => {
+    if (!staff || classes.length === 0) return
+    const weekISODates = Array.from({ length: 7 }, (_, i) =>
+      isoDate(addDays(weekStart, i))
+    )
+    const classIds = classes.map(c => c.id)
+    supabase
+      .from('sub_assignments')
+      .select('class_id, session_date')
+      .in('class_id', classIds)
+      .in('session_date', weekISODates)
+      .then(({ data }) => {
+        setSubDates(new Set((data || []).map(r => `${r.class_id}|${r.session_date}`)))
+      })
+  }, [weekStart, classes, staff])
 
   // ── Top section: distinct courses by class_name ────────────────────────
   // We merge multiple DB rows that share a name (e.g. a course that runs on
@@ -309,10 +361,30 @@ export default function TutorClassesPage() {
     const map = new Map()
     for (const s of upcomingSessions) {
       if (!map.has(s.dateISO)) map.set(s.dateISO, [])
-      map.get(s.dateISO).push(s)
+      map.get(s.dateISO).push({
+        ...s,
+        hasSub: subDates.has(`${s.cls.id}|${s.dateISO}`),
+      })
+    }
+    // Inject sub sessions into the calendar (only those in the current week view)
+    for (const sub of subSessions) {
+      const weekISODates = weekDays.map(d => isoDate(d))
+      if (!weekISODates.includes(sub.dateISO)) continue
+      // Avoid duplicates (if somehow the sub is also listed as regular teacher)
+      const existing = map.get(sub.dateISO) || []
+      if (existing.some(s => s.cls.id === sub.classId)) continue
+      if (!map.has(sub.dateISO)) map.set(sub.dateISO, [])
+      map.get(sub.dateISO).push({
+        key: `sub-${sub.classId}-${sub.dateISO}`,
+        date: new Date(sub.dateISO + 'T00:00:00'),
+        dateISO: sub.dateISO,
+        dayName: '',
+        cls: sub.cls,
+        isSub: true,
+      })
     }
     return map
-  }, [upcomingSessions])
+  }, [upcomingSessions, subSessions, weekDays, subDates])
 
   const todayISO = useMemo(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return isoDate(d)
@@ -359,7 +431,7 @@ export default function TutorClassesPage() {
             )}
           </div>
           <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
-            Your classes
+            Your Classes
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
             What you're teaching this term, and what's coming up over the next week.
@@ -430,7 +502,7 @@ export default function TutorClassesPage() {
           </div>
         </div>
 
-        {upcomingSessions.length === 0 ? (
+        {sessionsByDate.size === 0 ? (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
             <div className="text-4xl mb-3">🌤️</div>
             <p className="text-sm font-semibold text-[#2A2035] mb-1">Nothing on this week.</p>
@@ -777,27 +849,39 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                   const href = wk
                     ? `/tutor/classes/${s.cls.id}?week=${wk}`
                     : `/tutor/classes/${s.cls.id}`
+                  const isAmber = s.isSub || s.hasSub
+                  const pillBg  = isAmber ? '#FEF9ECCC' : col.bg + 'AA'
+                  const pillBorder = isAmber ? '1px solid #FDE68A' : 'none'
+                  const textColor  = isAmber ? '#92400E'  : col.fg
+                  const subColor   = isAmber ? '#92400E99' : col.fg + 'AA'
                   return (
                     <Link
                       key={s.key}
                       href={href}
                       className="block rounded-lg px-2.5 py-1.5 transition hover:shadow-[0_2px_10px_-4px_rgba(50,80,153,0.25)]"
-                      style={{ background: col.bg + 'AA' }}
+                      style={{ background: pillBg, border: pillBorder }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <p
-                            className="text-[12px] font-bold truncate leading-tight"
-                            style={{ color: col.fg }}
-                          >
-                            {s.cls.class_name}
-                          </p>
-                          <p className="text-[10px] mt-0.5 leading-tight truncate" style={{ color: col.fg + 'AA' }}>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <p
+                              className="text-[12px] font-bold truncate leading-tight"
+                              style={{ color: textColor }}
+                            >
+                              {s.cls.class_name}
+                            </p>
+                            {isAmber && (
+                              <span className="text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#F59E0B]/20 text-[#92400E] shrink-0 whitespace-nowrap">
+                                {s.isSub ? 'Sub' : 'Sub covering'}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] mt-0.5 leading-tight truncate" style={{ color: subColor }}>
                             {fmtTimeRange(s.cls.start_time, s.cls.end_time)}
                             {s.cls.room && <> · {s.cls.room}</>}
                           </p>
                           {showTeacher && s.cls.teacher && (
-                            <p className="text-[10px] leading-tight truncate" style={{ color: col.fg + '88' }}>
+                            <p className="text-[10px] leading-tight truncate" style={{ color: textColor + '88' }}>
                               {s.cls.teacher}
                             </p>
                           )}
@@ -805,7 +889,7 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                         {count > 0 && (
                           <span
                             className="text-[9px] font-bold tabular-nums px-1.5 py-0.5 rounded-full bg-white/70 shrink-0"
-                            style={{ color: col.fg }}
+                            style={{ color: textColor }}
                           >
                             {count}
                           </span>

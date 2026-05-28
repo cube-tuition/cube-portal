@@ -77,6 +77,7 @@ export default function SessionDetailPage() {
   const [cls, setCls] = useState(null)
   const [term, setTerm] = useState(null)
   const [bookletWeek, setBookletWeek] = useState(null)
+  const [subAssignment, setSubAssignment] = useState(null) // { sub_tutor_id, sub_name } | null
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -104,10 +105,31 @@ export default function SessionDetailPage() {
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0].toLowerCase()
       const teacherFirst = (row.teacher || '').split(' ')[0].toLowerCase()
-      if (!isAdmin && firstName && teacherFirst && firstName !== teacherFirst) {
-        setError("This class isn't assigned to you.")
-        setLoading(false); return
+      const isRegularTeacher = isAdmin || (firstName && teacherFirst && firstName === teacherFirst)
+
+      // Check for a sub assignment on this specific date
+      const { data: subRow } = await supabase
+        .from('sub_assignments')
+        .select('id, sub_tutor_id')
+        .eq('class_id', classId)
+        .eq('session_date', dateISO)
+        .maybeSingle()
+
+      if (!isRegularTeacher) {
+        // Must be the assigned sub to access this session
+        if (!subRow || subRow.sub_tutor_id !== profile.id) {
+          setError("This session isn't assigned to you.")
+          setLoading(false); return
+        }
       }
+
+      if (subRow) {
+        // Resolve sub's name for the banner
+        const { data: subProfile } = await supabase
+          .from('students').select('full_name').eq('id', subRow.sub_tutor_id).single()
+        setSubAssignment({ sub_tutor_id: subRow.sub_tutor_id, sub_name: subProfile?.full_name || 'Sub teacher' })
+      }
+
       setCls(row)
 
       // Resolve term + week so we can render the booklet above the marker
@@ -220,8 +242,30 @@ export default function SessionDetailPage() {
         </div>
       </section>
 
-      {/* Booklet for this week (looked up from public.booklets, synced
-          from Airtable "Booklet Term View") + SessionMarker below. */}
+      {/* Sub assignment banner */}
+      {subAssignment && (
+        <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6">
+          {subAssignment.sub_tutor_id === staff?.id ? (
+            // This viewer IS the sub — full access, confirm banner
+            <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-[#EFF6FF] border border-[#BFDBFE]">
+              <span className="text-lg">🔄</span>
+              <p className="text-sm font-semibold text-[#1E40AF]">
+                You're covering this session as a substitute teacher. Your shift will be recorded for payroll.
+              </p>
+            </div>
+          ) : (
+            // Regular teacher viewing a subbed session — read-only notice
+            <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-[#FEF3C7] border border-[#FDE68A]">
+              <span className="text-lg">🔄</span>
+              <p className="text-sm font-semibold text-[#92400E]">
+                {subAssignment.sub_name} is covering this session. You can view it but marking is handled by the sub.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Booklet for this week + SessionMarker below. */}
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-10 space-y-8">
         <div>
           <div className="flex items-baseline justify-between mb-3">
@@ -241,7 +285,13 @@ export default function SessionDetailPage() {
           </div>
           <WeekBooklet cls={cls} term={term} week={bookletWeek} isAdmin={isAdmin} />
         </div>
-        <SessionMarker classId={classId} dateISO={dateISO} cls={cls} staff={staff} />
+        <SessionMarker
+          classId={classId}
+          dateISO={dateISO}
+          cls={cls}
+          staff={staff}
+          readOnly={!isAdmin && !!subAssignment && staff?.id !== subAssignment?.sub_tutor_id}
+        />
       </section>
 
       <footer className="border-t border-[#DEE7FF] bg-white mt-10">

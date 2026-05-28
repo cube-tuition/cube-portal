@@ -209,7 +209,7 @@ export default function TutorHome() {
             </span>
           </div>
           <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
-            Teacher portal
+            Tutor portal
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
             Your home for class queues, attendance, and pay.

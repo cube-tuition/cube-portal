@@ -56,6 +56,7 @@ export default function ReportPage() {
   const [quizzes, setQuizzes] = useState([])
   const [comments, setComments] = useState({})        // studentId → comment
   const [criteria, setCriteria] = useState({})        // studentId → { subject_knowledge, ... }
+  const [prepost,  setPrepost]  = useState(null)      // { topics, totalMarks, scores: { [studentId]: { pre, post } } }
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -142,6 +143,29 @@ export default function ReportPage() {
       for (const r of cr || []) crMap[r.student_id] = r
       setCriteria(crMap)
 
+      // Pre/post test
+      const { data: ppTest } = await supabase
+        .from('prepost_tests')
+        .select('id, topics')
+        .eq('class_id', classId)
+        .eq('term_id', t.id)
+        .maybeSingle()
+      if (ppTest) {
+        const { data: ppScores } = await supabase
+          .from('prepost_scores')
+          .select('student_id, test_type, scores')
+          .eq('test_id', ppTest.id)
+          .in('student_id', ids)
+        const scoreMap = {}
+        for (const r of ppScores || []) {
+          if (!scoreMap[r.student_id]) scoreMap[r.student_id] = { pre: [], post: [] }
+          scoreMap[r.student_id][r.test_type] = r.scores || []
+        }
+        const topics = ppTest.topics || []
+        const totalMarks = topics.reduce((s, tp) => s + (Number(tp.marks) || 0), 0)
+        setPrepost({ topics, totalMarks, scores: scoreMap })
+      }
+
       setLoading(false)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -198,7 +222,7 @@ export default function ReportPage() {
       </div>
 
       {/* One report per student, page-break between them */}
-      <div className="max-w-5xl mx-auto py-8 print:py-0 space-y-8 print:space-y-0">
+      <div className="report-bundle max-w-5xl mx-auto py-8 print:py-0 space-y-8 print:space-y-0">
         {roster.length === 0 ? (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
             <p className="text-sm font-semibold text-[#2A2035]">No students enrolled in this class.</p>
@@ -213,6 +237,7 @@ export default function ReportPage() {
             quizzes={byStudent.get(s.id)?.quizzes || []}
             comment={comments[s.id] || ''}
             criteria={criteria[s.id] || {}}
+            prepost={prepost}
             isLast={i === roster.length - 1}
           />
         ))}
@@ -220,9 +245,23 @@ export default function ReportPage() {
 
       <style jsx global>{`
         @media print {
-          @page { size: A4; margin: 12mm; }
+          @page { size: A4; margin: 10mm; }
+
+          /* Force every element to print its background colour / image */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
           body { background: white; }
-          .report-page { page-break-after: always; break-after: page; }
+
+          /* Scale the whole bundle down so the 5xl-wide content fits A4 */
+          .report-bundle {
+            zoom: 0.74;
+            max-width: 100% !important;
+          }
+
+          .report-page { page-break-after: always; break-after: page; margin-bottom: 0 !important; }
           .report-page:last-child { page-break-after: auto; break-after: auto; }
           .print\\:hidden { display: none !important; }
         }
@@ -238,13 +277,13 @@ const CRITERIA_FIELDS = [
   { key: 'homework_effort',     label: 'Homework Effort & Completion' },
 ]
 const GRADE_STYLE = {
-  A: { bg: '#D1FAE5', fg: '#065F46' },
-  B: { bg: '#DEE7FF', fg: '#062E63' },
-  C: { bg: '#FEF3C7', fg: '#92400E' },
-  D: { bg: '#FEE2E2', fg: '#991B1B' },
+  A: { solid: '#10B981', label: '#10B981' },   // green
+  B: { solid: '#325099', label: '#325099' },   // blue
+  C: { solid: '#F59E0B', label: '#F59E0B' },   // amber
+  D: { solid: '#EF4444', label: '#EF4444' },   // red
 }
 
-function StudentReport({ student, cls, term, attendance, quizzes, comment, criteria, isLast }) {
+function StudentReport({ student, cls, term, attendance, quizzes, comment, criteria, prepost, isLast }) {
   const col = subjectColor(inferSubject(cls))
 
   // Build per-week dataset
@@ -330,18 +369,18 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
   return (
     <>
       {/* ── PAGE 1: Stats + Criteria + Teacher comment ── */}
-      <article className="report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 print:p-0 print:border-0 print:rounded-none mb-4 print:mb-0">
+      <article className="report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 mb-4">
         {reportHeader(1)}
 
         {/* Stat row */}
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatBox label="Quiz average" value={stats.avgRq != null ? `${stats.avgRq}%` : '—'} sub={`${stats.scoredCount} quiz${stats.scoredCount === 1 ? '' : 'zes'}`} />
-          <StatBox label="Homework"     value={stats.hwMode ?? '—'} sub={`${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'} logged`} />
+          <StatBox label="Previous week's HWK" value={stats.hwMode ?? '—'} sub={`${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'} logged`} />
           <StatBox label="Attendance"   value={stats.attPct != null ? `${stats.attPct}%` : '—'} sub={`${stats.attTotal} session${stats.attTotal === 1 ? '' : 's'}`} />
         </div>
 
-        {/* Criteria + Comment — side by side */}
-        <div className="grid grid-cols-2 gap-5 mb-2">
+        {/* Criteria + Comment — stacked */}
+        <div className="space-y-5 mb-2">
 
           {/* Criteria card */}
           <section>
@@ -372,11 +411,18 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
                         <div key={g} className="flex items-center justify-center">
                           {active ? (
                             <span
-                              className="w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shadow-sm"
-                              style={{ background: st.bg, color: st.fg }}
-                            >{g}</span>
+                              className="w-6 h-6 rounded-full flex items-center justify-center shadow-sm"
+                              style={{ background: st.solid }}
+                            >
+                              <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+                                <path d="M1 4L4 7.5L10 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            </span>
                           ) : (
-                            <span className="w-6 h-6 rounded-full border border-[#DDE3F0] bg-[#F4F5F9]" />
+                            <span
+                              className="w-6 h-6 rounded-full border-2"
+                              style={{ borderColor: st.solid + '40', background: st.solid + '0D' }}
+                            />
                           )}
                         </div>
                       )
@@ -388,15 +434,12 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
           </section>
 
           {/* Teacher comment card */}
-          <section className="flex flex-col">
+          <section>
             <div className="flex items-center gap-2 mb-3">
               <span className="w-1 h-4 rounded-full" style={{ background: col.fg }} />
               <h2 className="text-[10px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Teacher Comment</h2>
             </div>
-            <div
-              className="flex-1 rounded-xl border border-[#E8EDF8] bg-[#F9FAFD] p-4 relative overflow-hidden"
-            >
-              {/* Decorative quote mark */}
+            <div className="rounded-xl border border-[#E8EDF8] bg-[#F9FAFD] p-4 relative overflow-hidden">
               <span
                 className="absolute top-2 right-3 text-5xl font-serif leading-none select-none pointer-events-none"
                 style={{ color: col.fg + '18' }}
@@ -406,7 +449,6 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
               ) : (
                 <p className="text-[11px] text-[#2A2035]/35 italic relative z-10">No comment recorded for this term.</p>
               )}
-              {/* Teacher attribution */}
               {cls.teacher && (
                 <p className="mt-3 pt-3 border-t border-[#E8EDF8] text-[10px] font-semibold tracking-[0.15em] uppercase" style={{ color: col.fg + 'BB' }}>
                   — {cls.teacher}
@@ -415,69 +457,257 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
             </div>
           </section>
 
+          {/* Pre / Post test results */}
+          {(() => {
+            const topics     = prepost?.topics || []
+            const totalMarks = prepost?.totalMarks || 0
+            const studentPP  = prepost?.scores?.[student.id]
+            const preScores  = studentPP?.pre  || []
+            const postScores = studentPP?.post || []
+            const hasPreData  = preScores.some(s => s != null && s !== '')
+            const hasPostData = postScores.some(s => s != null && s !== '')
+            const preTotal   = hasPreData  ? preScores.reduce((a, b) => a + (b != null ? Number(b) : 0), 0) : null
+            const postTotal  = hasPostData ? postScores.reduce((a, b) => a + (b != null ? Number(b) : 0), 0) : null
+            const prePct     = preTotal  != null && totalMarks ? Math.round((preTotal  / totalMarks) * 100) : null
+            const postPct    = postTotal != null && totalMarks ? Math.round((postTotal / totalMarks) * 100) : null
+            const improvement = prePct != null && postPct != null ? postPct - prePct : null
+
+            return (
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-1 h-4 rounded-full" style={{ background: col.fg }} />
+                  <h2 className="text-[10px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Pre / Post Test</h2>
+                </div>
+
+                {!prepost || (!hasPreData && !hasPostData) ? (
+                  <div className="rounded-xl border border-[#E8EDF8] bg-[#F9FAFD] px-4 py-3">
+                    <p className="text-[11px] text-[#2A2035]/35 italic">No pre/post test data recorded for this term.</p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-[#E8EDF8] overflow-hidden">
+
+                    {/* Summary tiles */}
+                    <div className="grid grid-cols-3 divide-x divide-[#E8EDF8]">
+                      <div className="px-4 py-3 bg-[#FEF2F2]">
+                        <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#EF4444]/70 mb-1">Pre-test</p>
+                        <p className="text-xl font-bold text-[#EF4444] tabular-nums">{prePct != null ? `${prePct}%` : '—'}</p>
+                        {preTotal != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">{preTotal} / {totalMarks} marks</p>}
+                      </div>
+                      <div className="px-4 py-3 bg-[#EFF6FF]">
+                        <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#325099]/70 mb-1">Post-test</p>
+                        <p className="text-xl font-bold text-[#325099] tabular-nums">{postPct != null ? `${postPct}%` : '—'}</p>
+                        {postTotal != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">{postTotal} / {totalMarks} marks</p>}
+                      </div>
+                      <div className={`px-4 py-3 ${improvement == null ? 'bg-[#F9FAFD]' : improvement >= 0 ? 'bg-[#F0FDF4]' : 'bg-[#FFF7ED]'}`}>
+                        <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#2A2035]/50 mb-1">Improvement</p>
+                        <p className="text-xl font-bold tabular-nums" style={{
+                          color: improvement == null ? '#9CA3AF' : improvement >= 0 ? '#10B981' : '#F59E0B'
+                        }}>
+                          {improvement == null ? '—' : `${improvement >= 0 ? '+' : ''}${improvement}pp`}
+                        </p>
+                        {improvement != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">percentage points</p>}
+                      </div>
+                    </div>
+
+                    {/* Per-topic breakdown */}
+                    {topics.length > 0 && (
+                      <div className="border-t border-[#E8EDF8]">
+                        <table className="w-full text-[10px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#F8FAFF] border-b border-[#E8EDF8]">
+                              <th className="text-left px-3 py-2 font-semibold text-[#6B7CB8]">Topic</th>
+                              <th className="text-center px-2 py-2 font-semibold text-[#EF4444]">Pre</th>
+                              <th className="text-center px-2 py-2 font-semibold text-[#325099]">Post</th>
+                              <th className="text-center px-2 py-2 font-semibold text-[#6B7CB8]">Change</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {topics.map((t, i) => {
+                              const ps  = preScores[i]  ?? null
+                              const qs  = postScores[i] ?? null
+                              const tPre  = ps != null && t.marks ? Math.round((Number(ps)  / t.marks) * 100) : null
+                              const tPost = qs != null && t.marks ? Math.round((Number(qs) / t.marks) * 100) : null
+                              const tDelta = tPre != null && tPost != null ? tPost - tPre : null
+                              return (
+                                <tr key={i} className={`border-b last:border-0 border-[#EEF1F9] ${i % 2 === 0 ? 'bg-white' : 'bg-[#F9FAFD]'}`}>
+                                  <td className="px-3 py-1.5 text-[#3A3550]">
+                                    {t.name}
+                                    {t.questions && <span className="ml-1.5 text-[9px] text-[#325099]/50 font-medium">{t.questions}</span>}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-center font-semibold text-[#EF4444] tabular-nums">
+                                    {tPre != null ? `${tPre}%` : <span className="text-[#CBD5E1]">—</span>}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-center font-semibold text-[#325099] tabular-nums">
+                                    {tPost != null ? `${tPost}%` : <span className="text-[#CBD5E1]">—</span>}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-center font-semibold tabular-nums" style={{
+                                    color: tDelta == null ? '#CBD5E1' : tDelta >= 0 ? '#10B981' : '#F59E0B'
+                                  }}>
+                                    {tDelta == null ? '—' : `${tDelta >= 0 ? '+' : ''}${tDelta}pp`}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )
+          })()}
+
         </div>
 
         {pageFooter}
       </article>
 
       {/* ── PAGE 2: Class tracker + Exam analytics ── */}
-      <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 print:p-0 print:border-0 print:rounded-none ${isLast ? '' : 'mb-8'} print:mb-0`}>
+      <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 ${isLast ? '' : 'mb-8'}`}>
         {reportHeader(2)}
 
         {/* RQ trend chart */}
         <section className="mb-6">
           <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-1">Revision quiz trend</h2>
-          <p className="text-xs text-[#2A2035]/60 mb-3">Score per week with attendance shaded behind.</p>
-          <div style={{ width: '100%', height: 220 }}>
+          <p className="text-xs text-[#2A2035]/60 mb-3">
+            RQ % per week (Wk 2–9) · attendance shaded · previous week's HWK grade shown below each week
+          </p>
+
+          {/* Chart — Wk 2–9 only */}
+          <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
-              <ComposedChart data={weekly} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+              <ComposedChart
+                data={weekly.filter(d => d.week !== 'Wk 1' && d.week !== 'Wk 10')}
+                margin={{ top: 8, right: 64, bottom: 8, left: 8 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#DEE7FF" />
-                <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#6B7280' }} stroke="#DEE7FF" />
-                <YAxis yAxisId="score" domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: '#6B7280' }} stroke="#DEE7FF" />
+
+                {/* Custom X tick: week label + HW badge underneath */}
+                <XAxis
+                  dataKey="week"
+                  height={52}
+                  interval={0}
+                  stroke="#DEE7FF"
+                  tick={(props) => {
+                    const { x, y, payload } = props
+                    const wd = weekly.find(d => d.week === payload.value)
+                    const hw = wd?.hw || null
+                    const hwStyle = {
+                      A: { bg: '#D1FAE5', fg: '#065F46' },
+                      B: { bg: '#DEE7FF', fg: '#062E63' },
+                      C: { bg: '#FEF3C7', fg: '#92400E' },
+                      D: { bg: '#FFEDD5', fg: '#9A3412' },
+                      E: { bg: '#FEE2E2', fg: '#991B1B' },
+                    }
+                    const c = hw ? hwStyle[hw] : null
+                    return (
+                      <g transform={`translate(${x},${y})`}>
+                        {/* Week label */}
+                        <text x={0} y={0} dy={13} textAnchor="middle" fill="#6B7280" fontSize={10}>
+                          {payload.value}
+                        </text>
+                        {/* HW badge */}
+                        {c ? (
+                          <>
+                            <rect x={-11} y={18} width={22} height={15} rx={5} fill={c.bg} />
+                            <text x={0} y={29} textAnchor="middle" fill={c.fg} fontSize={9} fontWeight="bold">{hw}</text>
+                          </>
+                        ) : (
+                          <text x={0} y={30} textAnchor="middle" fill="#CBD5E1" fontSize={9}>—</text>
+                        )}
+                      </g>
+                    )
+                  }}
+                />
+
+                <YAxis
+                  yAxisId="score"
+                  domain={[0, 100]}
+                  ticks={[0, 25, 50, 75, 100]}
+                  tickFormatter={v => `${v}%`}
+                  tick={{ fontSize: 11, fill: '#374151', fontWeight: 500 }}
+                  axisLine={{ stroke: '#DEE7FF' }}
+                  tickLine={{ stroke: '#DEE7FF' }}
+                  width={52}
+                />
                 <YAxis yAxisId="att" hide domain={[0, 1]} />
+
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     const row = payload[0]?.payload || {}
                     return (
-                      <div className="bg-white border border-[#DEE7FF] rounded-xl p-3 text-xs">
+                      <div className="bg-white border border-[#DEE7FF] rounded-xl p-3 text-xs shadow-lg">
                         <p className="font-semibold text-[#2A2035] mb-1">{label}</p>
-                        <p>Score: {row.score == null ? '—' : `${row.score}%`}</p>
+                        <p>RQ score: {row.score == null ? '—' : `${row.score}%`}</p>
+                        <p>Prev week's HWK: {row.hw || '—'}</p>
                         <p>Attendance: {row.status || '—'}</p>
-                        <p>HW: {row.hw || '—'}</p>
                       </div>
                     )
                   }}
                 />
-                <Bar yAxisId="att" dataKey="attended" barSize={36} fillOpacity={0.35}>
-                  {weekly.map((d, i) => <Cell key={i} fill={ATT_COLOR[d.status] || ATT_COLOR.none} />)}
+
+                {/* Attendance shading */}
+                <Bar yAxisId="att" dataKey="attended" barSize={40} fillOpacity={0.25}>
+                  {weekly
+                    .filter(d => d.week !== 'Wk 1' && d.week !== 'Wk 10')
+                    .map((d, i) => <Cell key={i} fill={ATT_COLOR[d.status] || ATT_COLOR.none} />)}
                 </Bar>
-                <Line yAxisId="score" type="monotone" dataKey="score" stroke={col.line} strokeWidth={2.5}
-                  dot={{ r: 4, fill: col.line, strokeWidth: 0 }} connectNulls />
-                <ReferenceLine yAxisId="score" y={70} stroke="#10b981" strokeDasharray="4 4" />
-                <ReferenceLine yAxisId="score" y={50} stroke="#f59e0b" strokeDasharray="4 4" />
+
+                {/* RQ line */}
+                <Line
+                  yAxisId="score"
+                  type="monotone"
+                  dataKey="score"
+                  stroke={col.line}
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: col.line, strokeWidth: 0 }}
+                  connectNulls
+                />
+
+                <ReferenceLine
+                  yAxisId="score" y={70} stroke="#10b981" strokeDasharray="4 4"
+                  label={{ value: 'Good (70%)', position: 'insideTopRight', fill: '#10b981', fontSize: 9, fontWeight: 600 }}
+                />
+                <ReferenceLine
+                  yAxisId="score" y={50} stroke="#f59e0b" strokeDasharray="4 4"
+                  label={{ value: 'Pass (50%)', position: 'insideTopRight', fill: '#f59e0b', fontSize: 9, fontWeight: 600 }}
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+
+          {/* Legend */}
           <div className="flex flex-wrap items-center gap-4 mt-2 text-[11px] text-[#2A2035]/70">
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: col.line }} /> RQ score</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-50" style={{ background: ATT_COLOR.present }} /> Present</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-50" style={{ background: ATT_COLOR.late }} /> Late</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-50" style={{ background: ATT_COLOR.absent }} /> Absent</span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: col.line }} /> RQ score
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.present }} /> Present
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.late }} /> Late
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.absent }} /> Absent
+            </span>
+            <span className="text-[#2A2035]/40">·</span>
+            <span className="text-[#2A2035]/60">Previous week's HWK badge below each week</span>
           </div>
 
-          {/* Weekly table */}
+          {/* Weekly tracker table — Wk 2–9 only */}
           <table className="w-full text-xs mt-4 border-collapse">
             <thead>
               <tr className="bg-[#F8FAFF] border-y border-[#DEE7FF]">
                 <th className="text-left px-3 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099] w-[14%]">Week</th>
                 <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Attendance</th>
-                <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">HW grade</th>
+                <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Previous week's HWK</th>
                 <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">RQ %</th>
               </tr>
             </thead>
             <tbody>
-              {weekly.map(r => (
+              {weekly.filter(r => r.week !== 'Wk 1' && r.week !== 'Wk 10').map(r => (
                 <tr key={r.week} className="border-b last:border-0 border-[#DEE7FF]">
                   <td className="px-3 py-1.5 font-semibold text-[#2A2035]">{r.week}</td>
                   <td className="px-2 py-1.5 text-center">
