@@ -11,8 +11,8 @@ import { supabase } from '../lib/supabase'
 
 const BASE_LINKS = [
   { label: 'Home',    href: '/tutor' },
-  { label: 'Classes', href: '/tutor/classes' },
   { label: 'Info',    href: '/tutor/hub' },
+  { label: 'Classes', href: '/tutor/classes' },
 ]
 const TUTOR_LINKS = [
   { label: 'My pay',   href: '/tutor/pay' },
