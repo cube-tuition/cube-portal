@@ -159,6 +159,7 @@ export default function TutorClassesPage() {
   const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, school_year }] }
   const [subSessions, setSubSessions] = useState([]) // [{ classId, dateISO, cls }] — sessions this tutor is subbing
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
+  const [search, setSearch] = useState('')
   const [authErr, setAuthErr] = useState(null)
   const [expandedCourse, setExpandedCourse] = useState(null)   // course key (lowercased name)
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()))
@@ -445,7 +446,7 @@ export default function TutorClassesPage() {
 
       {/* SECTION 1 — Classes grouped by Year → Subject */}
       <section className="max-w-7xl mx-auto px-6 md:px-10 pt-10">
-        <div className="flex items-baseline justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
               This term
@@ -454,15 +455,63 @@ export default function TutorClassesPage() {
               {isAdmin ? 'All classes' : 'Classes you teach'}
             </h2>
           </div>
-          <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-            {classes.length} class{classes.length === 1 ? '' : 'es'}
-          </span>
+
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#325099]/40 text-sm pointer-events-none">
+                  🔍
+                </span>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search classes, teachers, rooms…"
+                  className="pl-8 pr-8 py-2 text-sm bg-white border border-[#DEE7FF] rounded-full text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition w-64"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/70 transition text-sm leading-none"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+            <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60 shrink-0">
+              {(() => {
+                const q = search.trim().toLowerCase()
+                const n = q
+                  ? classes.filter(c =>
+                      (c.class_name || '').toLowerCase().includes(q) ||
+                      (c.teacher   || '').toLowerCase().includes(q) ||
+                      (c.room      || '').toLowerCase().includes(q)
+                    ).length
+                  : classes.length
+                return `${n} class${n === 1 ? '' : 'es'}`
+              })()}
+            </span>
+          </div>
         </div>
 
         {classes.length === 0 ? (
           <EmptyState isAdmin={isAdmin} firstName={firstName} />
+        ) : isAdmin ? (
+          <AdminClassesView
+            classes={classes.filter(c => {
+              const q = search.trim().toLowerCase()
+              if (!q) return true
+              return (
+                (c.class_name || '').toLowerCase().includes(q) ||
+                (c.teacher   || '').toLowerCase().includes(q) ||
+                (c.room      || '').toLowerCase().includes(q)
+              )
+            })}
+            rosters={rosters}
+          />
         ) : (
-          <YearSubjectGrid classes={classes} rosters={rosters} showTeacher={isAdmin} />
+          <YearSubjectGrid classes={classes} rosters={rosters} showTeacher={false} />
         )}
       </section>
 
@@ -543,6 +592,115 @@ function StatTile({ label, value, suffix }) {
         {value}
         <span className="text-sm font-medium text-[#2A2035]/50 ml-1">{suffix}</span>
       </p>
+    </div>
+  )
+}
+
+// ── Admin hierarchy view: Year → Subject → Class Type → ClassTile grid ────
+function AdminClassesView({ classes, rosters }) {
+  const hierarchy = useMemo(() => {
+    const yearMap = new Map()
+
+    for (const c of classes) {
+      const yearNum  = parseYearFromClass(c.class_name) ?? 9999
+      const yearLabel = yearNum !== 9999 ? `Year ${yearNum}` : 'Other'
+      const subject   = inferSubject({ class_name: c.class_name }) || 'Other'
+      const isOneToOne = /1.?:?.?1/i.test(c.class_name || '')
+      const classType  = isOneToOne ? '1:1 Classes' : 'Group Classes'
+
+      if (!yearMap.has(yearNum)) yearMap.set(yearNum, { yearNum, yearLabel, subjects: new Map() })
+      const subjMap = yearMap.get(yearNum).subjects
+      if (!subjMap.has(subject)) subjMap.set(subject, new Map())
+      const typeMap = subjMap.get(subject)
+      if (!typeMap.has(classType)) typeMap.set(classType, [])
+      typeMap.get(classType).push(c)
+    }
+
+    return [...yearMap.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, { yearNum, yearLabel, subjects }]) => ({
+        yearNum,
+        yearLabel,
+        subjects: [...subjects.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([subject, types]) => ({
+            subject,
+            types: [...types.entries()]
+              .sort(([a], [b]) => {
+                // Group Classes always before 1:1 Classes
+                if (a === 'Group Classes') return -1
+                if (b === 'Group Classes') return 1
+                return 0
+              })
+              .map(([type, clsList]) => ({
+                type,
+                classes: [...clsList].sort((a, b) => {
+                  const dA = normalizeDays(a.day_of_week)
+                  const dB = normalizeDays(b.day_of_week)
+                  const iA = dA.length ? DAY_ORDER.indexOf(dA[0]) : 99
+                  const iB = dB.length ? DAY_ORDER.indexOf(dB[0]) : 99
+                  if (iA !== iB) return iA - iB
+                  return startMinutes(a.start_time) - startMinutes(b.start_time)
+                }),
+              })),
+          })),
+      }))
+  }, [classes])
+
+  if (!hierarchy.length) return null
+
+  return (
+    <div className="space-y-12">
+      {hierarchy.map(({ yearNum, yearLabel, subjects }) => (
+        <div key={yearNum}>
+          {/* ── Year header ── */}
+          <div className="flex items-center gap-4 mb-6">
+            <h2 className="text-2xl font-bold text-[#2A2035] font-display shrink-0">{yearLabel}</h2>
+            <div className="flex-1 h-px bg-[#DEE7FF]" />
+          </div>
+
+          <div className="space-y-8">
+            {subjects.map(({ subject, types }) => {
+              const col = pickSubjectColor(subject)
+              return (
+                <div key={subject}>
+                  {/* ── Subject header ── */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <span
+                      className="text-[11px] font-bold tracking-[0.15em] uppercase px-3 py-1 rounded-full"
+                      style={{ background: col.bg, color: col.fg }}
+                    >
+                      {subject}
+                    </span>
+                    <div className="flex-1 h-px" style={{ background: col.bg }} />
+                  </div>
+
+                  <div className="space-y-5">
+                    {types.map(({ type, classes: typeClasses }) => (
+                      <div key={type}>
+                        {/* ── Class type label ── */}
+                        <p className="text-[10px] tracking-[0.3em] uppercase font-semibold text-[#325099]/50 mb-2 font-display pl-0.5">
+                          {type}
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                          {typeClasses.map(c => (
+                            <ClassTile
+                              key={c.id}
+                              cls={c}
+                              rosterCount={(rosters[c.id] || []).length}
+                              showTeacher={true}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
