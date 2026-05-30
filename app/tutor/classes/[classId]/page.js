@@ -11,7 +11,7 @@ import { normalizeDays } from '../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { inferSubject, subjectColor, subjectsMatch } from '../../../../components/CourseDetail'
 import PrePostSection from '../../../../components/PrePostSection'
-import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS } from '../../../../lib/tables'
+import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TUTORS } from '../../../../lib/tables'
 
 /*
  * Per-class overview — /tutor/classes/[classId]

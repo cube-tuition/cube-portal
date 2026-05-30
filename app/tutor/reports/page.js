@@ -48,7 +48,6 @@ export default function ReportsLandingPage() {
       const { data: cls } = await supabase
         .from(T_CLASSES)
         .select('id, class_name, day_of_week, start_time, end_time, teacher, room')
-        .is('archived_at', null)
       setClasses(cls || [])
 
       const ids = (cls || []).map(c => c.id)

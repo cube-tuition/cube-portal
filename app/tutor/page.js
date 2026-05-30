@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../lib/getProfile'
 import TutorNav from '../../components/TutorNav'
 import { normalizeDays } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
-import { T_ENROLMENTS, T_SHIFTS } from '../../lib/tables'
+import { T_CLASSES, T_ENROLMENTS, T_SHIFTS } from '../../lib/tables'
 
 /*
  * Tutor portal — landing page
@@ -102,8 +102,7 @@ export default function TutorHome() {
       // Classes — admin sees all, tutor sees their own (matched by first name).
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0]
-      // Hide archived classes (Airtable sweep marks them with archived_at).
-      let cq = supabase.from(T_CLASSES).select('*').is('archived_at', null)
+      let cq = supabase.from(T_CLASSES).select('*')
       if (!isAdmin && firstName) cq = cq.ilike('teacher', firstName)
       const { data: cls } = await cq
       setClasses(cls || [])
