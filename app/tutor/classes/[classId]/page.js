@@ -90,8 +90,8 @@ export default function ClassOverviewPage() {
   const [attendance, setAttendance] = useState([])     // all rows for this class, this term
   const [quizzes, setQuizzes] = useState([])           // all rows for roster+subject, this term
   const [allStaff, setAllStaff] = useState([])         // all tutors/admins for sub dropdown
-  const [subAssignments, setSubAssignments] = useState({}) // { [dateISO]: { id, sub_tutor_id } }
-  const [lessons, setLessons] = useState([])               // rows from lessons table
+  const [subAssignments, setSubAssignments] = useState({}) // kept for legacy compat
+  const [lessons, setLessons] = useState([])               // rows from lessons table (source of truth)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState(initialTab)           // 1..10
@@ -191,10 +191,10 @@ export default function ClassOverviewPage() {
       for (const s of subs || []) subMap[s.session_date] = s
       setSubAssignments(subMap)
 
-      // Lessons for this class from the lessons table
+      // Lessons for this class from the lessons table (source of truth for scheduling)
       const { data: lessonRows } = await supabase
         .from(T_LESSONS)
-        .select('id, lesson_date, start_time, end_time, room, status, notes')
+        .select('id, lesson_date, start_time, end_time, room, status, notes, main_teacher, scheduled_teacher_id')
         .eq('class_id', classId)
         .order('lesson_date')
       setLessons(lessonRows || [])
@@ -339,7 +339,11 @@ export default function ClassOverviewPage() {
                 const active = tab === week
                 const primaryDate = dates[0]
                 const hasData = dates.some(d => attByDate.has(d))
-                const hasSub = dates.some(d => subAssignments[d])
+                // A sub is assigned if the lesson's scheduled_teacher differs from main_teacher
+                const hasSub = (wkLessons || []).some(l =>
+                  l.scheduled_teacher_id && l.main_teacher &&
+                  allStaff.find(s => s.id === l.scheduled_teacher_id)?.full_name?.split(' ')[0] !== l.main_teacher.split(' ')[0]
+                )
                 // A week is cancelled if every lesson in it is cancelled
                 const allCancelled = wkLessons && wkLessons.length > 0 &&
                   wkLessons.every(l => l.status === 'cancelled')
@@ -482,9 +486,9 @@ export default function ClassOverviewPage() {
                         classId={cls.id}
                         dateISO={d}
                         cls={cls}
+                        lesson={lesson}
                         allStaff={allStaff}
-                        subAssignments={subAssignments}
-                        setSubAssignments={setSubAssignments}
+                        setLessons={setLessons}
                         isAdmin={isAdmin}
                       />
                     )}
@@ -565,69 +569,55 @@ export default function ClassOverviewPage() {
 // ── Sub-components ─────────────────────────────────────────────────────────
 
 // ── SubPicker ────────────────────────────────────────────────────────────────
-// Admin: dropdown to assign/change/remove a sub for a specific session date.
-// Non-admin: read-only banner if a sub is assigned.
-function SubPicker({ classId, dateISO, cls, allStaff, subAssignments, setSubAssignments, isAdmin }) {
-  const existing = subAssignments[dateISO] || null
+// Reads scheduled_teacher_id from the lesson row.
+// Admin: can change scheduled teacher via dropdown → writes to lessons table.
+// Non-admin: read-only banner when a sub is covering.
+function SubPicker({ classId, dateISO, cls, lesson, allStaff, setLessons, isAdmin }) {
   const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
 
-  // Resolve sub's display name from allStaff
-  const subStaff = existing ? allStaff.find(s => s.id === existing.sub_tutor_id) : null
-  const subName = subStaff?.full_name || (existing ? 'Unknown sub' : null)
+  const mainTeacherName   = lesson?.main_teacher || cls.teacher || 'Regular teacher'
+  const schedTeacherId    = lesson?.scheduled_teacher_id || null
+  const schedTeacherStaff = schedTeacherId ? allStaff.find(s => s.id === schedTeacherId) : null
+  const schedTeacherName  = schedTeacherStaff?.full_name || mainTeacherName
+
+  // Is a sub assigned? Compare scheduled vs main teacher first name
+  const mainFirst  = mainTeacherName.split(' ')[0].toLowerCase()
+  const schedFirst = schedTeacherName.split(' ')[0].toLowerCase()
+  const hasSub     = schedTeacherId && mainFirst !== schedFirst
 
   const handleAssign = async (staffId) => {
     setSaving(true)
-    if (!staffId) {
-      // Remove sub assignment
-      if (existing) {
-        await supabase.from(T_SUB_ASSIGNMENTS).delete().eq('id', existing.id)
-        setSubAssignments(prev => { const n = { ...prev }; delete n[dateISO]; return n })
-      }
-    } else {
-      // Upsert sub assignment
-      const payload = {
-        class_id: Number(classId),
-        session_date: dateISO,
-        sub_tutor_id: staffId,
-      }
-      const { data: row } = await supabase
-        .from(T_SUB_ASSIGNMENTS)
-        .upsert(payload, { onConflict: 'class_id,session_date' })
-        .select()
-        .single()
-      if (row) {
-        setSubAssignments(prev => ({ ...prev, [dateISO]: row }))
-        // Re-attribute any existing draft shift to the sub
-        await supabase
-          .from(T_SHIFTS)
-          .update({ tutor_id: staffId, notes: `Auto: ${cls.class_name} (sub)` })
-          .eq('source_table', 'class_session')
-          .eq('source_id', `${classId}_${dateISO}`)
-          .eq('status', 'draft')
-      }
+    // Write scheduled_teacher_id to lessons table
+    const newId = staffId || null
+    if (lesson?.id) {
+      await supabase.from(T_LESSONS).update({ scheduled_teacher_id: newId }).eq('id', lesson.id)
+      setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, scheduled_teacher_id: newId } : l))
+      // Also re-attribute any existing draft shift
+      await supabase
+        .from(T_SHIFTS)
+        .update({ tutor_id: newId || lesson.scheduled_teacher_id, notes: `Auto: ${cls.class_name}${newId ? ' (sub)' : ''}` })
+        .eq('source_table', 'class_session')
+        .eq('source_id', `${classId}_${dateISO}`)
+        .eq('status', 'draft')
     }
     setSaving(false)
     setOpen(false)
   }
 
   if (!isAdmin) {
-    // Non-admin (regular teacher): just show a read-only banner if a sub is assigned
-    if (!existing) return null
+    if (!hasSub) return null
     return (
       <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl bg-[#FEF3C7] border border-[#FDE68A]">
         <span className="text-base">🔄</span>
         <p className="text-xs font-semibold text-[#92400E]">
-          {subName} is covering this session — session marked by sub.
+          {schedTeacherName} is covering this session.
         </p>
       </div>
     )
   }
 
   // Admin UI
-  const regularTeacher = cls.teacher || 'Regular teacher'
-  const isRegularSelected = !existing
-
   return (
     <div className="flex items-center gap-3 mb-4 px-4 py-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF]">
       <span className="text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099] shrink-0">
@@ -636,13 +626,13 @@ function SubPicker({ classId, dateISO, cls, allStaff, subAssignments, setSubAssi
 
       {!open ? (
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          {existing ? (
+          {hasSub ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] px-2.5 py-1 rounded-full">
-              🔄 Sub: {subName}
+              🔄 Sub: {schedTeacherName}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#065F46] bg-[#D1FAE5] px-2.5 py-1 rounded-full">
-              👤 {regularTeacher}
+              👤 {mainTeacherName}
             </span>
           )}
           <button
@@ -655,19 +645,14 @@ function SubPicker({ classId, dateISO, cls, allStaff, subAssignments, setSubAssi
       ) : (
         <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
           <select
-            defaultValue={existing?.sub_tutor_id || ''}
+            defaultValue={schedTeacherId || ''}
             onChange={e => handleAssign(e.target.value || null)}
             disabled={saving}
             className="text-xs border border-[#DEE7FF] rounded-lg px-3 py-1.5 bg-white text-[#2A2035] focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] disabled:opacity-50"
           >
-            <option value="">{regularTeacher} (regular)</option>
+            <option value="">{mainTeacherName} (regular)</option>
             {allStaff
-              .filter(s => {
-                // Exclude whoever the regular teacher is by first-name match
-                const staffFirst = (s.full_name || '').split(' ')[0].toLowerCase()
-                const clsFirst = (cls.teacher || '').split(' ')[0].toLowerCase()
-                return staffFirst !== clsFirst
-              })
+              .filter(s => (s.full_name || '').split(' ')[0].toLowerCase() !== mainFirst)
               .map(s => (
                 <option key={s.id} value={s.id}>{s.full_name}</option>
               ))}

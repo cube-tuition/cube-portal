@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../lib/getProfile'
 import TutorNav from '../../components/TutorNav'
 import { normalizeDays } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
-import { T_CLASSES, T_ENROLMENTS, T_SHIFTS } from '../../lib/tables'
+import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SHIFTS } from '../../lib/tables'
 
 /*
  * Tutor portal — landing page
@@ -99,16 +99,45 @@ export default function TutorHome() {
       const terms = await fetchAllTerms()
       setCurrentTerm(getCurrentTerm(terms))
 
-      // Classes — admin sees all, tutor sees their own (matched by first name).
+      // Classes — admin sees all, tutor sees their own:
+      //   1. Classes where they are the main teacher (matched by first name)
+      //   2. Classes where they are scheduled_teacher_id on any lesson this term
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0]
-      let cq = supabase.from(T_CLASSES).select('*')
-      if (!isAdmin && firstName) cq = cq.ilike('teacher', firstName)
-      const { data: cls } = await cq
-      setClasses(cls || [])
+      let primaryClasses = []
+      if (isAdmin) {
+        const { data } = await supabase.from(T_CLASSES).select('*')
+        primaryClasses = data || []
+      } else {
+        // Fetch by main teacher name
+        const { data: ownCls } = await supabase
+          .from(T_CLASSES).select('*').ilike('teacher', firstName + '%')
+        primaryClasses = ownCls || []
+
+        // Also fetch classes where this tutor is a scheduled_teacher this term
+        const term = getCurrentTerm(terms)
+        if (term) {
+          const { data: subLessons } = await supabase
+            .from(T_LESSONS)
+            .select('class_id')
+            .eq('scheduled_teacher_id', user.id)
+            .gte('lesson_date', term.start_date)
+            .lte('lesson_date', term.end_date)
+          const subClassIds = [...new Set((subLessons || []).map(l => l.class_id))]
+          // Exclude class IDs already in primaryClasses
+          const existingIds = new Set(primaryClasses.map(c => c.id))
+          const extraIds = subClassIds.filter(id => !existingIds.has(id))
+          if (extraIds.length > 0) {
+            const { data: extraCls } = await supabase
+              .from(T_CLASSES).select('*').in('id', extraIds)
+            primaryClasses = [...primaryClasses, ...(extraCls || [])]
+          }
+        }
+      }
+      setClasses(primaryClasses)
 
       // Enrollment counts — single round trip via `enrolments`.
-      const ids = (cls || []).map(c => c.id)
+      const ids = primaryClasses.map(c => c.id)
       if (ids.length > 0) {
         const { data: links } = await supabase
           .from(T_ENROLMENTS)

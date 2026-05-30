@@ -1,10 +1,10 @@
 'use client'
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
 import TutorNav from '../../../components/TutorNav'
-import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_RESULTS, T_SHIFTS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
+import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_RESULTS, T_SHIFTS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
 
 /*
  * Admin-only: Database Explorer — /tutor/database
@@ -23,11 +23,11 @@ import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COUR
 
 // ── Table groups ──────────────────────────────────────────────────────────────
 const INITIAL_TABLE_GROUPS = [
-  { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_PARENTS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS,'subjects'] },
-  { label: 'Attendance & Results', tables: [T_ATTENDANCE,T_QUIZ_RESULTS,T_RESULTS,T_EXAMS,T_PREPOST_TESTS,T_PREPOST_SCORES] },
+  { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS] },
+  { label: 'Attendance & Results', tables: [T_RESULTS,T_EXAMS,T_PREPOST_TESTS,T_PREPOST_SCORES] },
   { label: 'Content',              tables: [T_BOOKLETS,T_CLASS_BOOKLETS,T_INFO_PAGES,T_FAQ_CATEGORIES,T_FAQ_ITEMS] },
   { label: 'Scheduling',           tables: [T_LESSONS,T_TIMETABLE,T_DROPIN_SESSIONS,T_DROPIN_SIGNINS,T_SHIFTS,T_SUB_ASSIGNMENTS] },
-  { label: 'Finance',              tables: [T_PAY_RUNS,'pay_run_lines',T_PAY_RUN_SHIFTS,T_CURRENT_TUTOR_RATES,T_TUTOR_RATE_MATRIX] },
+  { label: 'Finance',              tables: [T_INVOICES,T_PAY_RUNS,'pay_run_lines',T_PAY_RUN_SHIFTS,T_CURRENT_TUTOR_RATES,T_TUTOR_RATE_MATRIX] },
   { label: 'Reports',              tables: [T_TERM_CRITERIA,T_TERM_COMMENTS] },
 ]
 
@@ -56,11 +56,13 @@ const PARENT_COL_MAP   = { guardian_name:'full_name', guardian_relationship:'rel
 const ENROLMENT_NAME_COLS = ['student_name','class_name']
 const TERM_NAME_COL      = 'term_name'
 const COURSE_NAME_COL    = 'course_name'
-const LESSON_CLASS_COL   = 'class_label'   // joined "ClassName (Day)" shown in lessons table
-const LESSON_WEEK_COL    = 'week'          // computed from lesson_date, read-only
+const LESSON_CLASS_COL        = 'class_label'          // joined "ClassName (Day)" shown in lessons table
+const LESSON_WEEK_COL         = 'week'                  // computed from lesson_date, read-only
+const LESSON_MAIN_TEACHER_COL = 'main_teacher'          // rollup from class.teacher, read-only
+const LESSON_SCHED_TEACHER_COL = 'scheduled_teacher'    // resolved name from scheduled_teacher_id, editable dropdown
 
 const DEFAULT_WIDTH  = 150
-const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200, class_label:240, lesson_date:120, week:60, status:110 }
+const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200, class_label:240, lesson_date:120, week:60, main_teacher:130, scheduled_teacher:160, status:120, price:100, subtotal:110, sibling_discount:140, total:100, notes:200, family_id:90, student_id:200 }
 function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
 
 function displayVal(v) {
@@ -300,32 +302,116 @@ function EnrolPopover({ classId, x, y, enrolled = [], allStudents, onEnrol, onCl
   )
 }
 
+// ── Sibling Popover ───────────────────────────────────────────────────────────
+function SiblingPopover({ studentId, x, y, allStudents, currentSiblings, onAdd, onClose, saving }) {
+  const ref      = useRef(null)
+  const inputRef = useRef(null)
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    const onKey  = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [onClose])
+
+  useEffect(() => { if (inputRef.current) inputRef.current.focus() }, [])
+
+  const siblingIds = new Set(currentSiblings.map(s => s.id))
+  siblingIds.add(studentId) // exclude self
+  const available = allStudents
+    .filter(s => !siblingIds.has(s.id))
+    .filter(s => !search.trim() || s.full_name.toLowerCase().includes(search.trim().toLowerCase()))
+
+  const style = {
+    position: 'fixed',
+    left: Math.min(x, window.innerWidth - 224),
+    top:  Math.min(y, window.innerHeight - 320),
+    zIndex: 9999,
+  }
+
+  return (
+    <div ref={ref} style={style} className="bg-white border border-[#FDE68A] rounded-xl shadow-xl w-56 flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[#FDE68A] bg-[#FFFBEB]">
+        <span className="text-[10px] font-bold text-[#92400E] uppercase tracking-wider">Add Sibling</span>
+        <button onClick={onClose} className="w-5 h-5 flex items-center justify-center rounded-full text-[#92400E]/40 hover:text-[#92400E] hover:bg-[#FEF3C7] transition text-sm">×</button>
+      </div>
+      <div className="px-2 py-1.5 border-b border-[#FDE68A]">
+        <input
+          ref={inputRef}
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search students…"
+          className="w-full text-xs px-2 py-1 rounded-lg border border-[#FDE68A] focus:outline-none focus:border-[#92400E] text-[#2A2035] placeholder-[#2A2035]/30"
+        />
+      </div>
+      <div className="max-h-52 overflow-y-auto">
+        {available.length === 0 ? (
+          <p className="text-[10px] text-[#2A2035]/40 px-3 py-4 text-center">
+            {search.trim() ? 'No matches' : 'No other students available'}
+          </p>
+        ) : available.map(s => (
+          <button
+            key={s.id}
+            onClick={() => onAdd(studentId, s.id)}
+            disabled={saving}
+            className="w-full text-left px-3 py-2 text-xs text-[#2A2035] hover:bg-[#FFFBEB] transition disabled:opacity-40 flex items-center gap-2"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#92400E]/30 shrink-0" />
+            {s.full_name}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function DatabasePage() {
   const router = useRouter()
 
   const [staff, setStaff]           = useState(null)
+  const [allTerms, setAllTerms]               = useState([])
   const [currentTermId, setCurrentTermId]     = useState(null)
   const [currentTermName, setCurrentTermName] = useState('')
+  // Invoices
+  const [invoiceTermId, setInvoiceTermId]       = useState(null)
+  const [generatingInvoices, setGeneratingInvoices] = useState(false)
+  const [invoiceViewMode, setInvoiceViewMode]   = useState('data')   // 'data' | 'cards'
+  const [invoiceCardsData, setInvoiceCardsData] = useState([])
+  const [loadingCards, setLoadingCards]         = useState(false)
+  // Price confirm dialog (enrolments table — requires double-confirm before saving)
+  const [priceConfirm, setPriceConfirm] = useState(null) // { rowId, col, oldVal, newVal } | null
   // Maps table name → PostgreSQL OID (stable across renames). Used as
   // localStorage key suffix so column customisations survive table renames.
   const [tableOids, setTableOids]   = useState({})
   const [tableGroups, setTableGroups] = useState(() => {
+    // Tables permanently hidden from the explorer (still exist in Supabase)
+    const HIDDEN = new Set([T_ATTENDANCE, T_QUIZ_RESULTS])
+
     try {
       const saved = typeof window !== 'undefined' && localStorage.getItem('cube_db_table_groups')
       if (!saved) return INITIAL_TABLE_GROUPS
       const parsed = JSON.parse(saved)
-      // Merge any tables from INITIAL_TABLE_GROUPS that are missing from the saved state
-      // (e.g. newly added tables like 'courses' won't appear until this runs)
+      // All tables currently placed anywhere in the saved layout
+      const allPlaced = new Set(parsed.flatMap(g => g.tables))
       let changed = false
       const merged = parsed.map(g => {
         const initial = INITIAL_TABLE_GROUPS.find(ig => ig.label === g.label)
-        if (!initial) return g
-        const missing = initial.tables.filter(t => !g.tables.includes(t))
-        if (missing.length === 0) return g
+
+        // 1. Remove any tables that are now hidden
+        const withoutHidden = g.tables.filter(t => !HIDDEN.has(t))
+        if (withoutHidden.length !== g.tables.length) changed = true
+
+        // 2. Add tables from INITIAL that are missing from ALL groups (truly new tables only —
+        //    don't re-add tables that were intentionally moved to another group)
+        if (!initial) return { ...g, tables: withoutHidden }
+        const missing = initial.tables.filter(t => !allPlaced.has(t) && !HIDDEN.has(t))
+        if (missing.length === 0) return { ...g, tables: withoutHidden }
         changed = true
-        // Insert missing tables at the same relative position they appear in INITIAL
-        const next = [...g.tables]
+        const next = [...withoutHidden]
         for (const t of missing) {
           const idx = initial.tables.indexOf(t)
           const insertBefore = initial.tables.slice(idx + 1).find(s => next.includes(s))
@@ -357,6 +443,11 @@ export default function DatabasePage() {
   const [enrolPopover, setEnrolPopover]     = useState(null) // { classId, x, y } | null
   const [enrolSaving, setEnrolSaving]       = useState(false)
 
+  // Siblings (students table only)
+  const [siblingPopover, setSiblingPopover] = useState(null) // { studentId, x, y } | null
+  const [siblingSaving, setSiblingSaving]   = useState(false)
+  const [allStudentsForSiblings, setAllStudentsForSiblings] = useState([]) // [{id, full_name, family_id}]
+
   // Column layout
   const [columnOrder, setColumnOrder]   = useState([])
   const [columnWidths, setColumnWidths] = useState({})
@@ -387,6 +478,8 @@ export default function DatabasePage() {
   const [lessonClassFilter, setLessonClassFilter]   = useState('')   // class_id to filter lessons by
   const [allClassesForFilter, setAllClassesForFilter] = useState([]) // for the dropdown
   const [generatingLessons, setGeneratingLessons]   = useState(false)
+  const [allStaffForLessons, setAllStaffForLessons] = useState([])   // [{id, full_name}] for scheduled_teacher dropdown
+  const [editingSchedTeacher, setEditingSchedTeacher] = useState(null) // rowId being edited
 
   // Search
   const [search, setSearch] = useState('')
@@ -398,6 +491,10 @@ export default function DatabasePage() {
   const [ddlError, setDdlError]                   = useState(null)
   const [hoveredTable, setHoveredTable]           = useState(null)
   const [renamingTable, setRenamingTable]         = useState(null)
+  // Drag-to-reorder sidebar tables
+  const [dragTable, setDragTable]                 = useState(null)   // table name being dragged
+  const [sidebarDragOver, setSidebarDragOver]     = useState(null)   // { table, position: 'before'|'after' }
+  const dragRef                                   = useRef(null)     // stores { table, groupLabel }
   const [renameValue, setRenameValue]             = useState('')
   const [renameWorking, setRenameWorking]         = useState(false)
   const [renameError, setRenameError]             = useState(null)
@@ -442,12 +539,14 @@ export default function DatabasePage() {
       // Fetch profile just for display name — admins live in the admins table
       const { data: profile } = await supabase.from(T_ADMINS).select('full_name, email').eq('id', user.id).single()
       setStaff({ ...user, full_name: profile?.full_name ?? user.email })
-      // Fetch current term so new class rows get term_id pre-filled
+      // Fetch all terms (used for invoice generation selector + new class defaults)
       const terms = await fetchAllTerms()
+      setAllTerms(terms || [])
       const cur = getCurrentTerm(terms)
       if (cur) {
         setCurrentTermId(cur.id)
         setCurrentTermName(cur.name || `Term ${cur.term_number} ${cur.year}`)
+        setInvoiceTermId(cur.id)  // default invoice generation to current term
       }
 
       // Fetch PostgreSQL OIDs for all public tables. OIDs are stable across
@@ -584,15 +683,30 @@ export default function DatabasePage() {
         } else {
           enrichedRows = enrichedRows.map(row => ({ ...row, [LESSON_CLASS_COL]: null }))
         }
-        // Show class_label first (after id), hide raw class_id; sort by lesson_date
-        const base = cols.filter(c => c !== LESSON_CLASS_COL && c !== 'class_id')
+        // Fetch staff inline so name resolution is always synchronous with the data load
+        const [{ data: _tutors }, { data: _directors }] = await Promise.all([
+          supabase.from(T_TUTORS).select('id, full_name'),
+          supabase.from(T_ADMINS).select('id, full_name'),
+        ])
+        const _allStaff = [...(_tutors || []), ...(_directors || [])]
+        setAllStaffForLessons(
+          _allStaff.sort((a, b) => a.full_name.localeCompare(b.full_name))
+        )
+        const staffById = Object.fromEntries(_allStaff.map(s => [s.id, s.full_name]))
+        enrichedRows = enrichedRows.map(row => ({
+          ...row,
+          [LESSON_SCHED_TEACHER_COL]: row.scheduled_teacher_id ? (staffById[row.scheduled_teacher_id] ?? null) : null,
+        }))
+
+        // Column order: id | class_label | week | lesson_date | main_teacher | scheduled_teacher | …rest
+        const base = cols.filter(c => c !== LESSON_CLASS_COL && c !== 'class_id' && c !== 'scheduled_teacher_id')
         const idCol = base.includes('id') ? ['id'] : []
         const rest  = base.filter(c => c !== 'id')
-        // Column order: id | class_label | week | lesson_date | …rest
-        const weekCol  = rest.includes(LESSON_WEEK_COL) ? [LESSON_WEEK_COL] : []
-        const dateCol  = rest.includes('lesson_date') ? ['lesson_date'] : []
-        const remaining = rest.filter(c => c !== 'lesson_date' && c !== LESSON_WEEK_COL)
-        cols = [...idCol, LESSON_CLASS_COL, ...weekCol, ...dateCol, ...remaining]
+        const weekCol   = rest.includes(LESSON_WEEK_COL) ? [LESSON_WEEK_COL] : []
+        const dateCol   = rest.includes('lesson_date') ? ['lesson_date'] : []
+        const mainCol   = rest.includes(LESSON_MAIN_TEACHER_COL) ? [LESSON_MAIN_TEACHER_COL] : []
+        const remaining = rest.filter(c => c !== 'lesson_date' && c !== LESSON_WEEK_COL && c !== LESSON_MAIN_TEACHER_COL)
+        cols = [...idCol, LESSON_CLASS_COL, ...weekCol, ...dateCol, ...mainCol, LESSON_SCHED_TEACHER_COL, ...remaining]
         // Sort rows by class_label then lesson_date
         enrichedRows = [...enrichedRows].sort((a, b) => {
           const cl = (a[LESSON_CLASS_COL] || '').localeCompare(b[LESSON_CLASS_COL] || '')
@@ -623,6 +737,18 @@ export default function DatabasePage() {
       for (const k of Object.keys(map)) map[k].sort((a, b) => a.full_name.localeCompare(b.full_name))
       setEnrolmentMap(map)
       setAllStudentsList(studs || [])
+    })()
+  }, [selectedTable, staff, reloadKey])
+
+  // ── Load all students for sibling management when students table is active ────
+  useEffect(() => {
+    if (selectedTable !== 'students' || !staff) return
+    ;(async () => {
+      const { data } = await supabase
+        .from(T_STUDENTS)
+        .select('id, full_name, family_id')
+        .order('full_name')
+      setAllStudentsForSiblings(data || [])
     })()
   }, [selectedTable, staff, reloadKey])
 
@@ -691,11 +817,11 @@ export default function DatabasePage() {
 
   // ── Drag-to-reorder ─────────────────────────────────────────────────────────
   const handleDragStart = (e, col) => { dragColRef.current = col; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', col) }
-  const handleDragOver  = (e, col) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverRef.current !== col) { dragOverRef.current = col; setDragOver(col) } }
-  const handleDragLeave = () => { dragOverRef.current = null; setDragOver(null) }
+  const handleDragOver  = (e, col) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverRef.current !== col) { dragOverRef.current = col; setSidebarDragOver(col) } }
+  const handleDragLeave = () => { dragOverRef.current = null; setSidebarDragOver(null) }
   const handleDrop = (e, targetCol) => {
     e.preventDefault()
-    const srcCol = dragColRef.current; dragColRef.current = null; dragOverRef.current = null; setDragOver(null)
+    const srcCol = dragColRef.current; dragColRef.current = null; dragOverRef.current = null; setSidebarDragOver(null)
     if (!srcCol || srcCol === targetCol) return
     setColumnOrder(prev => {
       const next = [...prev]
@@ -706,11 +832,11 @@ export default function DatabasePage() {
       return next
     })
   }
-  const handleDragEnd = () => { dragColRef.current = null; dragOverRef.current = null; setDragOver(null) }
+  const handleDragEnd = () => { dragColRef.current = null; dragOverRef.current = null; setSidebarDragOver(null) }
 
   // ── Cell editing ─────────────────────────────────────────────────────────────
   const isGuardianCol = (col) => col in PARENT_COL_MAP
-  const isNameCol     = (col) => ENROLMENT_NAME_COLS.includes(col) || col === TERM_NAME_COL || col === COURSE_NAME_COL || col === LESSON_CLASS_COL || col === LESSON_WEEK_COL
+  const isNameCol     = (col) => ENROLMENT_NAME_COLS.includes(col) || col === TERM_NAME_COL || col === COURSE_NAME_COL || col === LESSON_CLASS_COL || col === LESSON_WEEK_COL || col === LESSON_MAIN_TEACHER_COL
 
   const handleCellClick = (rowId, col, currentVal) => {
     if (col === pkCol || isNameCol(col)) return
@@ -722,6 +848,14 @@ export default function DatabasePage() {
   const handleCellSave = async () => {
     if (!editingCell) { setEditingCell(null); return }
     const { rowId, col } = editingCell
+    // Price on enrolments requires a confirmation step before writing to DB
+    if (selectedTable === T_ENROLMENTS && col === 'price') {
+      const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
+      const newVal = editValue === '' ? null : editValue
+      setEditingCell(null)
+      setPriceConfirm({ rowId, col, oldVal, newVal })
+      return
+    }
     setEditingCell(null); setSaving(true)
     const newVal = editValue === '' ? null : editValue
     const prevRows = rows
@@ -752,6 +886,29 @@ export default function DatabasePage() {
     if (e.key === 'Tab')    { e.preventDefault(); handleCellSave() }
   }
 
+  // ── Enrolment price confirmed save ──────────────────────────────────────────
+  const handlePriceConfirm = async () => {
+    if (!priceConfirm) return
+    const { rowId, col, newVal } = priceConfirm
+    setPriceConfirm(null); setSaving(true)
+    const parsedVal = newVal === '' || newVal === null ? null : newVal
+    const prevRows = rows
+    setRows(prev => prev.map(r => r[pkCol] === rowId ? { ...r, [col]: parsedVal } : r))
+    const { error } = await supabase.from(T_ENROLMENTS).update({ [col]: parsedVal }).eq(pkCol, rowId)
+    if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+    setSaving(false)
+  }
+
+  // ── Generate invoices for a term ─────────────────────────────────────────────
+  const handleGenerateInvoices = async () => {
+    if (!invoiceTermId) return
+    setGeneratingInvoices(true)
+    const { error } = await supabase.rpc('generate_invoices_for_term', { p_term_id: invoiceTermId })
+    if (error) alert(`Generate failed: ${error.message}`)
+    setReloadKey(k => k + 1)
+    setGeneratingInvoices(false)
+  }
+
   // ── Add row ──────────────────────────────────────────────────────────────────
   const handleAddRow = async () => {
     setAddingSaving(true)
@@ -761,7 +918,7 @@ export default function DatabasePage() {
     // Auto-fill term_id for new classes rows
     if (selectedTable === 'classes' && currentTermId) payload.term_id = currentTermId
     for (const [k, v] of Object.entries(newRowData)) {
-      if (k === pkCol || isGuardianCol(k) || k === TERM_NAME_COL || k === COURSE_NAME_COL || k === LESSON_CLASS_COL || k === LESSON_WEEK_COL) continue
+      if (k === pkCol || isGuardianCol(k) || k === TERM_NAME_COL || k === COURSE_NAME_COL || k === LESSON_CLASS_COL || k === LESSON_WEEK_COL || k === LESSON_MAIN_TEACHER_COL || k === LESSON_SCHED_TEACHER_COL) continue
       payload[k] = v === '' ? null : v
     }
     const { data, error } = await supabase.from(realTable).insert(payload).select().single()
@@ -819,17 +976,40 @@ export default function DatabasePage() {
     setShowAddClassModal(false)
   }
 
-  // ── Lessons: load class list when entering lessons table ─────────────────────
+  // ── Lessons: load class list + all staff when entering lessons table ──────────
   useEffect(() => {
-    if (selectedTable !== 'lessons' || allClassesForFilter.length > 0) return
+    if (selectedTable !== 'lessons') return
     ;(async () => {
-      const { data } = await supabase
-        .from(T_CLASSES)
-        .select('id, class_name, day_of_week')
-        .order('class_name')
-      setAllClassesForFilter(data || [])
+      if (allClassesForFilter.length === 0) {
+        const { data } = await supabase
+          .from(T_CLASSES).select('id, class_name, day_of_week').order('class_name')
+        setAllClassesForFilter(data || [])
+      }
+      if (allStaffForLessons.length === 0) {
+        const [{ data: tutors }, { data: directors }] = await Promise.all([
+          supabase.from(T_TUTORS).select('id, full_name').order('full_name'),
+          supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
+        ])
+        const combined = [
+          ...(tutors || []).map(t => ({ ...t, role: 'tutor' })),
+          ...(directors || []).map(d => ({ ...d, role: 'admin' })),
+        ].sort((a, b) => a.full_name.localeCompare(b.full_name))
+        setAllStaffForLessons(combined)
+      }
     })()
   }, [selectedTable])
+
+  // Once staff loads, back-fill the scheduled_teacher display name in already-loaded lesson rows
+  useEffect(() => {
+    if (selectedTable !== 'lessons' || allStaffForLessons.length === 0) return
+    const staffById = Object.fromEntries(allStaffForLessons.map(s => [s.id, s.full_name]))
+    setRows(prev => prev.map(row => ({
+      ...row,
+      [LESSON_SCHED_TEACHER_COL]: row.scheduled_teacher_id
+        ? (staffById[row.scheduled_teacher_id] ?? row.scheduled_teacher_id)
+        : null,
+    })))
+  }, [allStaffForLessons, selectedTable])
 
   const handleGenerateLessons = async () => {
     if (!lessonClassFilter) return
@@ -881,6 +1061,161 @@ export default function DatabasePage() {
     } else {
       alert('Unenrolment failed: ' + error.message)
     }
+  }
+
+  // ── Invoice card data ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (selectedTable !== T_INVOICES || invoiceViewMode !== 'cards' || !invoiceTermId) return
+    ;(async () => {
+      setLoadingCards(true)
+
+      // 1. Invoices for this term
+      const { data: invoices } = await supabase.from(T_INVOICES).select('*').eq('term_id', invoiceTermId).order('id')
+      if (!invoices?.length) { setInvoiceCardsData([]); setLoadingCards(false); return }
+
+      // 2. Term name
+      const { data: termRow } = await supabase.from(T_TERMS).select('id, name').eq('id', invoiceTermId).single()
+      const termName = termRow?.name ?? ''
+
+      // 3. Students
+      const familyIds    = [...new Set(invoices.filter(i => i.family_id != null).map(i => i.family_id))]
+      const soloStudentIds = invoices.filter(i => i.student_id != null).map(i => i.student_id)
+      const [famRes, soloRes] = await Promise.all([
+        familyIds.length    ? supabase.from(T_STUDENTS).select('id, full_name, family_id').in('family_id', familyIds)    : { data: [] },
+        soloStudentIds.length ? supabase.from(T_STUDENTS).select('id, full_name').in('id', soloStudentIds) : { data: [] },
+      ])
+      const allStudents = [...(famRes.data || []), ...(soloRes.data || [])]
+      const allStudentIds = allStudents.map(s => s.id)
+
+      // 4. Classes for this term (with course name)
+      const { data: termClasses } = await supabase.from(T_CLASSES).select('id, class_name, courses(course_name)').eq('term_id', invoiceTermId)
+      const classMap = Object.fromEntries((termClasses || []).map(c => [c.id, c]))
+      const termClassIds = (termClasses || []).map(c => c.id)
+
+      // 5. Enrolments
+      let enrolments = []
+      if (allStudentIds.length && termClassIds.length) {
+        const { data } = await supabase.from(T_ENROLMENTS).select('student_id, class_id, price').in('student_id', allStudentIds).in('class_id', termClassIds)
+        enrolments = data || []
+      }
+
+      // 6. Build enriched cards
+      const cards = invoices.map(inv => {
+        const members = inv.family_id != null
+          ? allStudents.filter(s => s.family_id === inv.family_id)
+          : allStudents.filter(s => s.id === inv.student_id)
+
+        const membersWithEnrols = members.map(s => ({
+          ...s,
+          enrolments: enrolments
+            .filter(e => e.student_id === s.id)
+            .map(e => ({ label: classMap[e.class_id]?.courses?.course_name || classMap[e.class_id]?.class_name || '—', price: e.price })),
+        }))
+
+        const lastName = members[0]?.full_name?.split(' ').pop() ?? 'Unknown'
+        return {
+          ...inv,
+          termName,
+          displayName: inv.family_id != null ? `${lastName} Family` : (members[0]?.full_name ?? 'Unknown'),
+          isFamily: inv.family_id != null,
+          members: membersWithEnrols,
+        }
+      })
+
+      setInvoiceCardsData(cards)
+      setLoadingCards(false)
+    })()
+  }, [selectedTable, invoiceViewMode, invoiceTermId, reloadKey])
+
+  const handleInvoiceStatusUpdate = async (invoiceId, newStatus) => {
+    const prev = invoiceCardsData
+    setInvoiceCardsData(d => d.map(c => c.id === invoiceId ? { ...c, status: newStatus } : c))
+    const { error } = await supabase.from(T_INVOICES).update({ status: newStatus }).eq('id', invoiceId)
+    if (error) { alert('Update failed: ' + error.message); setInvoiceCardsData(prev) }
+    // Also update raw rows so data view stays in sync
+    setRows(r => r.map(row => row.id === invoiceId ? { ...row, status: newStatus } : row))
+  }
+
+  // ── Sticky columns (students table: # row-num, id, full_name) ───────────────
+  // Builds a map of col → left offset in px so those columns stay pinned while
+  // the table scrolls horizontally. Only active for the students table.
+  const stickyColOffsets = useMemo(() => {
+    if (selectedTable !== 'students') return {}
+    const STICKY = new Set(['id', 'full_name'])
+    const offsets = {}
+    let left = 42 // the always-visible # row-number column is 42 px wide
+    for (const col of columnOrder) {
+      if (STICKY.has(col)) offsets[col] = left
+      left += columnWidths[col] ?? defaultWidth(col)
+    }
+    return offsets
+  }, [selectedTable, columnOrder, columnWidths])
+
+  // ── Sibling management ───────────────────────────────────────────────────────
+  // Derive a sibling map from allStudentsForSiblings: { studentId → [sibling, ...] }
+  const siblingMap = useMemo(() => {
+    const map = {}
+    const byFamily = {}
+    for (const s of allStudentsForSiblings) {
+      if (s.family_id != null) {
+        if (!byFamily[s.family_id]) byFamily[s.family_id] = []
+        byFamily[s.family_id].push(s)
+      }
+    }
+    for (const s of allStudentsForSiblings) {
+      if (s.family_id != null) {
+        map[s.id] = byFamily[s.family_id].filter(x => x.id !== s.id)
+      } else {
+        map[s.id] = []
+      }
+    }
+    return map
+  }, [allStudentsForSiblings])
+
+  const handleAddSibling = async (studentId, siblingId) => {
+    setSiblingSaving(true)
+    const student = allStudentsForSiblings.find(s => s.id === studentId)
+    const sibling = allStudentsForSiblings.find(s => s.id === siblingId)
+    if (!student || !sibling) { setSiblingSaving(false); return }
+
+    let familyId = student.family_id ?? sibling.family_id
+
+    if (familyId == null) {
+      // Neither has a family yet — generate a new family_id
+      const maxId = allStudentsForSiblings.reduce((m, s) => Math.max(m, s.family_id ?? 0), 0)
+      familyId = maxId + 1
+    }
+
+    // If one already has a family_id, merge the other's family into it
+    const oldFamilyId = student.family_id != null && sibling.family_id != null && student.family_id !== sibling.family_id
+      ? sibling.family_id : null
+
+    const idsToUpdate = [studentId, siblingId]
+    if (oldFamilyId != null) {
+      // Also reassign all other members of the old family
+      allStudentsForSiblings.filter(s => s.family_id === oldFamilyId).forEach(s => idsToUpdate.push(s.id))
+    }
+    const uniqueIds = [...new Set(idsToUpdate)]
+
+    await supabase.from(T_STUDENTS).update({ family_id: familyId }).in('id', uniqueIds)
+
+    // Update local state
+    setAllStudentsForSiblings(prev => prev.map(s =>
+      uniqueIds.includes(s.id) ? { ...s, family_id: familyId } : s
+    ))
+    // Also update rows so family_id cell reflects new value
+    setRows(prev => prev.map(r =>
+      uniqueIds.includes(r.id) ? { ...r, family_id: familyId } : r
+    ))
+    setSiblingSaving(false)
+    setSiblingPopover(null)
+  }
+
+  const handleRemoveSibling = async (studentId) => {
+    // Remove this student from their family (set family_id to null)
+    await supabase.from(T_STUDENTS).update({ family_id: null }).eq('id', studentId)
+    setAllStudentsForSiblings(prev => prev.map(s => s.id === studentId ? { ...s, family_id: null } : s))
+    setRows(prev => prev.map(r => r.id === studentId ? { ...r, family_id: null } : r))
   }
 
   // ── Column context menu ──────────────────────────────────────────────────────
@@ -1014,6 +1349,52 @@ export default function DatabasePage() {
 
   const cancelRename = () => { setRenamingTable(null); setRenameError(null) }
 
+  // ── Sidebar drag-to-reorder ─────────────────────────────────────────────────
+  const handleSidebarDragStart = (e, tableName, groupLabel) => {
+    dragRef.current = { table: tableName, groupLabel }
+    setDragTable(tableName)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', tableName)
+  }
+  const handleSidebarDragOver = (e, tableName, position) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!dragRef.current || dragRef.current.table === tableName) return
+    setSidebarDragOver({ table: tableName, position })
+  }
+  const handleSidebarDrop = (e, targetTable, targetGroupLabel, position) => {
+    e.preventDefault()
+    const src = dragRef.current
+    if (!src || src.table === targetTable) { setDragTable(null); setSidebarDragOver(null); return }
+
+    setTableGroups(prev => {
+      // Remove source from its group
+      const next = prev.map(g => ({ ...g, tables: g.tables.filter(t => t !== src.table) }))
+      // Insert into target group at target position
+      const tgIdx = next.findIndex(g => g.label === targetGroupLabel)
+      if (tgIdx === -1) { return prev }
+      const tg = { ...next[tgIdx], tables: [...next[tgIdx].tables] }
+      const insertIdx = tg.tables.indexOf(targetTable)
+      if (insertIdx === -1) {
+        tg.tables.push(src.table)
+      } else {
+        tg.tables.splice(position === 'after' ? insertIdx + 1 : insertIdx, 0, src.table)
+      }
+      next[tgIdx] = tg
+      // Remove empty groups — but keep all original groups even if temporarily empty
+      try { localStorage.setItem('cube_db_table_groups', JSON.stringify(next)) } catch {}
+      return next
+    })
+    setDragTable(null)
+    setSidebarDragOver(null)
+    dragRef.current = null
+  }
+  const handleSidebarDragEnd = () => {
+    setDragTable(null)
+    setSidebarDragOver(null)
+    dragRef.current = null
+  }
+
   // ── Drop table ────────────────────────────────────────────────────────────
   const handleDropTable = async (tableName) => {
     setDdlWorking(true); setDdlError(null)
@@ -1087,6 +1468,55 @@ export default function DatabasePage() {
         />
       )}
 
+      {/* Sibling popover */}
+      {siblingPopover && (
+        <SiblingPopover
+          studentId={siblingPopover.studentId}
+          x={siblingPopover.x}
+          y={siblingPopover.y}
+          allStudents={allStudentsForSiblings}
+          currentSiblings={siblingMap[siblingPopover.studentId] || []}
+          onAdd={handleAddSibling}
+          onClose={() => setSiblingPopover(null)}
+          saving={siblingSaving}
+        />
+      )}
+
+      {/* Price confirm dialog — enrolments only */}
+      {priceConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-80 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF]">
+              <span className="text-sm font-bold text-[#062E63]">Confirm Price Change</span>
+              <button onClick={() => setPriceConfirm(null)} className="w-6 h-6 flex items-center justify-center rounded-full text-[#2A2035]/30 hover:text-[#2A2035] hover:bg-[#F0F4FF] transition text-base">×</button>
+            </div>
+            <div className="px-5 py-5 flex flex-col gap-3">
+              <p className="text-xs text-[#2A2035]/70 leading-relaxed">
+                You are about to change this enrolment's price.
+              </p>
+              <div className="flex items-center gap-3 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-4 py-3">
+                <div className="flex flex-col items-center flex-1">
+                  <span className="text-[9px] font-semibold text-[#325099]/50 uppercase tracking-wider mb-0.5">Current</span>
+                  <span className="text-lg font-bold text-[#2A2035]">{priceConfirm.oldVal !== null ? `$${Number(priceConfirm.oldVal).toLocaleString()}` : '—'}</span>
+                </div>
+                <span className="text-[#325099]/40 text-lg">→</span>
+                <div className="flex flex-col items-center flex-1">
+                  <span className="text-[9px] font-semibold text-[#325099]/50 uppercase tracking-wider mb-0.5">New</span>
+                  <span className="text-lg font-bold text-[#065F46]">{priceConfirm.newVal !== null && priceConfirm.newVal !== '' ? `$${Number(priceConfirm.newVal).toLocaleString()}` : '—'}</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-[#2A2035]/40 leading-relaxed text-center">This will not automatically update any existing invoices.</p>
+            </div>
+            <div className="flex gap-2 px-5 pb-5">
+              <button onClick={() => setPriceConfirm(null)} className="flex-1 px-3 py-2 text-xs font-semibold text-[#2A2035]/60 bg-[#F4F4F4] rounded-lg hover:bg-[#E5E7EB] transition">Cancel</button>
+              <button onClick={handlePriceConfirm} disabled={saving} className="flex-1 px-3 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+                {saving ? 'Saving…' : 'Confirm Change'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create table modal */}
       {showCreateModal && <CreateTableModal onClose={() => setShowCreateModal(false)} onCreated={handleTableCreated} />}
 
@@ -1134,9 +1564,34 @@ export default function DatabasePage() {
                   const canEdit    = !isVirtual
                   const hovered    = hoveredTable === t
                   const isRenaming = renamingTable === t
+                  const isDragging = dragTable === t
+                  const dropBefore = sidebarDragOver?.table === t && sidebarDragOver?.position === 'before'
+                  const dropAfter  = sidebarDragOver?.table === t && sidebarDragOver?.position === 'after'
 
                   return (
-                    <div key={t} className="relative" onMouseEnter={() => setHoveredTable(t)} onMouseLeave={() => setHoveredTable(null)}>
+                    <div
+                      key={t}
+                      className="relative"
+                      onMouseEnter={() => setHoveredTable(t)}
+                      onMouseLeave={() => setHoveredTable(null)}
+                      draggable={!isRenaming}
+                      onDragStart={e => handleSidebarDragStart(e, t, group.label)}
+                      onDragEnd={handleSidebarDragEnd}
+                      onDragOver={e => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const mid  = rect.top + rect.height / 2
+                        handleSidebarDragOver(e, t, e.clientY < mid ? 'before' : 'after')
+                      }}
+                      onDrop={e => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const mid  = rect.top + rect.height / 2
+                        handleSidebarDrop(e, t, group.label, e.clientY < mid ? 'before' : 'after')
+                      }}
+                    >
+                      {/* Drop indicator lines */}
+                      {dropBefore && <div className="absolute top-0 left-2 right-2 h-0.5 bg-[#BACBFF] rounded-full z-10 pointer-events-none" />}
+                      {dropAfter  && <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-[#BACBFF] rounded-full z-10 pointer-events-none" />}
+
                       {isRenaming ? (
                         <div className="px-2 py-1 flex flex-col gap-0.5">
                           <div className="flex items-center gap-1">
@@ -1147,21 +1602,29 @@ export default function DatabasePage() {
                           {renameError && <p className="text-[9px] text-red-400 px-1 leading-tight">{renameError}</p>}
                         </div>
                       ) : (
-                        <button onClick={() => setSelectedTable(t)} className={`w-full text-left px-4 py-1.5 flex items-center justify-between gap-2 transition-colors ${canEdit && hovered ? 'pr-14' : 'pr-4'} ${active ? 'bg-[#325099] text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}`}>
-                          <div className="flex items-center gap-1.5 min-w-0">
+                        <button
+                          onClick={() => setSelectedTable(t)}
+                          className={`w-full text-left pl-2 pr-4 py-1.5 flex items-center justify-between gap-1.5 transition-colors ${isDragging ? 'opacity-30' : ''} ${active ? 'bg-[#325099] text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
+                        >
+                          {/* Drag handle */}
+                          <span
+                            className={`shrink-0 text-[11px] leading-none cursor-grab active:cursor-grabbing select-none transition-opacity ${hovered ? 'opacity-40 hover:opacity-80' : 'opacity-0'}`}
+                            title="Drag to reorder"
+                          >⠿</span>
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
                             <span className="text-xs font-medium truncate">{t}</span>
                             {isVirtual && <span className={`text-[8px] shrink-0 ${active ? 'text-white/50' : 'text-white/20'}`}>⊂</span>}
                           </div>
                           {count !== undefined && !hovered && (
                             <span className={`text-[9px] tabular-nums shrink-0 font-semibold ${active ? 'text-white/60' : 'text-white/25'}`}>{count.toLocaleString()}</span>
                           )}
+                          {canEdit && hovered && (
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <span onClick={e => { e.stopPropagation(); startRename(t) }} title={`Rename "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-white/25 hover:text-blue-300 hover:bg-blue-900/30 transition text-[10px] cursor-pointer">✏️</span>
+                              <span onClick={e => { e.stopPropagation(); setDropConfirmTable(t); setDdlError(null) }} title={`Drop "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-white/25 hover:text-red-400 hover:bg-red-900/30 transition text-[10px] cursor-pointer">🗑</span>
+                            </div>
+                          )}
                         </button>
-                      )}
-                      {canEdit && hovered && !isRenaming && (
-                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                          <button onClick={e => { e.stopPropagation(); startRename(t) }} title={`Rename "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-white/25 hover:text-blue-300 hover:bg-blue-900/30 transition text-[10px]">✏️</button>
-                          <button onClick={e => { e.stopPropagation(); setDropConfirmTable(t); setDdlError(null) }} title={`Drop "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-white/25 hover:text-red-400 hover:bg-red-900/30 transition text-[10px]">🗑</button>
-                        </div>
                       )}
                     </div>
                   )
@@ -1238,6 +1701,38 @@ export default function DatabasePage() {
                     <span className="text-sm leading-none">+</span> Add Lesson
                   </button>
                 </>
+              ) : selectedTable === T_INVOICES ? (
+                <>
+                  {/* Data / Cards toggle */}
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                    <button
+                      onClick={() => setInvoiceViewMode('data')}
+                      className={`px-3 py-1.5 text-xs font-semibold transition ${invoiceViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                    >⊞ Data</button>
+                    <button
+                      onClick={() => setInvoiceViewMode('cards')}
+                      className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${invoiceViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                    >◧ Cards</button>
+                  </div>
+                  <select
+                    value={invoiceTermId ?? ''}
+                    onChange={e => setInvoiceTermId(e.target.value)}
+                    className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] max-w-[180px]"
+                  >
+                    <option value="">Select term…</option>
+                    {allTerms.map(t => (
+                      <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleGenerateInvoices}
+                    disabled={!invoiceTermId || generatingInvoices || loading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Generate one invoice per family / solo student for the selected term"
+                  >
+                    {generatingInvoices ? '⟳ Generating…' : '⟳ Generate Invoices'}
+                  </button>
+                </>
               ) : selectedTable === 'classes' ? (
                 <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Class
@@ -1262,7 +1757,110 @@ export default function DatabasePage() {
 
           {/* Grid */}
           <div className="flex-1 overflow-auto">
-            {loading ? (
+
+            {/* ── Invoice Cards view ─────────────────────────────────────────── */}
+            {selectedTable === T_INVOICES && invoiceViewMode === 'cards' ? (
+              loadingCards ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p>
+                </div>
+              ) : !invoiceTermId ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2">
+                  <p className="text-3xl">🧾</p>
+                  <p className="text-sm font-semibold text-[#2A2035]">Select a term to view invoices</p>
+                </div>
+              ) : invoiceCardsData.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2">
+                  <p className="text-3xl">📭</p>
+                  <p className="text-sm font-semibold text-[#2A2035]">No invoices for this term</p>
+                  <p className="text-xs text-[#2A2035]/40">Click Generate Invoices to create them</p>
+                </div>
+              ) : (
+                <div className="p-6 grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4 content-start">
+                  {invoiceCardsData.map(inv => {
+                    const statusColour = inv.status === 'paid'
+                      ? { bg: 'bg-[#D1FAE5]', text: 'text-[#065F46]', border: 'border-[#6EE7B7]', dot: 'bg-[#059669]' }
+                      : inv.status === 'partial'
+                      ? { bg: 'bg-[#FEF3C7]', text: 'text-[#92400E]', border: 'border-[#FDE68A]', dot: 'bg-[#D97706]' }
+                      : { bg: 'bg-[#FEE2E2]', text: 'text-[#991B1B]', border: 'border-[#FCA5A5]', dot: 'bg-[#EF4444]' }
+                    const nextStatus = inv.status === 'unpaid' ? 'partial' : inv.status === 'partial' ? 'paid' : 'unpaid'
+                    const statusLabels = { unpaid: 'Unpaid', partial: 'Partial', paid: 'Paid' }
+
+                    return (
+                      <div key={inv.id} className="bg-white rounded-2xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-shadow">
+                        {/* Card header */}
+                        <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-[#F0F4FF]">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              {inv.isFamily && <span className="text-[9px] font-bold uppercase tracking-wider text-[#325099]/50 bg-[#F0F4FF] px-1.5 py-0.5 rounded-full">Family</span>}
+                              <h3 className="text-sm font-bold text-[#062E63]">{inv.displayName}</h3>
+                            </div>
+                            <p className="text-[10px] text-[#2A2035]/40 font-medium">{inv.termName}</p>
+                          </div>
+                          {/* Status badge — click to cycle */}
+                          <button
+                            onClick={() => handleInvoiceStatusUpdate(inv.id, nextStatus)}
+                            title={`Click to mark as ${statusLabels[nextStatus]}`}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider transition hover:opacity-80 ${statusColour.bg} ${statusColour.text} ${statusColour.border}`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${statusColour.dot}`} />
+                            {statusLabels[inv.status]}
+                          </button>
+                        </div>
+
+                        {/* Enrolment breakdown per student */}
+                        <div className="px-5 py-3 flex flex-col gap-3 flex-1">
+                          {inv.members.map(member => (
+                            <div key={member.id}>
+                              <p className="text-[10px] font-bold text-[#325099] uppercase tracking-wider mb-1">{member.full_name}</p>
+                              {member.enrolments.length === 0 ? (
+                                <p className="text-[10px] text-[#2A2035]/30 italic pl-2">No priced enrolments</p>
+                              ) : member.enrolments.map((e, i) => (
+                                <div key={i} className="flex items-center justify-between py-0.5 pl-2">
+                                  <span className="text-xs text-[#2A2035]/70">{e.label}</span>
+                                  <span className="text-xs font-semibold text-[#2A2035] tabular-nums">
+                                    {e.price != null ? `$${Number(e.price).toLocaleString()}` : '—'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Totals footer */}
+                        <div className="px-5 pb-5 pt-3 border-t border-[#F0F4FF] flex flex-col gap-1">
+                          <div className="flex justify-between text-xs text-[#2A2035]/60">
+                            <span>Subtotal</span>
+                            <span className="tabular-nums">${Number(inv.subtotal).toLocaleString()}</span>
+                          </div>
+                          {Number(inv.sibling_discount) > 0 && (
+                            <div className="flex justify-between text-xs text-[#059669]">
+                              <span>Sibling discount ({inv.members.length}×)</span>
+                              <span className="tabular-nums">−${Number(inv.sibling_discount).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {Number(inv.multi_course_discount) > 0 && (
+                            <div className="flex justify-between text-xs text-[#7C3AED]">
+                              <span>
+                                Multi-course discount
+                                <span className="ml-1 text-[9px] text-[#7C3AED]/60">
+                                  ({inv.members.filter(m => m.enrolments.length >= 2).map(m => `${m.full_name.split(' ')[0]}: ${m.enrolments.length}`).join(', ')})
+                                </span>
+                              </span>
+                              <span className="tabular-nums">−${Number(inv.multi_course_discount).toLocaleString()}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center pt-1.5 mt-0.5 border-t border-[#E8EDF8]">
+                            <span className="text-sm font-bold text-[#062E63]">Total</span>
+                            <span className="text-sm font-bold text-[#062E63] tabular-nums">${Number(inv.total).toLocaleString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            ) : loading ? (
               <div className="flex items-center justify-center h-full">
                 <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p>
               </div>
@@ -1283,7 +1881,7 @@ export default function DatabasePage() {
               <table className="text-xs border-separate border-spacing-0" style={{ tableLayout:'fixed', minWidth:'max-content' }}>
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-20 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] text-center text-[10px] font-bold text-[#325099]/40 select-none" style={{ width:42, minWidth:42 }}>#</th>
+                    <th className="sticky top-0 z-30 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] text-center text-[10px] font-bold text-[#325099]/40 select-none" style={{ width:42, minWidth:42, left:0 }}>#</th>
 
                     {columnOrder.map(col => {
                       const isPk          = col === pkCol
@@ -1293,6 +1891,9 @@ export default function DatabasePage() {
                       const isColRenaming = renamingCol === col
                       const canRenameCol  = !isPk && !isGuardian && !isName
                       const w = columnWidths[col] ?? defaultWidth(col)
+
+                      const stickyLeft = stickyColOffsets[col]
+                      const isStickyCol = stickyLeft !== undefined
 
                       return (
                         <th
@@ -1304,14 +1905,20 @@ export default function DatabasePage() {
                           onDrop={e      => !isColRenaming && handleDrop(e, col)}
                           onDragEnd={!isColRenaming ? handleDragEnd : undefined}
                           onContextMenu={e => !isColRenaming && handleColContextMenu(e, col)}
-                          className={`sticky top-0 z-20 border-b-2 border-r border-[#DEE7FF] text-left select-none transition-colors ${
+                          className={`sticky top-0 border-b-2 border-r border-[#DEE7FF] text-left select-none transition-colors ${
+                            isStickyCol ? 'z-30' : 'z-20'
+                          } ${
                             isColRenaming ? 'bg-[#EEF4FF] border-b-[#325099]'
                             : isDragTarget ? 'bg-[#BACBFF] border-l-2 border-l-[#325099]'
                             : isGuardian   ? 'bg-[#FEF9EC]'
                             : isName       ? 'bg-[#ECFDF5]'
                             : 'bg-[#EEF1F8]'
                           }`}
-                          style={{ width:w, minWidth:w, maxWidth:w, cursor: isColRenaming ? 'default' : 'grab' }}
+                          style={{
+                            width:w, minWidth:w, maxWidth:w,
+                            cursor: isColRenaming ? 'default' : 'grab',
+                            ...(isStickyCol ? { position:'sticky', left: stickyLeft, boxShadow: col === 'full_name' ? '2px 0 4px -1px rgba(0,0,0,0.08)' : 'none' } : {}),
+                          }}
                         >
                           {isColRenaming ? (
                             <div className="px-1.5 py-1.5 flex flex-col gap-0.5">
@@ -1354,6 +1961,16 @@ export default function DatabasePage() {
                       </th>
                     )}
 
+                    {/* Siblings column — students table only */}
+                    {selectedTable === 'students' && (
+                      <th className="sticky top-0 z-20 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] select-none" style={{ width: 260, minWidth: 260 }}>
+                        <div className="flex items-center gap-2 px-3 py-2.5">
+                          <span className="text-[10px] font-bold text-[#062E63] tracking-[0.06em] uppercase">Siblings</span>
+                          <span className="text-[9px] text-[#325099]/40 font-normal normal-case tracking-normal">family group</span>
+                        </div>
+                      </th>
+                    )}
+
                     <th className="sticky top-0 z-20 bg-[#EEF1F8] border-b-2 border-[#DEE7FF]" style={{ width:56, minWidth:56 }} />
                   </tr>
                 </thead>
@@ -1371,7 +1988,7 @@ export default function DatabasePage() {
                               <span className="block px-3 py-2 text-[#2A2035]/30 italic text-[10px]">auto</span>
                             ) : ENROLMENT_NAME_COLS.includes(col) || col === COURSE_NAME_COL || col === TERM_NAME_COL ? (
                               <span className="block px-3 py-2 text-emerald-600/40 italic text-[10px]">auto-resolved</span>
-                            ) : col === LESSON_CLASS_COL || col === LESSON_WEEK_COL ? (
+                            ) : col === LESSON_CLASS_COL || col === LESSON_WEEK_COL || col === LESSON_MAIN_TEACHER_COL || col === LESSON_SCHED_TEACHER_COL ? (
                               <span className="block px-3 py-2 text-emerald-600/40 italic text-[10px]">auto</span>
                             ) : (
                               <input type="text" placeholder={defVal || col} value={newRowData[col] ?? defVal} onChange={e => setNewRowData(p => ({ ...p, [col]:e.target.value }))} onKeyDown={e => { if (e.key==='Enter') handleAddRow(); if (e.key==='Escape') { setAddingRow(false); setNewRowData({}) } }} className="w-full px-3 py-2 bg-transparent text-[#2A2035] placeholder-[#2A2035]/25 focus:outline-none focus:bg-[#DCFCE7]" />
@@ -1400,7 +2017,7 @@ export default function DatabasePage() {
 
                     return (
                       <tr key={String(rowId)} className={`group ${rowBg} hover:bg-[#F0F4FF] transition-colors`}>
-                        <td className="border-b border-r border-[#E8EDF8] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42 }}>{ri + 1}</td>
+                        <td className="border-b border-r border-[#E8EDF8] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: ri % 2 === 0 ? '#ffffff' : '#F9FAFB' }}>{ri + 1}</td>
 
                         {columnOrder.map(col => {
                           const val       = row[col]
@@ -1411,10 +2028,60 @@ export default function DatabasePage() {
                           const dv        = displayVal(val)
                           const truncated = dv !== null && dv.length > 50
                           const w         = columnWidths[col] ?? defaultWidth(col)
+                          const stickyLeft = stickyColOffsets[col]
+                          const isStickyCol = stickyLeft !== undefined
+
+                          // Sticky cells must have a fully opaque background so scrolled columns
+                          // don't bleed through. Use the same even/odd row colours as the row bg.
+                          const baseBg = ri % 2 === 0 ? '#ffffff' : '#F9FAFB'
+                          const stickyBg = isPk ? (ri % 2 === 0 ? '#F4F7FF' : '#EFF3FF')
+                                         : isName ? (ri % 2 === 0 ? '#F0FDF4' : '#E8FAF0')
+                                         : baseBg
 
                           return (
-                            <td key={col} className={`border-b border-r border-[#E8EDF8] p-0 ${isPk ? 'bg-[#F8FAFF]/60' : isGuardian ? 'bg-[#FFFBEB]/40' : isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w }} onClick={() => !isPk && !isName && handleCellClick(rowId, col, val)}>
-                              {isEditing ? (
+                            <td key={col} className={`border-b border-r border-[#E8EDF8] p-0 ${!isStickyCol && isPk ? 'bg-[#F8FAFF]/60' : !isStickyCol && isGuardian ? 'bg-[#FFFBEB]/40' : !isStickyCol && isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w, ...(isStickyCol ? { position:'sticky', left: stickyLeft, zIndex: 2, background: stickyBg, boxShadow: col === 'full_name' ? '2px 0 4px -1px rgba(0,0,0,0.06)' : 'none' } : {}) }} onClick={() => !isPk && !isName && handleCellClick(rowId, col, val)}>
+                              {col === LESSON_SCHED_TEACHER_COL ? (
+                                // Editable dropdown for scheduled teacher
+                                editingSchedTeacher === rowId ? (
+                                  <select
+                                    autoFocus
+                                    defaultValue={row.scheduled_teacher_id || ''}
+                                    onBlur={() => setEditingSchedTeacher(null)}
+                                    onChange={async e => {
+                                      const newId = e.target.value || null
+                                      // Write UUID to scheduled_teacher_id, update display name
+                                      await supabase.from(T_LESSONS).update({ scheduled_teacher_id: newId }).eq('id', rowId)
+                                      const newName = newId ? (allStaffForLessons.find(s => s.id === newId)?.full_name ?? null) : null
+                                      setRows(prev => prev.map(r => r[pkCol] === rowId
+                                        ? { ...r, scheduled_teacher_id: newId, [LESSON_SCHED_TEACHER_COL]: newName }
+                                        : r
+                                      ))
+                                      setEditingSchedTeacher(null)
+                                    }}
+                                    className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] text-xs focus:outline-none"
+                                    style={{ width: w }}
+                                  >
+                                    <option value="">— unassigned —</option>
+                                    {allStaffForLessons.map(s => (
+                                      <option key={s.id} value={s.id}>{s.full_name}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <div
+                                    className="px-3 py-1.5 overflow-hidden whitespace-nowrap text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors"
+                                    onClick={() => setEditingSchedTeacher(rowId)}
+                                    title="Click to change scheduled teacher"
+                                  >
+                                    {dv === null
+                                      ? <span className="text-[#2A2035]/20 italic">unassigned</span>
+                                      : <span className={row.scheduled_teacher_id && row.main_teacher && dv !== row.main_teacher ? 'font-semibold text-[#92400E]' : 'text-[#2A2035]'}>{dv}</span>
+                                    }
+                                    {row.scheduled_teacher_id && row.main_teacher && dv !== row.main_teacher && (
+                                      <span className="ml-1 text-[9px] text-[#F59E0B]">↻ sub</span>
+                                    )}
+                                  </div>
+                                )
+                              ) : isEditing ? (
                                 <input ref={editInputRef} type="text" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
                               ) : col === LESSON_WEEK_COL ? (
                                 <div className="px-2 py-1.5 text-center">
@@ -1454,6 +2121,33 @@ export default function DatabasePage() {
                                 }}
                                 className="w-5 h-5 flex items-center justify-center rounded-full bg-[#F0F4FF] border border-[#DEE7FF] text-[#325099] hover:bg-[#DEE7FF] transition text-sm leading-none shrink-0"
                                 title="Add student"
+                              >+</button>
+                            </div>
+                          </td>
+                        )}
+
+                        {/* Siblings cell — students table only */}
+                        {selectedTable === 'students' && (
+                          <td className="border-b border-r border-[#E8EDF8] p-0 align-top" style={{ width: 260, minWidth: 260 }}>
+                            <div className="px-2 py-1.5 flex flex-wrap gap-1 items-center min-h-[34px]">
+                              {(siblingMap[rowId] || []).map(s => (
+                                <span key={s.id} className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] px-2 py-0.5 rounded-full whitespace-nowrap">
+                                  {s.full_name}
+                                  <button
+                                    onClick={e => { e.stopPropagation(); handleRemoveSibling(s.id) }}
+                                    className="ml-0.5 text-[#92400E]/40 hover:text-red-500 transition leading-none"
+                                    title={`Unlink ${s.full_name} from family`}
+                                  >×</button>
+                                </span>
+                              ))}
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation()
+                                  const rect = e.currentTarget.getBoundingClientRect()
+                                  setSiblingPopover({ studentId: rowId, x: rect.left, y: rect.bottom + 4 })
+                                }}
+                                className="w-5 h-5 flex items-center justify-center rounded-full bg-[#FFFBEB] border border-[#FDE68A] text-[#92400E] hover:bg-[#FEF3C7] transition text-sm leading-none shrink-0"
+                                title="Add sibling"
                               >+</button>
                             </div>
                           </td>
