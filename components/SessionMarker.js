@@ -588,13 +588,6 @@ function MarkTable({
               <span className="text-[#065F46]/70 hidden sm:inline">Last saved {fmtSavedAt(savedAt)}</span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => { setArmed(false); onEdit?.() }}
-            className="text-xs font-semibold bg-white text-[#065F46] border border-[#A7F3D0] hover:bg-[#D1FAE5] px-4 py-1.5 rounded-full transition"
-          >
-            Edit
-          </button>
         </div>
       )}
       <div className="overflow-x-auto">

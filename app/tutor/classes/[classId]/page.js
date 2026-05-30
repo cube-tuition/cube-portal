@@ -11,7 +11,7 @@ import { normalizeDays } from '../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { inferSubject, subjectColor, subjectsMatch } from '../../../../components/CourseDetail'
 import PrePostSection from '../../../../components/PrePostSection'
-import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TUTORS } from '../../../../lib/tables'
+import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TUTORS } from '../../../../lib/tables'
 
 /*
  * Per-class overview — /tutor/classes/[classId]
@@ -91,6 +91,7 @@ export default function ClassOverviewPage() {
   const [quizzes, setQuizzes] = useState([])           // all rows for roster+subject, this term
   const [allStaff, setAllStaff] = useState([])         // all tutors/admins for sub dropdown
   const [subAssignments, setSubAssignments] = useState({}) // { [dateISO]: { id, sub_tutor_id } }
+  const [lessons, setLessons] = useState([])               // rows from lessons table
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState(initialTab)           // 1..10
@@ -190,6 +191,14 @@ export default function ClassOverviewPage() {
       for (const s of subs || []) subMap[s.session_date] = s
       setSubAssignments(subMap)
 
+      // Lessons for this class from the lessons table
+      const { data: lessonRows } = await supabase
+        .from(T_LESSONS)
+        .select('id, lesson_date, start_time, end_time, room, status, notes')
+        .eq('class_id', classId)
+        .order('lesson_date')
+      setLessons(lessonRows || [])
+
       // Pick the default tab: prefer ?week param, otherwise use current week
       if (!(weekParam >= 1 && weekParam <= 10)) {
         const today = isoDate(new Date())
@@ -207,7 +216,25 @@ export default function ClassOverviewPage() {
   }, [classId])
 
   const days = useMemo(() => normalizeDays(cls?.day_of_week || ''), [cls])
-  const weekDates = useMemo(() => weeklySessionDates(term, days), [term, days])
+
+  // If lessons exist in the DB, build weekDates from them (respecting overrides,
+  // cancellations, etc.). Otherwise fall back to computing dates dynamically.
+  const weekDates = useMemo(() => {
+    if (lessons.length > 0 && term) {
+      const termStart = new Date(term.start_date + 'T00:00:00')
+      const weekMap = new Map()
+      for (const lesson of lessons) {
+        const d = new Date(lesson.lesson_date + 'T00:00:00')
+        const weekNum = Math.floor((d - termStart) / (7 * 24 * 60 * 60 * 1000)) + 1
+        if (weekNum < 1) continue
+        if (!weekMap.has(weekNum)) weekMap.set(weekNum, { week: weekNum, dates: [], lessons: [] })
+        weekMap.get(weekNum).dates.push(lesson.lesson_date)
+        weekMap.get(weekNum).lessons.push(lesson)
+      }
+      return [...weekMap.values()].sort((a, b) => a.week - b.week)
+    }
+    return weeklySessionDates(term, days)
+  }, [term, days, lessons])
 
   // Lightweight lookup used by the tab nav to dot weeks that have any attendance.
   const attByDate = useMemo(() => {
@@ -218,6 +245,13 @@ export default function ClassOverviewPage() {
     }
     return m
   }, [attendance])
+
+  // Map from lesson_date → lesson row (for quick override lookup in render)
+  const lessonByDate = useMemo(() => {
+    const m = new Map()
+    for (const l of lessons) m.set(l.lesson_date, l)
+    return m
+  }, [lessons])
 
   if (loading) return (
     <div className="min-h-screen bg-white">
@@ -245,7 +279,7 @@ export default function ClassOverviewPage() {
 
   const isAdmin = staff?.role === 'admin'
   const col = subjectColor(inferSubject(cls))
-  const currentWeek = weekDates[tab - 1] || { week: tab, dates: [] }
+  const currentWeek = weekDates.find(w => w.week === tab) || { week: tab, dates: [], lessons: [] }
 
   return (
     <div className="min-h-screen bg-white">
@@ -301,24 +335,32 @@ export default function ClassOverviewPage() {
             <p className="text-sm text-[#2A2035]/50">Class day_of_week missing &mdash; can&rsquo;t compute weekly sessions.</p>
           ) : (
             <>
-              {weekDates.map(({ week, dates }) => {
+              {weekDates.map(({ week, dates, lessons: wkLessons }) => {
                 const active = tab === week
                 const primaryDate = dates[0]
                 const hasData = dates.some(d => attByDate.has(d))
                 const hasSub = dates.some(d => subAssignments[d])
+                // A week is cancelled if every lesson in it is cancelled
+                const allCancelled = wkLessons && wkLessons.length > 0 &&
+                  wkLessons.every(l => l.status === 'cancelled')
                 return (
                   <button
                     key={week}
                     onClick={() => setTab(week)}
                     className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition ${
-                      active
-                        ? 'bg-[#062E63] text-white border-[#062E63]'
-                        : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'
+                      allCancelled
+                        ? active
+                          ? 'bg-[#991B1B] text-white border-[#991B1B]'
+                          : 'bg-white text-[#991B1B] border-[#FCA5A5] hover:bg-[#FEF2F2]'
+                        : active
+                          ? 'bg-[#062E63] text-white border-[#062E63]'
+                          : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'
                     }`}
                   >
                     Wk {week}
-                    {hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" title="Sub assigned" />}
-                    {hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
+                    {allCancelled && <span className="ml-1 text-[9px] font-bold tracking-wide opacity-80">✕</span>}
+                    {!allCancelled && hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" title="Sub assigned" />}
+                    {!allCancelled && hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
                     {primaryDate && (
                       <span className={`ml-2 text-[10px] font-medium ${active ? 'text-white/70' : 'text-[#2A2035]/40'}`}>
                         {fmtDate(primaryDate)}
@@ -374,55 +416,108 @@ export default function ClassOverviewPage() {
               </div>
             ) : (
               <>
-                {currentWeek.dates.map((d, i) => (
-                <div key={d} className="space-y-8">
-                  {currentWeek.dates.length > 1 && (
-                    <div className="flex items-baseline gap-2">
-                      <h3 className="text-base font-semibold text-[#2A2035] font-display">
-                        {fmtDate(d)}
-                      </h3>
-                      <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-                        Session {i + 1} of {currentWeek.dates.length}
-                      </span>
-                    </div>
-                  )}
-                  {/* Teacher / sub assignment — shown above the workbook */}
-                  <SubPicker
-                    classId={cls.id}
-                    dateISO={d}
-                    cls={cls}
-                    allStaff={allStaff}
-                    subAssignments={subAssignments}
-                    setSubAssignments={setSubAssignments}
-                    isAdmin={isAdmin}
-                  />
-                  {/* Booklet for this week */}
-                  {i === 0 && (
-                    <div>
-                      <div className="flex items-baseline justify-between mb-3">
-                        <div>
-                          <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
-                            Workbook
-                          </p>
-                          <h3 className="text-lg font-semibold text-[#2A2035] font-display">Week {currentWeek.week}</h3>
-                        </div>
+                {currentWeek.dates.map((d, i) => {
+                  const lesson = lessonByDate.get(d)
+                  const isCancelled = lesson?.status === 'cancelled'
+                  const isRescheduled = lesson?.status === 'rescheduled'
+                  // Use lesson-specific time/room overrides if present
+                  const displayStart = lesson?.start_time || cls.start_time
+                  const displayEnd   = lesson?.end_time   || cls.end_time
+                  const displayRoom  = lesson?.room       || cls.room
+                  const hasOverride = !isCancelled && !isRescheduled && lesson && (
+                    (lesson.start_time && lesson.start_time !== cls.start_time) ||
+                    (lesson.end_time   && lesson.end_time   !== cls.end_time)   ||
+                    (lesson.room       && lesson.room       !== cls.room)
+                  )
+                  return (
+                  <div key={d} className="space-y-8">
+                    {currentWeek.dates.length > 1 && (
+                      <div className="flex items-baseline gap-2">
+                        <h3 className="text-base font-semibold text-[#2A2035] font-display">
+                          {fmtDate(d)}
+                        </h3>
                         <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-                          {term ? (term.name || `Term ${term.term_number}`) : ''}
+                          Session {i + 1} of {currentWeek.dates.length}
                         </span>
                       </div>
-                      <WeekBooklet cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin} />
-                    </div>
-                  )}
-                  <SessionMarker
-                    key={`${cls.id}-${d}`}
-                    classId={cls.id}
-                    dateISO={d}
-                    cls={cls}
-                    staff={staff}
-                    readOnly={!isAdmin && !!subAssignments[d] && staff?.id !== subAssignments[d]?.sub_tutor_id}
-                  />
-                </div>
-              ))}
+                    )}
+
+                    {/* Cancelled / rescheduled banner */}
+                    {isCancelled && (
+                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#FEE2E2] border border-[#FCA5A5]">
+                        <span className="text-base">❌</span>
+                        <div>
+                          <p className="text-xs font-bold text-[#991B1B]">Session cancelled</p>
+                          {lesson.notes && <p className="text-xs text-[#991B1B]/80 mt-0.5">{lesson.notes}</p>}
+                        </div>
+                      </div>
+                    )}
+                    {isRescheduled && (
+                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#FEF3C7] border border-[#FDE68A]">
+                        <span className="text-base">🔄</span>
+                        <div>
+                          <p className="text-xs font-bold text-[#92400E]">
+                            Session rescheduled · {fmtTime(displayStart)}–{fmtTime(displayEnd)}
+                            {displayRoom && ` · ${displayRoom}`}
+                          </p>
+                          {lesson.notes && <p className="text-xs text-[#92400E]/80 mt-0.5">{lesson.notes}</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lesson time/room override (scheduled but different from default) */}
+                    {hasOverride && (
+                      <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#EEF4FF] border border-[#DEE7FF]">
+                        <span className="text-base">ℹ️</span>
+                        <p className="text-xs font-semibold text-[#325099]">
+                          This session: {fmtTime(displayStart)}–{fmtTime(displayEnd)}
+                          {displayRoom && ` · ${displayRoom}`}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Teacher / sub assignment — shown above the workbook */}
+                    {!isCancelled && (
+                      <SubPicker
+                        classId={cls.id}
+                        dateISO={d}
+                        cls={cls}
+                        allStaff={allStaff}
+                        subAssignments={subAssignments}
+                        setSubAssignments={setSubAssignments}
+                        isAdmin={isAdmin}
+                      />
+                    )}
+                    {/* Booklet for this week */}
+                    {i === 0 && !isCancelled && (
+                      <div>
+                        <div className="flex items-baseline justify-between mb-3">
+                          <div>
+                            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+                              Workbook
+                            </p>
+                            <h3 className="text-lg font-semibold text-[#2A2035] font-display">Week {currentWeek.week}</h3>
+                          </div>
+                          <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
+                            {term ? (term.name || `Term ${term.term_number}`) : ''}
+                          </span>
+                        </div>
+                        <WeekBooklet cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin} />
+                      </div>
+                    )}
+                    {!isCancelled && (
+                      <SessionMarker
+                        key={`${cls.id}-${d}`}
+                        classId={cls.id}
+                        dateISO={d}
+                        cls={cls}
+                        staff={staff}
+                        readOnly={!isAdmin && !!subAssignments[d] && staff?.id !== subAssignments[d]?.sub_tutor_id}
+                      />
+                    )}
+                  </div>
+                  )
+                })}
               {/* Term reports editors — surfaced on Wk 9 (term wrap-up). */}
               {tab === 9 && term && (
                 <TermReportsSection

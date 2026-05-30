@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
 import TutorNav from '../../../components/TutorNav'
-import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_RESULTS, T_SHIFTS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
+import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_RESULTS, T_SHIFTS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
 
 /*
  * Admin-only: Database Explorer — /tutor/database
@@ -26,7 +26,7 @@ const INITIAL_TABLE_GROUPS = [
   { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_PARENTS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS,'subjects'] },
   { label: 'Attendance & Results', tables: [T_ATTENDANCE,T_QUIZ_RESULTS,T_RESULTS,T_EXAMS,T_PREPOST_TESTS,T_PREPOST_SCORES] },
   { label: 'Content',              tables: [T_BOOKLETS,T_CLASS_BOOKLETS,T_INFO_PAGES,T_FAQ_CATEGORIES,T_FAQ_ITEMS] },
-  { label: 'Scheduling',           tables: [T_TIMETABLE,T_DROPIN_SESSIONS,T_DROPIN_SIGNINS,T_SHIFTS,T_SUB_ASSIGNMENTS] },
+  { label: 'Scheduling',           tables: [T_LESSONS,T_TIMETABLE,T_DROPIN_SESSIONS,T_DROPIN_SIGNINS,T_SHIFTS,T_SUB_ASSIGNMENTS] },
   { label: 'Finance',              tables: [T_PAY_RUNS,'pay_run_lines',T_PAY_RUN_SHIFTS,T_CURRENT_TUTOR_RATES,T_TUTOR_RATE_MATRIX] },
   { label: 'Reports',              tables: [T_TERM_CRITERIA,T_TERM_COMMENTS] },
 ]
@@ -45,16 +45,22 @@ const VIRTUAL = {
     realTable: T_CLASSES, filterCol: null, filterOp: null, filterVal: null,
     showCols: null, excludeCols: [], joinTermName: true, joinCourseName: true, defaultRow: {},
   },
+  lessons: {
+    realTable: T_LESSONS, filterCol: null, filterOp: null, filterVal: null,
+    showCols: null, excludeCols: [], joinLessonClassName: true, defaultRow: { status: 'scheduled' },
+  },
 }
 
 const GUARDIAN_COLS    = ['guardian_name','guardian_relationship','guardian_email','guardian_phone']
 const PARENT_COL_MAP   = { guardian_name:'full_name', guardian_relationship:'relationship', guardian_email:'email', guardian_phone:'phone' }
 const ENROLMENT_NAME_COLS = ['student_name','class_name']
-const TERM_NAME_COL    = 'term_name'
-const COURSE_NAME_COL  = 'course_name'
+const TERM_NAME_COL      = 'term_name'
+const COURSE_NAME_COL    = 'course_name'
+const LESSON_CLASS_COL   = 'class_label'   // joined "ClassName (Day)" shown in lessons table
+const LESSON_WEEK_COL    = 'week'          // computed from lesson_date, read-only
 
 const DEFAULT_WIDTH  = 150
-const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200 }
+const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200, class_label:240, lesson_date:120, week:60, status:110 }
 function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
 
 function displayVal(v) {
@@ -377,6 +383,11 @@ export default function DatabasePage() {
   const [coursesList, setCoursesList]   = useState([])
   const [addClassSaving, setAddClassSaving] = useState(false)
 
+  // Lessons table — class selector + generate
+  const [lessonClassFilter, setLessonClassFilter]   = useState('')   // class_id to filter lessons by
+  const [allClassesForFilter, setAllClassesForFilter] = useState([]) // for the dropdown
+  const [generatingLessons, setGeneratingLessons]   = useState(false)
+
   // Search
   const [search, setSearch] = useState('')
 
@@ -492,6 +503,8 @@ export default function DatabasePage() {
 
     let q = supabase.from(realTable).select(selectStr).limit(500)
     if (v?.filterCol) q = v.filterOp === 'in' ? q.in(v.filterCol, v.filterVal) : q.eq(v.filterCol, v.filterVal)
+    // Lessons table: filter by selected class if one is chosen
+    if (selectedTable === 'lessons' && lessonClassFilter) q = q.eq('class_id', Number(lessonClassFilter))
 
     q.then(async ({ data, error }) => {
       if (error) { setTableError(error.message); setLoading(false); return }
@@ -562,9 +575,35 @@ export default function DatabasePage() {
         cols = [...idCol, ...termCol, COURSE_NAME_COL, ...rest]
       }
 
+      if (v?.joinLessonClassName && enrichedRows.length > 0) {
+        const classIds = [...new Set(enrichedRows.map(row => row.class_id).filter(Boolean))]
+        if (classIds.length > 0) {
+          const { data: classRows } = await supabase.from(T_CLASSES).select('id, class_name, day_of_week').in('id', classIds)
+          const cMap = Object.fromEntries((classRows || []).map(c => [c.id, `${c.class_name} (${c.day_of_week})`]))
+          enrichedRows = enrichedRows.map(row => ({ ...row, [LESSON_CLASS_COL]: cMap[row.class_id] ?? null }))
+        } else {
+          enrichedRows = enrichedRows.map(row => ({ ...row, [LESSON_CLASS_COL]: null }))
+        }
+        // Show class_label first (after id), hide raw class_id; sort by lesson_date
+        const base = cols.filter(c => c !== LESSON_CLASS_COL && c !== 'class_id')
+        const idCol = base.includes('id') ? ['id'] : []
+        const rest  = base.filter(c => c !== 'id')
+        // Column order: id | class_label | week | lesson_date | …rest
+        const weekCol  = rest.includes(LESSON_WEEK_COL) ? [LESSON_WEEK_COL] : []
+        const dateCol  = rest.includes('lesson_date') ? ['lesson_date'] : []
+        const remaining = rest.filter(c => c !== 'lesson_date' && c !== LESSON_WEEK_COL)
+        cols = [...idCol, LESSON_CLASS_COL, ...weekCol, ...dateCol, ...remaining]
+        // Sort rows by class_label then lesson_date
+        enrichedRows = [...enrichedRows].sort((a, b) => {
+          const cl = (a[LESSON_CLASS_COL] || '').localeCompare(b[LESSON_CLASS_COL] || '')
+          if (cl !== 0) return cl
+          return (a.lesson_date || '').localeCompare(b.lesson_date || '')
+        })
+      }
+
       setColumns(cols); setRows(enrichedRows); setLoading(false)
     })
-  }, [selectedTable, staff, reloadKey])
+  }, [selectedTable, staff, reloadKey, lessonClassFilter])
 
   // ── Load enrolments when classes table is active ────────────────────────────
   useEffect(() => {
@@ -671,7 +710,7 @@ export default function DatabasePage() {
 
   // ── Cell editing ─────────────────────────────────────────────────────────────
   const isGuardianCol = (col) => col in PARENT_COL_MAP
-  const isNameCol     = (col) => ENROLMENT_NAME_COLS.includes(col) || col === TERM_NAME_COL || col === COURSE_NAME_COL
+  const isNameCol     = (col) => ENROLMENT_NAME_COLS.includes(col) || col === TERM_NAME_COL || col === COURSE_NAME_COL || col === LESSON_CLASS_COL || col === LESSON_WEEK_COL
 
   const handleCellClick = (rowId, col, currentVal) => {
     if (col === pkCol || isNameCol(col)) return
@@ -722,7 +761,7 @@ export default function DatabasePage() {
     // Auto-fill term_id for new classes rows
     if (selectedTable === 'classes' && currentTermId) payload.term_id = currentTermId
     for (const [k, v] of Object.entries(newRowData)) {
-      if (k === pkCol || isGuardianCol(k) || k === TERM_NAME_COL || k === COURSE_NAME_COL) continue
+      if (k === pkCol || isGuardianCol(k) || k === TERM_NAME_COL || k === COURSE_NAME_COL || k === LESSON_CLASS_COL || k === LESSON_WEEK_COL) continue
       payload[k] = v === '' ? null : v
     }
     const { data, error } = await supabase.from(realTable).insert(payload).select().single()
@@ -778,6 +817,26 @@ export default function DatabasePage() {
     }
     setAddClassSaving(false)
     setShowAddClassModal(false)
+  }
+
+  // ── Lessons: load class list when entering lessons table ─────────────────────
+  useEffect(() => {
+    if (selectedTable !== 'lessons' || allClassesForFilter.length > 0) return
+    ;(async () => {
+      const { data } = await supabase
+        .from(T_CLASSES)
+        .select('id, class_name, day_of_week')
+        .order('class_name')
+      setAllClassesForFilter(data || [])
+    })()
+  }, [selectedTable])
+
+  const handleGenerateLessons = async () => {
+    if (!lessonClassFilter) return
+    setGeneratingLessons(true)
+    await supabase.rpc('generate_lessons_for_class', { p_class_id: Number(lessonClassFilter) })
+    setReloadKey(k => k + 1)
+    setGeneratingLessons(false)
   }
 
   // ── Delete row ───────────────────────────────────────────────────────────────
@@ -1155,7 +1214,31 @@ export default function DatabasePage() {
                 {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/60 text-xs">✕</button>}
               </div>
 
-              {selectedTable === 'classes' ? (
+              {selectedTable === 'lessons' ? (
+                <>
+                  <select
+                    value={lessonClassFilter}
+                    onChange={e => setLessonClassFilter(e.target.value)}
+                    className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] max-w-[200px]"
+                  >
+                    <option value="">All classes</option>
+                    {allClassesForFilter.map(c => (
+                      <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleGenerateLessons}
+                    disabled={!lessonClassFilter || generatingLessons || loading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Generate weekly lesson rows for the selected class based on its term schedule"
+                  >
+                    {generatingLessons ? '⟳ Generating…' : '⟳ Generate Lessons'}
+                  </button>
+                  <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    <span className="text-sm leading-none">+</span> Add Lesson
+                  </button>
+                </>
+              ) : selectedTable === 'classes' ? (
                 <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Class
                 </button>
@@ -1288,6 +1371,8 @@ export default function DatabasePage() {
                               <span className="block px-3 py-2 text-[#2A2035]/30 italic text-[10px]">auto</span>
                             ) : ENROLMENT_NAME_COLS.includes(col) || col === COURSE_NAME_COL || col === TERM_NAME_COL ? (
                               <span className="block px-3 py-2 text-emerald-600/40 italic text-[10px]">auto-resolved</span>
+                            ) : col === LESSON_CLASS_COL || col === LESSON_WEEK_COL ? (
+                              <span className="block px-3 py-2 text-emerald-600/40 italic text-[10px]">auto</span>
                             ) : (
                               <input type="text" placeholder={defVal || col} value={newRowData[col] ?? defVal} onChange={e => setNewRowData(p => ({ ...p, [col]:e.target.value }))} onKeyDown={e => { if (e.key==='Enter') handleAddRow(); if (e.key==='Escape') { setAddingRow(false); setNewRowData({}) } }} className="w-full px-3 py-2 bg-transparent text-[#2A2035] placeholder-[#2A2035]/25 focus:outline-none focus:bg-[#DCFCE7]" />
                             )}
@@ -1331,6 +1416,13 @@ export default function DatabasePage() {
                             <td key={col} className={`border-b border-r border-[#E8EDF8] p-0 ${isPk ? 'bg-[#F8FAFF]/60' : isGuardian ? 'bg-[#FFFBEB]/40' : isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w }} onClick={() => !isPk && !isName && handleCellClick(rowId, col, val)}>
                               {isEditing ? (
                                 <input ref={editInputRef} type="text" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                              ) : col === LESSON_WEEK_COL ? (
+                                <div className="px-2 py-1.5 text-center">
+                                  {dv === null
+                                    ? <span className="text-[#2A2035]/20 italic text-[10px]">—</span>
+                                    : <span className="inline-block text-[10px] font-bold tabular-nums bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full">Wk {dv}</span>
+                                  }
+                                </div>
                               ) : (
                                 <div className={`px-3 py-1.5 overflow-hidden whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic text-[10px]' : isPk ? 'text-[#325099]/60 font-mono text-[10px]' : isGuardian ? 'text-[#92400E]/80 text-xs' : isName ? 'text-emerald-800 text-xs font-medium' : 'text-[#2A2035] text-xs'} ${!isPk && !isName ? 'cursor-text' : 'cursor-default'}`} title={truncated ? dv : undefined}>
                                   {dv === null ? 'null' : truncated ? dv.slice(0,50)+'…' : dv}
