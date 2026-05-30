@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import TutorSidebar from '../../../components/TutorSidebar'
 import { HubContext } from './context'
@@ -21,10 +22,8 @@ export default function HubLayout({ children }) {
 
   useEffect(() => {
     const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
       if (!profile || (profile.role !== 'tutor' && profile.role !== 'admin')) {
         router.push('/dashboard'); return
       }

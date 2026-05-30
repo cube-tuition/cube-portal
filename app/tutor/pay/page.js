@@ -2,8 +2,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms } from '../../../lib/terms'
+import { T_SHIFTS } from '../../../lib/tables'
 
 /*
  * Tutor "My pay" — read-only personal view of shifts + earnings.
@@ -83,7 +85,7 @@ export default function MyPayPage() {
     setLoading(true); setError(null)
     try {
       const { data: cur, error: e1 } = await supabase
-        .from('shifts')
+        .from(T_SHIFTS)
         .select('id, work_date, start_time, end_time, hours, rate_snapshot, notes, kind, status')
         .eq('tutor_id', uid)
         .gte('work_date', p.start)
@@ -94,7 +96,7 @@ export default function MyPayPage() {
 
       // History: everything before this period, grouped by fortnight.
       const { data: past, error: e2 } = await supabase
-        .from('shifts')
+        .from(T_SHIFTS)
         .select('id, work_date, hours, rate_snapshot, status')
         .eq('tutor_id', uid)
         .lt('work_date', p.start)
@@ -131,10 +133,8 @@ export default function MyPayPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
       if (!profile) { router.push('/'); return }
       if (profile.role === 'admin') { router.push('/tutor/payroll'); return }
       if (profile.role !== 'tutor') { router.push('/dashboard'); return }

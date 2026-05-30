@@ -35,14 +35,10 @@ export default function LoginPage() {
       } else if (!data?.user) {
         setError("Signed in but no user came back from Supabase — check that the account exists.")
       } else {
-        // Route by role: tutors + admins land on /tutor, students on /dashboard
-        const { data: profile } = await supabase
-          .from('students')
-          .select('role')
-          .eq('id', data.user.id)
-          .single()
-        const role = profile?.role || 'student'
-        router.push(role === 'tutor' || role === 'admin' ? '/tutor' : '/dashboard')
+        // Route by role from app_metadata — no DB query needed
+        const role = data.user.app_metadata?.role ?? 'student'
+        const dest = (role === 'tutor' || role === 'admin' || role === 'director') ? '/tutor' : '/dashboard'
+        router.replace(dest)
       }
     } catch (e) {
       // Network errors, malformed URL, etc. — surface them instead of silently failing.

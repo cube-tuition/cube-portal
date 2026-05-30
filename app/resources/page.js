@@ -1,10 +1,12 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { requireStudent } from '../../lib/requireStudent'
 import { useRouter } from 'next/navigation'
 import PortalNav from '../../components/PortalNav'
 import { inferSubject, subjectColor } from '../../components/CourseDetail'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
+import { T_CLASS_BOOKLETS, T_ENROLMENTS, T_STUDENTS } from '../../lib/tables'
 
 /*
  * Resources / Booklets
@@ -31,10 +33,10 @@ export default function Resources() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/'); return }
+      if (!requireStudent(user, router)) return
 
       const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
+        .from(T_STUDENTS).select('*').eq('id', user.id).single()
       setStudent(profile)
 
       const terms = await fetchAllTerms()
@@ -44,7 +46,7 @@ export default function Resources() {
       // Note: classes table has no 'subject' column — subject is inferred
       // from class_name by inferSubject() in CourseDetail.js.
       const { data: links } = await supabase
-        .from('student_classes')
+        .from(T_ENROLMENTS)
         .select('classes(id, class_name)')
         .eq('student_id', user.id)
 
@@ -77,7 +79,7 @@ export default function Resources() {
     const load = async () => {
       setBookletsLoading(true)
       const { data } = await supabase
-        .from('class_booklets')
+        .from(T_CLASS_BOOKLETS)
         .select('id, booklet_name, storage_path, week, updated_at')
         .eq('class_id', selectedClass.id)
         .eq('term_number', currentTerm.term_number)

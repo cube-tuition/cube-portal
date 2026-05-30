@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../lib/terms'
 import { inferSubject, subjectsMatch } from './CourseDetail'
+import { T_ATTENDANCE, T_BOOKLETS, T_ENROLMENTS, T_QUIZ_RESULTS } from '../lib/tables'
 
 /*
  * SessionMarker — the per-session marking UI (workbook + roll + notes).
@@ -128,8 +129,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
 
       // Roster
       const { data: links } = await supabase
-        .from('student_classes')
-        .select('students (id, full_name, school, school_year)')
+        .from(T_ENROLMENTS)
+        .select('students (id, full_name, school, year)')
         .eq('class_id', classId)
       if (cancelled) return
       const students = (links || [])
@@ -161,7 +162,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
 
       if (studentIds.length > 0) {
         const { data: attRows } = await supabase
-          .from('attendance')
+          .from(T_ATTENDANCE)
           .select('student_id, status, notes, created_at')
           .eq('class_id', classId)
           .eq('session_date', dateISO)
@@ -179,7 +180,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
 
         if (weekLabel) {
           const { data: qzRows } = await supabase
-            .from('quiz_results')
+            .from(T_QUIZ_RESULTS)
             .select('student_id, subject, week, score, homework_grade, created_at')
             .in('student_id', studentIds)
             .eq('week', weekLabel)
@@ -205,7 +206,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       for (const s of students) hist[s.id] = { quizzes: [], attendance: [] }
       if (containing && studentIds.length > 0) {
         const { data: qzAll } = await supabase
-          .from('quiz_results')
+          .from(T_QUIZ_RESULTS)
           .select('student_id, subject, week, score, max_score, homework_grade, quiz_date')
           .in('student_id', studentIds)
           .gte('quiz_date', containing.start_date)
@@ -218,7 +219,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
           hist[q.student_id].quizzes.push(q)
         }
         const { data: attAll } = await supabase
-          .from('attendance')
+          .from(T_ATTENDANCE)
           .select('student_id, session_date, status, notes')
           .eq('class_id', classId)
           .in('student_id', studentIds)
@@ -238,7 +239,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       const year = parseYearFromCourse(cls.class_name)
       if (containing && week != null && week >= 1 && week <= 10) {
         const { data: bks } = await supabase
-          .from('booklets')
+          .from(T_BOOKLETS)
           .select('id, booklet_name, year, subject, week, term_number, pdf_attachment_ids, pdf_filenames')
           .eq('term_number', containing.term_number)
           .eq('week', week)
@@ -278,7 +279,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       if (hasAttendance || hasComment) {
         try {
           const { data: existing } = await supabase
-            .from('attendance')
+            .from(T_ATTENDANCE)
             .select('id')
             .eq('class_id', classId)
             .eq('student_id', s.id)
@@ -293,8 +294,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             notes: hasComment ? m.comment.trim() : null,
           }
           const { error } = existingId
-            ? await supabase.from('attendance').update(payload).eq('id', existingId)
-            : await supabase.from('attendance').insert(payload)
+            ? await supabase.from(T_ATTENDANCE).update(payload).eq('id', existingId)
+            : await supabase.from(T_ATTENDANCE).insert(payload)
           if (error) errors.push(`Attendance · ${s.full_name}: ${error.message}`)
         } catch (e) {
           errors.push(`Attendance · ${s.full_name}: ${e.message}`)
@@ -308,7 +309,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       if (hasHw || hasRq) {
         try {
           const { data: existing } = await supabase
-            .from('quiz_results')
+            .from(T_QUIZ_RESULTS)
             .select('id, subject')
             .eq('student_id', s.id)
             .eq('week', weekLabel)
@@ -324,8 +325,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             homework_grade: hasHw ? m.hw : null,
           }
           const { error } = existingRow
-            ? await supabase.from('quiz_results').update(payload).eq('id', existingRow.id)
-            : await supabase.from('quiz_results').insert(payload)
+            ? await supabase.from(T_QUIZ_RESULTS).update(payload).eq('id', existingRow.id)
+            : await supabase.from(T_QUIZ_RESULTS).insert(payload)
           if (error) errors.push(`HW/RQ · ${s.full_name}: ${error.message}`)
         } catch (e) {
           errors.push(`HW/RQ · ${s.full_name}: ${e.message}`)
@@ -644,7 +645,7 @@ function MarkTable({
                             onClick={() => onToggleExpand?.(s.id)}
                             className="text-[10px] text-[#325099]/80 hover:text-[#062E63] truncate transition text-left"
                           >
-                            {s.school || '—'} · Y{s.school_year || '?'} · {isOpen ? 'Hide history ↑' : 'Term history ↓'}
+                            {s.school || '—'} · Y{s.year || '?'} · {isOpen ? 'Hide history ↑' : 'Term history ↓'}
                           </button>
                         </div>
                       </div>

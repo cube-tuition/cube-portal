@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { requireStudent } from '../../lib/requireStudent'
 import {
   fetchAllTerms,
   getCurrentTerm,
@@ -12,6 +13,7 @@ import {
   filterByTerm,
 } from '../../lib/terms'
 import PortalNav from '../../components/PortalNav'
+import { T_STUDENTS } from '../../lib/tables'
 
 export default function ArchivePage() {
   const [student, setStudent] = useState(null)
@@ -26,10 +28,10 @@ export default function ArchivePage() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/'); return }
+      if (!requireStudent(user, router)) return
 
       const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
+        .from(T_STUDENTS).select('*').eq('id', user.id).single()
       setStudent(profile)
 
       const all = await fetchAllTerms()
@@ -37,9 +39,9 @@ export default function ArchivePage() {
       setCurrentTerm(getCurrentTerm(all))
 
       const [{ data: qz }, { data: ex }, { data: at }] = await Promise.all([
-        supabase.from('quiz_results').select('subject, score, max_score, quiz_date').eq('student_id', user.id),
-        supabase.from('results').select('score, exams(name, max_score, exam_date)').eq('student_id', user.id),
-        supabase.from('attendance').select('class_id, session_date, status').eq('student_id', user.id),
+        supabase.from(T_QUIZ_RESULTS).select('subject, score, max_score, quiz_date').eq('student_id', user.id),
+        supabase.from(T_RESULTS).select('score, exams(name, max_score, exam_date)').eq('student_id', user.id),
+        supabase.from(T_ATTENDANCE).select('class_id, session_date, status').eq('student_id', user.id),
       ])
       setQuizzes(qz || [])
       setResults(ex || [])

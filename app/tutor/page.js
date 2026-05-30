@@ -3,9 +3,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
+import { getAuthProfile } from '../../lib/getProfile'
 import TutorNav from '../../components/TutorNav'
 import { normalizeDays } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
+import { T_ENROLMENTS, T_SHIFTS } from '../../lib/tables'
 
 /*
  * Tutor portal — landing page
@@ -85,16 +87,9 @@ export default function TutorHome() {
 
   useEffect(() => {
     const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-
-      const { data: profile, error } = await supabase
-        .from('students')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-
-      if (error || !profile) { setAuthErr(error?.message || 'No profile'); return }
+      if (!profile) { setAuthErr('No profile found'); return }
       if (profile.role !== 'tutor' && profile.role !== 'admin') {
         router.push('/dashboard')
         return
@@ -108,16 +103,16 @@ export default function TutorHome() {
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0]
       // Hide archived classes (Airtable sweep marks them with archived_at).
-      let cq = supabase.from('classes').select('*').is('archived_at', null)
+      let cq = supabase.from(T_CLASSES).select('*').is('archived_at', null)
       if (!isAdmin && firstName) cq = cq.ilike('teacher', firstName)
       const { data: cls } = await cq
       setClasses(cls || [])
 
-      // Enrollment counts — single round trip via `student_classes`.
+      // Enrollment counts — single round trip via `enrolments`.
       const ids = (cls || []).map(c => c.id)
       if (ids.length > 0) {
         const { data: links } = await supabase
-          .from('student_classes')
+          .from(T_ENROLMENTS)
           .select('class_id')
           .in('class_id', ids)
         const counts = {}
@@ -129,7 +124,7 @@ export default function TutorHome() {
       const currentPeriod = payPeriod(isoDate(new Date()))
       setPeriod(currentPeriod)
       let sq = supabase
-        .from('shifts')
+        .from(T_SHIFTS)
         .select('id, tutor_id, work_date, start_time, end_time, hours, rate_snapshot, kind, status, notes')
         .gte('work_date', currentPeriod.start)
         .lte('work_date', currentPeriod.end)

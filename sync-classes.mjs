@@ -100,7 +100,7 @@ for (const record of records) {
     }
 
     const { error: linkError } = await supabase
-      .from('student_classes')
+      .from('enrolments')
       .upsert({
         student_id: student.id,
         class_id: classRow.id

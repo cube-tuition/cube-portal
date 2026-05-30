@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { T_DROPIN_SIGNINS } from '../../../lib/tables'
 
 /*
  * /api/notify-booking
@@ -57,10 +58,10 @@ export async function POST(request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     )
     const { data, error } = await supabase
-      .from('dropin_signins')
+      .from(T_DROPIN_SIGNINS)
       .select(`
         id, subject, question, signed_in_at,
-        students (full_name, school, school_year, email),
+        students (full_name, school, year, email),
         dropin_sessions (session_date, start_time, end_time, location, tutors)
       `)
       .eq('id', bookingId)
@@ -115,7 +116,7 @@ export async function POST(request) {
           <div style="font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:#325099;font-weight:600;margin-bottom:6px">Student</div>
           <p style="margin:0 0 4px;font-size:15px;font-weight:600">${escapeHtml(student.full_name || '—')}</p>
           <p style="margin:0 0 16px;font-size:13px;color:#2A2035;opacity:0.7">
-            ${escapeHtml(student.school || '')}${student.school_year ? ` · Year ${escapeHtml(student.school_year)}` : ''}
+            ${escapeHtml(student.school || '')}${student.year ? ` · Year ${escapeHtml(student.year)}` : ''}
             ${student.email ? `<br><a href="mailto:${escapeHtml(student.email)}" style="color:#325099;text-decoration:none">${escapeHtml(student.email)}</a>` : ''}
           </p>
 
@@ -144,7 +145,7 @@ export async function POST(request) {
     isCancel ? 'Drop-in cancellation' : 'New drop-in booking',
     '',
     `Student:  ${student.full_name || '—'}`,
-    `School:   ${student.school || '—'}${student.school_year ? ` · Year ${student.school_year}` : ''}`,
+    `School:   ${student.school || '—'}${student.year ? ` · Year ${student.year}` : ''}`,
     student.email ? `Email:    ${student.email}` : null,
     '',
     `Session:  ${session.session_date} · ${(session.start_time||'').slice(0,5)}–${(session.end_time||'').slice(0,5)}`,

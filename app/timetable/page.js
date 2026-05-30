@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { requireStudent } from '../../lib/requireStudent'
 import { useRouter } from 'next/navigation'
 import PortalNav from '../../components/PortalNav'
 import { normalizeDay } from '../../lib/format'
+import { T_STUDENTS, T_TIMETABLE } from '../../lib/tables'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -38,17 +40,17 @@ export default function Timetable() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/'); return }
+      if (!requireStudent(user, router)) return
 
       const { data: profile } = await supabase
-        .from('students')
+        .from(T_STUDENTS)
         .select('*')
         .eq('id', user.id)
         .single()
       setStudent(profile)
 
       const { data } = await supabase
-        .from('timetable')
+        .from(T_TIMETABLE)
         .select('*')
         .eq('student_id', user.id)
       setSchedule(data || [])

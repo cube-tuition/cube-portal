@@ -1,8 +1,10 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { requireStudent } from '../../lib/requireStudent'
 import { useRouter } from 'next/navigation'
 import PortalNav from '../../components/PortalNav'
+import { T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_STUDENTS } from '../../lib/tables'
 
 /*
  * Drop-in Booking
@@ -111,10 +113,10 @@ export default function DropinPage() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/'); return }
+      if (!requireStudent(user, router)) return
 
       const { data: profile } = await supabase
-        .from('students')
+        .from(T_STUDENTS)
         .select('*')
         .eq('id', user.id)
         .single()
@@ -125,7 +127,7 @@ export default function DropinPage() {
       const lookBack = new Date(today.getFullYear(), today.getMonth() - 1, 1)
       const lookAhead = new Date(today.getFullYear(), today.getMonth() + 3, 0)
       const { data: sess } = await supabase
-        .from('dropin_sessions')
+        .from(T_DROPIN_SESSIONS)
         .select('*')
         .gte('session_date', isoDate(lookBack))
         .lte('session_date', isoDate(lookAhead))
@@ -139,7 +141,7 @@ export default function DropinPage() {
       setSessions(list)
 
       const { data: mine } = await supabase
-        .from('dropin_signins')
+        .from(T_DROPIN_SIGNINS)
         .select('id, session_id, subject, question, status, signed_in_at')
         .eq('student_id', user.id)
         .order('signed_in_at', { ascending: false })
@@ -223,7 +225,7 @@ export default function DropinPage() {
 
     setSubmitting(true)
     const { data, error: insErr } = await supabase
-      .from('dropin_signins')
+      .from(T_DROPIN_SIGNINS)
       .insert({
         session_id: selectedSession.id,
         student_id: student.id,
@@ -280,17 +282,17 @@ export default function DropinPage() {
     // cancellation email has everything it needs (the row is about to be
     // gone from Supabase).
     const { data: snapshot } = await supabase
-      .from('dropin_signins')
+      .from(T_DROPIN_SIGNINS)
       .select(`
         id, subject, question, signed_in_at,
-        students (full_name, school, school_year, email),
+        students (full_name, school, year, email),
         dropin_sessions (session_date, start_time, end_time, location, tutors)
       `)
       .eq('id', bookingId)
       .single()
 
     const { error: delErr } = await supabase
-      .from('dropin_signins')
+      .from(T_DROPIN_SIGNINS)
       .delete()
       .eq('id', bookingId)
     if (delErr) return
@@ -374,7 +376,7 @@ export default function DropinPage() {
             </p>
             <p className="text-lg font-semibold text-[#2A2035] font-display">{student.full_name}</p>
             <p className="text-xs text-[#2A2035]/50 mt-1">
-              {student.school} · Year {student.school_year}
+              {student.school} · Year {student.year}
             </p>
           </div>
 
@@ -895,7 +897,7 @@ function BookingModal({ session, student, existingBooking, capacity = DEFAULT_CA
           {/* Read-only student info */}
           <div className="grid grid-cols-2 gap-3 mb-5">
             <ReadOnlyField label="Name" value={student.full_name} />
-            <ReadOnlyField label="Year" value={`Year ${student.school_year || '—'}`} />
+            <ReadOnlyField label="Year" value={`Year ${student.year || '—'}`} />
           </div>
 
           {/* Subjects — multi-select */}

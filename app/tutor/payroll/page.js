@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
+import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { formatTermLabel } from '../../../lib/terms'
+import { T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS } from '../../../lib/tables'
 
 // Xero Bills CSV defaults — edit here if your chart of accounts differs.
 const XERO_ACCOUNT_CODE = '477'         // 477 = Wages & Salaries (AU default)
@@ -103,7 +105,7 @@ export default function PayrollPage() {
       setRun(pr)
 
       const { data: sh, error: shErr } = await supabase
-        .from('pay_run_shifts')
+        .from(T_PAY_RUN_SHIFTS)
         .select('*')
         .gte('work_date', pr.period_start)
         .lte('work_date', pr.period_end)
@@ -122,17 +124,15 @@ export default function PayrollPage() {
   // Boot: auth → admin check → fetch terms → pick initial term + fortnight.
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
       if (!profile || profile.role !== 'admin') {
         router.push('/tutor'); return
       }
       setStaff(profile)
 
       const { data: termsData } = await supabase
-        .from('terms')
+        .from(T_TERMS)
         .select('*')
         .order('start_date', { ascending: true })
       const allTerms = termsData || []
@@ -173,7 +173,7 @@ export default function PayrollPage() {
   const updateShift = async (id, patch) => {
     setSavingId(id)
     try {
-      const { error: e } = await supabase.from('shifts').update(patch).eq('id', id)
+      const { error: e } = await supabase.from(T_SHIFTS).update(patch).eq('id', id)
       if (e) throw e
       await reload()
     } catch (e) {
@@ -204,8 +204,8 @@ export default function PayrollPage() {
     try {
       // Re-fetch only shifts attached to this run (i.e. approved).
       const { data: rows, error: e } = await supabase
-        .from('shifts')
-        .select('id, work_date, start_time, end_time, hours, rate_snapshot, notes, kind, tutor_id, students!shifts_tutor_id_fkey(full_name, email, xero_contact_id, xero_contact_name)')
+        .from(T_SHIFTS)
+        .select('id, work_date, start_time, end_time, hours, rate_snapshot, notes, kind, tutor_id, tutors!shifts_tutor_id_fkey(full_name, email)')
         .eq('pay_run_id', run.id)
         .order('tutor_id').order('work_date')
       if (e) throw e
@@ -528,8 +528,8 @@ function buildXeroCsv(rows, run) {
 
   const lines = [cols.join(',')]
   for (const r of rows) {
-    const tutor = r.students
-    const contactName = tutor?.xero_contact_name || tutor?.full_name || ''
+    const tutor = r.tutors
+    const contactName = tutor?.full_name || ''
     const email = tutor?.email || ''
     const inv   = invNumberFor(tutor)
     const desc  = (r.notes ? r.notes.replace(/^Auto:\s*/, '') : r.kind) +

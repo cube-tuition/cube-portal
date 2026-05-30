@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell,
 } from 'recharts'
+import { T_PREPOST_SCORES, T_PREPOST_TESTS } from '../lib/tables'
 
 /*
  * PrePostSection — Pre/Post test management for a class+term.
@@ -81,7 +82,7 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
 
       // Fetch test config
       const { data: testRow } = await supabase
-        .from('prepost_tests')
+        .from(T_PREPOST_TESTS)
         .select('id, topics, updated_at')
         .eq('class_id', classId)
         .eq('term_id', termId)
@@ -92,7 +93,7 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
       // Fetch scores if a test exists
       if (testRow) {
         const { data: scoreRows } = await supabase
-          .from('prepost_scores')
+          .from(T_PREPOST_SCORES)
           .select('student_id, test_type, scores')
           .eq('test_id', testRow.id)
         if (cancelled) return
@@ -131,12 +132,12 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
     if (cleaned.length === 0) return
     setSavingSetup(true)
     if (test) {
-      await supabase.from('prepost_tests')
+      await supabase.from(T_PREPOST_TESTS)
         .update({ topics: cleaned, updated_at: new Date().toISOString() })
         .eq('id', test.id)
       setTest(prev => ({ ...prev, topics: cleaned }))
     } else {
-      const { data } = await supabase.from('prepost_tests')
+      const { data } = await supabase.from(T_PREPOST_TESTS)
         .insert({ class_id: classId, term_id: termId, topics: cleaned })
         .select().single()
       setTest(data)
@@ -174,7 +175,7 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
         const hasAny = scores.some(s => s != null && s !== '')
         if (!hasAny) continue
         const { data: existing } = await supabase
-          .from('prepost_scores')
+          .from(T_PREPOST_SCORES)
           .select('id')
           .eq('test_id', test.id)
           .eq('student_id', student.id)
@@ -188,9 +189,9 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
           updated_at: new Date().toISOString(),
         }
         if (existing) {
-          await supabase.from('prepost_scores').update(payload).eq('id', existing.id)
+          await supabase.from(T_PREPOST_SCORES).update(payload).eq('id', existing.id)
         } else {
-          await supabase.from('prepost_scores').insert(payload)
+          await supabase.from(T_PREPOST_SCORES).insert(payload)
         }
       }
     }

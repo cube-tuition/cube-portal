@@ -289,7 +289,7 @@ export type Database = {
           },
         ]
       }
-      student_classes: {
+      enrolments: {
         Row: {
           class_id: number | null
           id: number
@@ -307,14 +307,14 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "student_classes_class_id_fkey"
+            foreignKeyName: "enrolments_class_id_fkey"
             columns: ["class_id"]
             isOneToOne: false
             referencedRelation: "classes"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "student_classes_student_id_fkey"
+            foreignKeyName: "enrolments_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "students"

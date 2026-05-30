@@ -3,9 +3,11 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { inferSubject, subjectColor } from '../../../components/CourseDetail'
+import { T_CLASSES, T_ENROLMENTS, T_TERM_COMMENTS } from '../../../lib/tables'
 
 /*
  * Admin term reports — /tutor/reports
@@ -32,10 +34,8 @@ export default function ReportsLandingPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
       if (!profile || profile.role !== 'admin') {
         router.push('/tutor'); return
       }
@@ -46,7 +46,7 @@ export default function ReportsLandingPage() {
       setTermId(getCurrentTerm(t)?.id || t?.[0]?.id || null)
 
       const { data: cls } = await supabase
-        .from('classes')
+        .from(T_CLASSES)
         .select('id, class_name, day_of_week, start_time, end_time, teacher, room')
         .is('archived_at', null)
       setClasses(cls || [])
@@ -54,8 +54,8 @@ export default function ReportsLandingPage() {
       const ids = (cls || []).map(c => c.id)
       if (ids.length > 0) {
         const { data: links } = await supabase
-          .from('student_classes')
-          .select('class_id, students (id, full_name, school, school_year)')
+          .from(T_ENROLMENTS)
+          .select('class_id, students (id, full_name, school, year)')
           .in('class_id', ids)
         const map = {}
         for (const l of links || []) {
@@ -76,7 +76,7 @@ export default function ReportsLandingPage() {
     if (!termId) return
     (async () => {
       const { data } = await supabase
-        .from('term_comments')
+        .from(T_TERM_COMMENTS)
         .select('class_id')
         .eq('term_id', termId)
       const tally = {}

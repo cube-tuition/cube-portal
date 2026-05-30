@@ -3,11 +3,13 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
+import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import SessionMarker from '../../../../../components/SessionMarker'
 import WeekBooklet from '../../../../../components/WeekBooklet'
 import { normalizeDays } from '../../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm } from '../../../../../lib/terms'
+import { T_CLASSES, T_SUB_ASSIGNMENTS, T_TUTORS } from '../../../../../lib/tables'
 
 /*
  * Single-session standalone page — /tutor/classes/[classId]/[date]
@@ -86,9 +88,8 @@ export default function SessionDetailPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase.from('students').select('*').eq('id', user.id).single()
       if (!profile) { setError('No profile found.'); setLoading(false); return }
       if (profile.role !== 'tutor' && profile.role !== 'admin') {
         router.push('/dashboard'); return
@@ -99,7 +100,7 @@ export default function SessionDetailPage() {
       if (!dateLooksValid) { setError('Invalid date in URL.'); setLoading(false); return }
 
       const { data: row, error: clsErr } = await supabase
-        .from('classes').select('*').eq('id', classId).single()
+        .from(T_CLASSES).select('*').eq('id', classId).single()
       if (clsErr || !row) { setError('Class not found.'); setLoading(false); return }
 
       const isAdmin = profile.role === 'admin'
@@ -109,7 +110,7 @@ export default function SessionDetailPage() {
 
       // Check for a sub assignment on this specific date
       const { data: subRow } = await supabase
-        .from('sub_assignments')
+        .from(T_SUB_ASSIGNMENTS)
         .select('id, sub_tutor_id')
         .eq('class_id', classId)
         .eq('session_date', dateISO)
@@ -126,7 +127,7 @@ export default function SessionDetailPage() {
       if (subRow) {
         // Resolve sub's name for the banner
         const { data: subProfile } = await supabase
-          .from('students').select('full_name').eq('id', subRow.sub_tutor_id).single()
+          .from(T_TUTORS).select('full_name').eq('id', subRow.sub_tutor_id).single()
         setSubAssignment({ sub_tutor_id: subRow.sub_tutor_id, sub_name: subProfile?.full_name || 'Sub teacher' })
       }
 

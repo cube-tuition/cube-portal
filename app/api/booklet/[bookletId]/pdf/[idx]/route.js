@@ -1,5 +1,6 @@
 import Airtable from 'airtable'
 import { createClient } from '@supabase/supabase-js'
+import { T_BOOKLETS } from '../../../../../../lib/tables'
 
 /*
  * /api/booklet/[bookletId]/pdf/[idx]
@@ -41,7 +42,7 @@ export async function GET(request, context) {
     )
 
     const { data: booklet, error } = await supabase
-      .from('booklets')
+      .from(T_BOOKLETS)
       .select('airtable_id, pdf_attachment_ids, pdf_filenames')
       .eq('id', bookletId)
       .single()

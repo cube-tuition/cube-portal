@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { useHub } from '../context'
+import { T_INFO_PAGES } from '../../../../lib/tables'
 
 /*
  * /tutor/hub/[slug]
@@ -82,7 +83,7 @@ export default function HubSlugPage() {
     setEditing(false)
     const load = async () => {
       const { data, error } = await supabase
-        .from('info_pages')
+        .from(T_INFO_PAGES)
         .select('slug, title, content, updated_at')
         .eq('slug', slug)
         .single()
@@ -98,7 +99,7 @@ export default function HubSlugPage() {
   const handleSave = async () => {
     setSaving(true)
     const { error } = await supabase
-      .from('info_pages')
+      .from(T_INFO_PAGES)
       .update({ content: draft, updated_at: new Date().toISOString() })
       .eq('slug', slug)
     setSaving(false)

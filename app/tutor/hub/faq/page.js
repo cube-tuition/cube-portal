@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../../lib/supabase'
 import { useHub } from '../context'
+import { T_FAQ_CATEGORIES, T_FAQ_ITEMS } from '../../../../lib/tables'
 
 /*
  * /tutor/hub/faq  — FAQ page inside the hub sidebar layout.
@@ -55,12 +56,12 @@ export default function HubFAQPage() {
   const fetchFAQ = async () => {
     setFaqLoading(true)
     const { data: cats }  = await supabase
-      .from('faq_categories')
+      .from(T_FAQ_CATEGORIES)
       .select('id, title, sort_order')
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true })
     const { data: items } = await supabase
-      .from('faq_items')
+      .from(T_FAQ_ITEMS)
       .select('id, category_id, question, answer, sort_order')
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true })
@@ -78,7 +79,7 @@ export default function HubFAQPage() {
     if (!title) return
     setAddingCat(true)
     const maxOrder = categories.reduce((m, c) => Math.max(m, c.sort_order), 0)
-    await supabase.from('faq_categories').insert({ title, sort_order: maxOrder + 1 })
+    await supabase.from(T_FAQ_CATEGORIES).insert({ title, sort_order: maxOrder + 1 })
     setNewCatTitle('')
     setAddingCat(false)
     await fetchFAQ()
@@ -183,7 +184,7 @@ function CategorySection({ cat, isAdmin, onRefresh }) {
     const title = titleDraft.trim()
     if (!title || title === cat.title) { setEditingTitle(false); return }
     setSavingTitle(true)
-    await supabase.from('faq_categories').update({ title }).eq('id', cat.id)
+    await supabase.from(T_FAQ_CATEGORIES).update({ title }).eq('id', cat.id)
     setSavingTitle(false)
     setEditingTitle(false)
     onRefresh()
@@ -192,7 +193,7 @@ function CategorySection({ cat, isAdmin, onRefresh }) {
   const handleDeleteCategory = async () => {
     if (!confirmDelete) { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 4000); return }
     setDeleting(true)
-    await supabase.from('faq_categories').delete().eq('id', cat.id)
+    await supabase.from(T_FAQ_CATEGORIES).delete().eq('id', cat.id)
     onRefresh()
   }
 
@@ -202,7 +203,7 @@ function CategorySection({ cat, isAdmin, onRefresh }) {
     if (!q) return
     setSavingQ(true)
     const maxOrder = cat.items.reduce((m, i) => Math.max(m, i.sort_order), 0)
-    await supabase.from('faq_items').insert({
+    await supabase.from(T_FAQ_ITEMS).insert({
       category_id: cat.id, question: q, answer: a, sort_order: maxOrder + 1,
     })
     setNewQuestion(''); setNewAnswer(''); setAddingQ(false); setSavingQ(false)
@@ -320,14 +321,14 @@ function FAQItem({ item, isAdmin, onRefresh }) {
     const question = qDraft.trim(); const answer = aDraft.trim()
     if (!question) return
     setSaving(true)
-    await supabase.from('faq_items').update({ question, answer, updated_at: new Date().toISOString() }).eq('id', item.id)
+    await supabase.from(T_FAQ_ITEMS).update({ question, answer, updated_at: new Date().toISOString() }).eq('id', item.id)
     setSaving(false); setEditing(false); onRefresh()
   }
 
   const handleDelete = async () => {
     if (!confirmDel) { setConfirmDel(true); setTimeout(() => setConfirmDel(false), 4000); return }
     setDeleting(true)
-    await supabase.from('faq_items').delete().eq('id', item.id)
+    await supabase.from(T_FAQ_ITEMS).delete().eq('id', item.id)
     onRefresh()
   }
 

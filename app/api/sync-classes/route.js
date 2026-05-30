@@ -1,5 +1,6 @@
 import Airtable from 'airtable'
 import { createClient } from '@supabase/supabase-js'
+import { T_CLASSES, T_ENROLMENTS, T_STUDENTS } from '../../../lib/tables'
 
 /*
  * /api/sync-classes
@@ -8,7 +9,7 @@ import { createClient } from '@supabase/supabase-js'
  *   1. Upserts each Airtable row into public.classes (keyed by airtable_id).
  *   2. Parses the "Students" rollup/text into a list of full names.
  *   3. Looks each name up in public.students (case-insensitive).
- *   4. Reconciles public.student_classes — inserts new enrolments, deletes
+ *   4. Reconciles public.enrolments — inserts new enrolments, deletes
  *      enrolments where the student is no longer listed against that class.
  *
  * Auth: Bearer ${CRON_SECRET} (same pattern as /api/sync-quizzes).
@@ -94,7 +95,7 @@ export async function GET(request) {
 
     // ── 2. Load all students once (id, full_name, airtable_id) for matching
     const { data: studentRows, error: stuErr } = await supabase
-      .from('students')
+      .from(T_STUDENTS)
       .select('id, full_name, airtable_id')
     if (stuErr) {
       return Response.json({ error: `Could not load students: ${stuErr.message}` }, { status: 500 })
@@ -170,7 +171,7 @@ export async function GET(request) {
         // Resolve the existing id if any so the student-match step still works.
         // Count as "would upsert" regardless of whether the row exists yet.
         const { data: existing } = await supabase
-          .from('classes')
+          .from(T_CLASSES)
           .select('id, archived_at')
           .eq('airtable_id', rec.id)
           .maybeSingle()
@@ -182,7 +183,7 @@ export async function GET(request) {
         // Clear archived_at on every upsert — if a class is back in Airtable,
         // it's active again.
         const { data: upserted, error: upErr } = await supabase
-          .from('classes')
+          .from(T_CLASSES)
           .upsert({ ...classRow, archived_at: null }, { onConflict: 'airtable_id' })
           .select('id, archived_at')
           .single()
@@ -208,7 +209,7 @@ export async function GET(request) {
       }
 
       const { data: existing, error: exErr } = await supabase
-        .from('student_classes')
+        .from(T_ENROLMENTS)
         .select('id, student_id')
         .eq('class_id', classId)
       if (exErr) continue
@@ -221,7 +222,7 @@ export async function GET(request) {
 
       if (!dryRun && toInsert.length > 0) {
         const { error: insErr } = await supabase
-          .from('student_classes')
+          .from(T_ENROLMENTS)
           .insert(toInsert.map(sid => ({ student_id: sid, class_id: classId })))
         if (!insErr) stats.enrolments_added += toInsert.length
       } else if (dryRun) {
@@ -230,7 +231,7 @@ export async function GET(request) {
 
       if (!dryRun && toDelete.length > 0) {
         const { error: delErr } = await supabase
-          .from('student_classes')
+          .from(T_ENROLMENTS)
           .delete()
           .in('id', toDelete)
         if (!delErr) stats.enrolments_dropped += toDelete.length
@@ -245,7 +246,7 @@ export async function GET(request) {
     const archivePreview = []
     if (!termFilter) {
       const { data: allActive, error: actErr } = await supabase
-        .from('classes')
+        .from(T_CLASSES)
         .select('id, airtable_id, class_name, archived_at')
         .is('archived_at', null)
         .not('airtable_id', 'is', null)
@@ -257,7 +258,7 @@ export async function GET(request) {
         if (!dryRun && toArchive.length > 0) {
           const ids = toArchive.map(c => c.id)
           const { error: arErr } = await supabase
-            .from('classes')
+            .from(T_CLASSES)
             .update({ archived_at: new Date().toISOString() })
             .in('id', ids)
           if (!arErr) stats.classes_archived = ids.length

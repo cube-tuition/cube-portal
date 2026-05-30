@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { T_CLASS_BOOKLETS } from '../lib/tables'
 
 /*
  * <WeekBooklet cls={...} term={...} week={N} isAdmin={bool} />
@@ -41,7 +42,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
     const load = async () => {
       setLoading(true)
       const { data } = await supabase
-        .from('class_booklets')
+        .from(T_CLASS_BOOKLETS)
         .select('id, booklet_name, storage_path, updated_at')
         .eq('class_id', cls.id)
         .eq('term_number', term.term_number)
@@ -98,7 +99,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
     // Upsert metadata row
     const name = uploadName.trim() || uploadFile.name.replace(/\.pdf$/i, '')
     const { data: row, error: dbErr } = await supabase
-      .from('class_booklets')
+      .from(T_CLASS_BOOKLETS)
       .upsert(
         {
           class_id: cls.id,
@@ -138,7 +139,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
     if (booklet?.storage_path) {
       await supabase.storage.from('class-booklets').remove([booklet.storage_path])
     }
-    await supabase.from('class_booklets').delete().eq('id', booklet.id)
+    await supabase.from(T_CLASS_BOOKLETS).delete().eq('id', booklet.id)
     setBooklet(null)
     setViewUrl(null)
     setDeleting(false)

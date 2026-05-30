@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
+import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import SessionMarker from '../../../../components/SessionMarker'
 import WeekBooklet from '../../../../components/WeekBooklet'
@@ -10,6 +11,7 @@ import { normalizeDays } from '../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { inferSubject, subjectColor, subjectsMatch } from '../../../../components/CourseDetail'
 import PrePostSection from '../../../../components/PrePostSection'
+import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS } from '../../../../lib/tables'
 
 /*
  * Per-class overview — /tutor/classes/[classId]
@@ -95,10 +97,8 @@ export default function ClassOverviewPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
       if (!profile) { setError('No profile found.'); setLoading(false); return }
       if (profile.role !== 'tutor' && profile.role !== 'admin') {
         router.push('/dashboard'); return
@@ -108,7 +108,7 @@ export default function ClassOverviewPage() {
       if (!classId) { setError('Missing class id.'); setLoading(false); return }
 
       const { data: row, error: clsErr } = await supabase
-        .from('classes').select('*').eq('id', classId).single()
+        .from(T_CLASSES).select('*').eq('id', classId).single()
       if (clsErr || !row) { setError('Class not found.'); setLoading(false); return }
 
       // Access check: admin → always OK; regular teacher → OK;
@@ -119,7 +119,7 @@ export default function ClassOverviewPage() {
       const isRegularTeacher = isAdmin || (firstName && teacherFirst && firstName === teacherFirst)
       if (!isRegularTeacher) {
         const { data: subCheck } = await supabase
-          .from('sub_assignments')
+          .from(T_SUB_ASSIGNMENTS)
           .select('id')
           .eq('class_id', classId)
           .eq('sub_tutor_id', profile.id)
@@ -131,15 +131,15 @@ export default function ClassOverviewPage() {
       }
       setCls(row)
 
-      // Current term
+      // Use the class's own term; fall back to the current term if unset
       const terms = await fetchAllTerms()
-      const activeTerm = getCurrentTerm(terms)
+      const activeTerm = (row.term_id && terms.find(t => t.id === row.term_id)) || getCurrentTerm(terms)
       setTerm(activeTerm)
 
       // Roster
       const { data: links } = await supabase
-        .from('student_classes')
-        .select('students (id, full_name, school, school_year)')
+        .from(T_ENROLMENTS)
+        .select('students (id, full_name, school, year)')
         .eq('class_id', classId)
       const students = (links || [])
         .map(l => l.students).filter(Boolean)
@@ -150,7 +150,7 @@ export default function ClassOverviewPage() {
 
       // Attendance for this class within the term window
       const { data: attRows } = await supabase
-        .from('attendance')
+        .from(T_ATTENDANCE)
         .select('student_id, session_date, status, notes')
         .eq('class_id', classId)
         .gte('session_date', activeTerm.start_date)
@@ -161,7 +161,7 @@ export default function ClassOverviewPage() {
       const studentIds = students.map(s => s.id)
       if (studentIds.length > 0) {
         const { data: qzRows } = await supabase
-          .from('quiz_results')
+          .from(T_QUIZ_RESULTS)
           .select('student_id, subject, week, score, max_score, homework_grade, quiz_date')
           .in('student_id', studentIds)
           .gte('quiz_date', activeTerm.start_date)
@@ -170,18 +170,20 @@ export default function ClassOverviewPage() {
         setQuizzes((qzRows || []).filter(q => subjectsMatch(q.subject, subj)))
       }
 
-      // All staff for sub assignment dropdown (admin only, but fetch for everyone
-      // so the sub banner can show the sub's name for regular teachers too)
-      const { data: staffRows } = await supabase
-        .from('students')
-        .select('id, full_name, role')
-        .in('role', ['tutor', 'admin'])
-        .order('full_name')
-      setAllStaff(staffRows || [])
+      // All staff for sub assignment dropdown — query tutors and admins separately
+      const [{ data: tutorRows }, { data: adminRows }] = await Promise.all([
+        supabase.from(T_TUTORS).select('id, full_name').order('full_name'),
+        supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
+      ])
+      const staffRows = [
+        ...(tutorRows || []).map(t => ({ ...t, role: 'tutor' })),
+        ...(adminRows || []).map(a => ({ ...a, role: 'admin' })),
+      ].sort((a, b) => a.full_name.localeCompare(b.full_name))
+      setAllStaff(staffRows)
 
       // Sub assignments for this class (all dates, so we can show badges on tabs)
       const { data: subs } = await supabase
-        .from('sub_assignments')
+        .from(T_SUB_ASSIGNMENTS)
         .select('id, session_date, sub_tutor_id')
         .eq('class_id', classId)
       const subMap = {}
@@ -484,7 +486,7 @@ function SubPicker({ classId, dateISO, cls, allStaff, subAssignments, setSubAssi
     if (!staffId) {
       // Remove sub assignment
       if (existing) {
-        await supabase.from('sub_assignments').delete().eq('id', existing.id)
+        await supabase.from(T_SUB_ASSIGNMENTS).delete().eq('id', existing.id)
         setSubAssignments(prev => { const n = { ...prev }; delete n[dateISO]; return n })
       }
     } else {
@@ -495,7 +497,7 @@ function SubPicker({ classId, dateISO, cls, allStaff, subAssignments, setSubAssi
         sub_tutor_id: staffId,
       }
       const { data: row } = await supabase
-        .from('sub_assignments')
+        .from(T_SUB_ASSIGNMENTS)
         .upsert(payload, { onConflict: 'class_id,session_date' })
         .select()
         .single()
@@ -503,7 +505,7 @@ function SubPicker({ classId, dateISO, cls, allStaff, subAssignments, setSubAssi
         setSubAssignments(prev => ({ ...prev, [dateISO]: row }))
         // Re-attribute any existing draft shift to the sub
         await supabase
-          .from('shifts')
+          .from(T_SHIFTS)
           .update({ tutor_id: staffId, notes: `Auto: ${cls.class_name} (sub)` })
           .eq('source_table', 'class_session')
           .eq('source_id', `${classId}_${dateISO}`)
@@ -631,10 +633,10 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
       setLoading(true); setError(null)
       try {
         const [{ data: cr, error: e1 }, { data: cm, error: e2 }] = await Promise.all([
-          supabase.from('term_criteria')
+          supabase.from(T_TERM_CRITERIA)
             .select('id, student_id, subject_knowledge, class_participation, class_behaviour, homework_effort')
             .eq('class_id', classId).eq('term_id', termId),
-          supabase.from('term_comments')
+          supabase.from(T_TERM_COMMENTS)
             .select('id, student_id, comment')
             .eq('class_id', classId).eq('term_id', termId),
         ])
@@ -663,12 +665,12 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
     setSavingId(studentId)
     try {
       if (prev?.id) {
-        const { error: e } = await supabase.from('term_criteria')
+        const { error: e } = await supabase.from(T_TERM_CRITERIA)
           .update({ [criterionKey]: grade }).eq('id', prev.id)
         if (e) throw e
         setCriteriaMap(m => ({ ...m, [studentId]: { ...prev, [criterionKey]: grade } }))
       } else {
-        const { data, error: e } = await supabase.from('term_criteria')
+        const { data, error: e } = await supabase.from(T_TERM_CRITERIA)
           .insert({ student_id: studentId, class_id: classId, term_id: termId, [criterionKey]: grade })
           .select('id').single()
         if (e) throw e
@@ -687,12 +689,12 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
     setSavingId(studentId)
     try {
       if (prev?.id) {
-        const { error: e } = await supabase.from('term_comments')
+        const { error: e } = await supabase.from(T_TERM_COMMENTS)
           .update({ comment: trimmed }).eq('id', prev.id)
         if (e) throw e
         setCommentsMap(m => ({ ...m, [studentId]: { ...prev, comment: trimmed } }))
       } else {
-        const { data, error: e } = await supabase.from('term_comments')
+        const { data, error: e } = await supabase.from(T_TERM_COMMENTS)
           .insert({ student_id: studentId, class_id: classId, term_id: termId, comment: trimmed })
           .select('id').single()
         if (e) throw e
@@ -818,7 +820,7 @@ function StudentMeta({ student: s, savingId, savedId }) {
         </span>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-[#2A2035] truncate">{s.full_name || 'Unknown'}</p>
-          <p className="text-[10px] text-[#2A2035]/50">{s.school || '—'} · Y{s.school_year || '?'}</p>
+          <p className="text-[10px] text-[#2A2035]/50">{s.school || '—'} · Y{s.year || '?'}</p>
         </div>
       </div>
       <span className="text-[10px] font-semibold tracking-widest uppercase shrink-0">
@@ -828,3 +830,4 @@ function StudentMeta({ student: s, savingId, savedId }) {
     </div>
   )
 }
+

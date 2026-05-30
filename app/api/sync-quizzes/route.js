@@ -1,5 +1,6 @@
 import Airtable from 'airtable'
 import { createClient } from '@supabase/supabase-js'
+import { T_QUIZ_RESULTS, T_STUDENTS } from '../../../lib/tables'
 
 export async function GET(request) {
   const authHeader = request.headers.get('authorization')
@@ -39,7 +40,7 @@ export async function GET(request) {
       if (!studentName || !subject || score === null) continue
 
       const { data: student } = await supabase
-        .from('students')
+        .from(T_STUDENTS)
         .select('id')
         .ilike('full_name', studentName.trim())
         .single()
@@ -47,7 +48,7 @@ export async function GET(request) {
       if (!student) { results.failed.push(studentName); continue }
 
       const { error } = await supabase
-        .from('quiz_results')
+        .from(T_QUIZ_RESULTS)
         .upsert({
           airtable_id: record.id,
           student_id: student.id,

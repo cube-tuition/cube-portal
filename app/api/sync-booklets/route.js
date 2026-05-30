@@ -1,5 +1,6 @@
 import Airtable from 'airtable'
 import { createClient } from '@supabase/supabase-js'
+import { T_BOOKLETS } from '../../../lib/tables'
 
 /*
  * /api/sync-booklets
@@ -164,7 +165,7 @@ export async function GET(request) {
       }
 
       const { error: upErr } = await supabase
-        .from('booklets')
+        .from(T_BOOKLETS)
         .upsert(row, { onConflict: 'airtable_id' })
 
       if (upErr) {

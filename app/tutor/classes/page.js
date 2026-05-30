@@ -3,10 +3,12 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { normalizeDays } from '../../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { inferSubject } from '../../../components/CourseDetail'
+import { T_CLASSES, T_ENROLMENTS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
 
 // Parse "Y8 Maths" → 8 ; returns null if no Y-prefix.
 const parseYearFromClass = (name) => {
@@ -154,9 +156,11 @@ function termWeekLabel(weekStart, term) {
 
 export default function TutorClassesPage() {
   const [staff, setStaff] = useState(null)
+  const [allTerms, setAllTerms] = useState([])
   const [currentTerm, setCurrentTerm] = useState(null)
+  const [selectedTermId, setSelectedTermId] = useState(null)
   const [classes, setClasses] = useState([])
-  const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, school_year }] }
+  const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, year }] }
   const [subSessions, setSubSessions] = useState([]) // [{ classId, dateISO, cls }] — sessions this tutor is subbing
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
   const [search, setSearch] = useState('')
@@ -165,17 +169,11 @@ export default function TutorClassesPage() {
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()))
   const router = useRouter()
 
+  // ── Auth + terms load (once) ──────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-
-      const { data: profile } = await supabase
-        .from('students')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-
       if (!profile) { setAuthErr('No profile found.'); return }
       if (profile.role !== 'tutor' && profile.role !== 'admin') {
         router.push('/dashboard')
@@ -184,13 +182,24 @@ export default function TutorClassesPage() {
       setStaff(profile)
 
       const terms = await fetchAllTerms()
-      setCurrentTerm(getCurrentTerm(terms))
+      const cur = getCurrentTerm(terms)
+      setAllTerms(terms)
+      setCurrentTerm(cur)
+      setSelectedTermId(cur?.id ?? null)
+    }
+    load()
+  }, [])
 
-      const isAdmin = profile.role === 'admin'
-      const firstName = (profile.full_name || '').split(' ')[0]
+  // ── Classes load (re-runs when term or staff changes) ─────────────────────
+  useEffect(() => {
+    if (!staff || !selectedTermId) return
+    const load = async () => {
+      const isAdmin = staff.role === 'admin'
+      const firstName = (staff.full_name || '').split(' ')[0]
 
-      // Hide archived classes (Airtable sweep marks them with archived_at).
-      let q = supabase.from('classes').select('*').is('archived_at', null)
+      // Filter by the selected term.
+      let q = supabase.from(T_CLASSES).select('*')
+        .eq('term_id', selectedTermId)
       if (!isAdmin && firstName) q = q.ilike('teacher', firstName)
       const { data: cls } = await q
 
@@ -203,8 +212,8 @@ export default function TutorClassesPage() {
       const classIds = named.map(c => c.id)
       if (classIds.length > 0) {
         const { data: links } = await supabase
-          .from('student_classes')
-          .select('class_id, students (id, full_name, school, school_year)')
+          .from(T_ENROLMENTS)
+          .select('class_id, students (id, full_name, school, year)')
           .in('class_id', classIds)
         const grouped = {}
         for (const link of links || []) {
@@ -213,6 +222,8 @@ export default function TutorClassesPage() {
           grouped[link.class_id].push(link.students)
         }
         setRosters(grouped)
+      } else {
+        setRosters({})
       }
 
       // For non-admin tutors: also fetch any sub assignments for them
@@ -223,9 +234,9 @@ export default function TutorClassesPage() {
         const sixWeeksAhead = isoDate(addDays(new Date(), 35))
         const oneWeekAgo = isoDate(addDays(new Date(), -7))
         const { data: subRows } = await supabase
-          .from('sub_assignments')
+          .from(T_SUB_ASSIGNMENTS)
           .select('class_id, session_date')
-          .eq('sub_tutor_id', profile.id)
+          .eq('sub_tutor_id', staff.id)
           .gte('session_date', oneWeekAgo)
           .lte('session_date', sixWeeksAhead)
 
@@ -233,7 +244,7 @@ export default function TutorClassesPage() {
           // Fetch the class rows for these sub assignments
           const subClassIds = [...new Set(subRows.map(r => r.class_id))]
           const { data: subClasses } = await supabase
-            .from('classes').select('*').in('id', subClassIds)
+            .from(T_CLASSES).select('*').in('id', subClassIds)
           const clsById = {}
           for (const c of subClasses || []) clsById[c.id] = c
 
@@ -242,11 +253,13 @@ export default function TutorClassesPage() {
             dateISO: r.session_date,
             cls: clsById[r.class_id],
           })).filter(r => r.cls))
+        } else {
+          setSubSessions([])
         }
       }
     }
     load()
-  }, [])
+  }, [staff, selectedTermId])
 
   // ── Fetch sub assignments for the visible week ────────────────────────────
   // Re-runs whenever the week or the class list changes. Populates subDates
@@ -259,7 +272,7 @@ export default function TutorClassesPage() {
     )
     const classIds = classes.map(c => c.id)
     supabase
-      .from('sub_assignments')
+      .from(T_SUB_ASSIGNMENTS)
       .select('class_id, session_date')
       .in('class_id', classIds)
       .in('session_date', weekISODates)
@@ -424,11 +437,21 @@ export default function TutorClassesPage() {
             <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display">
               {isAdmin ? 'All classes · Admin view' : 'My classes · Tutor view'}
             </p>
-            {currentTerm && (
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#062E63] bg-white border border-[#DEE7FF] px-2.5 py-1 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#325099]" />
-                {formatTermLabel(currentTerm)}
-              </span>
+            {allTerms.length > 0 && (
+              <div className="relative">
+                <select
+                  value={selectedTermId || ''}
+                  onChange={e => { setSelectedTermId(e.target.value); setExpandedCourse(null) }}
+                  className="appearance-none inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#062E63] bg-white border border-[#DEE7FF] pl-2.5 pr-6 py-1 rounded-full cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition"
+                >
+                  {allTerms.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {formatTermLabel(t)}{t.id === currentTerm?.id ? ' · Current' : ''}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#325099] text-[8px]">▼</span>
+              </div>
             )}
           </div>
           <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
@@ -439,7 +462,11 @@ export default function TutorClassesPage() {
           </p>
 
           <div className="mt-8 max-w-xs">
-            <StatTile label="This term" value={courses.length} suffix={`class${courses.length === 1 ? '' : 'es'}`} />
+            <StatTile
+              label={allTerms.find(t => t.id === selectedTermId)?.name ?? 'This term'}
+              value={courses.length}
+              suffix={`class${courses.length === 1 ? '' : 'es'}`}
+            />
           </div>
         </div>
       </section>
@@ -449,7 +476,7 @@ export default function TutorClassesPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
-              This term
+              {allTerms.find(t => t.id === selectedTermId)?.name ?? 'This term'}
             </p>
             <h2 className="text-lg font-semibold text-[#2A2035] font-display">
               {isAdmin ? 'All classes' : 'Classes you teach'}
@@ -1074,7 +1101,7 @@ function StudentChip({ s }) {
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold text-[#2A2035] truncate">{s.full_name || 'Unknown'}</p>
         <p className="text-[10px] text-[#2A2035]/50 truncate">
-          {s.school || '—'} · Y{s.school_year || '?'}
+          {s.school || '—'} · Y{s.year || '?'}
         </p>
       </div>
     </div>

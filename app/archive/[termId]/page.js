@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { requireStudent } from '../../../lib/requireStudent'
 import {
   fetchAllTerms,
   formatTermLabel,
@@ -15,6 +16,7 @@ import CourseDetail, {
   subjectColor,
   subjectsMatch,
 } from '../../../components/CourseDetail'
+import { T_ENROLMENTS, T_STUDENTS } from '../../../lib/tables'
 
 export default function ArchiveTermPage() {
   const params = useParams()
@@ -34,10 +36,10 @@ export default function ArchiveTermPage() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/'); return }
+      if (!requireStudent(user, router)) return
 
       const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
+        .from(T_STUDENTS).select('*').eq('id', user.id).single()
       setStudent(profile)
 
       // Find this archived term
@@ -49,12 +51,12 @@ export default function ArchiveTermPage() {
       // Enrolled courses (current enrolments — we don't track historical enrolment).
       let classData
       const r1 = await supabase
-        .from('student_classes')
+        .from(T_ENROLMENTS)
         .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room, subject)')
         .eq('student_id', user.id)
       if (r1.error) {
         const r2 = await supabase
-          .from('student_classes')
+          .from(T_ENROLMENTS)
           .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room)')
           .eq('student_id', user.id)
         classData = r2.data
@@ -66,15 +68,15 @@ export default function ArchiveTermPage() {
       setActiveCourseId(list[0]?.id || null)
 
       const [{ data: qz }, { data: ex }, { data: at }] = await Promise.all([
-        supabase.from('quiz_results')
+        supabase.from(T_QUIZ_RESULTS)
           .select('subject, week, score, max_score, quiz_date, homework_grade')
           .eq('student_id', user.id)
           .order('quiz_date', { ascending: true }),
-        supabase.from('results')
+        supabase.from(T_RESULTS)
           .select('score, created_at, exams(name, max_score, exam_date, subjects(name))')
           .eq('student_id', user.id)
           .order('created_at', { ascending: false }),
-        supabase.from('attendance')
+        supabase.from(T_ATTENDANCE)
           .select('class_id, session_date, status, notes')
           .eq('student_id', user.id)
           .order('session_date', { ascending: false }),

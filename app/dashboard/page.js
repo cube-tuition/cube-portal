@@ -1,11 +1,13 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { requireStudent } from '../../lib/requireStudent'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import PortalNav from '../../components/PortalNav'
 import { normalizeDay } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
+import { T_ENROLMENTS, T_STUDENTS } from '../../lib/tables'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
@@ -55,21 +57,16 @@ export default function Dashboard() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/'); return }
+      if (!requireStudent(user, router)) return
       setAuthedUser(user)
 
       const { data: profile, error: profileErr } = await supabase
-        .from('students')
+        .from(T_STUDENTS)
         .select('*')
         .eq('id', user.id)
         .single()
       if (profileErr || !profile) {
         setProfileError(profileErr || { message: 'No matching row in students table.' })
-        return
-      }
-      // Staff (tutors / admins) live at /tutor, not here.
-      if (profile.role === 'tutor' || profile.role === 'admin') {
-        router.push('/tutor')
         return
       }
       setStudent(profile)
@@ -80,7 +77,7 @@ export default function Dashboard() {
       setCurrentTerm(term)
 
       const { data: classData } = await supabase
-        .from('student_classes')
+        .from(T_ENROLMENTS)
         .select(`classes(class_name, day_of_week, start_time, end_time, teacher, room)`)
         .eq('student_id', user.id)
 
@@ -153,7 +150,7 @@ export default function Dashboard() {
             Ready when you are. <span className="inline-block">👋</span>
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
-            {student.school} · Year {student.school_year}
+            {student.school} · Year {student.year}
           </p>
 
           {/* Stat strip */}

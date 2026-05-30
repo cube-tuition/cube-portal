@@ -7,8 +7,10 @@ import {
   ReferenceLine, Bar, ComposedChart, Cell,
 } from 'recharts'
 import { supabase } from '../../../../../lib/supabase'
+import { getAuthProfile } from '../../../../../lib/getProfile'
 import { fetchAllTerms, formatTermLabel } from '../../../../../lib/terms'
 import { inferSubject, subjectColor, subjectsMatch } from '../../../../../components/CourseDetail'
+import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../lib/tables'
 
 /*
  * Printable end-of-term report bundle — one page per student.
@@ -62,9 +64,8 @@ export default function ReportPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase.from('students').select('*').eq('id', user.id).single()
       if (!profile || (profile.role !== 'admin' && profile.role !== 'tutor')) {
         router.push('/tutor'); return
       }
@@ -72,7 +73,7 @@ export default function ReportPage() {
 
       // Class
       const { data: c, error: ce } = await supabase
-        .from('classes').select('*').eq('id', classId).single()
+        .from(T_CLASSES).select('*').eq('id', classId).single()
       if (ce || !c) { setError('Class not found.'); setLoading(false); return }
 
       // Tutors can only view their own class reports
@@ -93,8 +94,8 @@ export default function ReportPage() {
 
       // Roster
       const { data: links } = await supabase
-        .from('student_classes')
-        .select('students (id, full_name, school, school_year)')
+        .from(T_ENROLMENTS)
+        .select('students (id, full_name, school, year)')
         .eq('class_id', classId)
       const students = (links || []).map(l => l.students).filter(Boolean)
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
@@ -105,7 +106,7 @@ export default function ReportPage() {
 
       // Attendance for this class in the term
       const { data: att } = await supabase
-        .from('attendance')
+        .from(T_ATTENDANCE)
         .select('student_id, session_date, status, notes')
         .eq('class_id', classId)
         .in('student_id', ids)
@@ -116,7 +117,7 @@ export default function ReportPage() {
       // Quizzes for the roster + subject + term
       const subj = inferSubject(c)
       const { data: qz } = await supabase
-        .from('quiz_results')
+        .from(T_QUIZ_RESULTS)
         .select('student_id, subject, week, score, max_score, homework_grade, quiz_date')
         .in('student_id', ids)
         .gte('quiz_date', t.start_date)
@@ -125,7 +126,7 @@ export default function ReportPage() {
 
       // Term comments
       const { data: tc } = await supabase
-        .from('term_comments')
+        .from(T_TERM_COMMENTS)
         .select('student_id, comment')
         .eq('class_id', classId)
         .eq('term_id', termId)
@@ -135,7 +136,7 @@ export default function ReportPage() {
 
       // Term criteria
       const { data: cr } = await supabase
-        .from('term_criteria')
+        .from(T_TERM_CRITERIA)
         .select('student_id, subject_knowledge, class_participation, class_behaviour, homework_effort')
         .eq('class_id', classId)
         .eq('term_id', termId)
@@ -145,14 +146,14 @@ export default function ReportPage() {
 
       // Pre/post test
       const { data: ppTest } = await supabase
-        .from('prepost_tests')
+        .from(T_PREPOST_TESTS)
         .select('id, topics')
         .eq('class_id', classId)
         .eq('term_id', t.id)
         .maybeSingle()
       if (ppTest) {
         const { data: ppScores } = await supabase
-          .from('prepost_scores')
+          .from(T_PREPOST_SCORES)
           .select('student_id, test_type, scores')
           .eq('test_id', ppTest.id)
           .in('student_id', ids)
@@ -348,7 +349,7 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
           {student.full_name || 'Unknown student'}
         </h1>
         <p className="text-xs text-[#2A2035]/60 mt-0.5">
-          {student.school || ''}{student.school_year ? ` · Year ${student.school_year}` : ''}
+          {student.school || ''}{student.year ? ` · Year ${student.year}` : ''}
         </p>
       </div>
       <div className="text-right shrink-0">

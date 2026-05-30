@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { requireStudent } from '../../lib/requireStudent'
 import {
   fetchAllTerms,
   getCurrentTerm,
@@ -16,6 +17,7 @@ import CourseDetail, {
   subjectColor,
   subjectsMatch,
 } from '../../components/CourseDetail'
+import { T_ATTENDANCE, T_ENROLMENTS, T_QUIZ_RESULTS, T_RESULTS, T_STUDENTS } from '../../lib/tables'
 
 export default function Results() {
   const [student, setStudent] = useState(null)
@@ -31,10 +33,10 @@ export default function Results() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/'); return }
+      if (!requireStudent(user, router)) return
 
       const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
+        .from(T_STUDENTS).select('*').eq('id', user.id).single()
       setStudent(profile)
 
       // ── Current term ────────────────────────────────────────────────────
@@ -45,12 +47,12 @@ export default function Results() {
       // ── Enrolled classes (try with `subject`, fall back without) ────────
       let classData
       const r1 = await supabase
-        .from('student_classes')
+        .from(T_ENROLMENTS)
         .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room, subject)')
         .eq('student_id', user.id)
       if (r1.error) {
         const r2 = await supabase
-          .from('student_classes')
+          .from(T_ENROLMENTS)
           .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room)')
           .eq('student_id', user.id)
         classData = r2.data
@@ -63,21 +65,21 @@ export default function Results() {
 
       // ── Pull broad data; we'll filter by term in-memory ─────────────────
       const { data: quizData } = await supabase
-        .from('quiz_results')
+        .from(T_QUIZ_RESULTS)
         .select('subject, week, score, max_score, quiz_date, homework_grade')
         .eq('student_id', user.id)
         .order('quiz_date', { ascending: true })
       setQuizzes(quizData || [])
 
       const { data: examData } = await supabase
-        .from('results')
+        .from(T_RESULTS)
         .select('score, created_at, exams(name, max_score, exam_date, subjects(name))')
         .eq('student_id', user.id)
         .order('created_at', { ascending: false })
       setResults(examData || [])
 
       const { data: attData } = await supabase
-        .from('attendance')
+        .from(T_ATTENDANCE)
         .select('class_id, session_date, status, notes')
         .eq('student_id', user.id)
         .order('session_date', { ascending: false })

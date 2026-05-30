@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
+import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import { T_CURRENT_TUTOR_RATES, T_TUTOR_RATE_MATRIX } from '../../../../lib/tables'
 
 /*
  * Admin rates matrix — mirrors the spreadsheet:
@@ -37,18 +39,22 @@ export default function RatesMatrixPage() {
   const reload = async () => {
     setLoading(true); setError(null)
     try {
-      // All tutors + admins
-      const { data: t, error: te } = await supabase
-        .from('students')
-        .select('id, full_name, role')
-        .in('role', ['tutor', 'admin'])
-        .order('full_name')
+      // All tutors + admins from their respective tables
+      const [{ data: tutorRows, error: te }, { data: adminRows, error: ae }] = await Promise.all([
+        supabase.from(T_TUTORS).select('id, full_name').order('full_name'),
+        supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
+      ])
       if (te) throw te
-      setTutors(t || [])
+      if (ae) throw ae
+      const combined = [
+        ...(tutorRows || []).map(t => ({ ...t, role: 'tutor' })),
+        ...(adminRows || []).map(a => ({ ...a, role: 'admin' })),
+      ].sort((a, b) => a.full_name.localeCompare(b.full_name))
+      setTutors(combined)
 
       // Current effective rate per cell
       const { data: r, error: re } = await supabase
-        .from('current_tutor_rates')
+        .from(T_CURRENT_TUTOR_RATES)
         .select('*')
       if (re) throw re
       const map = {}
@@ -65,10 +71,8 @@ export default function RatesMatrixPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      const { data: profile } = await supabase
-        .from('students').select('*').eq('id', user.id).single()
       if (!profile || profile.role !== 'admin') { router.push('/tutor'); return }
       setStaff(profile)
       reload()
@@ -91,7 +95,7 @@ export default function RatesMatrixPage() {
     try {
       const today = new Date().toISOString().slice(0, 10)
       const { error: e } = await supabase
-        .from('tutor_rate_matrix')
+        .from(T_TUTOR_RATE_MATRIX)
         .upsert({
           tutor_id: tutorId,
           year_band: band,
