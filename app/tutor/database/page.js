@@ -24,9 +24,7 @@ import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COUR
 // ── Table groups ──────────────────────────────────────────────────────────────
 const INITIAL_TABLE_GROUPS = [
   { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS] },
-  { label: 'Attendance & Results', tables: [T_RESULTS,T_EXAMS,T_PREPOST_TESTS,T_PREPOST_SCORES] },
-  { label: 'Content',              tables: [T_BOOKLETS,T_CLASS_BOOKLETS,T_INFO_PAGES,T_FAQ_CATEGORIES,T_FAQ_ITEMS] },
-  { label: 'Scheduling',           tables: [T_LESSONS,T_TIMETABLE,T_DROPIN_SESSIONS,T_DROPIN_SIGNINS,T_SHIFTS,T_SUB_ASSIGNMENTS] },
+  { label: 'Scheduling',           tables: [T_LESSONS,T_SHIFTS] },
   { label: 'Finance',              tables: [T_INVOICES,T_PAY_RUNS,'pay_run_lines',T_PAY_RUN_SHIFTS,T_CURRENT_TUTOR_RATES,T_TUTOR_RATE_MATRIX] },
   { label: 'Reports',              tables: [T_TERM_CRITERIA,T_TERM_COMMENTS] },
 ]
@@ -64,6 +62,11 @@ const LESSON_SCHED_TEACHER_COL = 'scheduled_teacher'    // resolved name from sc
 const DEFAULT_WIDTH  = 150
 const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200, class_label:240, lesson_date:120, week:60, main_teacher:130, scheduled_teacher:160, status:120, price:100, subtotal:110, sibling_discount:140, total:100, notes:200, family_id:90, student_id:200 }
 function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
+
+// Columns that show a dropdown picker when edited, keyed as "table:col"
+const CELL_DROPDOWNS = {
+  [`${T_STUDENTS}:year`]: ['5','6','7','8','9','10','11','12'],
+}
 
 function displayVal(v) {
   if (v === null || v === undefined) return null
@@ -203,7 +206,7 @@ function CreateTableModal({ onClose, onCreated }) {
 }
 
 // ── Column Context Menu ───────────────────────────────────────────────────────
-function ColContextMenu({ x, y, col, isPk, isGuardian, onRename, onDelete, onClose }) {
+function ColContextMenu({ x, y, col, isPk, isGuardian, onRename, onDelete, onHide, onClose }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -229,6 +232,15 @@ function ColContextMenu({ x, y, col, isPk, isGuardian, onRename, onDelete, onClo
         <span className="text-base leading-none">✏️</span>
         <span className="font-medium">Rename</span>
       </button>
+      <button
+        onClick={onHide}
+        disabled={isPk}
+        className="w-full text-left px-3 py-2 text-sm text-[#2A2035] hover:bg-[#F0F4FF] transition flex items-center gap-2.5 disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <span className="text-base leading-none">🙈</span>
+        <span className="font-medium">Hide column</span>
+      </button>
+      <div className="border-t border-[#DEE7FF] my-1" />
       <button
         onClick={onDelete}
         disabled={isPk || isGuardian}
@@ -302,6 +314,148 @@ function EnrolPopover({ classId, x, y, enrolled = [], allStudents, onEnrol, onCl
   )
 }
 
+// ── Student Directory helpers ─────────────────────────────────────────────────
+function shortId(uuid = '') { return uuid.slice(-8).toUpperCase() }
+function yearBadgeColor(yr) {
+  const n = parseInt(yr, 10)
+  if (n <= 6) return 'bg-[#D1FAE5] text-[#065F46]'
+  if (n <= 10) return 'bg-[#DEE7FF] text-[#062E63]'
+  return 'bg-[#FEF3C7] text-[#92400E]'
+}
+
+function SDBadge({ text, cls }) {
+  return <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${cls}`}>{text}</span>
+}
+
+function SDDetailRow({ icon, label, value }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="text-sm shrink-0 mt-0.5">{icon}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/60 font-semibold mb-0.5">{label}</p>
+        <p className="text-sm text-[#2A2035] break-words">{value || '—'}</p>
+      </div>
+    </div>
+  )
+}
+
+const SD_INPUT_CLS = 'w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] text-[#2A2035] placeholder-[#2A2035]/35 focus:outline-none focus:border-[#BACBFF] focus:ring-1 focus:ring-[#BACBFF] transition'
+const SD_BLANK = { studentName:'', gender:'', studentEmail:'', studentPhone:'', school:'', guardianName:'', relationship:'', parentEmail:'', parentPhone:'' }
+
+function SDField({ label, required, children }) {
+  return (
+    <div>
+      <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">
+        {label}{required && <span className="text-rose-400 ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+function AddStudentModal({ onClose, onAdded }) {
+  const [form, setForm]     = useState(SD_BLANK)
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState(null)
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.studentName.trim()) { setError('Student full name is required.'); return }
+    setSaving(true); setError(null)
+    try {
+      const { data: newStudent, error: sErr } = await supabase
+        .from(T_STUDENTS)
+        .insert({ full_name: form.studentName.trim(), gender: form.gender || null, email: form.studentEmail.trim() || null, phone: form.studentPhone.trim() || null, school: form.school.trim() || null })
+        .select('id, full_name, email, school, year, gender, phone').single()
+      if (sErr) throw new Error(sErr.message)
+      const hasGuardian = form.guardianName.trim() || form.parentEmail.trim() || form.parentPhone.trim()
+      if (hasGuardian) {
+        const { error: pErr } = await supabase.from(T_PARENTS).insert({ student_id: newStudent.id, full_name: form.guardianName.trim() || null, relationship: form.relationship.trim() || null, email: form.parentEmail.trim() || null, phone: form.parentPhone.trim() || null })
+        if (pErr) throw new Error(pErr.message)
+      }
+      onAdded(newStudent); onClose()
+    } catch (err) { setError(err.message || 'Something went wrong.') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-[#DEE7FF] overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#DEE7FF] flex items-center justify-center text-lg">🎓</div>
+            <div>
+              <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold">Admin · Directory</p>
+              <p className="text-sm font-bold text-[#2A2035] font-display leading-tight">Add New Student</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center text-[#2A2035]/40 hover:text-[#2A2035] hover:bg-[#DEE7FF] transition text-lg">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1">
+          <div className="px-6 py-5 space-y-6">
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-5 h-5 rounded-full bg-[#325099] text-white text-[10px] font-bold flex items-center justify-center shrink-0">1</div>
+                <p className="text-xs font-bold tracking-[0.15em] uppercase text-[#325099]">Student Details</p>
+              </div>
+              <div className="space-y-3.5">
+                <SDField label="Full Name" required>
+                  <input type="text" placeholder="e.g. Sarah Johnson" value={form.studentName} onChange={set('studentName')} className={SD_INPUT_CLS} autoFocus />
+                </SDField>
+                <SDField label="Gender">
+                  <select value={form.gender} onChange={set('gender')} className={SD_INPUT_CLS}>
+                    <option value="">Select gender…</option>
+                    <option>Male</option><option>Female</option><option>Non-binary</option><option>Prefer not to say</option>
+                  </select>
+                </SDField>
+                <div className="grid grid-cols-2 gap-3">
+                  <SDField label="Student Email"><input type="email" placeholder="student@example.com" value={form.studentEmail} onChange={set('studentEmail')} className={SD_INPUT_CLS} /></SDField>
+                  <SDField label="Student Phone"><input type="tel" placeholder="04XX XXX XXX" value={form.studentPhone} onChange={set('studentPhone')} className={SD_INPUT_CLS} /></SDField>
+                </div>
+                <SDField label="School"><input type="text" placeholder="e.g. Chatswood High School" value={form.school} onChange={set('school')} className={SD_INPUT_CLS} /></SDField>
+              </div>
+            </div>
+            <div className="border-t border-[#DEE7FF]" />
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-5 h-5 rounded-full bg-[#92400E] text-white text-[10px] font-bold flex items-center justify-center shrink-0">2</div>
+                <p className="text-xs font-bold tracking-[0.15em] uppercase text-[#92400E]">Guardian Details</p>
+                <span className="text-[10px] text-[#2A2035]/40 font-medium">(optional)</span>
+              </div>
+              <div className="space-y-3.5">
+                <SDField label="Guardian Full Name"><input type="text" placeholder="e.g. Michael Johnson" value={form.guardianName} onChange={set('guardianName')} className={SD_INPUT_CLS} /></SDField>
+                <SDField label="Relationship to Student">
+                  <select value={form.relationship} onChange={set('relationship')} className={SD_INPUT_CLS}>
+                    <option value="">Select relationship…</option>
+                    <option>Mother</option><option>Father</option><option>Guardian</option><option>Grandparent</option><option>Other</option>
+                  </select>
+                </SDField>
+                <div className="grid grid-cols-2 gap-3">
+                  <SDField label="Parent Email"><input type="email" placeholder="parent@example.com" value={form.parentEmail} onChange={set('parentEmail')} className={SD_INPUT_CLS} /></SDField>
+                  <SDField label="Parent Phone"><input type="tel" placeholder="04XX XXX XXX" value={form.parentPhone} onChange={set('parentPhone')} className={SD_INPUT_CLS} /></SDField>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] shrink-0 flex items-center justify-between gap-3">
+            {error
+              ? <p className="text-xs text-rose-500 font-medium flex-1">{error}</p>
+              : <p className="text-[10px] text-[#2A2035]/40 flex-1">Fields marked <span className="text-rose-400">*</span> are required</p>
+            }
+            <div className="flex items-center gap-2 shrink-0">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-xl hover:bg-[#DEE7FF] transition">Cancel</button>
+              <button type="submit" disabled={saving} className="px-5 py-2 text-sm font-semibold bg-[#325099] text-white rounded-xl hover:bg-[#062E63] transition disabled:opacity-50 flex items-center gap-2">
+                {saving ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving…</> : 'Add Student'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── Sibling Popover ───────────────────────────────────────────────────────────
 function SiblingPopover({ studentId, x, y, allStudents, currentSiblings, onAdd, onClose, saving }) {
   const ref      = useRef(null)
@@ -368,6 +522,212 @@ function SiblingPopover({ studentId, x, y, allStudents, currentSiblings, onAdd, 
   )
 }
 
+// ── Drop-in Session Modal (create + edit) ─────────────────────────────────────
+const DROPIN_SUBJECTS_LIST = ['Maths', 'English', 'Chemistry', 'Biology', 'Physics', 'Economics']
+
+function SessionModal({ session, onClose, onSaved }) {
+  const isEdit = !!session
+  const blank = {
+    session_date: '', start_time: '', end_time: '',
+    location: 'Chatswood centre', subjects: [], tutors: [],
+    max_capacity: 5, notes: '',
+  }
+  const [form, setForm] = useState(isEdit ? {
+    session_date: session.session_date ?? '',
+    start_time: session.start_time?.slice(0,5) ?? '',
+    end_time: session.end_time?.slice(0,5) ?? '',
+    location: session.location ?? 'Chatswood centre',
+    subjects: session.subjects ?? [],
+    tutors: session.tutors ?? [],
+    max_capacity: session.max_capacity ?? 5,
+    notes: session.notes ?? '',
+  } : blank)
+  const [tutorsList, setTutorsList] = useState([])   // [{id, full_name}] from DB
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    supabase.from('tutors').select('id, full_name').order('full_name').then(({ data }) => setTutorsList(data || []))
+  }, [])
+
+  const toggleSubject = s => setForm(f => ({
+    ...f, subjects: f.subjects.includes(s) ? f.subjects.filter(x => x !== s) : [...f.subjects, s]
+  }))
+  const toggleTutor = name => setForm(f => ({
+    ...f, tutors: f.tutors.includes(name) ? f.tutors.filter(x => x !== name) : [...f.tutors, name]
+  }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.session_date || !form.start_time || !form.end_time) { setErr('Date and times are required.'); return }
+    setSaving(true); setErr('')
+    const payload = {
+      session_date: form.session_date,
+      start_time: form.start_time,
+      end_time: form.end_time,
+      location: form.location || null,
+      subjects: form.subjects,
+      tutors: form.tutors,
+      max_capacity: Number(form.max_capacity) || 5,
+      notes: form.notes || null,
+    }
+    if (isEdit) {
+      const { error } = await supabase.from('dropin_sessions').update(payload).eq('id', session.id)
+      if (error) { setErr(error.message); setSaving(false); return }
+    } else {
+      const { error } = await supabase.from('dropin_sessions').insert(payload)
+      if (error) { setErr(error.message); setSaving(false); return }
+    }
+    onSaved()
+  }
+
+  const INP = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
+          <h2 className="text-sm font-bold text-[#062E63]">{isEdit ? 'Edit Session' : 'New Drop-in Session'}</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+        </div>
+        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-6 py-5 flex flex-col gap-4">
+          {/* Date + times */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-3">
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Date</label>
+              <input type="date" value={form.session_date} onChange={e => setForm(f => ({ ...f, session_date: e.target.value }))} required className={INP} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Start</label>
+              <input type="time" value={form.start_time} onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))} required className={INP} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">End</label>
+              <input type="time" value={form.end_time} onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))} required className={INP} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Capacity</label>
+              <input type="number" min={1} max={50} value={form.max_capacity} onChange={e => setForm(f => ({ ...f, max_capacity: e.target.value }))} className={INP} />
+            </div>
+          </div>
+          {/* Location */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Location</label>
+            <input type="text" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="Chatswood centre" className={INP} />
+          </div>
+          {/* Subjects */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">Subjects available</label>
+            <div className="flex flex-wrap gap-2">
+              {DROPIN_SUBJECTS_LIST.map(s => (
+                <button key={s} type="button" onClick={() => toggleSubject(s)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${form.subjects.includes(s) ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Tutors */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">Tutors</label>
+            {tutorsList.length === 0 ? (
+              <p className="text-[10px] text-[#2A2035]/40 italic">Loading tutors…</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {tutorsList.map(t => (
+                  <button key={t.id} type="button" onClick={() => toggleTutor(t.full_name)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${form.tutors.includes(t.full_name) ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
+                    {t.full_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {/* Notes */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Notes</label>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Optional notes…" className={INP + ' resize-none'} />
+          </div>
+          {err && <p className="text-xs text-red-500">{err}</p>}
+        </form>
+        <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Session'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Add Signin Modal ───────────────────────────────────────────────────────────
+function AddSigninModal({ sessionId, existingSignins, allStudents, onClose, onAdded }) {
+  const SUBJECTS = ['Maths', 'English', 'Chemistry', 'Biology', 'Physics', 'Economics']
+  const [studentId, setStudentId]   = useState('')
+  const [subject, setSubject]       = useState('')
+  const [question, setQuestion]     = useState('')
+  const [saving, setSaving]         = useState(false)
+  const [err, setErr]               = useState('')
+
+  const bookedIds = new Set(existingSignins.map(s => s.student_id))
+  const available = allStudents.filter(s => !bookedIds.has(s.id))
+
+  const handleSubmit = async () => {
+    if (!studentId || !subject) { setErr('Select a student and subject.'); return }
+    setSaving(true); setErr('')
+    const { error } = await supabase.from('dropin_signins').insert({
+      session_id: sessionId,
+      student_id: studentId,
+      subject,
+      question: question.trim() || null,
+      status: 'booked',
+    })
+    if (error) { setErr(error.message); setSaving(false); return }
+    onAdded()
+  }
+
+  const INP = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
+          <h2 className="text-sm font-bold text-[#062E63]">Add Student to Session</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+        </div>
+        <div className="px-6 py-5 flex flex-col gap-4">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Student</label>
+            <select value={studentId} onChange={e => setStudentId(e.target.value)} className={INP}>
+              <option value="">Select student…</option>
+              {available.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</label>
+            <select value={subject} onChange={e => setSubject(e.target.value)} className={INP}>
+              <option value="">Select subject…</option>
+              {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Question / topic <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
+            <input type="text" value={question} onChange={e => setQuestion(e.target.value)} placeholder="e.g. Quadratic equations" className={INP} />
+          </div>
+          {err && <p className="text-xs text-red-500">{err}</p>}
+        </div>
+        <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+            {saving ? 'Adding…' : 'Add Student'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function DatabasePage() {
   const router = useRouter()
@@ -384,17 +744,48 @@ export default function DatabasePage() {
   const [loadingCards, setLoadingCards]         = useState(false)
   // Price confirm dialog (enrolments table — requires double-confirm before saving)
   const [priceConfirm, setPriceConfirm] = useState(null) // { rowId, col, oldVal, newVal } | null
+  // Drop-in sessions interface view
+  const [dropinViewMode, setDropinViewMode]     = useState('data')   // 'data' | 'sessions'
+  const [dropinSessions, setDropinSessions]     = useState([])
+  const [dropinStudents, setDropinStudents]     = useState([])       // [{id, full_name}]
+  const [loadingDropin, setLoadingDropin]       = useState(false)
+  const [showAddSession, setShowAddSession]     = useState(false)
+  const [editingSession, setEditingSession]     = useState(null)     // session object | null
+  const [deleteSessionId, setDeleteSessionId]   = useState(null)
+  const [addSigninFor, setAddSigninFor]         = useState(null)     // session id | null
+  // Student directory view (cards mode for students table)
+  const [studentViewMode, setStudentViewMode]             = useState('data')  // 'data' | 'cards'
+  const [studentCardsData, setStudentCardsData]           = useState([])
+  const [studentCardsParents, setStudentCardsParents]     = useState({})
+  const [studentCardsEnrolments, setStudentCardsEnrolments] = useState({})
+  const [studentCardsSearch, setStudentCardsSearch]       = useState('')
+  const [studentCardsSelected, setStudentCardsSelected]   = useState(null) // student id
+  const [loadingStudentCards, setLoadingStudentCards]     = useState(false)
+  const [showAddStudentModal, setShowAddStudentModal]     = useState(false)
   // Maps table name → PostgreSQL OID (stable across renames). Used as
   // localStorage key suffix so column customisations survive table renames.
   const [tableOids, setTableOids]   = useState({})
   const [tableGroups, setTableGroups] = useState(() => {
     // Tables permanently hidden from the explorer (still exist in Supabase)
     const HIDDEN = new Set([T_ATTENDANCE, T_QUIZ_RESULTS])
+    // Bump this whenever INITIAL_TABLE_GROUPS order/membership changes intentionally.
+    // A mismatch clears the cached layout so the new defaults take effect immediately.
+    const GROUPS_VERSION = 'v7'
 
     try {
       const saved = typeof window !== 'undefined' && localStorage.getItem('cube_db_table_groups')
       if (!saved) return INITIAL_TABLE_GROUPS
-      const parsed = JSON.parse(saved)
+      const { version, groups: parsed } = (() => {
+        const raw = JSON.parse(saved)
+        // Legacy format: plain array (no version)
+        if (Array.isArray(raw)) return { version: null, groups: raw }
+        return raw
+      })()
+      // Version mismatch → discard saved layout, use fresh defaults
+      if (version !== GROUPS_VERSION) {
+        localStorage.setItem('cube_db_table_groups', JSON.stringify({ version: GROUPS_VERSION, groups: INITIAL_TABLE_GROUPS }))
+        return INITIAL_TABLE_GROUPS
+      }
       // All tables currently placed anywhere in the saved layout
       const allPlaced = new Set(parsed.flatMap(g => g.tables))
       let changed = false
@@ -421,7 +812,7 @@ export default function DatabasePage() {
         return { ...g, tables: next }
       })
       if (changed) {
-        try { localStorage.setItem('cube_db_table_groups', JSON.stringify(merged)) } catch {}
+        try { localStorage.setItem('cube_db_table_groups', JSON.stringify({ version: GROUPS_VERSION, groups: merged })) } catch {}
       }
       return merged
     } catch { return INITIAL_TABLE_GROUPS }
@@ -451,6 +842,7 @@ export default function DatabasePage() {
   // Column layout
   const [columnOrder, setColumnOrder]   = useState([])
   const [columnWidths, setColumnWidths] = useState({})
+  const [hiddenCols, setHiddenCols]     = useState(new Set())
   const dragColRef  = useRef(null)
   const dragOverRef = useRef(null)
   const [dragOver, setDragOver] = useState(null)
@@ -523,7 +915,8 @@ export default function DatabasePage() {
   const tableStableKey  = useCallback((table) => tableOids[table] ?? table, [tableOids])
   const saveOrder       = useCallback((table, order)  => { try { localStorage.setItem(`cube_db_order_${tableOids[table] ?? table}`,  JSON.stringify(order))  } catch {} }, [tableOids])
   const saveWidths      = useCallback((table, widths) => { try { localStorage.setItem(`cube_db_widths_${tableOids[table] ?? table}`, JSON.stringify(widths)) } catch {} }, [tableOids])
-  const saveTableGroups = useCallback((groups) => { try { localStorage.setItem('cube_db_table_groups', JSON.stringify(groups)) } catch {} }, [])
+  const saveHidden      = useCallback((table, hidden) => { try { localStorage.setItem(`cube_db_hidden_${tableOids[table] ?? table}`, JSON.stringify([...hidden])) } catch {} }, [tableOids])
+  const saveTableGroups = useCallback((groups) => { try { localStorage.setItem('cube_db_table_groups', JSON.stringify({ version: 'v6', groups })) } catch {} }, [])
 
   const pushUndo = useCallback((action) => {
     setUndoStack(prev => [...prev.slice(-29), action])
@@ -759,6 +1152,7 @@ export default function DatabasePage() {
       const stableKey   = tableStableKey(selectedTable)
       const savedOrder  = JSON.parse(localStorage.getItem(`cube_db_order_${stableKey}`)  ?? 'null')
       const savedWidths = JSON.parse(localStorage.getItem(`cube_db_widths_${stableKey}`) ?? 'null')
+      const savedHidden = JSON.parse(localStorage.getItem(`cube_db_hidden_${stableKey}`) ?? 'null')
 
       let order
       if (savedOrder) {
@@ -771,14 +1165,16 @@ export default function DatabasePage() {
       setColumnOrder(order)
       const defaults = Object.fromEntries(columns.map(c => [c, defaultWidth(c)]))
       setColumnWidths({ ...defaults, ...(savedWidths ?? {}) })
+      setHiddenCols(new Set(savedHidden ?? []))
     } catch {
       setColumnOrder(columns)
       setColumnWidths(Object.fromEntries(columns.map(c => [c, defaultWidth(c)])))
+      setHiddenCols(new Set())
     }
   }, [columns, selectedTable])
 
   // ── Focus effects ───────────────────────────────────────────────────────────
-  useEffect(() => { if (editingCell   && editInputRef.current)    { editInputRef.current.focus();    editInputRef.current.select()    } }, [editingCell])
+  useEffect(() => { if (editingCell   && editInputRef.current)    { editInputRef.current.focus();    editInputRef.current.select?.()    } }, [editingCell])
   useEffect(() => { if (renamingTable && renameInputRef.current)  { renameInputRef.current.focus();  renameInputRef.current.select()  } }, [renamingTable])
   useEffect(() => { if (renamingCol   && renameColInputRef.current){ renameColInputRef.current.focus(); renameColInputRef.current.select() } }, [renamingCol])
 
@@ -1112,11 +1508,18 @@ export default function DatabasePage() {
             .map(e => ({ label: classMap[e.class_id]?.courses?.course_name || classMap[e.class_id]?.class_name || '—', price: e.price })),
         }))
 
-        const lastName = members[0]?.full_name?.split(' ').pop() ?? 'Unknown'
+        const sharedLast  = members[0]?.full_name?.split(' ').pop() ?? ''
+        const getFirst    = name => name?.split(' ').slice(0, -1).join(' ') || name || ''
+        const firstNames  = members.map(m => getFirst(m.full_name))
+        const joinedFirst = firstNames.length <= 1
+          ? firstNames[0] ?? ''
+          : `${firstNames.slice(0, -1).join(', ')} & ${firstNames[firstNames.length - 1]}`
+        const familyDisplay = `${joinedFirst} ${sharedLast}`.trim()
+
         return {
           ...inv,
           termName,
-          displayName: inv.family_id != null ? `${lastName} Family` : (members[0]?.full_name ?? 'Unknown'),
+          displayName: inv.family_id != null ? familyDisplay : (members[0]?.full_name ?? 'Unknown'),
           isFamily: inv.family_id != null,
           members: membersWithEnrols,
         }
@@ -1126,6 +1529,64 @@ export default function DatabasePage() {
       setLoadingCards(false)
     })()
   }, [selectedTable, invoiceViewMode, invoiceTermId, reloadKey])
+
+  // ── Student directory card data ──────────────────────────────────────────────
+  useEffect(() => {
+    if (selectedTable !== T_STUDENTS || studentViewMode !== 'cards') return
+    ;(async () => {
+      setLoadingStudentCards(true)
+      const [{ data: students }, { data: enrolments }, { data: parents }] = await Promise.all([
+        supabase.from(T_STUDENTS).select('id, full_name, email, school, year, gender, phone').order('full_name'),
+        supabase.from(T_ENROLMENTS).select('student_id'),
+        supabase.from(T_PARENTS).select('*'),
+      ])
+      const enrolMap = {}
+      for (const e of enrolments || []) enrolMap[e.student_id] = (enrolMap[e.student_id] || 0) + 1
+      const parentMap = {}
+      for (const p of parents || []) parentMap[p.student_id] = p
+      setStudentCardsData(students || [])
+      setStudentCardsEnrolments(enrolMap)
+      setStudentCardsParents(parentMap)
+      setLoadingStudentCards(false)
+    })()
+  }, [selectedTable, studentViewMode, reloadKey])
+
+  // ── Drop-in session data ─────────────────────────────────────────────────────
+  const DROPIN_SUBJECTS = ['Maths', 'English', 'Chemistry', 'Biology', 'Physics', 'Economics']
+
+  const loadDropinSessions = useCallback(async () => {
+    setLoadingDropin(true)
+    const [{ data: sessions }, { data: signins }, { data: students }] = await Promise.all([
+      supabase.from(T_DROPIN_SESSIONS).select('*').order('session_date', { ascending: false }).order('start_time'),
+      supabase.from(T_DROPIN_SIGNINS).select('*').order('signed_in_at'),
+      supabase.from(T_STUDENTS).select('id, full_name').order('full_name'),
+    ])
+    const signinMap = {}
+    for (const s of signins || []) {
+      if (!signinMap[s.session_id]) signinMap[s.session_id] = []
+      signinMap[s.session_id].push(s)
+    }
+    setDropinSessions((sessions || []).map(s => ({ ...s, signins: signinMap[s.id] || [] })))
+    setDropinStudents(students || [])
+    setLoadingDropin(false)
+  }, [])
+
+  useEffect(() => {
+    if (selectedTable !== T_DROPIN_SESSIONS || dropinViewMode !== 'sessions') return
+    loadDropinSessions()
+  }, [selectedTable, dropinViewMode, reloadKey, loadDropinSessions])
+
+  const handleDeleteSession = async (id) => {
+    await supabase.from(T_DROPIN_SIGNINS).delete().eq('session_id', id)
+    await supabase.from(T_DROPIN_SESSIONS).delete().eq('id', id)
+    setDropinSessions(s => s.filter(x => x.id !== id))
+    setDeleteSessionId(null)
+  }
+
+  const handleRemoveSignin = async (sessionId, signinId) => {
+    await supabase.from(T_DROPIN_SIGNINS).delete().eq('id', signinId)
+    setDropinSessions(s => s.map(x => x.id !== sessionId ? x : { ...x, signins: x.signins.filter(si => si.id !== signinId) }))
+  }
 
   const handleInvoiceStatusUpdate = async (invoiceId, newStatus) => {
     const prev = invoiceCardsData
@@ -1217,6 +1678,30 @@ export default function DatabasePage() {
     setAllStudentsForSiblings(prev => prev.map(s => s.id === studentId ? { ...s, family_id: null } : s))
     setRows(prev => prev.map(r => r.id === studentId ? { ...r, family_id: null } : r))
   }
+
+  // ── Hide column (double-click header) ───────────────────────────────────────
+  const hideCol = useCallback((col) => {
+    setHiddenCols(prev => {
+      const next = new Set(prev)
+      next.add(col)
+      saveHidden(selectedTable, next)
+      return next
+    })
+  }, [selectedTable, saveHidden])
+
+  const restoreCol = useCallback((col) => {
+    setHiddenCols(prev => {
+      const next = new Set(prev)
+      next.delete(col)
+      saveHidden(selectedTable, next)
+      return next
+    })
+  }, [selectedTable, saveHidden])
+
+  const restoreAllCols = useCallback(() => {
+    setHiddenCols(new Set())
+    saveHidden(selectedTable, new Set())
+  }, [selectedTable, saveHidden])
 
   // ── Column context menu ──────────────────────────────────────────────────────
   const handleColContextMenu = (e, col) => {
@@ -1382,7 +1867,7 @@ export default function DatabasePage() {
       }
       next[tgIdx] = tg
       // Remove empty groups — but keep all original groups even if temporarily empty
-      try { localStorage.setItem('cube_db_table_groups', JSON.stringify(next)) } catch {}
+      try { localStorage.setItem('cube_db_table_groups', JSON.stringify({ version: 'v6', groups: next })) } catch {}
       return next
     })
     setDragTable(null)
@@ -1449,6 +1934,7 @@ export default function DatabasePage() {
           isPk={contextMenu.col === pkCol}
           isGuardian={isGuardianCol(contextMenu.col) || isNameCol(contextMenu.col)}
           onRename={() => startColRename(contextMenu.col)}
+          onHide={() => { hideCol(contextMenu.col); setContextMenu(null) }}
           onDelete={() => handleDropCol(contextMenu.col)}
           onClose={() => setContextMenu(null)}
         />
@@ -1480,6 +1966,46 @@ export default function DatabasePage() {
           onClose={() => setSiblingPopover(null)}
           saving={siblingSaving}
         />
+      )}
+
+      {/* Add Student modal — students cards view */}
+      {showAddStudentModal && (
+        <AddStudentModal
+          onClose={() => setShowAddStudentModal(false)}
+          onAdded={() => { setShowAddStudentModal(false); setReloadKey(k => k + 1) }}
+        />
+      )}
+
+      {/* Drop-in session modals */}
+      {(showAddSession || editingSession) && (
+        <SessionModal
+          session={editingSession}
+          onClose={() => { setShowAddSession(false); setEditingSession(null) }}
+          onSaved={() => { setShowAddSession(false); setEditingSession(null); loadDropinSessions() }}
+        />
+      )}
+      {addSigninFor && (
+        <AddSigninModal
+          sessionId={addSigninFor}
+          existingSignins={dropinSessions.find(s => s.id === addSigninFor)?.signins ?? []}
+          allStudents={dropinStudents}
+          onClose={() => setAddSigninFor(null)}
+          onAdded={() => { setAddSigninFor(null); loadDropinSessions() }}
+        />
+      )}
+      {deleteSessionId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-80 flex flex-col overflow-hidden border border-[#DEE7FF]">
+            <div className="px-6 py-5">
+              <p className="text-sm font-bold text-[#062E63] mb-2">Delete this session?</p>
+              <p className="text-xs text-[#2A2035]/60">This will also remove all student sign-ins for this session. This cannot be undone.</p>
+            </div>
+            <div className="px-6 pb-5 flex gap-2 justify-end">
+              <button onClick={() => setDeleteSessionId(null)} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+              <button onClick={() => handleDeleteSession(deleteSessionId)} className="px-4 py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Delete</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Price confirm dialog — enrolments only */}
@@ -1701,6 +2227,23 @@ export default function DatabasePage() {
                     <span className="text-sm leading-none">+</span> Add Lesson
                   </button>
                 </>
+              ) : selectedTable === T_STUDENTS ? (
+                <>
+                  {/* Data / Cards toggle */}
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                    <button onClick={() => setStudentViewMode('data')} className={`px-3 py-1.5 text-xs font-semibold transition ${studentViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                    <button onClick={() => setStudentViewMode('cards')} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${studentViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Directory</button>
+                  </div>
+                  {studentViewMode === 'cards' ? (
+                    <button onClick={() => setShowAddStudentModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
+                      <span className="text-sm leading-none">+</span> Add Student
+                    </button>
+                  ) : (
+                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                      <span className="text-sm leading-none">+</span> Add Student
+                    </button>
+                  )}
+                </>
               ) : selectedTable === T_INVOICES ? (
                 <>
                   {/* Data / Cards toggle */}
@@ -1733,6 +2276,22 @@ export default function DatabasePage() {
                     {generatingInvoices ? '⟳ Generating…' : '⟳ Generate Invoices'}
                   </button>
                 </>
+              ) : selectedTable === T_DROPIN_SESSIONS ? (
+                <>
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                    <button onClick={() => setDropinViewMode('data')} className={`px-3 py-1.5 text-xs font-semibold transition ${dropinViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                    <button onClick={() => setDropinViewMode('sessions')} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${dropinViewMode === 'sessions' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Sessions</button>
+                  </div>
+                  {dropinViewMode === 'sessions' ? (
+                    <button onClick={() => setShowAddSession(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
+                      <span className="text-sm leading-none">+</span> New Session
+                    </button>
+                  ) : (
+                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                      <span className="text-sm leading-none">+</span> Add Row
+                    </button>
+                  )}
+                </>
               ) : selectedTable === 'classes' ? (
                 <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Class
@@ -1745,11 +2304,27 @@ export default function DatabasePage() {
             </div>
           </div>
 
+          {/* Hidden columns restore bar */}
+          {hiddenCols.size > 0 && (
+            <div className="flex items-center gap-1.5 px-5 py-1 bg-[#F8FAFF] border-b border-[#DEE7FF] shrink-0">
+              <span className="text-[10px] text-[#325099]/40 select-none">{hiddenCols.size} hidden:</span>
+              {[...hiddenCols].map(col => (
+                <button key={col} onClick={() => restoreCol(col)} className="text-[10px] px-2 py-0.5 rounded-full bg-[#EEF1F8] text-[#325099]/60 hover:bg-[#DEE7FF] hover:text-[#325099] transition font-mono">
+                  {col} ×
+                </button>
+              ))}
+              <button onClick={restoreAllCols} className="ml-auto text-[10px] text-[#325099]/40 hover:text-[#325099] transition">
+                show all
+              </button>
+            </div>
+          )}
+
           {/* Hint bar */}
           {columns.length > 0 && !loading && (
             <div className="flex items-center gap-4 px-5 py-1.5 bg-[#F0F4FF] border-b border-[#DEE7FF] text-[10px] text-[#325099]/50 shrink-0 select-none">
               <span>↔ Drag header to reorder</span>
               <span>⟺ Drag right edge to resize</span>
+              <span>Double-click header to hide column</span>
               <span>Right-click header to rename or delete column</span>
               {vConfig?.joinParents && <span className="text-amber-600/60">Guardian cols update the <strong>parents</strong> table</span>}
             </div>
@@ -1757,6 +2332,251 @@ export default function DatabasePage() {
 
           {/* Grid */}
           <div className="flex-1 overflow-auto">
+
+            {/* ── Student Directory view ─────────────────────────────────────── */}
+            {selectedTable === T_STUDENTS && studentViewMode === 'cards' ? (
+              loadingStudentCards ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p>
+                </div>
+              ) : (() => {
+                const q = studentCardsSearch.trim().toLowerCase()
+                const filtered = q
+                  ? studentCardsData.filter(s => (s.full_name||'').toLowerCase().includes(q) || (s.email||'').toLowerCase().includes(q) || (s.year||'').includes(q))
+                  : studentCardsData
+                const selected = filtered.find(s => s.id === studentCardsSelected) ?? null
+                const selectedParent = selected ? (studentCardsParents[selected.id] ?? null) : null
+                return (
+                  <div className="h-full flex flex-col">
+                    {/* Search + count bar */}
+                    <div className="flex items-center gap-3 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+                      <div className="relative flex-1 max-w-sm">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#325099]/50 text-sm">🔍</span>
+                        <input type="text" placeholder="Search by name, email, or year…" value={studentCardsSearch} onChange={e => { setStudentCardsSearch(e.target.value); setStudentCardsSelected(null) }} className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-[#DEE7FF] bg-white text-[#2A2035] placeholder-[#2A2035]/40 focus:outline-none focus:border-[#BACBFF] transition" />
+                      </div>
+                      <span className="text-[10px] text-[#325099]/50 font-semibold shrink-0">{filtered.length} {q ? 'found' : 'students'}</span>
+                    </div>
+                    {/* Side-by-side panels */}
+                    <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-0 divide-x divide-[#DEE7FF]">
+                      {/* LEFT — student list */}
+                      <div className="flex flex-col overflow-hidden">
+                        <div className="flex items-center gap-2.5 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+                          <div className="w-7 h-7 rounded-xl bg-[#DEE7FF] flex items-center justify-center text-sm">🎓</div>
+                          <p className="text-xs font-semibold text-[#2A2035] font-display">{filtered.length} {q ? 'found' : 'enrolled'}</p>
+                          {studentCardsSelected && (
+                            <button onClick={() => setStudentCardsSelected(null)} className="ml-auto text-[10px] font-semibold text-[#325099] hover:text-[#062E63] px-2 py-1 rounded-lg hover:bg-[#DEE7FF] transition">Clear</button>
+                          )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto divide-y divide-[#DEE7FF]">
+                          {filtered.length === 0 ? (
+                            <div className="text-center py-12">
+                              <p className="text-3xl mb-2">🔍</p>
+                              <p className="text-sm font-semibold text-[#2A2035]">No students match</p>
+                            </div>
+                          ) : filtered.map(s => {
+                            const isActive = studentCardsSelected === s.id
+                            const enrolCount = studentCardsEnrolments[s.id] || 0
+                            return (
+                              <button key={s.id} onClick={() => setStudentCardsSelected(isActive ? null : s.id)} className={`w-full text-left px-4 py-3.5 flex items-start gap-3 transition group ${isActive ? 'bg-[#EEF4FF] border-l-2 border-l-[#325099]' : 'hover:bg-[#F8FAFF] border-l-2 border-l-transparent'}`}>
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isActive ? 'bg-[#325099] text-white' : 'bg-[#DEE7FF] text-[#325099]'}`}>
+                                  {(s.full_name || '?').charAt(0)}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-sm font-semibold text-[#2A2035] font-display">{s.full_name}</span>
+                                    {s.year && <SDBadge text={`Yr ${s.year}`} cls={yearBadgeColor(s.year)} />}
+                                    {enrolCount > 0 && <SDBadge text={`${enrolCount} class${enrolCount === 1 ? '' : 'es'}`} cls="bg-[#DEE7FF] text-[#062E63]" />}
+                                    {s.gender && <SDBadge text={s.gender} cls="bg-[#FCE7F3] text-[#9D174D]" />}
+                                  </div>
+                                  <p className="text-[11px] text-[#2A2035]/55 mt-0.5 truncate">{s.email || '—'}</p>
+                                  <div className="flex items-center gap-3 mt-0.5 text-[10px] text-[#2A2035]/40">
+                                    <span className="font-mono">ID: {shortId(s.id)}</span>
+                                    {s.school && <span>· {s.school}</span>}
+                                  </div>
+                                </div>
+                                <span className={`text-sm shrink-0 mt-1 transition-transform ${isActive ? 'text-[#325099]' : 'text-[#2A2035]/30 group-hover:text-[#325099]'}`}>{isActive ? '→' : '›'}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      {/* RIGHT — guardian details */}
+                      <div className="flex flex-col overflow-hidden">
+                        <div className="flex items-center gap-2.5 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+                          <div className="w-7 h-7 rounded-xl bg-[#FEF3C7] flex items-center justify-center text-sm">👨‍👩‍👧</div>
+                          <p className="text-xs font-semibold text-[#2A2035] font-display">{selected ? `Guardian of ${selected.full_name}` : 'Parents / Guardians'}</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-5">
+                          {!selected ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                              <div className="w-12 h-12 rounded-2xl bg-[#FEF3C7] flex items-center justify-center text-2xl mb-3">👈</div>
+                              <p className="text-sm font-semibold text-[#2A2035]">No student selected</p>
+                              <p className="text-xs text-[#2A2035]/50 mt-1.5 max-w-xs">Click a student on the left to view their guardian contact details.</p>
+                            </div>
+                          ) : !selectedParent ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                              <div className="w-12 h-12 rounded-2xl bg-[#DEE7FF] flex items-center justify-center text-2xl mb-3">📭</div>
+                              <p className="text-sm font-semibold text-[#2A2035]">No guardian on file</p>
+                              <p className="text-xs text-[#2A2035]/50 mt-1.5 max-w-xs">Guardian details can be added when creating a student.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              {/* Linked student chip */}
+                              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#EEF4FF] border border-[#DEE7FF]">
+                                <div className="w-6 h-6 rounded-full bg-[#325099] text-white text-xs font-bold flex items-center justify-center shrink-0">{(selected.full_name||'?').charAt(0)}</div>
+                                <span className="text-xs font-semibold text-[#325099]">{selected.full_name}</span>
+                                {selected.year && <span className="text-[10px] text-[#2A2035]/50 ml-1">· Year {selected.year}</span>}
+                                <span className="ml-auto text-[10px] font-semibold text-[#325099]/60 tracking-wide">linked student</span>
+                              </div>
+                              {/* Guardian card */}
+                              <div className="rounded-2xl border border-[#DEE7FF] p-5 bg-[#FAFBFF]">
+                                <div className="flex items-start gap-3 mb-4">
+                                  <div className="w-10 h-10 rounded-full bg-[#FEF3C7] flex items-center justify-center text-base font-bold text-[#92400E] shrink-0">{(selectedParent.full_name||'?').charAt(0)}</div>
+                                  <div>
+                                    <p className="text-base font-semibold text-[#2A2035] font-display">{selectedParent.full_name || '—'}</p>
+                                    {selectedParent.relationship && <SDBadge text={selectedParent.relationship} cls="bg-[#FEF3C7] text-[#92400E] mt-0.5" />}
+                                  </div>
+                                </div>
+                                <div className="space-y-3">
+                                  <SDDetailRow icon="✉️" label="Email" value={selectedParent.email} />
+                                  <SDDetailRow icon="📞" label="Phone" value={selectedParent.phone} />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()
+            ) : null}
+
+            {/* ── Drop-in Sessions view ──────────────────────────────────────── */}
+            {selectedTable === T_DROPIN_SESSIONS && dropinViewMode === 'sessions' ? (
+              loadingDropin ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p>
+                </div>
+              ) : (
+                <div className="flex flex-col">
+                  {/* Empty state */}
+                  {dropinSessions.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-64 gap-3">
+                      <p className="text-4xl">📋</p>
+                      <p className="text-sm font-semibold text-[#2A2035]">No drop-in sessions yet</p>
+                      <button onClick={() => setShowAddSession(true)} className="px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">+ New Session</button>
+                    </div>
+                  )}
+                  {/* Session cards */}
+                  <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-4 content-start">
+                    {dropinSessions.map(session => {
+                      const fmt12 = t => {
+                        if (!t) return ''
+                        const [h, m] = t.split(':').map(Number)
+                        const ampm = h >= 12 ? 'pm' : 'am'
+                        return `${h % 12 || 12}:${String(m).padStart(2,'0')}${ampm}`
+                      }
+                      const dateStr = session.session_date
+                        ? new Date(session.session_date + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short', year:'numeric' })
+                        : '—'
+                      const isFull = session.signins.length >= session.max_capacity
+                      const spotsLeft = session.max_capacity - session.signins.length
+                      const capacityColour = isFull
+                        ? 'text-[#991B1B] bg-[#FEE2E2]'
+                        : spotsLeft <= 2 ? 'text-[#92400E] bg-[#FEF3C7]'
+                        : 'text-[#065F46] bg-[#D1FAE5]'
+
+                      return (
+                        <div key={session.id} className="bg-white rounded-2xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-shadow">
+                          {/* Card header */}
+                          <div className="px-5 pt-5 pb-4 border-b border-[#F0F4FF]">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-[#062E63]">{dateStr}</p>
+                                <p className="text-xs text-[#2A2035]/60 mt-0.5">{fmt12(session.start_time)} – {fmt12(session.end_time)} · {session.location || '—'}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${capacityColour}`}>
+                                  {session.signins.length}/{session.max_capacity} booked
+                                </span>
+                              </div>
+                            </div>
+                            {/* Subjects + Tutors */}
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {(session.subjects || []).map(s => (
+                                <span key={s} className="text-[10px] font-semibold bg-[#EEF4FF] text-[#325099] px-2 py-0.5 rounded-full border border-[#DEE7FF]">{s}</span>
+                              ))}
+                            </div>
+                            {(session.tutors || []).length > 0 && (
+                              <p className="mt-2 text-[10px] text-[#2A2035]/50">
+                                <span className="font-semibold text-[#2A2035]/40 uppercase tracking-wider mr-1">Tutors:</span>
+                                {session.tutors.join(', ')}
+                              </p>
+                            )}
+                            {session.notes && (
+                              <p className="mt-1.5 text-[10px] text-[#2A2035]/50 italic">{session.notes}</p>
+                            )}
+                            {/* Edit / Delete */}
+                            <div className="mt-3 flex gap-2">
+                              <button onClick={() => setEditingSession(session)} className="text-[10px] font-semibold text-[#325099] hover:underline">Edit session</button>
+                              <span className="text-[#2A2035]/20">·</span>
+                              <button onClick={() => setDeleteSessionId(session.id)} className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
+                            </div>
+                          </div>
+
+                          {/* Signins */}
+                          <div className="px-5 py-3 flex flex-col gap-1.5 flex-1">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-[#325099]/60 mb-1">
+                              Attendees {session.signins.length > 0 ? `(${session.signins.length})` : ''}
+                            </p>
+                            {session.signins.length === 0 && (
+                              <p className="text-[10px] text-[#2A2035]/30 italic pl-1">No students booked in yet</p>
+                            )}
+                            {session.signins.map(si => {
+                              const stu = dropinStudents.find(s => s.id === si.student_id)
+                              const statusColour = si.status === 'attended'
+                                ? 'text-[#065F46] bg-[#D1FAE5] border-[#6EE7B7]'
+                                : si.status === 'absent'
+                                ? 'text-[#991B1B] bg-[#FEE2E2] border-[#FCA5A5]'
+                                : 'text-[#1e40af] bg-[#EEF4FF] border-[#BFDBFE]'
+                              return (
+                                <div key={si.id} className="flex items-start gap-2 px-2.5 py-2 rounded-xl bg-[#FAFBFF] border border-[#F0F4FF]">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-semibold text-[#062E63] truncate">{stu?.full_name ?? si.student_id}</span>
+                                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${statusColour}`}>{si.status}</span>
+                                      <span className="text-[10px] text-[#325099]/60 font-medium">{si.subject}</span>
+                                    </div>
+                                    {si.question && <p className="text-[10px] text-[#2A2035]/40 mt-0.5 truncate">{si.question}</p>}
+                                  </div>
+                                  <button
+                                    onClick={() => handleRemoveSignin(session.id, si.id)}
+                                    title="Remove"
+                                    className="text-[#2A2035]/25 hover:text-red-400 transition text-sm leading-none shrink-0 pt-0.5"
+                                  >×</button>
+                                </div>
+                              )
+                            })}
+                          </div>
+
+                          {/* Add student footer */}
+                          <div className="px-5 pb-5 pt-2">
+                            <button
+                              onClick={() => setAddSigninFor(session.id)}
+                              disabled={isFull}
+                              className="w-full py-2 rounded-xl border border-dashed border-[#DEE7FF] text-[11px] font-semibold text-[#325099]/60 hover:border-[#325099] hover:text-[#325099] hover:bg-[#F8FAFF] transition disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              {isFull ? 'Session full' : '+ Add student'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            ) : null}
 
             {/* ── Invoice Cards view ─────────────────────────────────────────── */}
             {selectedTable === T_INVOICES && invoiceViewMode === 'cards' ? (
@@ -1776,6 +2596,68 @@ export default function DatabasePage() {
                   <p className="text-xs text-[#2A2035]/40">Click Generate Invoices to create them</p>
                 </div>
               ) : (
+                <div className="flex flex-col">
+                {/* ── Summary banner ─────────────────────────────────────────── */}
+                {(() => {
+                  const totalSubtotal      = invoiceCardsData.reduce((s, i) => s + Number(i.subtotal || 0), 0)
+                  const totalSibDisc       = invoiceCardsData.reduce((s, i) => s + Number(i.sibling_discount || 0), 0)
+                  const totalMultiDisc     = invoiceCardsData.reduce((s, i) => s + Number(i.multi_course_discount || 0), 0)
+                  const totalDiscounts     = totalSibDisc + totalMultiDisc
+                  const totalAfterDiscount = invoiceCardsData.reduce((s, i) => s + Number(i.total || 0), 0)
+                  const paidAmt    = invoiceCardsData.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.total || 0), 0)
+                  const partialAmt = invoiceCardsData.filter(i => i.status === 'partial').reduce((s, i) => s + Number(i.total || 0), 0)
+                  const unpaidAmt  = invoiceCardsData.filter(i => i.status === 'unpaid').reduce((s, i) => s + Number(i.total || 0), 0)
+                  const fmt = n => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                  return (
+                    <div className="mx-6 mt-6 mb-2 bg-white rounded-2xl border border-[#E8EDF8] shadow-sm overflow-hidden">
+                      {/* Top row: main 3 stats */}
+                      <div className="grid grid-cols-3 divide-x divide-[#F0F4FF]">
+                        <div className="px-6 py-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#2A2035]/40 mb-1">Gross subtotal</p>
+                          <p className="text-xl font-bold text-[#062E63] tabular-nums">{fmt(totalSubtotal)}</p>
+                          <p className="text-[10px] text-[#2A2035]/40 mt-0.5">across {invoiceCardsData.length} invoice{invoiceCardsData.length !== 1 ? 's' : ''}</p>
+                        </div>
+                        <div className="px-6 py-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#059669]/70 mb-1">Total discounts</p>
+                          <p className="text-xl font-bold text-[#059669] tabular-nums">−{fmt(totalDiscounts)}</p>
+                          <p className="text-[10px] text-[#2A2035]/40 mt-0.5">
+                            {totalSibDisc > 0 && <span>Sibling {fmt(totalSibDisc)}</span>}
+                            {totalSibDisc > 0 && totalMultiDisc > 0 && <span className="mx-1">·</span>}
+                            {totalMultiDisc > 0 && <span>Multi-course {fmt(totalMultiDisc)}</span>}
+                            {totalDiscounts === 0 && <span>No discounts applied</span>}
+                          </p>
+                        </div>
+                        <div className="px-6 py-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#325099]/70 mb-1">Net total</p>
+                          <p className="text-xl font-bold text-[#325099] tabular-nums">{fmt(totalAfterDiscount)}</p>
+                          <p className="text-[10px] text-[#2A2035]/40 mt-0.5">after all discounts</p>
+                        </div>
+                      </div>
+                      {/* Bottom row: payment status breakdown */}
+                      <div className="border-t border-[#F0F4FF] grid grid-cols-3 divide-x divide-[#F0F4FF] bg-[#FAFBFF]">
+                        <div className="px-6 py-2.5 flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-[#059669] shrink-0" />
+                          <span className="text-[10px] text-[#2A2035]/50 font-medium">Paid</span>
+                          <span className="ml-auto text-[11px] font-bold text-[#065F46] tabular-nums">{fmt(paidAmt)}</span>
+                          <span className="text-[10px] text-[#2A2035]/30">({invoiceCardsData.filter(i => i.status === 'paid').length})</span>
+                        </div>
+                        <div className="px-6 py-2.5 flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-[#D97706] shrink-0" />
+                          <span className="text-[10px] text-[#2A2035]/50 font-medium">Partial</span>
+                          <span className="ml-auto text-[11px] font-bold text-[#92400E] tabular-nums">{fmt(partialAmt)}</span>
+                          <span className="text-[10px] text-[#2A2035]/30">({invoiceCardsData.filter(i => i.status === 'partial').length})</span>
+                        </div>
+                        <div className="px-6 py-2.5 flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-[#EF4444] shrink-0" />
+                          <span className="text-[10px] text-[#2A2035]/50 font-medium">Unpaid</span>
+                          <span className="ml-auto text-[11px] font-bold text-[#991B1B] tabular-nums">{fmt(unpaidAmt)}</span>
+                          <span className="text-[10px] text-[#2A2035]/30">({invoiceCardsData.filter(i => i.status === 'unpaid').length})</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
+                {/* ── Cards grid ─────────────────────────────────────────────── */}
                 <div className="p-6 grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4 content-start">
                   {invoiceCardsData.map(inv => {
                     const statusColour = inv.status === 'paid'
@@ -1859,8 +2741,10 @@ export default function DatabasePage() {
                     )
                   })}
                 </div>
+                </div>
               )
-            ) : loading ? (
+            ) : (selectedTable === T_STUDENTS && studentViewMode === 'cards') ? null
+            : loading ? (
               <div className="flex items-center justify-center h-full">
                 <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p>
               </div>
@@ -1883,7 +2767,7 @@ export default function DatabasePage() {
                   <tr>
                     <th className="sticky top-0 z-30 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] text-center text-[10px] font-bold text-[#325099]/40 select-none" style={{ width:42, minWidth:42, left:0 }}>#</th>
 
-                    {columnOrder.map(col => {
+                    {columnOrder.filter(col => !hiddenCols.has(col)).map(col => {
                       const isPk          = col === pkCol
                       const isGuardian    = isGuardianCol(col)
                       const isName        = isNameCol(col)
@@ -1905,6 +2789,7 @@ export default function DatabasePage() {
                           onDrop={e      => !isColRenaming && handleDrop(e, col)}
                           onDragEnd={!isColRenaming ? handleDragEnd : undefined}
                           onContextMenu={e => !isColRenaming && handleColContextMenu(e, col)}
+                          onDoubleClick={() => !isColRenaming && !isPk && hideCol(col)}
                           className={`sticky top-0 border-b-2 border-r border-[#DEE7FF] text-left select-none transition-colors ${
                             isStickyCol ? 'z-30' : 'z-20'
                           } ${
@@ -1979,7 +2864,7 @@ export default function DatabasePage() {
                   {addingRow && (
                     <tr className="bg-[#F0FDF4]">
                       <td className="border-b border-r border-[#DEE7FF] px-2 py-2 text-center text-[#065F46] font-bold">*</td>
-                      {columnOrder.map(col => {
+                      {columnOrder.filter(col => !hiddenCols.has(col)).map(col => {
                         const w = columnWidths[col] ?? defaultWidth(col)
                         const defVal = vConfig?.defaultRow?.[col] ?? ''
                         return (
@@ -2019,7 +2904,7 @@ export default function DatabasePage() {
                       <tr key={String(rowId)} className={`group ${rowBg} hover:bg-[#F0F4FF] transition-colors`}>
                         <td className="border-b border-r border-[#E8EDF8] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: ri % 2 === 0 ? '#ffffff' : '#F9FAFB' }}>{ri + 1}</td>
 
-                        {columnOrder.map(col => {
+                        {columnOrder.filter(col => !hiddenCols.has(col)).map(col => {
                           const val       = row[col]
                           const isEditing = editingCell?.rowId === rowId && editingCell?.col === col
                           const isPk      = col === pkCol
@@ -2082,7 +2967,15 @@ export default function DatabasePage() {
                                   </div>
                                 )
                               ) : isEditing ? (
-                                <input ref={editInputRef} type="text" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                                CELL_DROPDOWNS[`${selectedTable}:${col}`]
+                                  ? (
+                                    <select ref={editInputRef} value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs cursor-pointer" style={{ width:w }}>
+                                      <option value="">—</option>
+                                      {CELL_DROPDOWNS[`${selectedTable}:${col}`].map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                  ) : (
+                                    <input ref={editInputRef} type="text" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                                  )
                               ) : col === LESSON_WEEK_COL ? (
                                 <div className="px-2 py-1.5 text-center">
                                   {dv === null
@@ -2168,7 +3061,7 @@ export default function DatabasePage() {
                   })}
 
                   {filteredRows.length === 0 && !addingRow && rows.length > 0 && (
-                    <tr><td colSpan={columnOrder.length + 2} className="px-4 py-10 text-center text-xs text-[#2A2035]/40">No rows match &ldquo;{search}&rdquo;</td></tr>
+                    <tr><td colSpan={columnOrder.filter(c => !hiddenCols.has(c)).length + 2} className="px-4 py-10 text-center text-xs text-[#2A2035]/40">No rows match &ldquo;{search}&rdquo;</td></tr>
                   )}
                 </tbody>
               </table>

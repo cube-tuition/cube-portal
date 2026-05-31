@@ -18,10 +18,11 @@ const TUTOR_LINKS = [
   { label: 'My pay',   href: '/tutor/pay' },
 ]
 const ADMIN_LINKS = [
-  { label: 'Payroll',  href: '/tutor/payroll' },
-  { label: 'Reports',  href: '/tutor/reports' },
-  { label: 'Students', href: '/tutor/students' },
-  { label: 'Database', href: '/tutor/database' },
+  { label: 'Payroll',   href: '/tutor/payroll' },
+  { label: 'Reports',   href: '/tutor/reports' },
+  { label: 'Drop-ins',  href: '/tutor/dropin' },
+  { label: 'Booklets',  href: '/tutor/booklets' },
+  { label: 'Database',  href: '/tutor/database' },
 ]
 
 export default function TutorNav({ staffName, isAdmin = false }) {
