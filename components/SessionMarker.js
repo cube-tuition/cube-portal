@@ -92,7 +92,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
     for (const s of roster) {
       const m = marks[s.id] || {}
       const att = m.attendance || ''
-      const isAbsent = att === 'absent' || att === 'excused'
+      const isAbsent = att === 'absent' || att === 'excused' || att === 'makeup'
       if (!att) {
         missing.push(`${s.full_name} (attendance)`)
         continue
@@ -127,7 +127,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
     const load = async () => {
       setLoading(true)
 
-      // Roster
+      // Roster — enrolled students
       const { data: links } = await supabase
         .from(T_ENROLMENTS)
         .select('students (id, full_name, school, year)')
@@ -136,7 +136,24 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       const students = (links || [])
         .map(l => l.students)
         .filter(Boolean)
-        .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+
+      // Also include makeup guests: students who have an attendance record for
+      // this session (moved from another class) but are not enrolled here.
+      const enrolledIds = new Set(students.map(s => s.id))
+      const { data: guestAttRows } = await supabase
+        .from(T_ATTENDANCE)
+        .select('student_id, students(id, full_name, school, year)')
+        .eq('class_id', classId)
+        .eq('session_date', dateISO)
+      if (cancelled) return
+      for (const row of guestAttRows || []) {
+        if (!row.students) continue
+        if (!enrolledIds.has(row.students.id)) {
+          students.push({ ...row.students, isMakeupGuest: true })
+        }
+      }
+
+      students.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
       setRoster(students)
 
       // Term + week
@@ -489,6 +506,7 @@ const ATTENDANCE_OPTIONS = [
   { value: 'present',  label: 'Present', bg: '#D1FAE5', fg: '#065F46' },
   { value: 'late',     label: 'Late',    bg: '#FEF3C7', fg: '#92400E' },
   { value: 'absent',   label: 'Absent',  bg: '#FEE2E2', fg: '#991B1B' },
+  { value: 'makeup',   label: 'Makeup',  bg: '#EDE9FE', fg: '#5B21B6' },
 ]
 const GRADE_OPTIONS = [
   { value: '',  label: '—', bg: '#ffffff', fg: '#9CA3AF' },
@@ -508,12 +526,14 @@ const ATTEND_COLOR = {
   late:    { bg:'#FEF3C7', fg:'#92400E', label:'Late'    },
   absent:  { bg:'#FEE2E2', fg:'#991B1B', label:'Absent'  },
   excused: { bg:'#E0E7FF', fg:'#3730A3', label:'Excused' },
+  makeup:  { bg:'#EDE9FE', fg:'#5B21B6', label:'Makeup'  },
 }
 
 function rowTint(att) {
   if (att === 'present') return '#F0FDF4'
   if (att === 'late')    return '#FFFBEB'
   if (att === 'absent')  return '#FEF2F2'
+  if (att === 'makeup')  return '#F5F3FF'
   return ''
 }
 function numberTier(n) {
@@ -605,7 +625,7 @@ function MarkTable({
             {roster.map(s => {
               const m = marks[s.id] || {}
               const att = m.attendance || ''
-              const isAbsent = att === 'absent' || att === 'excused'
+              const isAbsent = att === 'absent' || att === 'excused' || att === 'makeup'
               const tint = rowTint(att)
               const isOpen = expanded?.has(s.id)
               const sHist = history?.[s.id] || { quizzes: [], attendance: [] }
@@ -625,14 +645,19 @@ function MarkTable({
                           type="button"
                           onClick={() => onToggleExpand?.(s.id)}
                           aria-label={isOpen ? 'Hide history' : 'Show history'}
-                          className="w-8 h-8 rounded-full bg-[#062E63] text-white text-[11px] font-bold flex items-center justify-center shrink-0 hover:bg-[#325099] transition"
+                          className={`w-8 h-8 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0 transition ${s.isMakeupGuest ? 'bg-[#7C3AED] hover:bg-[#6D28D9]' : 'bg-[#062E63] hover:bg-[#325099]'}`}
                         >
                           {(s.full_name || '?').slice(0, 1).toUpperCase()}
                         </button>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-[#2A2035] truncate leading-tight">
-                            {s.full_name || 'Unknown'}
-                          </p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-semibold text-[#2A2035] truncate leading-tight">
+                              {s.full_name || 'Unknown'}
+                            </p>
+                            {s.isMakeupGuest && (
+                              <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#8B5CF6]/15 text-[#5B21B6] shrink-0 whitespace-nowrap">Makeup</span>
+                            )}
+                          </div>
                           <button
                             type="button"
                             onClick={() => onToggleExpand?.(s.id)}

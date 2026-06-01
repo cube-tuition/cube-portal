@@ -1633,7 +1633,8 @@ export default function DatabasePage() {
     setMakeupStudent(null); setMakeupMode(null); setMoveOptions([]); setMoveTargetId(null)
     setOneToOneTutorId(''); setOneToOneDate(''); setOneToOneStart(''); setOneToOneEnd(''); setOneToOneRoom('')
     setSidebarLoading(true); setSidebarData(null)
-    // Fetch enrolments → students for this class
+
+    // Fetch enrolments, attendance, and tutors in parallel
     const [{ data: enrolRows }, { data: attRows }, { data: tutorRows }, { data: directorRows }] = await Promise.all([
       supabase.from(T_ENROLMENTS).select('student_id, students(id, full_name, year, school)').eq('class_id', lesson.class_id),
       supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lesson.class_id).eq('session_date', lesson.lesson_date),
@@ -1643,6 +1644,22 @@ export default function DatabasePage() {
     const roster = (enrolRows || []).map(e => e.students).filter(Boolean)
     const attMap = {}
     for (const a of attRows || []) attMap[a.student_id] = a
+
+    // Also surface makeup-moved guests: students with an attendance record here
+    // but not enrolled in this class (e.g. moved from a sibling section).
+    const enrolledIds = new Set(roster.map(s => s.id))
+    const guestIds = Object.keys(attMap).filter(id => !enrolledIds.has(id))
+    if (guestIds.length > 0) {
+      const { data: guestStudents } = await supabase
+        .from(T_STUDENTS)
+        .select('id, full_name, year, school')
+        .in('id', guestIds)
+      for (const s of guestStudents || []) {
+        roster.push({ ...s, isMakeupGuest: true })
+      }
+    }
+
+    roster.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
     const allTutors = [...(tutorRows || []), ...(directorRows || [])].sort((a, b) => a.full_name.localeCompare(b.full_name))
     setSidebarData({ roster, attMap, tutors: allTutors })
     setSidebarLoading(false)
@@ -1694,25 +1711,71 @@ export default function DatabasePage() {
   const saveMakeupMove = useCallback(async () => {
     if (!moveTargetId || !makeupStudent || !lessonSidebar) return
     setMakeupSaving(true)
-    // 1. Upsert attendance on original lesson → makeup
-    await supabase.from(T_ATTENDANCE).upsert({
+
+    const target = moveOptions.find(o => o.id === moveTargetId)
+    if (!target) { setMakeupSaving(false); return }
+
+    // 1. Mark student as 'makeup' on the original lesson
+    const { error: err1 } = await supabase.from(T_ATTENDANCE).upsert({
       student_id: makeupStudent.id, class_id: lessonSidebar.class_id,
       session_date: lessonSidebar.lesson_date, status: 'makeup',
     }, { onConflict: 'student_id,class_id,session_date' })
-    // 2. Upsert attendance on target lesson → present
-    const target = moveOptions.find(o => o.id === moveTargetId)
-    if (target) {
-      await supabase.from(T_ATTENDANCE).upsert({
-        student_id: makeupStudent.id, class_id: target.class_id,
-        session_date: target.lesson_date, status: 'present',
-        notes: `Makeup from ${lessonSidebar.lesson_date}`,
-      }, { onConflict: 'student_id,class_id,session_date' })
+    if (err1) { alert('Failed to update original attendance: ' + err1.message); setMakeupSaving(false); return }
+
+    // 2. Mark student as 'present' on the target lesson (makeup guest)
+    const { error: err2 } = await supabase.from(T_ATTENDANCE).upsert({
+      student_id: makeupStudent.id, class_id: target.class_id,
+      session_date: target.lesson_date, status: 'present',
+      notes: `Makeup from ${lessonSidebar.lesson_date}`,
+    }, { onConflict: 'student_id,class_id,session_date' })
+    if (err2) { alert('Failed to update target attendance: ' + err2.message); setMakeupSaving(false); return }
+
+    // 3. Create a makeup lesson row on the target so the student appears in the
+    //    lessons table and the tutor's weekly calendar (skip if already exists)
+    const { data: existingMakeup } = await supabase
+      .from(T_LESSONS).select('id').eq('is_makeup', true)
+      .eq('makeup_student_id', makeupStudent.id)
+      .eq('class_id', target.class_id).eq('lesson_date', target.lesson_date)
+      .maybeSingle()
+    if (!existingMakeup) {
+      const { error: err3 } = await supabase.from(T_LESSONS).insert({
+        class_id: target.class_id,
+        lesson_date: target.lesson_date,
+        start_time: target.start_time,
+        end_time: target.end_time,
+        room: target.classes?.room || null,
+        status: 'scheduled',
+        week: target.week ?? null,
+        is_makeup: true,
+        makeup_student_id: makeupStudent.id,
+        makeup_source_lesson_id: lessonSidebar.id,
+      })
+      if (err3) { alert('Failed to create makeup lesson row: ' + err3.message); setMakeupSaving(false); return }
     }
-    // Refresh sidebar attendance
-    const { data: attRows } = await supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lessonSidebar.class_id).eq('session_date', lessonSidebar.lesson_date)
-    const attMap = {}; for (const a of attRows || []) attMap[a.student_id] = a
-    setSidebarData(d => ({ ...d, attMap }))
+
+    // 4. Refresh the sidebar for the SOURCE lesson (student now shows 'Makeup')
+    const { data: attRows } = await supabase
+      .from(T_ATTENDANCE).select('student_id, status, notes')
+      .eq('class_id', lessonSidebar.class_id).eq('session_date', lessonSidebar.lesson_date)
+    const attMap = {}
+    for (const a of attRows || []) attMap[a.student_id] = a
+    // Rebuild roster with guest detection (unchanged enrolled students + any guests)
+    const { data: enrolRows } = await supabase
+      .from(T_ENROLMENTS).select('student_id, students(id, full_name, year, school)')
+      .eq('class_id', lessonSidebar.class_id)
+    const roster = (enrolRows || []).map(e => e.students).filter(Boolean)
+    const enrolledIds = new Set(roster.map(s => s.id))
+    const guestIds = Object.keys(attMap).filter(id => !enrolledIds.has(id))
+    if (guestIds.length > 0) {
+      const { data: guestStudents } = await supabase
+        .from(T_STUDENTS).select('id, full_name, year, school').in('id', guestIds)
+      for (const s of guestStudents || []) roster.push({ ...s, isMakeupGuest: true })
+    }
+    roster.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+    setSidebarData(d => ({ ...d, attMap, roster }))
+
     setMakeupSaving(false); setMakeupMode(null); setMakeupStudent(null)
+    setReloadKey(k => k + 1)  // refresh lessons table to show new makeup row
   }, [moveTargetId, makeupStudent, lessonSidebar, moveOptions])
 
   const saveMakeupOneToOne = useCallback(async () => {
@@ -1744,11 +1807,12 @@ export default function DatabasePage() {
     })
     if (error) { alert('Failed to create makeup lesson: ' + error.message); setMakeupSaving(false); return }
     // Mark original lesson attendance as makeup
-    await supabase.from(T_ATTENDANCE).upsert({
+    const { error: attErr } = await supabase.from(T_ATTENDANCE).upsert({
       student_id: makeupStudent.id, class_id: lessonSidebar.class_id,
       session_date: lessonSidebar.lesson_date, status: 'makeup',
       notes: `1:1 makeup scheduled for ${oneToOneDate}`,
     }, { onConflict: 'student_id,class_id,session_date' })
+    if (attErr) { alert('Lesson created but failed to update attendance: ' + attErr.message); setMakeupSaving(false); return }
     // Refresh attendance
     const { data: attRows } = await supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lessonSidebar.class_id).eq('session_date', lessonSidebar.lesson_date)
     const attMap = {}; for (const a of attRows || []) attMap[a.student_id] = a
@@ -3421,23 +3485,33 @@ export default function DatabasePage() {
                           : att?.status === 'makeup'  ? { bg:'#EDE9FE', fg:'#5B21B6' }
                           : { bg:'#F4F4F4', fg:'#9CA3AF' }
                         return (
-                          <div key={s.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-[#DEE7FF] bg-white hover:border-[#BACBFF] transition">
-                            <div className="w-8 h-8 rounded-full bg-[#062E63] text-white text-xs font-bold flex items-center justify-center shrink-0">
+                          <div key={s.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${s.isMakeupGuest ? 'border-[#C4B5FD] bg-[#FAF5FF] hover:border-[#A78BFA]' : 'border-[#DEE7FF] bg-white hover:border-[#BACBFF]'}`}>
+                            <div className={`w-8 h-8 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0 ${s.isMakeupGuest ? 'bg-[#7C3AED]' : 'bg-[#062E63]'}`}>
                               {(s.full_name || '?')[0].toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-[#2A2035] truncate">{s.full_name}</p>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="text-sm font-semibold text-[#2A2035] truncate">{s.full_name}</p>
+                                {s.isMakeupGuest && (
+                                  <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#8B5CF6]/15 text-[#5B21B6] shrink-0 whitespace-nowrap">Makeup guest</span>
+                                )}
+                              </div>
                               <p className="text-[10px] text-[#2A2035]/45">Y{s.year} · {s.school || '—'}</p>
+                              {s.isMakeupGuest && att?.notes && (
+                                <p className="text-[10px] text-[#5B21B6]/70 mt-0.5 truncate">{att.notes}</p>
+                              )}
                             </div>
                             {att?.status && (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: statusColor.bg, color: statusColor.fg }}>
                                 {att.status[0].toUpperCase() + att.status.slice(1)}
                               </span>
                             )}
-                            <button
-                              onClick={() => setMakeupStudent(s)}
-                              className="text-[10px] font-semibold text-[#325099] border border-[#DEE7FF] px-2.5 py-1 rounded-full hover:bg-[#EEF4FF] hover:border-[#325099] transition shrink-0"
-                            >Makeup</button>
+                            {!s.isMakeupGuest && (
+                              <button
+                                onClick={() => setMakeupStudent(s)}
+                                className="text-[10px] font-semibold text-[#325099] border border-[#DEE7FF] px-2.5 py-1 rounded-full hover:bg-[#EEF4FF] hover:border-[#325099] transition shrink-0"
+                              >Makeup</button>
+                            )}
                           </div>
                         )
                       })}

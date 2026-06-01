@@ -191,11 +191,13 @@ export default function ClassOverviewPage() {
       for (const s of subs || []) subMap[s.session_date] = s
       setSubAssignments(subMap)
 
-      // Lessons for this class from the lessons table (source of truth for scheduling)
+      // Lessons for this class — regular sessions only (makeup rows are guest
+      // slots for individual students and must not appear as class sessions).
       const { data: lessonRows } = await supabase
         .from(T_LESSONS)
         .select('id, lesson_date, start_time, end_time, room, status, notes, main_teacher, scheduled_teacher_id')
         .eq('class_id', classId)
+        .eq('is_makeup', false)
         .order('lesson_date')
       setLessons(lessonRows || [])
 

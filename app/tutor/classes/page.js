@@ -469,6 +469,8 @@ export default function TutorClassesPage() {
         dayName: '',
         cls: syntheticCls,
         isMakeup: true,
+        lesson,
+        studentName,
       })
     }
     return map
@@ -1184,12 +1186,13 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                   const pillBorder = isMakeup ? '1px solid #C4B5FD' : isAmber ? '1px solid #FDE68A' : 'none'
                   const textColor  = isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
                   const subColor   = isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
-                  const PillWrapper = isMakeup ? 'div' : Link
-                  const pillProps = isMakeup ? {} : { href }
+                  const pillHref = isMakeup
+                    ? `/tutor/classes/makeup/${s.lesson?.id}`
+                    : href
                   return (
-                    <PillWrapper
+                    <Link
                       key={s.key}
-                      {...pillProps}
+                      href={pillHref}
                       className="block rounded-lg px-2.5 py-1.5 transition hover:shadow-[0_2px_10px_-4px_rgba(50,80,153,0.25)]"
                       style={{ background: pillBg, border: pillBorder }}
                     >
@@ -1232,7 +1235,7 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                           </span>
                         )}
                       </div>
-                    </PillWrapper>
+                    </Link>
                   )
                 })
               )}
