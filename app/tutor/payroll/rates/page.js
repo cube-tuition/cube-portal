@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { T_CURRENT_TUTOR_RATES, T_TUTOR_RATE_MATRIX } from '../../../../lib/tables'
+import { T_ADMINS, T_CURRENT_TUTOR_RATES, T_TUTOR_RATE_MATRIX, T_TUTORS } from '../../../../lib/tables'
 
 /*
  * Admin rates matrix — mirrors the spreadsheet:

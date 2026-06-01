@@ -8,7 +8,8 @@ import TutorNav from '../../../components/TutorNav'
 import { normalizeDays } from '../../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { inferSubject } from '../../../components/CourseDetail'
-import { T_CLASSES, T_ENROLMENTS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
+import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
+import { buildClassLabelMap } from '../../../lib/classLabels'
 
 // Parse "Y8 Maths" → 8 ; returns null if no Y-prefix.
 const parseYearFromClass = (name) => {
@@ -162,11 +163,15 @@ export default function TutorClassesPage() {
   const [classes, setClasses] = useState([])
   const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, year }] }
   const [subSessions, setSubSessions] = useState([]) // [{ classId, dateISO, cls }] — sessions this tutor is subbing
+  const [makeupSessions, setMakeupSessions] = useState([]) // [{ dateISO, lesson }] — 1:1 makeup lessons for this tutor
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
   const [search, setSearch] = useState('')
   const [authErr, setAuthErr] = useState(null)
   const [expandedCourse, setExpandedCourse] = useState(null)   // course key (lowercased name)
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()))
+  const [selectedYear, setSelectedYear]       = useState(null)   // null = all years
+  const [selectedSubject, setSelectedSubject] = useState(null)   // null = all subjects
+  const [classView, setClassView]             = useState('all')  // 'all' | 'mine' — admins only
   const router = useRouter()
 
   // ── Auth + terms load (once) ──────────────────────────────────────────────
@@ -200,7 +205,10 @@ export default function TutorClassesPage() {
       // Filter by the selected term.
       let q = supabase.from(T_CLASSES).select('*')
         .eq('term_id', selectedTermId)
+      // Non-admins always see only their own classes.
+      // Admins see all classes unless they've switched to "My Classes".
       if (!isAdmin && firstName) q = q.ilike('teacher', firstName)
+      else if (isAdmin && classView === 'mine' && firstName) q = q.ilike('teacher', firstName)
       const { data: cls } = await q
 
       // Hide untitled rows — these are typically incomplete Airtable rows and
@@ -257,9 +265,23 @@ export default function TutorClassesPage() {
           setSubSessions([])
         }
       }
+
+      // Fetch makeup 1:1 lessons assigned to this tutor (within 6 weeks either side)
+      const today2 = isoDate(new Date())
+      const ahead = isoDate(addDays(new Date(), 42))
+      const behind = isoDate(addDays(new Date(), -7))
+      const makeupQuery = supabase
+        .from(T_LESSONS)
+        .select('id, lesson_date, start_time, end_time, room, class_id, makeup_student_id, students!makeup_student_id(full_name, year), classes(class_name)')
+        .eq('is_makeup', true)
+        .gte('lesson_date', behind)
+        .lte('lesson_date', ahead)
+      if (!isAdmin) makeupQuery.eq('scheduled_teacher_id', staff.id)
+      const { data: makeupRows } = await makeupQuery
+      setMakeupSessions((makeupRows || []).map(r => ({ dateISO: r.lesson_date, lesson: r })))
     }
     load()
-  }, [staff, selectedTermId])
+  }, [staff, selectedTermId, classView])
 
   // ── Fetch sub assignments for the visible week ────────────────────────────
   // Re-runs whenever the week or the class list changes. Populates subDates
@@ -284,12 +306,40 @@ export default function TutorClassesPage() {
   // ── Top section: distinct courses by class_name ────────────────────────
   // We merge multiple DB rows that share a name (e.g. a course that runs on
   // Tue AND Thu shows once) and union the rosters (deduping students).
+  // Classes sharing a course get A/B/C labels when 2+ exist for that course.
+  const classLabelMap = useMemo(() => buildClassLabelMap(classes), [classes])
+
+  // ── Filter options derived from loaded classes ─────────────────────────────
+  const availableYears = useMemo(() => {
+    const s = new Set()
+    for (const c of classes) { const y = parseYearFromClass(c.class_name); if (y) s.add(y) }
+    return [...s].sort((a, b) => a - b)
+  }, [classes])
+
+  const availableSubjects = useMemo(() => {
+    const s = new Set()
+    for (const c of classes) { const sub = inferSubject({ class_name: c.class_name }); if (sub) s.add(sub) }
+    return [...s].sort()
+  }, [classes])
+
+  const filteredClasses = useMemo(() => {
+    return classes.filter(c => {
+      const q = search.trim().toLowerCase()
+      if (q && !((c.class_name||'').toLowerCase().includes(q)||(c.teacher||'').toLowerCase().includes(q)||(c.room||'').toLowerCase().includes(q))) return false
+      if (selectedYear !== null && parseYearFromClass(c.class_name) !== selectedYear) return false
+      if (selectedSubject !== null && inferSubject({ class_name: c.class_name }) !== selectedSubject) return false
+      return true
+    })
+  }, [classes, search, selectedYear, selectedSubject])
+
   const courses = useMemo(() => {
     const map = new Map()
     for (const c of classes) {
-      const key = c.class_name.trim().toLowerCase()
+      const label = classLabelMap.get(c.id) ?? c.class_name?.trim() ?? ''
+      // Use class id as key so labelled siblings don't collapse into one card
+      const key = c.id
       if (!map.has(key)) {
-        map.set(key, { key, displayName: c.class_name.trim(), rows: [] })
+        map.set(key, { key: String(key), displayName: label, rows: [] })
       }
       map.get(key).rows.push(c)
     }
@@ -397,8 +447,32 @@ export default function TutorClassesPage() {
         isSub: true,
       })
     }
+    // Inject makeup 1:1 sessions for this tutor
+    for (const { dateISO, lesson } of makeupSessions) {
+      const weekISODates = weekDays.map(d => isoDate(d))
+      if (!weekISODates.includes(dateISO)) continue
+      if (!map.has(dateISO)) map.set(dateISO, [])
+      const studentName = lesson.students?.full_name || 'Student'
+      // Build a synthetic cls-like object for the pill renderer
+      const syntheticCls = {
+        id: `makeup-${lesson.id}`,
+        class_name: `1:1 Makeup · ${studentName}`,
+        start_time: lesson.start_time,
+        end_time: lesson.end_time,
+        room: lesson.room,
+        teacher: null,
+      }
+      map.get(dateISO).push({
+        key: `makeup-${lesson.id}-${dateISO}`,
+        date: new Date(dateISO + 'T00:00:00'),
+        dateISO,
+        dayName: '',
+        cls: syntheticCls,
+        isMakeup: true,
+      })
+    }
     return map
-  }, [upcomingSessions, subSessions, weekDays, subDates])
+  }, [upcomingSessions, subSessions, weekDays, subDates, makeupSessions])
 
   const todayISO = useMemo(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return isoDate(d)
@@ -432,16 +506,16 @@ export default function TutorClassesPage() {
 
       {/* HERO */}
       <section className="bg-gradient-to-r from-[#F8FAFF] via-[#EEF4FF] to-[#BFD1FF] border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-12 md:py-16">
+        <div className="max-w-7xl mx-auto px-6 md:px-10 py-7 md:py-9">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display">
-              {isAdmin ? 'All classes · Admin view' : 'My classes · Tutor view'}
+              {isAdmin ? (classView === 'mine' ? `My classes · ${firstName}` : 'All classes · Admin view') : 'My classes · Tutor view'}
             </p>
             {allTerms.length > 0 && (
               <div className="relative">
                 <select
                   value={selectedTermId || ''}
-                  onChange={e => { setSelectedTermId(e.target.value); setExpandedCourse(null) }}
+                  onChange={e => { setSelectedTermId(e.target.value); setExpandedCourse(null); setSelectedYear(null); setSelectedSubject(null) }}
                   className="appearance-none inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#062E63] bg-white border border-[#DEE7FF] pl-2.5 pr-6 py-1 rounded-full cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition"
                 >
                   {allTerms.map(t => (
@@ -471,74 +545,118 @@ export default function TutorClassesPage() {
         </div>
       </section>
 
-      {/* SECTION 1 — Classes grouped by Year → Subject */}
-      <section className="max-w-7xl mx-auto px-6 md:px-10 pt-10">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div>
-            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
-              {allTerms.find(t => t.id === selectedTermId)?.name ?? 'This term'}
-            </p>
-            <h2 className="text-lg font-semibold text-[#2A2035] font-display">
-              {isAdmin ? 'All classes' : 'Classes you teach'}
-            </h2>
+      {/* STICKY FILTER BAR */}
+      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-[#DEE7FF] shadow-[0_1px_8px_-4px_rgba(50,80,153,0.10)]">
+        <div className="max-w-7xl mx-auto px-6 md:px-10 py-2.5 flex flex-wrap items-center gap-2">
+
+          {/* Search */}
+          <div className="relative shrink-0">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#325099]/40 text-xs pointer-events-none">🔍</span>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search classes, teachers, rooms…"
+              className="pl-7 pr-7 py-1.5 text-xs bg-[#F8FAFF] border border-[#DEE7FF] rounded-full text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition w-52"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/70 transition text-xs leading-none">✕</button>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
-            {isAdmin && (
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#325099]/40 text-sm pointer-events-none">
-                  🔍
-                </span>
-                <input
-                  type="text"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search classes, teachers, rooms…"
-                  className="pl-8 pr-8 py-2 text-sm bg-white border border-[#DEE7FF] rounded-full text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition w-64"
-                />
-                {search && (
+          {/* All / My Classes toggle — admins only */}
+          {isAdmin && (
+            <>
+              <span className="w-px h-5 bg-[#DEE7FF] hidden sm:block" />
+              <div className="flex items-center bg-[#F0F4FF] rounded-full p-0.5 gap-0.5">
+                {[['all', 'All classes'], ['mine', 'My classes']].map(([val, label]) => (
                   <button
-                    onClick={() => setSearch('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/70 transition text-sm leading-none"
-                  >
-                    ✕
-                  </button>
-                )}
+                    key={val}
+                    onClick={() => setClassView(val)}
+                    className={`text-[10px] font-bold px-3 py-1 rounded-full transition ${classView === val ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#325099]/60 hover:text-[#325099]'}`}
+                  >{label}</button>
+                ))}
               </div>
-            )}
-            <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60 shrink-0">
-              {(() => {
-                const q = search.trim().toLowerCase()
-                const n = q
-                  ? classes.filter(c =>
-                      (c.class_name || '').toLowerCase().includes(q) ||
-                      (c.teacher   || '').toLowerCase().includes(q) ||
-                      (c.room      || '').toLowerCase().includes(q)
-                    ).length
-                  : classes.length
-                return `${n} class${n === 1 ? '' : 'es'}`
-              })()}
-            </span>
-          </div>
+            </>
+          )}
+
+          {/* Divider */}
+          {availableYears.length > 0 && <span className="w-px h-5 bg-[#DEE7FF] hidden sm:block" />}
+
+          {/* Year chips */}
+          {availableYears.length > 1 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <button
+                onClick={() => setSelectedYear(null)}
+                className={`text-[10px] font-bold px-2.5 py-1 rounded-full transition ${selectedYear === null ? 'bg-[#062E63] text-white' : 'bg-[#F0F4FF] text-[#325099] hover:bg-[#DEE7FF]'}`}
+              >All years</button>
+              {availableYears.map(y => (
+                <button
+                  key={y}
+                  onClick={() => { setSelectedYear(selectedYear === y ? null : y); setSelectedSubject(null) }}
+                  className={`text-[10px] font-bold px-2.5 py-1 rounded-full transition ${selectedYear === y ? 'bg-[#325099] text-white' : 'bg-[#F0F4FF] text-[#325099] hover:bg-[#DEE7FF]'}`}
+                >Y{y}</button>
+              ))}
+            </div>
+          )}
+
+          {/* Subject chips — only shown when year is selected or few subjects */}
+          {availableSubjects.length > 0 && (availableYears.length <= 1 || selectedYear !== null || availableSubjects.length <= 5) && (
+            <>
+              <span className="w-px h-5 bg-[#DEE7FF] hidden sm:block" />
+              <div className="flex items-center gap-1 flex-wrap">
+                {selectedSubject !== null && (
+                  <button
+                    onClick={() => setSelectedSubject(null)}
+                    className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F0F4FF] text-[#325099] hover:bg-[#DEE7FF] transition"
+                  >All subjects</button>
+                )}
+                {availableSubjects
+                  .filter(sub => {
+                    // Only show subjects that exist in current year filter
+                    if (selectedYear === null) return true
+                    return classes.some(c => parseYearFromClass(c.class_name) === selectedYear && inferSubject({ class_name: c.class_name }) === sub)
+                  })
+                  .map(sub => {
+                    const col = pickSubjectColor(sub)
+                    const active = selectedSubject === sub
+                    return (
+                      <button
+                        key={sub}
+                        onClick={() => setSelectedSubject(active ? null : sub)}
+                        className="text-[10px] font-bold px-2.5 py-1 rounded-full transition"
+                        style={active
+                          ? { background: col.fg, color: '#fff' }
+                          : { background: col.bg, color: col.fg }}
+                      >{sub}</button>
+                    )
+                  })}
+              </div>
+            </>
+          )}
+
+          {/* Count */}
+          <span className="ml-auto text-[10px] tracking-widest uppercase font-semibold text-[#325099]/50 shrink-0">
+            {filteredClasses.length} class{filteredClasses.length === 1 ? '' : 'es'}
+          </span>
         </div>
+      </div>
+
+      {/* SECTION 1 — Classes grouped by Year → Subject */}
+      <section className="max-w-7xl mx-auto px-6 md:px-10 pt-8">
 
         {classes.length === 0 ? (
           <EmptyState isAdmin={isAdmin} firstName={firstName} />
         ) : isAdmin ? (
           <AdminClassesView
-            classes={classes.filter(c => {
-              const q = search.trim().toLowerCase()
-              if (!q) return true
-              return (
-                (c.class_name || '').toLowerCase().includes(q) ||
-                (c.teacher   || '').toLowerCase().includes(q) ||
-                (c.room      || '').toLowerCase().includes(q)
-              )
-            })}
+            classes={filteredClasses}
             rosters={rosters}
+            classLabelMap={classLabelMap}
+            selectedYear={selectedYear}
+            selectedSubject={selectedSubject}
           />
         ) : (
-          <YearSubjectGrid classes={classes} rosters={rosters} showTeacher={false} />
+          <YearSubjectGrid classes={filteredClasses} rosters={rosters} showTeacher={false} classLabelMap={classLabelMap} />
         )}
       </section>
 
@@ -594,6 +712,7 @@ export default function TutorClassesPage() {
             showTeacher={isAdmin}
             rosters={rosters}
             currentTerm={currentTerm}
+            classLabelMap={classLabelMap}
           />
         )}
       </section>
@@ -624,7 +743,7 @@ function StatTile({ label, value, suffix }) {
 }
 
 // ── Admin hierarchy view: Year → Subject → Class Type → ClassTile grid ────
-function AdminClassesView({ classes, rosters }) {
+function AdminClassesView({ classes, rosters, classLabelMap, selectedYear, selectedSubject }) {
   const hierarchy = useMemo(() => {
     const yearMap = new Map()
 
@@ -676,36 +795,58 @@ function AdminClassesView({ classes, rosters }) {
 
   if (!hierarchy.length) return null
 
+  const hideYearHeaders    = selectedYear !== null || hierarchy.length === 1
+  const hideSubjectHeaders = selectedSubject !== null
+
+  if (!hierarchy.length) return (
+    <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
+      <div className="text-4xl mb-3">🔍</div>
+      <p className="text-sm font-semibold text-[#2A2035]">No classes match your filters.</p>
+    </div>
+  )
+
   return (
-    <div className="space-y-12">
+    <div className={hideYearHeaders ? 'space-y-8' : 'space-y-12'}>
       {hierarchy.map(({ yearNum, yearLabel, subjects }) => (
         <div key={yearNum}>
-          {/* ── Year header ── */}
-          <div className="flex items-center gap-4 mb-6">
-            <h2 className="text-2xl font-bold text-[#2A2035] font-display shrink-0">{yearLabel}</h2>
-            <div className="flex-1 h-px bg-[#DEE7FF]" />
-          </div>
+          {/* ── Year header — hidden when filtered to a single year ── */}
+          {!hideYearHeaders && (
+            <div className="flex items-center gap-4 mb-6">
+              <h2 className="text-2xl font-bold text-[#2A2035] font-display shrink-0">{yearLabel}</h2>
+              <div className="flex-1 h-px bg-[#DEE7FF]" />
+            </div>
+          )}
 
-          <div className="space-y-8">
+          <div className={hideYearHeaders ? 'space-y-6' : 'space-y-8'}>
             {subjects.map(({ subject, types }) => {
               const col = pickSubjectColor(subject)
               return (
                 <div key={subject}>
-                  {/* ── Subject header ── */}
-                  <div className="flex items-center gap-3 mb-4">
-                    <span
-                      className="text-[11px] font-bold tracking-[0.15em] uppercase px-3 py-1 rounded-full"
-                      style={{ background: col.bg, color: col.fg }}
-                    >
-                      {subject}
-                    </span>
-                    <div className="flex-1 h-px" style={{ background: col.bg }} />
-                  </div>
+                  {/* ── Subject header — hidden when filtered to one subject ── */}
+                  {!hideSubjectHeaders && (
+                    <div className="flex items-center gap-3 mb-4">
+                      {!hideYearHeaders ? (
+                        <>
+                          <span className="text-[11px] font-bold tracking-[0.15em] uppercase px-3 py-1 rounded-full" style={{ background: col.bg, color: col.fg }}>
+                            {subject}
+                          </span>
+                          <div className="flex-1 h-px" style={{ background: col.bg }} />
+                        </>
+                      ) : (
+                        /* When year header is gone, show a slightly larger subject label */
+                        <>
+                          <span className="text-sm font-bold tracking-wide px-3 py-1 rounded-full" style={{ background: col.bg, color: col.fg }}>
+                            {subject}
+                          </span>
+                          <div className="flex-1 h-px" style={{ background: col.bg }} />
+                        </>
+                      )}
+                    </div>
+                  )}
 
-                  <div className="space-y-5">
+                  <div className="space-y-4">
                     {types.map(({ type, classes: typeClasses }) => (
                       <div key={type}>
-                        {/* ── Class type label ── */}
                         <p className="text-[10px] tracking-[0.3em] uppercase font-semibold text-[#325099]/50 mb-2 font-display pl-0.5">
                           {type}
                         </p>
@@ -714,6 +855,7 @@ function AdminClassesView({ classes, rosters }) {
                             <ClassTile
                               key={c.id}
                               cls={c}
+                              label={classLabelMap?.get(c.id)}
                               rosterCount={(rosters[c.id] || []).length}
                               showTeacher={true}
                             />
@@ -735,7 +877,7 @@ function AdminClassesView({ classes, rosters }) {
 // Flat 4-col grid, sorted by Year ascending then Subject A→Z.
 // No section headers — the hierarchy is conveyed by the sort order plus the
 // subject pill on each card. Year band sits on the card as a small chip.
-function YearSubjectGrid({ classes, rosters, showTeacher }) {
+function YearSubjectGrid({ classes, rosters, showTeacher, classLabelMap }) {
   const ordered = useMemo(() => {
     return [...classes].sort((a, b) => {
       const ya = parseYearFromClass(a.class_name) ?? 9999
@@ -755,6 +897,7 @@ function YearSubjectGrid({ classes, rosters, showTeacher }) {
         <ClassTile
           key={c.id}
           cls={c}
+          label={classLabelMap?.get(c.id)}
           rosterCount={(rosters[c.id] || []).length}
           showTeacher={showTeacher}
         />
@@ -768,7 +911,8 @@ function YearSubjectGrid({ classes, rosters, showTeacher }) {
 //   Body     — Day + Time (prominent, single line)
 //              Room (smaller)
 //              Teacher (admin only, smaller)
-function ClassTile({ cls, rosterCount, showTeacher }) {
+function ClassTile({ cls, label, rosterCount, showTeacher }) {
+  const displayName = label ?? cls.class_name
   const col = pickSubjectColor(cls.class_name)
   const days = normalizeDays(cls.day_of_week)
 
@@ -784,7 +928,7 @@ function ClassTile({ cls, rosterCount, showTeacher }) {
         {/* Class name — biggest element. Roster badge sits to the right. */}
         <div className="flex items-start justify-between gap-2 mb-2">
           <p className="text-base md:text-lg font-bold text-[#2A2035] font-display leading-tight truncate flex-1 min-w-0">
-            {cls.class_name}
+            {displayName}
           </p>
           <span
             className={`text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full shrink-0 ${
@@ -986,7 +1130,7 @@ function termWeekNumber(dateISO, term) {
   return week >= 1 ? week : null
 }
 
-function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, currentTerm }) {
+function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, currentTerm, classLabelMap }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
       {weekDays.map(d => {
@@ -1034,15 +1178,18 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                   const href = wk
                     ? `/tutor/classes/${s.cls.id}?week=${wk}`
                     : `/tutor/classes/${s.cls.id}`
-                  const isAmber = s.isSub || s.hasSub
-                  const pillBg  = isAmber ? '#FEF9ECCC' : col.bg + 'AA'
-                  const pillBorder = isAmber ? '1px solid #FDE68A' : 'none'
-                  const textColor  = isAmber ? '#92400E'  : col.fg
-                  const subColor   = isAmber ? '#92400E99' : col.fg + 'AA'
+                  const isAmber  = s.isSub || s.hasSub
+                  const isMakeup = s.isMakeup
+                  const pillBg     = isMakeup ? '#EDE9FECC' : isAmber ? '#FEF9ECCC' : col.bg + 'AA'
+                  const pillBorder = isMakeup ? '1px solid #C4B5FD' : isAmber ? '1px solid #FDE68A' : 'none'
+                  const textColor  = isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
+                  const subColor   = isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
+                  const PillWrapper = isMakeup ? 'div' : Link
+                  const pillProps = isMakeup ? {} : { href }
                   return (
-                    <Link
+                    <PillWrapper
                       key={s.key}
-                      href={href}
+                      {...pillProps}
                       className="block rounded-lg px-2.5 py-1.5 transition hover:shadow-[0_2px_10px_-4px_rgba(50,80,153,0.25)]"
                       style={{ background: pillBg, border: pillBorder }}
                     >
@@ -1053,11 +1200,16 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                               className="text-[12px] font-bold truncate leading-tight"
                               style={{ color: textColor }}
                             >
-                              {s.cls.class_name}
+                              {classLabelMap.get(s.cls.id) ?? s.cls.class_name}
                             </p>
                             {isAmber && (
                               <span className="text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#F59E0B]/20 text-[#92400E] shrink-0 whitespace-nowrap">
                                 {s.isSub ? 'Sub' : 'Sub covering'}
+                              </span>
+                            )}
+                            {isMakeup && (
+                              <span className="text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#8B5CF6]/15 text-[#5B21B6] shrink-0 whitespace-nowrap">
+                                Makeup
                               </span>
                             )}
                           </div>
@@ -1080,7 +1232,7 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                           </span>
                         )}
                       </div>
-                    </Link>
+                    </PillWrapper>
                   )
                 })
               )}

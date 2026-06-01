@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { useHub } from '../context'
@@ -73,9 +73,9 @@ export default function HubSlugPage() {
   // Editor state
   const [editing, setEditing]   = useState(false)
   const [draft, setDraft]       = useState('')
-  const [preview, setPreview]   = useState(false)
   const [saving, setSaving]     = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
+  const textareaRef = useRef(null)
 
   useEffect(() => {
     if (!slug) return
@@ -115,8 +115,88 @@ export default function HubSlugPage() {
   const handleDiscard = () => {
     setDraft(page?.content || '')
     setEditing(false)
-    setPreview(false)
   }
+
+  // Inserts / wraps selected text in the textarea
+  const applyFormat = useCallback((type) => {
+    const el = textareaRef.current
+    if (!el) return
+    const start = el.selectionStart
+    const end   = el.selectionEnd
+    const sel   = draft.slice(start, end)
+    let before = draft.slice(0, start)
+    let after  = draft.slice(end)
+    let insert = ''
+    let cursorOffset = 0
+
+    switch (type) {
+      case 'h2': {
+        // If cursor is mid-line, move wrap to line start
+        const lineStart = before.lastIndexOf('\n') + 1
+        const prefix = before.slice(lineStart)
+        before = before.slice(0, lineStart)
+        insert = `## ${prefix}${sel || 'Heading'}`
+        cursorOffset = insert.length
+        break
+      }
+      case 'h3': {
+        const lineStart = before.lastIndexOf('\n') + 1
+        const prefix = before.slice(lineStart)
+        before = before.slice(0, lineStart)
+        insert = `### ${prefix}${sel || 'Sub-heading'}`
+        cursorOffset = insert.length
+        break
+      }
+      case 'bold':
+        insert = `**${sel || 'bold text'}**`
+        cursorOffset = sel ? insert.length : 2
+        break
+      case 'italic':
+        insert = `*${sel || 'italic text'}*`
+        cursorOffset = sel ? insert.length : 1
+        break
+      case 'ul': {
+        const lines = (sel || 'List item').split('\n')
+        insert = lines.map(l => `- ${l}`).join('\n')
+        // Ensure blank line before list
+        if (before && !before.endsWith('\n\n')) {
+          insert = (before.endsWith('\n') ? '\n' : '\n\n') + insert
+        }
+        cursorOffset = insert.length
+        break
+      }
+      case 'ol': {
+        const lines = (sel || 'List item').split('\n')
+        insert = lines.map((l, i) => `${i + 1}. ${l}`).join('\n')
+        if (before && !before.endsWith('\n\n')) {
+          insert = (before.endsWith('\n') ? '\n' : '\n\n') + insert
+        }
+        cursorOffset = insert.length
+        break
+      }
+      case 'hr':
+        insert = '\n\n---\n\n'
+        cursorOffset = insert.length
+        break
+      case 'link': {
+        const url = sel.startsWith('http') ? sel : 'https://'
+        const label = sel.startsWith('http') ? 'Link text' : (sel || 'Link text')
+        insert = `[${label}](${url})`
+        cursorOffset = insert.length
+        break
+      }
+      default:
+        return
+    }
+
+    const newDraft = before + insert + after
+    setDraft(newDraft)
+    // Restore focus + cursor after state update
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(before.length + cursorOffset, before.length + cursorOffset)
+    })
+  }, [draft])
 
   if (authLoading || pageLoading) {
     return (
@@ -196,45 +276,76 @@ export default function HubSlugPage() {
 
         {/* Admin editor */}
         {editing ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-[#325099]/70 tracking-wide uppercase">
-                {preview ? 'Preview' : 'Markdown editor'}
-              </p>
-              <button
-                type="button"
-                onClick={() => setPreview(p => !p)}
-                className="text-xs font-semibold text-[#325099] hover:text-[#062E63] transition"
-              >
-                {preview ? '← Edit' : 'Preview →'}
-              </button>
+          <div className="space-y-3">
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-1 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3 py-2">
+              {[
+                { label: 'H2',  title: 'Heading 2',      type: 'h2',     style: 'font-bold text-[0.8rem]' },
+                { label: 'H3',  title: 'Heading 3',      type: 'h3',     style: 'font-semibold text-[0.75rem]' },
+              ].map(btn => (
+                <button key={btn.type} type="button" title={btn.title}
+                  onMouseDown={e => { e.preventDefault(); applyFormat(btn.type) }}
+                  className={`px-2.5 py-1 rounded-lg text-[#325099] hover:bg-[#DEE7FF] transition ${btn.style}`}
+                >{btn.label}</button>
+              ))}
+              <span className="w-px h-5 bg-[#DEE7FF] mx-1" />
+              {[
+                { label: 'B',   title: 'Bold',           type: 'bold',   style: 'font-bold text-sm' },
+                { label: 'I',   title: 'Italic',         type: 'italic', style: 'italic text-sm' },
+              ].map(btn => (
+                <button key={btn.type} type="button" title={btn.title}
+                  onMouseDown={e => { e.preventDefault(); applyFormat(btn.type) }}
+                  className={`px-2.5 py-1 rounded-lg text-[#325099] hover:bg-[#DEE7FF] transition ${btn.style}`}
+                >{btn.label}</button>
+              ))}
+              <span className="w-px h-5 bg-[#DEE7FF] mx-1" />
+              <button type="button" title="Bullet list"
+                onMouseDown={e => { e.preventDefault(); applyFormat('ul') }}
+                className="px-2.5 py-1 rounded-lg text-[#325099] hover:bg-[#DEE7FF] transition text-sm"
+              >≡ List</button>
+              <button type="button" title="Numbered list"
+                onMouseDown={e => { e.preventDefault(); applyFormat('ol') }}
+                className="px-2.5 py-1 rounded-lg text-[#325099] hover:bg-[#DEE7FF] transition text-sm"
+              >1. List</button>
+              <span className="w-px h-5 bg-[#DEE7FF] mx-1" />
+              <button type="button" title="Insert link"
+                onMouseDown={e => { e.preventDefault(); applyFormat('link') }}
+                className="px-2.5 py-1 rounded-lg text-[#325099] hover:bg-[#DEE7FF] transition text-sm"
+              >🔗 Link</button>
+              <button type="button" title="Horizontal divider"
+                onMouseDown={e => { e.preventDefault(); applyFormat('hr') }}
+                className="px-2.5 py-1 rounded-lg text-[#325099] hover:bg-[#DEE7FF] transition text-sm"
+              >— Divider</button>
             </div>
 
-            {preview ? (
-              <div className="bg-white rounded-2xl border border-[#DEE7FF] px-6 py-6 min-h-[300px]">
-                {draft.trim() ? (
-                  <MarkdownView src={draft} />
-                ) : (
-                  <p className="text-sm italic text-[#2A2035]/30">Nothing to preview yet.</p>
-                )}
-              </div>
-            ) : (
-              <>
+            {/* Split pane: editor + live preview */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Editor */}
+              <div className="flex flex-col">
+                <p className="text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/50 mb-1.5 ml-1">Editor</p>
                 <textarea
+                  ref={textareaRef}
                   autoFocus
                   value={draft}
                   onChange={e => setDraft(e.target.value)}
-                  rows={20}
-                  placeholder={`Write content for "${page.title}" using markdown…\n\n## Heading\n\nParagraph text here.\n\n- Bullet point\n- Another point\n\n**Bold**, *italic*, [link text](https://url.com)`}
-                  className="w-full bg-white border border-[#DEE7FF] rounded-2xl px-5 py-4 text-sm font-mono text-[#2A2035] placeholder:text-[#2A2035]/25 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] resize-y transition leading-relaxed"
+                  rows={22}
+                  placeholder={`Write content for "${page.title}"…\n\n## Heading\n\nParagraph text here.\n\n- Bullet point\n- Another point\n\n**Bold**, *italic*, [link](https://url.com)`}
+                  className="flex-1 bg-white border border-[#DEE7FF] rounded-2xl px-5 py-4 text-sm font-mono text-[#2A2035] placeholder:text-[#2A2035]/25 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] resize-y transition leading-relaxed min-h-[400px]"
                 />
-                <div className="bg-[#F8FAFF] rounded-xl border border-[#DEE7FF] px-4 py-3 text-[11px] text-[#325099]/70 space-y-1">
-                  <p className="font-semibold text-[#325099]">Markdown reference</p>
-                  <p><code className="bg-white px-1 rounded">## Heading</code> &nbsp;·&nbsp; <code className="bg-white px-1 rounded">**bold**</code> &nbsp;·&nbsp; <code className="bg-white px-1 rounded">*italic*</code> &nbsp;·&nbsp; <code className="bg-white px-1 rounded">- list item</code> &nbsp;·&nbsp; <code className="bg-white px-1 rounded">[link text](url)</code> &nbsp;·&nbsp; <code className="bg-white px-1 rounded">---</code> (divider)</p>
-                  <p>Separate paragraphs with a blank line. Press Preview to check formatting before saving.</p>
+              </div>
+
+              {/* Live preview */}
+              <div className="flex flex-col">
+                <p className="text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/50 mb-1.5 ml-1">Live preview</p>
+                <div className="bg-white rounded-2xl border border-[#DEE7FF] px-6 py-5 min-h-[400px] overflow-auto">
+                  {draft.trim() ? (
+                    <MarkdownView src={draft} />
+                  ) : (
+                    <p className="text-sm italic text-[#2A2035]/25 pt-2">Start typing to see a preview…</p>
+                  )}
                 </div>
-              </>
-            )}
+              </div>
+            </div>
 
             <div className="flex items-center gap-3 pt-1">
               <button

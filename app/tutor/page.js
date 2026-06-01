@@ -8,6 +8,7 @@ import TutorNav from '../../components/TutorNav'
 import { normalizeDays } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SHIFTS } from '../../lib/tables'
+import { buildClassLabelMap } from '../../lib/classLabels'
 
 /*
  * Tutor portal — landing page
@@ -180,6 +181,8 @@ export default function TutorHome() {
     return rows
   }, [classes])
 
+  const classLabelMap = useMemo(() => buildClassLabelMap(classes), [classes])
+
   const todayName = DAY_ORDER[(new Date().getDay() + 6) % 7]
   const todayClasses = useMemo(
     () => weekRows.filter(r => r._day === todayName),
@@ -318,13 +321,13 @@ export default function TutorHome() {
                 {todayClasses.map((c, i) => (
                   <Link
                     key={`${c.id}-${i}`}
-                    href="/tutor/classes"
+                    href={`/tutor/classes/${c.id}`}
                     className="flex items-center gap-3 rounded-xl px-4 py-3 border border-[#DEE7FF] bg-[#F8FAFF] hover:border-[#BACBFF] hover:bg-white transition group"
                   >
                     <div className="w-1 h-10 rounded-full shrink-0 bg-[#062E63]" />
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm text-[#2A2035]">
-                        {(c.class_name && c.class_name.trim()) || 'Untitled class'}
+                        {(classLabelMap.get(c.id) || c.class_name || 'Untitled class')}
                       </p>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
                         <span>🕐 {fmtTime(c.start_time)}–{fmtTime(c.end_time)}</span>

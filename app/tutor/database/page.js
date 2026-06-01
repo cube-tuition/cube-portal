@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
 import TutorNav from '../../../components/TutorNav'
+import { buildClassLabelMap } from '../../../lib/classLabels'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_RESULTS, T_SHIFTS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
 
 /*
@@ -25,8 +26,7 @@ import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COUR
 const INITIAL_TABLE_GROUPS = [
   { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS] },
   { label: 'Scheduling',           tables: [T_LESSONS,T_SHIFTS] },
-  { label: 'Finance',              tables: [T_INVOICES,T_PAY_RUNS,'pay_run_lines',T_PAY_RUN_SHIFTS,T_CURRENT_TUTOR_RATES,T_TUTOR_RATE_MATRIX] },
-  { label: 'Reports',              tables: [T_TERM_CRITERIA,T_TERM_COMMENTS] },
+  { label: 'Finance',              tables: [T_INVOICES] },
 ]
 
 // students keeps its parent/guardian join. tutors and admins are plain tables.
@@ -65,7 +65,8 @@ function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
 
 // Columns that show a dropdown picker when edited, keyed as "table:col"
 const CELL_DROPDOWNS = {
-  [`${T_STUDENTS}:year`]: ['5','6','7','8','9','10','11','12'],
+  [`${T_STUDENTS}:year`]:      ['5','6','7','8','9','10','11','12'],
+  [`${T_ATTENDANCE}:status`]:  ['present','late','absent','makeup'],
 }
 
 function displayVal(v) {
@@ -753,6 +754,24 @@ export default function DatabasePage() {
   const [editingSession, setEditingSession]     = useState(null)     // session object | null
   const [deleteSessionId, setDeleteSessionId]   = useState(null)
   const [addSigninFor, setAddSigninFor]         = useState(null)     // session id | null
+  // Lesson detail sidebar
+  const [lessonSidebar, setLessonSidebar]   = useState(null)   // lesson row object | null
+  const [sidebarData, setSidebarData]       = useState(null)   // { roster, attendance, tutors, classes }
+  const [sidebarLoading, setSidebarLoading] = useState(false)
+  const [makeupStudent, setMakeupStudent]   = useState(null)   // student object | null
+  const [makeupMode, setMakeupMode]         = useState(null)   // 'move' | 'onetoone' | null
+  const [makeupSaving, setMakeupSaving]     = useState(false)
+  // move-to-session picker state
+  const [moveOptions, setMoveOptions]       = useState([])     // upcoming lessons for same course
+  const [moveLoadingOpts, setMoveLoadingOpts] = useState(false)
+  const [moveTargetId, setMoveTargetId]     = useState(null)
+  // 1:1 makeup form state
+  const [oneToOneTutorId, setOneToOneTutorId] = useState('')
+  const [oneToOneDate, setOneToOneDate]     = useState('')
+  const [oneToOneStart, setOneToOneStart]   = useState('')
+  const [oneToOneEnd, setOneToOneEnd]       = useState('')
+  const [oneToOneRoom, setOneToOneRoom]     = useState('')
+
   // Student directory view (cards mode for students table)
   const [studentViewMode, setStudentViewMode]             = useState('data')  // 'data' | 'cards'
   const [studentCardsData, setStudentCardsData]           = useState([])
@@ -770,7 +789,7 @@ export default function DatabasePage() {
     const HIDDEN = new Set([T_ATTENDANCE, T_QUIZ_RESULTS])
     // Bump this whenever INITIAL_TABLE_GROUPS order/membership changes intentionally.
     // A mismatch clears the cached layout so the new defaults take effect immediately.
-    const GROUPS_VERSION = 'v7'
+    const GROUPS_VERSION = 'v10'
 
     try {
       const saved = typeof window !== 'undefined' && localStorage.getItem('cube_db_table_groups')
@@ -1011,6 +1030,15 @@ export default function DatabasePage() {
 
       let enrichedRows = r
 
+      // ── Apply A/B/C class labels when viewing the classes table ────────────
+      if (selectedTable === T_CLASSES && r.length > 0) {
+        const labelMap = buildClassLabelMap(r)
+        enrichedRows = r.map(row => ({
+          ...row,
+          class_name: labelMap.get(row.id) ?? row.class_name,
+        }))
+      }
+
       if (v?.joinParents && r.length > 0) {
         const ids = r.map(s => s.id)
         const { data: parentRows } = await supabase.from(T_PARENTS).select('student_id, full_name, relationship, email, phone').in('student_id', ids)
@@ -1024,12 +1052,14 @@ export default function DatabasePage() {
       if (v?.joinNames && r.length > 0) {
         const studentIds = [...new Set(r.map(row => row.student_id).filter(Boolean))]
         const classIds   = [...new Set(r.map(row => row.class_id).filter(Boolean))]
-        const [{ data: studentRows }, { data: classRows }] = await Promise.all([
+        const [{ data: studentRows }, { data: classRows }, { data: allClassRows }] = await Promise.all([
           supabase.from(T_STUDENTS).select('id, full_name').in('id', studentIds),
           supabase.from(T_CLASSES).select('id, class_name').in('id', classIds),
+          supabase.from(T_CLASSES).select('id, class_name'),
         ])
+        const classLabelMap = buildClassLabelMap(allClassRows || [])
         const sMap = Object.fromEntries((studentRows || []).map(s => [s.id, s.full_name]))
-        const cMap = Object.fromEntries((classRows  || []).map(c => [c.id, c.class_name]))
+        const cMap = Object.fromEntries((classRows  || []).map(c => [c.id, classLabelMap.get(c.id) ?? c.class_name]))
         enrichedRows = r.map(row => ({ ...row, student_name: sMap[row.student_id] ?? null, class_name: cMap[row.class_id] ?? null }))
         // Show name cols first (after id), then the raw FK cols at the end
         const base = cols.filter(c => !ENROLMENT_NAME_COLS.includes(c))
@@ -1070,8 +1100,12 @@ export default function DatabasePage() {
       if (v?.joinLessonClassName && enrichedRows.length > 0) {
         const classIds = [...new Set(enrichedRows.map(row => row.class_id).filter(Boolean))]
         if (classIds.length > 0) {
-          const { data: classRows } = await supabase.from(T_CLASSES).select('id, class_name, day_of_week').in('id', classIds)
-          const cMap = Object.fromEntries((classRows || []).map(c => [c.id, `${c.class_name} (${c.day_of_week})`]))
+          const [{ data: classRows }, { data: allClassRowsForLessons }] = await Promise.all([
+            supabase.from(T_CLASSES).select('id, class_name, day_of_week').in('id', classIds),
+            supabase.from(T_CLASSES).select('id, class_name'),
+          ])
+          const lessonClassLabelMap = buildClassLabelMap(allClassRowsForLessons || [])
+          const cMap = Object.fromEntries((classRows || []).map(c => [c.id, `${lessonClassLabelMap.get(c.id) ?? c.class_name} (${c.day_of_week})`]))
           enrichedRows = enrichedRows.map(row => ({ ...row, [LESSON_CLASS_COL]: cMap[row.class_id] ?? null }))
         } else {
           enrichedRows = enrichedRows.map(row => ({ ...row, [LESSON_CLASS_COL]: null }))
@@ -1365,8 +1399,8 @@ export default function DatabasePage() {
         [COURSE_NAME_COL]: course ? `${course.course_name} (${course.course_code})` : null,
         [TERM_NAME_COL]:   currentTermName || null,
       }
-      setRows(prev => [enriched, ...prev])
-      setRowCounts(prev => ({ ...prev, [selectedTable]: (prev[selectedTable] ?? 0) + 1 }))
+      // Reload so all class labels (A/B/C) are recomputed for the full set
+      setReloadKey(k => k + 1)
     }
     setAddClassSaving(false)
     setShowAddClassModal(false)
@@ -1379,7 +1413,8 @@ export default function DatabasePage() {
       if (allClassesForFilter.length === 0) {
         const { data } = await supabase
           .from(T_CLASSES).select('id, class_name, day_of_week').order('class_name')
-        setAllClassesForFilter(data || [])
+        const filterLabelMap = buildClassLabelMap(data || [])
+        setAllClassesForFilter((data || []).map(c => ({ ...c, class_name: filterLabelMap.get(c.id) ?? c.class_name })))
       }
       if (allStaffForLessons.length === 0) {
         const [{ data: tutors }, { data: directors }] = await Promise.all([
@@ -1483,8 +1518,12 @@ export default function DatabasePage() {
       const allStudents = [...(famRes.data || []), ...(soloRes.data || [])]
       const allStudentIds = allStudents.map(s => s.id)
 
-      // 4. Classes for this term (with course name)
-      const { data: termClasses } = await supabase.from(T_CLASSES).select('id, class_name, courses(course_name)').eq('term_id', invoiceTermId)
+      // 4. Classes for this term (with course name) + full class list for labels
+      const [{ data: termClasses }, { data: allClassesForLabels }] = await Promise.all([
+        supabase.from(T_CLASSES).select('id, class_name, created_at, courses(course_name)').eq('term_id', invoiceTermId),
+        supabase.from(T_CLASSES).select('id, class_name'),
+      ])
+      const invoiceClassLabelMap = buildClassLabelMap(allClassesForLabels || [])
       const classMap = Object.fromEntries((termClasses || []).map(c => [c.id, c]))
       const termClassIds = (termClasses || []).map(c => c.id)
 
@@ -1505,7 +1544,7 @@ export default function DatabasePage() {
           ...s,
           enrolments: enrolments
             .filter(e => e.student_id === s.id)
-            .map(e => ({ label: classMap[e.class_id]?.courses?.course_name || classMap[e.class_id]?.class_name || '—', price: e.price })),
+            .map(e => ({ label: invoiceClassLabelMap.get(e.class_id) || classMap[e.class_id]?.courses?.course_name || classMap[e.class_id]?.class_name || '—', price: e.price })),
         }))
 
         const sharedLast  = members[0]?.full_name?.split(' ').pop() ?? ''
@@ -1587,6 +1626,136 @@ export default function DatabasePage() {
     await supabase.from(T_DROPIN_SIGNINS).delete().eq('id', signinId)
     setDropinSessions(s => s.map(x => x.id !== sessionId ? x : { ...x, signins: x.signins.filter(si => si.id !== signinId) }))
   }
+
+  // ── Lesson sidebar ────────────────────────────────────────────────────────────
+  const openLessonSidebar = useCallback(async (lesson) => {
+    setLessonSidebar(lesson)
+    setMakeupStudent(null); setMakeupMode(null); setMoveOptions([]); setMoveTargetId(null)
+    setOneToOneTutorId(''); setOneToOneDate(''); setOneToOneStart(''); setOneToOneEnd(''); setOneToOneRoom('')
+    setSidebarLoading(true); setSidebarData(null)
+    // Fetch enrolments → students for this class
+    const [{ data: enrolRows }, { data: attRows }, { data: tutorRows }, { data: directorRows }] = await Promise.all([
+      supabase.from(T_ENROLMENTS).select('student_id, students(id, full_name, year, school)').eq('class_id', lesson.class_id),
+      supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lesson.class_id).eq('session_date', lesson.lesson_date),
+      supabase.from(T_TUTORS).select('id, full_name').order('full_name'),
+      supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
+    ])
+    const roster = (enrolRows || []).map(e => e.students).filter(Boolean)
+    const attMap = {}
+    for (const a of attRows || []) attMap[a.student_id] = a
+    const allTutors = [...(tutorRows || []), ...(directorRows || [])].sort((a, b) => a.full_name.localeCompare(b.full_name))
+    setSidebarData({ roster, attMap, tutors: allTutors })
+    setSidebarLoading(false)
+  }, [])
+
+  const closeLessonSidebar = useCallback(() => {
+    setLessonSidebar(null); setSidebarData(null)
+    setMakeupStudent(null); setMakeupMode(null)
+  }, [])
+
+  const openMakeupMove = useCallback(async (lesson) => {
+    setMakeupMode('move'); setMoveLoadingOpts(true); setMoveOptions([]); setMoveTargetId(null)
+    // 1. Look up course_id for this lesson's class
+    const { data: classRow } = await supabase
+      .from(T_CLASSES)
+      .select('course_id')
+      .eq('id', lesson.class_id)
+      .single()
+    // 2. Find all sibling class IDs in the same course
+    let siblingClassIds = [lesson.class_id]
+    if (classRow?.course_id) {
+      const { data: siblings } = await supabase
+        .from(T_CLASSES)
+        .select('id')
+        .eq('course_id', classRow.course_id)
+      if (siblings?.length) siblingClassIds = siblings.map(s => s.id)
+    }
+    // 3. Date window: full Mon–Sun week containing the lesson date
+    const lessonDate = new Date(lesson.lesson_date + 'T00:00:00')
+    const dow = lessonDate.getDay() // 0=Sun
+    const monday = new Date(lessonDate); monday.setDate(lessonDate.getDate() - ((dow + 6) % 7))
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6)
+    const weekStart = monday.toISOString().slice(0, 10)
+    const weekEnd   = sunday.toISOString().slice(0, 10)
+    // 4. Fetch all lessons in that week across all sibling classes, excluding this lesson
+    const { data: opts } = await supabase
+      .from(T_LESSONS)
+      .select('id, lesson_date, start_time, end_time, class_id, classes(class_name, room)')
+      .in('class_id', siblingClassIds)
+      .gte('lesson_date', weekStart)
+      .lte('lesson_date', weekEnd)
+      .neq('id', lesson.id)
+      .order('lesson_date')
+      .order('start_time')
+    setMoveOptions(opts || [])
+    setMoveLoadingOpts(false)
+  }, [])
+
+  const saveMakeupMove = useCallback(async () => {
+    if (!moveTargetId || !makeupStudent || !lessonSidebar) return
+    setMakeupSaving(true)
+    // 1. Upsert attendance on original lesson → makeup
+    await supabase.from(T_ATTENDANCE).upsert({
+      student_id: makeupStudent.id, class_id: lessonSidebar.class_id,
+      session_date: lessonSidebar.lesson_date, status: 'makeup',
+    }, { onConflict: 'student_id,class_id,session_date' })
+    // 2. Upsert attendance on target lesson → present
+    const target = moveOptions.find(o => o.id === moveTargetId)
+    if (target) {
+      await supabase.from(T_ATTENDANCE).upsert({
+        student_id: makeupStudent.id, class_id: target.class_id,
+        session_date: target.lesson_date, status: 'present',
+        notes: `Makeup from ${lessonSidebar.lesson_date}`,
+      }, { onConflict: 'student_id,class_id,session_date' })
+    }
+    // Refresh sidebar attendance
+    const { data: attRows } = await supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lessonSidebar.class_id).eq('session_date', lessonSidebar.lesson_date)
+    const attMap = {}; for (const a of attRows || []) attMap[a.student_id] = a
+    setSidebarData(d => ({ ...d, attMap }))
+    setMakeupSaving(false); setMakeupMode(null); setMakeupStudent(null)
+  }, [moveTargetId, makeupStudent, lessonSidebar, moveOptions])
+
+  const saveMakeupOneToOne = useCallback(async () => {
+    if (!makeupStudent || !lessonSidebar || !oneToOneDate) return
+    setMakeupSaving(true)
+    // Look up week number from an existing lesson on the same date
+    const { data: weekRef } = await supabase
+      .from(T_LESSONS)
+      .select('week')
+      .eq('lesson_date', oneToOneDate)
+      .eq('is_makeup', false)
+      .not('week', 'is', null)
+      .limit(1)
+      .maybeSingle()
+    const resolvedWeek = weekRef?.week ?? null
+    // Create new makeup lesson row
+    const { error } = await supabase.from(T_LESSONS).insert({
+      class_id: lessonSidebar.class_id,
+      lesson_date: oneToOneDate,
+      start_time: oneToOneStart || null,
+      end_time: oneToOneEnd || null,
+      room: oneToOneRoom || null,
+      status: 'scheduled',
+      week: resolvedWeek,
+      scheduled_teacher_id: oneToOneTutorId || null,
+      is_makeup: true,
+      makeup_student_id: makeupStudent.id,
+      makeup_source_lesson_id: lessonSidebar.id,
+    })
+    if (error) { alert('Failed to create makeup lesson: ' + error.message); setMakeupSaving(false); return }
+    // Mark original lesson attendance as makeup
+    await supabase.from(T_ATTENDANCE).upsert({
+      student_id: makeupStudent.id, class_id: lessonSidebar.class_id,
+      session_date: lessonSidebar.lesson_date, status: 'makeup',
+      notes: `1:1 makeup scheduled for ${oneToOneDate}`,
+    }, { onConflict: 'student_id,class_id,session_date' })
+    // Refresh attendance
+    const { data: attRows } = await supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lessonSidebar.class_id).eq('session_date', lessonSidebar.lesson_date)
+    const attMap = {}; for (const a of attRows || []) attMap[a.student_id] = a
+    setSidebarData(d => ({ ...d, attMap }))
+    setMakeupSaving(false); setMakeupMode(null); setMakeupStudent(null)
+    setReloadKey(k => k + 1)  // refresh lessons table
+  }, [makeupStudent, lessonSidebar, oneToOneDate, oneToOneStart, oneToOneEnd, oneToOneRoom, oneToOneTutorId])
 
   const handleInvoiceStatusUpdate = async (invoiceId, newStatus) => {
     const prev = invoiceCardsData
@@ -2902,7 +3071,15 @@ export default function DatabasePage() {
 
                     return (
                       <tr key={String(rowId)} className={`group ${rowBg} hover:bg-[#F0F4FF] transition-colors`}>
-                        <td className="border-b border-r border-[#E8EDF8] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: ri % 2 === 0 ? '#ffffff' : '#F9FAFB' }}>{ri + 1}</td>
+                        <td className="border-b border-r border-[#E8EDF8] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: ri % 2 === 0 ? '#ffffff' : '#F9FAFB' }}>
+                          {selectedTable === T_LESSONS ? (
+                            <button
+                              title="Open lesson details"
+                              onClick={() => openLessonSidebar(row)}
+                              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#DEE7FF] text-[#325099]/40 hover:text-[#325099] transition text-[11px]"
+                            >⊞</button>
+                          ) : ri + 1}
+                        </td>
 
                         {columnOrder.filter(col => !hiddenCols.has(col)).map(col => {
                           const val       = row[col]
@@ -2922,6 +3099,22 @@ export default function DatabasePage() {
                           const stickyBg = isPk ? (ri % 2 === 0 ? '#F4F7FF' : '#EFF3FF')
                                          : isName ? (ri % 2 === 0 ? '#F0FDF4' : '#E8FAF0')
                                          : baseBg
+
+                          // For makeup lesson rows: derive week from lesson_date if week is null
+                          const isMakeupRow = selectedTable === T_LESSONS && row.is_makeup
+                          let makeupWeek = dv
+                          if (col === LESSON_WEEK_COL && isMakeupRow && makeupWeek === null && row.lesson_date && allTerms?.length) {
+                            const ld = new Date(row.lesson_date + 'T00:00:00')
+                            for (const t of allTerms) {
+                              if (!t.start_date || !t.end_date) continue
+                              const ts = new Date(t.start_date + 'T00:00:00')
+                              const te = new Date(t.end_date + 'T00:00:00')
+                              if (ld >= ts && ld <= te) {
+                                makeupWeek = Math.floor((ld - ts) / (7 * 86400000)) + 1
+                                break
+                              }
+                            }
+                          }
 
                           return (
                             <td key={col} className={`border-b border-r border-[#E8EDF8] p-0 ${!isStickyCol && isPk ? 'bg-[#F8FAFF]/60' : !isStickyCol && isGuardian ? 'bg-[#FFFBEB]/40' : !isStickyCol && isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w, ...(isStickyCol ? { position:'sticky', left: stickyLeft, zIndex: 2, background: stickyBg, boxShadow: col === 'full_name' ? '2px 0 4px -1px rgba(0,0,0,0.06)' : 'none' } : {}) }} onClick={() => !isPk && !isName && handleCellClick(rowId, col, val)}>
@@ -2978,11 +3171,14 @@ export default function DatabasePage() {
                                   )
                               ) : col === LESSON_WEEK_COL ? (
                                 <div className="px-2 py-1.5 text-center">
-                                  {dv === null
+                                  {makeupWeek === null
                                     ? <span className="text-[#2A2035]/20 italic text-[10px]">—</span>
-                                    : <span className="inline-block text-[10px] font-bold tabular-nums bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full">Wk {dv}</span>
+                                    : isMakeupRow
+                                      ? <span className="inline-block text-[10px] font-bold tabular-nums bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] px-1.5 py-0.5 rounded-full">Wk {makeupWeek}</span>
+                                      : <span className="inline-block text-[10px] font-bold tabular-nums bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full">Wk {makeupWeek}</span>
                                   }
                                 </div>
+
                               ) : (
                                 <div className={`px-3 py-1.5 overflow-hidden whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic text-[10px]' : isPk ? 'text-[#325099]/60 font-mono text-[10px]' : isGuardian ? 'text-[#92400E]/80 text-xs' : isName ? 'text-emerald-800 text-xs font-medium' : 'text-[#2A2035] text-xs'} ${!isPk && !isName ? 'cursor-text' : 'cursor-default'}`} title={truncated ? dv : undefined}>
                                   {dv === null ? 'null' : truncated ? dv.slice(0,50)+'…' : dv}
@@ -3080,6 +3276,179 @@ export default function DatabasePage() {
           </div>
         </main>
       </div>
+
+      {/* ── Lesson Detail Sidebar ───────────────────────────────────────────── */}
+      {lessonSidebar && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 z-40 bg-black/20" onClick={closeLessonSidebar} />
+          {/* Panel */}
+          <div className="fixed top-0 right-0 h-full w-[420px] max-w-full z-50 bg-white shadow-2xl flex flex-col border-l border-[#DEE7FF] overflow-hidden">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF] flex items-start justify-between gap-3 shrink-0">
+              <div>
+                <p className="text-[10px] tracking-[0.25em] uppercase font-semibold text-[#325099]/60 mb-0.5">Lesson Details</p>
+                <h2 className="text-base font-bold text-[#062E63]">
+                  {lessonSidebar[LESSON_CLASS_COL] || `Class ${lessonSidebar.class_id}`}
+                </h2>
+                <p className="text-xs text-[#2A2035]/50 mt-0.5">
+                  {lessonSidebar.lesson_date}
+                  {lessonSidebar.start_time && ` · ${lessonSidebar.start_time}`}
+                  {lessonSidebar.end_time && `–${lessonSidebar.end_time}`}
+                  {lessonSidebar.room && ` · ${lessonSidebar.room}`}
+                </p>
+                {lessonSidebar[LESSON_SCHED_TEACHER_COL] && (
+                  <p className="text-xs text-[#325099] mt-0.5 font-medium">👤 {lessonSidebar[LESSON_SCHED_TEACHER_COL]}</p>
+                )}
+                {lessonSidebar.week && (
+                  <span className="inline-block mt-1 text-[10px] font-bold tracking-widest uppercase bg-[#DEE7FF] text-[#325099] px-2 py-0.5 rounded-full">Week {lessonSidebar.week}</span>
+                )}
+              </div>
+              <button onClick={closeLessonSidebar} className="w-7 h-7 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg transition shrink-0">×</button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              {sidebarLoading ? (
+                <p className="text-xs text-[#325099] animate-pulse text-center py-10">Loading…</p>
+              ) : !sidebarData ? null : makeupStudent ? (
+                /* ── Makeup flow ── */
+                <div>
+                  <button onClick={() => { setMakeupStudent(null); setMakeupMode(null) }} className="text-[11px] text-[#325099] hover:underline mb-3 flex items-center gap-1">← Back</button>
+                  <div className="bg-[#F8FAFF] rounded-xl border border-[#DEE7FF] px-4 py-3 mb-4 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-[#062E63] text-white text-xs font-bold flex items-center justify-center shrink-0">
+                      {(makeupStudent.full_name || '?')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-[#062E63]">{makeupStudent.full_name}</p>
+                      <p className="text-[11px] text-[#2A2035]/50">Y{makeupStudent.year} · {makeupStudent.school || '—'}</p>
+                    </div>
+                  </div>
+
+                  {!makeupMode ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-[#2A2035]/60 mb-3">Choose makeup type:</p>
+                      <button onClick={() => openMakeupMove(lessonSidebar)}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
+                        <p className="text-sm font-bold text-[#062E63]">📅 Move to another session</p>
+                        <p className="text-xs text-[#2A2035]/50 mt-0.5">Student attends an upcoming session of the same or related class</p>
+                      </button>
+                      <button onClick={() => setMakeupMode('onetoone')}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
+                        <p className="text-sm font-bold text-[#062E63]">👤 Create 1:1 makeup lesson</p>
+                        <p className="text-xs text-[#2A2035]/50 mt-0.5">Schedule a private session just for this student with a chosen tutor</p>
+                      </button>
+                    </div>
+                  ) : makeupMode === 'move' ? (
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold text-[#325099]/70 uppercase tracking-wide">Sessions this week — same course</p>
+                      {moveLoadingOpts ? (
+                        <p className="text-xs text-[#325099] animate-pulse py-4 text-center">Loading sessions…</p>
+                      ) : moveOptions.length === 0 ? (
+                        <p className="text-xs text-[#2A2035]/50 py-4 text-center">No other sessions found for this course this week.</p>
+                      ) : (
+                        <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                          {moveOptions.map(opt => (
+                            <button key={opt.id} onClick={() => setMoveTargetId(opt.id)}
+                              className={`w-full text-left px-3 py-2.5 rounded-xl border transition text-sm ${moveTargetId === opt.id ? 'border-[#325099] bg-[#EEF4FF]' : 'border-[#DEE7FF] hover:bg-[#F8FAFF]'}`}>
+                              <p className="font-semibold text-[#062E63]">{opt.classes?.class_name || opt.class_id} · {opt.lesson_date}</p>
+                              <p className="text-[11px] text-[#2A2035]/50">{opt.start_time}{opt.end_time ? `–${opt.end_time}` : ''}{opt.classes?.room ? ` · ${opt.classes.room}` : ''}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <button onClick={saveMakeupMove} disabled={!moveTargetId || makeupSaving}
+                        className="w-full py-2.5 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition disabled:opacity-50">
+                        {makeupSaving ? 'Saving…' : 'Confirm move'}
+                      </button>
+                    </div>
+                  ) : (
+                    /* 1:1 makeup form */
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold text-[#325099]/70 uppercase tracking-wide">1:1 lesson details</p>
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#325099] uppercase tracking-widest mb-1">Tutor</label>
+                        <select value={oneToOneTutorId} onChange={e => setOneToOneTutorId(e.target.value)}
+                          className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white">
+                          <option value="">— select tutor —</option>
+                          {sidebarData.tutors.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#325099] uppercase tracking-widest mb-1">Date <span className="text-red-400">*</span></label>
+                        <input type="date" value={oneToOneDate} onChange={e => setOneToOneDate(e.target.value)}
+                          className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-[#325099] uppercase tracking-widest mb-1">Start time</label>
+                          <input type="time" value={oneToOneStart} onChange={e => setOneToOneStart(e.target.value)}
+                            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-[#325099] uppercase tracking-widest mb-1">End time</label>
+                          <input type="time" value={oneToOneEnd} onChange={e => setOneToOneEnd(e.target.value)}
+                            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#325099] uppercase tracking-widest mb-1">Room</label>
+                        <input type="text" value={oneToOneRoom} onChange={e => setOneToOneRoom(e.target.value)} placeholder="e.g. Room 3"
+                          className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white" />
+                      </div>
+                      <button onClick={saveMakeupOneToOne} disabled={!oneToOneDate || makeupSaving}
+                        className="w-full py-2.5 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition disabled:opacity-50">
+                        {makeupSaving ? 'Creating…' : 'Create 1:1 makeup lesson'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* ── Student roster ── */
+                <div>
+                  <p className="text-[10px] tracking-[0.25em] uppercase font-semibold text-[#325099]/60 mb-3">
+                    Students · {sidebarData.roster.length}
+                  </p>
+                  {sidebarData.roster.length === 0 ? (
+                    <p className="text-xs text-[#2A2035]/40 text-center py-8">No students enrolled in this class.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {sidebarData.roster.map(s => {
+                        const att = sidebarData.attMap[s.id]
+                        const statusColor = att?.status === 'present' ? { bg:'#D1FAE5', fg:'#065F46' }
+                          : att?.status === 'late'    ? { bg:'#FEF3C7', fg:'#92400E' }
+                          : att?.status === 'absent'  ? { bg:'#FEE2E2', fg:'#991B1B' }
+                          : att?.status === 'makeup'  ? { bg:'#EDE9FE', fg:'#5B21B6' }
+                          : { bg:'#F4F4F4', fg:'#9CA3AF' }
+                        return (
+                          <div key={s.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-[#DEE7FF] bg-white hover:border-[#BACBFF] transition">
+                            <div className="w-8 h-8 rounded-full bg-[#062E63] text-white text-xs font-bold flex items-center justify-center shrink-0">
+                              {(s.full_name || '?')[0].toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-[#2A2035] truncate">{s.full_name}</p>
+                              <p className="text-[10px] text-[#2A2035]/45">Y{s.year} · {s.school || '—'}</p>
+                            </div>
+                            {att?.status && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ background: statusColor.bg, color: statusColor.fg }}>
+                                {att.status[0].toUpperCase() + att.status.slice(1)}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => setMakeupStudent(s)}
+                              className="text-[10px] font-semibold text-[#325099] border border-[#DEE7FF] px-2.5 py-1 rounded-full hover:bg-[#EEF4FF] hover:border-[#325099] transition shrink-0"
+                            >Makeup</button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── Add Class Modal ─────────────────────────────────────────────────── */}
       {showAddClassModal && (

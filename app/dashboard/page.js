@@ -7,7 +7,7 @@ import Link from 'next/link'
 import PortalNav from '../../components/PortalNav'
 import { normalizeDay } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
-import { T_ENROLMENTS, T_STUDENTS } from '../../lib/tables'
+import { T_ENROLMENTS, T_STUDENTS, T_LESSONS } from '../../lib/tables'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
@@ -52,6 +52,7 @@ export default function Dashboard() {
   const [todayClasses, setTodayClasses] = useState([])
   const [allClasses, setAllClasses] = useState([])
   const [currentTerm, setCurrentTerm] = useState(null)
+  const [makeupLessons, setMakeupLessons] = useState([])
   const router = useRouter()
 
   useEffect(() => {
@@ -88,6 +89,20 @@ export default function Dashboard() {
       setTodayClasses(classes.filter(c =>
         normalizeDay(c.day_of_week).toLowerCase().includes(todayName.toLowerCase())
       ))
+
+      // Fetch makeup lessons for this student (±6 weeks)
+      const now = new Date()
+      const sixWeeksAgo = new Date(now); sixWeeksAgo.setDate(now.getDate() - 42)
+      const sixWeeksAhead = new Date(now); sixWeeksAhead.setDate(now.getDate() + 42)
+      const { data: makeupData } = await supabase
+        .from(T_LESSONS)
+        .select(`id, lesson_date, start_time, end_time, room, classes(class_name), makeup_source_lesson_id`)
+        .eq('is_makeup', true)
+        .eq('makeup_student_id', user.id)
+        .gte('lesson_date', sixWeeksAgo.toISOString().slice(0, 10))
+        .lte('lesson_date', sixWeeksAhead.toISOString().slice(0, 10))
+        .order('lesson_date', { ascending: true })
+      setMakeupLessons(makeupData || [])
     }
     load()
   }, [])
@@ -294,6 +309,53 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* MAKEUP LESSONS */}
+        {makeupLessons.length > 0 && (
+          <div className="bg-white rounded-2xl border border-[#C4B5FD] p-6 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+              <p className="text-[10px] tracking-[0.3em] uppercase text-[#7C3AED] font-semibold font-display">
+                Makeup Lessons
+              </p>
+            </div>
+            <div className="space-y-2">
+              {makeupLessons.map(lesson => {
+                const dateStr = lesson.lesson_date
+                  ? new Date(lesson.lesson_date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+                  : '—'
+                const isPast = lesson.lesson_date && lesson.lesson_date < new Date().toISOString().slice(0, 10)
+                return (
+                  <div
+                    key={lesson.id}
+                    className="flex items-center gap-3 rounded-xl px-4 py-3 border"
+                    style={{ background: '#FAF5FF', borderColor: '#DDD6FE' }}
+                  >
+                    <div className="w-1 h-10 rounded-full shrink-0" style={{ background: '#7C3AED' }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm text-[#2A2035]">
+                          {lesson.classes?.class_name || 'Makeup Lesson'}
+                        </p>
+                        <span
+                          className="text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full"
+                          style={{ background: '#EDE9FE', color: '#5B21B6' }}
+                        >
+                          {isPast ? 'Completed' : 'Upcoming'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
+                        <span>📅 {dateStr}</span>
+                        {lesson.start_time && <span>🕐 {lesson.start_time}–{lesson.end_time}</span>}
+                        {lesson.room && <span>📍 {lesson.room}</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
       </section>
 

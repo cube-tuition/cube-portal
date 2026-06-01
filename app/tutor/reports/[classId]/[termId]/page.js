@@ -24,6 +24,7 @@ const ATT_COLOR = {
   present: '#10b981',
   late:    '#f59e0b',
   absent:  '#ef4444',
+  makeup:  '#8b5cf6',
   excused: '#6366f1',
   none:    '#D1D5DB',
 }
@@ -293,7 +294,7 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
     for (const a of attendance) {
       const w = weekNumber(isoToDate(a.session_date), term)
       if (!w) continue
-      const order = { absent: 3, late: 2, excused: 1, present: 0 }
+      const order = { absent: 3, late: 2, excused: 1, makeup: 1, present: 0 }
       const prev = attByWeek.get(w)
       if (!prev || (order[a.status] || 0) > (order[prev.status] || 0)) attByWeek.set(w, a)
     }
@@ -313,7 +314,7 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
       const hw = quiz?.homework_grade || null
       out.push({
         week: `Wk ${w}`, score,
-        attended: status === 'present' || status === 'late' ? 1 : (status ? 0 : null),
+        attended: status === 'present' || status === 'late' || status === 'makeup' ? 1 : (status ? 0 : null),
         status, hw, hwNum: hw ? HW_NUMERIC[hw] || null : null,
       })
     }
@@ -326,7 +327,7 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
     const avgRq  = scored.length
       ? Math.round(scored.reduce((a, q) => a + (q.score / q.max_score) * 100, 0) / scored.length) : null
     const attTotal   = attendance.length
-    const attPresent = attendance.filter(a => a.status === 'present' || a.status === 'late').length
+    const attPresent = attendance.filter(a => a.status === 'present' || a.status === 'late' || a.status === 'makeup').length
     const attPct  = attTotal ? Math.round((attPresent / attTotal) * 100) : null
     const hwTotal = quizzes.length
     const hwGrades = quizzes.map(q => q.homework_grade).filter(Boolean)
@@ -693,6 +694,9 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
             <span className="flex items-center gap-1.5">
               <span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.absent }} /> Absent
             </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.makeup }} /> Makeup
+            </span>
             <span className="text-[#2A2035]/40">·</span>
             <span className="text-[#2A2035]/60">Previous week's HWK badge below each week</span>
           </div>
@@ -714,8 +718,8 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
                   <td className="px-2 py-1.5 text-center">
                     {r.status ? (
                       <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{
-                        background: r.status === 'present' ? '#D1FAE5' : r.status === 'late' ? '#FEF3C7' : r.status === 'absent' ? '#FEE2E2' : '#E0E7FF',
-                        color:      r.status === 'present' ? '#065F46' : r.status === 'late' ? '#92400E' : r.status === 'absent' ? '#991B1B' : '#3730A3',
+                        background: r.status === 'present' ? '#D1FAE5' : r.status === 'late' ? '#FEF3C7' : r.status === 'absent' ? '#FEE2E2' : r.status === 'makeup' ? '#EDE9FE' : '#E0E7FF',
+                        color:      r.status === 'present' ? '#065F46' : r.status === 'late' ? '#92400E' : r.status === 'absent' ? '#991B1B' : r.status === 'makeup' ? '#5B21B6' : '#3730A3',
                       }}>{r.status[0].toUpperCase() + r.status.slice(1)}</span>
                     ) : <span className="text-[#2A2035]/30">—</span>}
                   </td>

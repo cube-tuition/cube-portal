@@ -11,14 +11,14 @@ const TERMS    = [1, 2, 3, 4]
 const INP      = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 // ── Booklet Modal (add + edit) ────────────────────────────────────────────────
-function BookletModal({ booklet, defaultYear, defaultSubject, onClose, onSaved }) {
+function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defaultWeek, onClose, onSaved }) {
   const isEdit = !!booklet
   const [form, setForm] = useState({
     booklet_name: booklet?.booklet_name ?? '',
     year:         booklet?.year         ?? defaultYear,
     subject:      booklet?.subject      ?? defaultSubject,
-    term_number:  booklet?.term_number  ?? '',
-    week:         booklet?.week         ?? '',
+    term_number:  booklet?.term_number  ?? defaultTerm ?? '',
+    week:         booklet?.week         ?? defaultWeek  ?? '',
     notes:        booklet?.notes        ?? '',
   })
   const [file, setFile]       = useState(null)
@@ -156,6 +156,7 @@ export default function BookletsPage() {
   const [activeYear, setActiveYear] = useState(8)
   const [activeSub, setActiveSub]   = useState('Maths')
   const [showAdd, setShowAdd]       = useState(false)
+  const [addPrefill, setAddPrefill] = useState({})   // { term_number, week } for blank-slot clicks
   const [editing, setEditing]       = useState(null)
   const [deleteId, setDeleteId]     = useState(null)
   const [deleteFilePath, setDeleteFilePath] = useState(null)
@@ -264,65 +265,122 @@ export default function BookletsPage() {
           ))}
         </div>
 
-        {/* Content */}
+        {/* Content — 4-column term board */}
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase animate-pulse">Loading…</p>
           </div>
-        ) : visible.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
-            <p className="text-5xl">📚</p>
-            <p className="text-base font-semibold text-[#2A2035]">No booklets for Year {activeYear} {activeSub} yet</p>
-            <button onClick={() => setShowAdd(true)}
-              className="px-5 py-2.5 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition">
-              Add the first one
-            </button>
-          </div>
         ) : (
-          <div className="flex flex-col gap-8 pb-12">
-            {termKeys.map(termKey => (
-              <div key={termKey}>
-                <h2 className="text-xs font-bold uppercase tracking-widest text-[#325099]/60 mb-3">{termKey}</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {grouped[termKey].map(b => {
-                    const pdfUrl = getPdfUrl(b.file_path)
-                    return (
-                      <div key={b.id} className="bg-white rounded-2xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-shadow">
-                        {/* Coloured top bar based on subject */}
-                        <div className={`h-1 w-full ${b.subject === 'Maths' ? 'bg-[#325099]' : 'bg-[#7C3AED]'}`} />
-                        <div className="px-4 pt-4 pb-3 flex-1 flex flex-col">
-                          {/* Week badge */}
-                          {b.week && (
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-[#325099]/50 mb-1.5">Week {b.week}</span>
-                          )}
-                          <p className="text-sm font-bold text-[#062E63] leading-snug flex-1">{b.booklet_name}</p>
-                          {b.notes && (
-                            <p className="text-[11px] text-[#2A2035]/50 mt-1.5 line-clamp-2">{b.notes}</p>
-                          )}
-                        </div>
-                        {/* Footer */}
-                        <div className="px-4 pb-4 flex items-center justify-between gap-2">
-                          <div className="flex gap-3">
-                            <button onClick={() => setEditing(b)}
-                              className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
-                            <button onClick={() => { setDeleteId(b.id); setDeleteFilePath(b.file_path) }}
-                              className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
-                          </div>
-                          {pdfUrl ? (
-                            <a href={pdfUrl} target="_blank" rel="noopener noreferrer"
-                              className="flex items-center gap-1 px-2.5 py-1 bg-[#EEF4FF] text-[#325099] text-[10px] font-bold rounded-lg hover:bg-[#DEE7FF] transition">
-                              📄 PDF
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-[#2A2035]/25 font-medium">No PDF</span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
+          <div className="pb-12">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {TERMS.map(termNum => {
+                // Build a week → booklet map for O(1) lookup
+                const byWeek = {}
+                visible.filter(b => b.term_number === termNum).forEach(b => {
+                  if (b.week != null) byWeek[b.week] = b
+                })
+                const assignedCount = Object.keys(byWeek).length
+                const accentColor = activeSub === 'Maths' ? '#325099' : '#7C3AED'
+                const accentBg    = activeSub === 'Maths' ? '#EEF4FF'  : '#F5F3FF'
+
+                return (
+                  <div key={termNum} className="flex flex-col min-w-0">
+                    {/* Column header */}
+                    <div
+                      className="flex items-center justify-between px-3 py-2 rounded-xl mb-3"
+                      style={{ background: accentBg }}
+                    >
+                      <span className="text-xs font-bold tracking-wide" style={{ color: accentColor }}>
+                        Term {termNum}
+                      </span>
+                      <span
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
+                        style={{ background: accentColor }}
+                      >
+                        {assignedCount}/10
+                      </span>
+                    </div>
+
+                    {/* One row per week 1–10 */}
+                    <div className="flex flex-col gap-2">
+                      {Array.from({ length: 10 }, (_, i) => i + 1).map(week => {
+                        const b = byWeek[week]
+                        const pdfUrl = b ? getPdfUrl(b.file_path) : null
+
+                        if (b) {
+                          // ── Assigned card ──────────────────────────────
+                          return (
+                            <div key={week} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md hover:border-[#C7D7FF] transition-all">
+                              <div className="h-[3px] w-full" style={{ background: accentColor }} />
+                              <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5">
+                                <span
+                                  className="text-[9px] font-bold uppercase tracking-widest"
+                                  style={{ color: accentColor }}
+                                >
+                                  Week {week}
+                                </span>
+                                <p className="text-[12px] font-bold text-[#062E63] leading-snug">{b.booklet_name}</p>
+                                {b.notes && (
+                                  <p className="text-[10px] text-[#2A2035]/45 line-clamp-1">{b.notes}</p>
+                                )}
+                              </div>
+                              <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
+                                <div className="flex gap-2.5">
+                                  <button onClick={() => setEditing(b)}
+                                    className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                                  <button onClick={() => { setDeleteId(b.id); setDeleteFilePath(b.file_path) }}
+                                    className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
+                                </div>
+                                {pdfUrl ? (
+                                  <a href={pdfUrl} target="_blank" rel="noopener noreferrer"
+                                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-lg transition"
+                                    style={{ background: accentBg, color: accentColor }}>
+                                    📄 PDF
+                                  </a>
+                                ) : (
+                                  <span className="text-[10px] text-[#2A2035]/20">No PDF</span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        }
+
+                        // ── Blank / unassigned slot ────────────────────
+                        return (
+                          <button
+                            key={week}
+                            onClick={() => { setAddPrefill({ term_number: termNum, week }); setShowAdd(true) }}
+                            className="group w-full border-2 border-dashed border-[#FDE68A] rounded-xl flex flex-col overflow-hidden hover:border-[#F59E0B] hover:bg-[#FFFBEB] transition text-left"
+                          >
+                            {/* Matches accent bar height */}
+                            <div className="h-[3px] w-full" style={{ background: '#FDE68A' }} />
+                            {/* Matches body padding */}
+                            <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5 flex-1">
+                              <span
+                                className="text-[9px] font-bold uppercase tracking-widest"
+                                style={{ color: '#D97706' }}
+                              >
+                                Wk {week}
+                              </span>
+                                              <p className="text-[12px] font-semibold text-[#2A2035]/20 group-hover:text-[#325099]/40 transition leading-snug">
+                                + assign booklet
+                              </p>
+                            </div>
+                            {/* Matches footer padding */}
+                            <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
+                              <div className="flex gap-2.5">
+                                <span className="text-[10px] text-transparent select-none">Edit</span>
+                              </div>
+                              <span className="text-[10px] text-transparent select-none">No PDF</span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -333,8 +391,10 @@ export default function BookletsPage() {
           booklet={editing}
           defaultYear={activeYear}
           defaultSubject={activeSub}
-          onClose={() => { setShowAdd(false); setEditing(null) }}
-          onSaved={() => { setShowAdd(false); setEditing(null); load() }}
+          defaultTerm={addPrefill.term_number}
+          defaultWeek={addPrefill.week}
+          onClose={() => { setShowAdd(false); setEditing(null); setAddPrefill({}) }}
+          onSaved={() => { setShowAdd(false); setEditing(null); setAddPrefill({}); load() }}
         />
       )}
       {deleteId && (
