@@ -75,11 +75,13 @@ export async function POST(req) {
       })
 
       // Build line items from enrolments
-      const termClasses = (classes || []).filter(c => /* all classes */true)
+      // Only enrolments for classes in this term
+      const termClassIds = (classes || []).map(c => c.id)
       const enrolments = await supabase
         .from('enrolments')
         .select('student_id, class_id, price')
         .in('student_id', studentIds.map(s => s.id))
+        .in('class_id', termClassIds)
 
       const lineItems = []
 
