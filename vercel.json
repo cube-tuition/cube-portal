@@ -1,6 +1,6 @@
 {
   "functions": {
-    "app/api/xero/push/route.js": { "maxDuration": 60 }
+    "app/api/xero/push/route.js": { "maxDuration": 300 }
   },
   "crons": [
     { "path": "/api/sync-students", "schedule": "0 14 * * *" },

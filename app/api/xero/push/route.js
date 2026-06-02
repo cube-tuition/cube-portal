@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateContact, createXeroInvoice } from '../../../../lib/xero'
 
-// Allow up to 60s on Vercel Pro / Hobby extended
-export const maxDuration = 60
+// Allow up to 300s — 30 invoices × 2s spacing + API call time
+export const maxDuration = 300
 
 /**
  * POST /api/xero/push
@@ -61,7 +61,12 @@ export async function POST(req) {
 
   const results = { pushed: 0, skipped: 0, errors: [] }
 
-  for (const inv of invoices) {
+  for (let i = 0; i < invoices.length; i++) {
+    const inv = invoices[i]
+    // Space out requests to stay well under Xero's 60 req/min limit.
+    // Each invoice makes ~2 contact-search calls + 1 invoice create = 3 calls.
+    // At 2s spacing that's ~30 calls/min, leaving headroom for retries.
+    if (i > 0) await new Promise(r => setTimeout(r, 2000))
     try {
       // Get students on this invoice
       const studentIds = inv.family_id
@@ -149,8 +154,6 @@ export async function POST(req) {
       console.error(`Invoice ${inv.id} push error:`, err.message)
       results.errors.push({ invoice_id: inv.id, error: err.message })
     }
-    // Avoid Xero rate limit (60 req/min)
-    await new Promise(r => setTimeout(r, 1100))
   }
 
   return NextResponse.json(results)
