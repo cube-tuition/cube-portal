@@ -1389,7 +1389,9 @@ export default function DatabasePage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body:    JSON.stringify({ term_id: invoiceTermId }),
       })
-      const result = await res.json()
+      const rawText = await res.text()
+      let result
+      try { result = JSON.parse(rawText) } catch { throw new Error(rawText.slice(0, 300)) }
       if (!res.ok) throw new Error(result.error || 'Push failed')
       setXeroPushResult(result)
       if (result.errors?.length) console.error('Xero push errors:', JSON.stringify(result.errors, null, 2))
