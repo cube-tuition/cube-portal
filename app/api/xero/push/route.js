@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { findOrCreateContact, createXeroInvoice } from '../../../../lib/xero'
+import { findOrCreateContact, createXeroInvoice, getValidToken } from '../../../../lib/xero'
 
 /**
  * POST /api/xero/push
@@ -28,15 +28,49 @@ export async function POST(req) {
   const { term_id } = await req.json()
   if (!term_id) return NextResponse.json({ error: 'term_id required' }, { status: 400 })
 
-  // Fetch all unpushed invoices for this term
-  const { data: invoices, error: invErr } = await supabase
+  // Fetch all invoices for this term (including previously pushed ones)
+  const { data: allInvoices, error: invErr } = await supabase
     .from('invoices')
     .select('*')
     .eq('term_id', term_id)
-    .is('xero_invoice_id', null)
     .order('id')
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
-  if (!invoices?.length) return NextResponse.json({ pushed: 0, message: 'No new invoices to push' })
+  if (!allInvoices?.length) return NextResponse.json({ pushed: 0, message: 'No invoices found for this term' })
+
+  // For invoices that were previously pushed, verify they still exist in Xero.
+  // If deleted in Xero, clear the stored xero_invoice_id so they get re-pushed.
+  let xeroToken = null
+  try { xeroToken = await getValidToken() } catch (_) {}
+
+  if (xeroToken) {
+    for (const inv of allInvoices.filter(i => i.xero_invoice_id)) {
+      try {
+        const res = await fetch(
+          `https://api.xero.com/api.xro/2.0/Invoices/${inv.xero_invoice_id}`,
+          {
+            headers: {
+              Authorization:    `Bearer ${xeroToken.access_token}`,
+              'Xero-Tenant-Id': xeroToken.tenant_id,
+              Accept:           'application/json',
+            },
+          }
+        )
+        const data = await res.json()
+        const status = data?.Invoices?.[0]?.Status
+        // DELETED or VOIDED in Xero — clear so we re-push
+        if (!res.ok || status === 'DELETED' || status === 'VOIDED') {
+          await supabase.from('invoices').update({
+            xero_invoice_id: null,
+            xero_contact_id: null,
+            xero_pushed_at:  null,
+          }).eq('id', inv.id)
+          inv.xero_invoice_id = null
+        }
+      } catch (_) { /* leave as-is if check fails */ }
+    }
+  }
+
+  const invoices = allInvoices.filter(i => !i.xero_invoice_id)
 
   // Fetch term info for due date
   const { data: term } = await supabase.from('terms').select('name, end_date').eq('id', term_id).single()
