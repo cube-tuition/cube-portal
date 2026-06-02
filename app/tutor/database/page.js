@@ -2738,12 +2738,15 @@ export default function DatabasePage() {
                       {xeroPushResult && (
                         <span className="text-[10px] text-[#2A2035]/60">
                           {xeroPushResult.message || `✓ ${xeroPushResult.pushed} pushed${xeroPushResult.skipped ? `, ${xeroPushResult.skipped} skipped` : ''}${xeroPushResult.errors?.length ? `, ${xeroPushResult.errors.length} errors` : ''}`}
-                          {xeroPushResult.errors?.length > 0 && (
-                            <span className="block text-red-500 mt-0.5" title={xeroPushResult.errors.map(e => `#${e.invoice_id}: ${e.error}`).join('\n')}>
-                              First error: {xeroPushResult.errors[0].error}
-                            </span>
-                          )}
                         </span>
+                      )}
+                      {xeroPushResult?.errors?.length > 0 && (
+                        <textarea
+                          readOnly
+                          className="block w-full mt-1 text-[10px] text-red-600 bg-red-50 border border-red-200 rounded p-1.5 font-mono"
+                          rows={6}
+                          value={xeroPushResult.errors.map(e => `#${e.invoice_id}: ${e.error}`).join('\n\n')}
+                        />
                       )}
                     </div>
                   ) : null}
