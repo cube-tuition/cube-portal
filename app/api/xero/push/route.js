@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { findOrCreateContact, createXeroInvoice } from '../../../../lib/xero'
+import { findOrCreateContact, createXeroInvoicesBatch } from '../../../../lib/xero'
 
-// Allow up to 300s — 30 invoices × 2s spacing + API call time
-export const maxDuration = 300
+// Contacts are fetched sequentially (~1–2 calls each) then invoices are
+// created in a single batch call — well within 60s for 30 invoices.
+export const maxDuration = 60
 
 /**
  * POST /api/xero/push
  * Body: { term_id, reset_ids?: number[] }
  *
  * Pushes unpushed invoices for the term to Xero as drafts.
- * Pass reset_ids to clear specific invoice xero_invoice_ids before pushing.
+ * Pass reset_ids to clear specific invoice xero_invoice_ids before re-pushing.
  */
 export async function POST(req) {
   // Verify admin JWT
@@ -48,7 +49,7 @@ export async function POST(req) {
 
   // Fetch term info for due date
   const { data: term } = await supabase.from('terms').select('name, end_date').eq('id', term_id).single()
-  const dueDate = term?.end_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+  const dueDate  = term?.end_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
   const termName = term?.name || 'Term'
 
   // Fetch classes for this term only
@@ -56,59 +57,67 @@ export async function POST(req) {
     .from('classes')
     .select('id, class_name, courses(course_name)')
     .eq('term_id', term_id)
-  const classMap = Object.fromEntries((classes || []).map(c => [c.id, c]))
+  const classMap     = Object.fromEntries((classes || []).map(c => [c.id, c]))
   const termClassIds = (classes || []).map(c => c.id)
 
   const results = { pushed: 0, skipped: 0, errors: [] }
 
+  // ── Phase 1: resolve contacts (sequential, ~1–2 Xero calls each) ─────────────
+  // Cache by contact key so sibling families don't double-lookup
+  const contactCache = {}  // key -> xeroContactId
+
+  const invoicePayloads = []  // { inv, contactId, lineItems }
+
   for (let i = 0; i < invoices.length; i++) {
     const inv = invoices[i]
-    // Space out requests to stay well under Xero's 60 req/min limit.
-    // Each invoice makes ~2 contact-search calls + 1 invoice create = 3 calls.
-    // At 2s spacing that's ~30 calls/min, leaving headroom for retries.
-    if (i > 0) await new Promise(r => setTimeout(r, 2000))
+
+    // Throttle contact lookups: 1s gap between each (well under 60 req/min)
+    if (i > 0) await new Promise(r => setTimeout(r, 1000))
+
     try {
       // Get students on this invoice
-      const studentIds = inv.family_id
+      const studentRows = inv.family_id
         ? (await supabase.from('students').select('id, full_name, email, phone').eq('family_id', inv.family_id)).data || []
         : (await supabase.from('students').select('id, full_name, email, phone').eq('id', inv.student_id)).data || []
 
-      if (!studentIds.length) { results.skipped++; continue }
+      if (!studentRows.length) { results.skipped++; continue }
 
-      // Build contact name
-      const primaryStudent = studentIds[0]
-      const contactName = studentIds.length > 1
-        ? `${studentIds.map(s => s.full_name.split(' ')[0]).join(' & ')} ${primaryStudent.full_name.split(' ').pop()} Family`
+      const primaryStudent = studentRows[0]
+      const contactName = studentRows.length > 1
+        ? `${studentRows.map(s => s.full_name.split(' ')[0]).join(' & ')} ${primaryStudent.full_name.split(' ').pop()} Family`
         : primaryStudent.full_name
 
-      // Find/create Xero contact
-      const contactId = await findOrCreateContact({
-        name:  contactName,
-        email: primaryStudent.email || undefined,
-        phone: primaryStudent.phone || undefined,
-      })
+      // Use cache to avoid duplicate contact lookups for same family
+      const cacheKey = contactName.toLowerCase()
+      let contactId = contactCache[cacheKey]
+      if (!contactId) {
+        contactId = await findOrCreateContact({
+          name:  contactName,
+          email: primaryStudent.email || undefined,
+          phone: primaryStudent.phone || undefined,
+        })
+        contactCache[cacheKey] = contactId
+      }
 
       // Fetch enrolments for this term's classes only
       const enrolments = termClassIds.length
         ? (await supabase
             .from('enrolments')
             .select('student_id, class_id, price')
-            .in('student_id', studentIds.map(s => s.id))
+            .in('student_id', studentRows.map(s => s.id))
             .in('class_id', termClassIds)).data || []
         : []
 
       const lineItems = []
 
       for (const enrol of enrolments) {
-        const cls = classMap[enrol.class_id]
+        const cls        = classMap[enrol.class_id]
         const courseName = cls?.courses?.course_name || cls?.class_name || 'Tutoring'
-        const student = studentIds.find(s => s.id === enrol.student_id)
+        const student    = studentRows.find(s => s.id === enrol.student_id)
         lineItems.push({
-          Description: `${courseName}${studentIds.length > 1 ? ` (${student?.full_name?.split(' ')[0]})` : ''} — ${termName}`,
+          Description: `${courseName}${studentRows.length > 1 ? ` (${student?.full_name?.split(' ')[0]})` : ''} — ${termName}`,
           Quantity:    1,
           UnitAmount:  Number(enrol.price),
-
-
         })
       }
 
@@ -117,8 +126,6 @@ export async function POST(req) {
           Description: 'Sibling discount',
           Quantity:    1,
           UnitAmount:  -Number(inv.sibling_discount),
-
-
         })
       }
 
@@ -127,32 +134,61 @@ export async function POST(req) {
           Description: 'Multi-course discount',
           Quantity:    1,
           UnitAmount:  -Number(inv.multi_course_discount),
-
-
         })
       }
 
       if (!lineItems.length) { results.skipped++; continue }
 
-      // Create Xero draft invoice
-      const xeroInvoiceId = await createXeroInvoice({
+      invoicePayloads.push({
+        inv,
         contactId,
-        invoiceRef: `CUBE-${inv.id}-${termName.replace(/\s/g, '')}`,
         lineItems,
-        dueDate,
+        invoiceRef: `CUBE-${inv.id}-${termName.replace(/\s/g, '')}`,
       })
+    } catch (err) {
+      console.error(`Invoice ${inv.id} contact error:`, err.message)
+      results.errors.push({ invoice_id: inv.id, error: err.message })
+    }
+  }
 
-      // Save xero_invoice_id back to DB
+  if (!invoicePayloads.length) return NextResponse.json(results)
+
+  // ── Phase 2: batch-create all invoices in ONE Xero API call ──────────────────
+  try {
+    const xeroInvoices = await createXeroInvoicesBatch(
+      invoicePayloads.map(p => ({
+        contactId:  p.contactId,
+        invoiceRef: p.invoiceRef,
+        lineItems:  p.lineItems,
+        dueDate,
+      }))
+    )
+
+    // xeroInvoices is returned in the same order as the request array
+    const now = new Date().toISOString()
+    for (let i = 0; i < invoicePayloads.length; i++) {
+      const { inv, contactId } = invoicePayloads[i]
+      const xeroInv = xeroInvoices[i]
+
+      if (!xeroInv?.InvoiceID) {
+        const msg = xeroInv?.ValidationErrors?.map(e => e.Message).join(', ') || 'No InvoiceID returned'
+        results.errors.push({ invoice_id: inv.id, error: msg })
+        continue
+      }
+
       await supabase.from('invoices').update({
-        xero_invoice_id: xeroInvoiceId,
+        xero_invoice_id: xeroInv.InvoiceID,
         xero_contact_id: contactId,
-        xero_pushed_at:  new Date().toISOString(),
+        xero_pushed_at:  now,
       }).eq('id', inv.id)
 
       results.pushed++
-    } catch (err) {
-      console.error(`Invoice ${inv.id} push error:`, err.message)
-      results.errors.push({ invoice_id: inv.id, error: err.message })
+    }
+  } catch (err) {
+    console.error('Batch invoice create error:', err.message)
+    // Attribute to all invoices in the batch
+    for (const p of invoicePayloads) {
+      results.errors.push({ invoice_id: p.inv.id, error: err.message })
     }
   }
 
