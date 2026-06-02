@@ -1,17 +1,16 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { findOrCreateContact, createXeroInvoice, getValidToken } from '../../../../lib/xero'
+import { findOrCreateContact, createXeroInvoice } from '../../../../lib/xero'
+
+// Allow up to 60s on Vercel Pro / Hobby extended
+export const maxDuration = 60
 
 /**
  * POST /api/xero/push
- * Body: { term_id: string }
+ * Body: { term_id, reset_ids?: number[] }
  *
- * For each invoice in the term that hasn't been pushed yet:
- *   1. Find or create a Xero Contact for the student/family
- *   2. Create a draft Xero Invoice with enrolment line items + discounts
- *   3. Store the xero_invoice_id back on the invoice row
- *
- * Skips invoices that already have xero_invoice_id set.
+ * Pushes unpushed invoices for the term to Xero as drafts.
+ * Pass reset_ids to clear specific invoice xero_invoice_ids before pushing.
  */
 export async function POST(req) {
   // Verify admin JWT
@@ -25,64 +24,40 @@ export async function POST(req) {
   if (authErr || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (user.app_metadata?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { term_id } = await req.json()
+  const { term_id, reset_ids } = await req.json()
   if (!term_id) return NextResponse.json({ error: 'term_id required' }, { status: 400 })
 
-  // Fetch all invoices for this term (including previously pushed ones)
-  const { data: allInvoices, error: invErr } = await supabase
+  // Optionally clear xero_invoice_id for specific invoices so they re-push
+  if (reset_ids?.length) {
+    await supabase.from('invoices').update({
+      xero_invoice_id: null,
+      xero_contact_id: null,
+      xero_pushed_at:  null,
+    }).in('id', reset_ids)
+  }
+
+  // Fetch unpushed invoices for this term
+  const { data: invoices, error: invErr } = await supabase
     .from('invoices')
     .select('*')
     .eq('term_id', term_id)
+    .is('xero_invoice_id', null)
     .order('id')
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
-  if (!allInvoices?.length) return NextResponse.json({ pushed: 0, message: 'No invoices found for this term' })
-
-  // For invoices that were previously pushed, verify they still exist in Xero.
-  // If deleted in Xero, clear the stored xero_invoice_id so they get re-pushed.
-  let xeroToken = null
-  try { xeroToken = await getValidToken() } catch (_) {}
-
-  if (xeroToken) {
-    for (const inv of allInvoices.filter(i => i.xero_invoice_id)) {
-      try {
-        const res = await fetch(
-          `https://api.xero.com/api.xro/2.0/Invoices/${inv.xero_invoice_id}`,
-          {
-            headers: {
-              Authorization:    `Bearer ${xeroToken.access_token}`,
-              'Xero-Tenant-Id': xeroToken.tenant_id,
-              Accept:           'application/json',
-            },
-          }
-        )
-        const data = await res.json()
-        const status = data?.Invoices?.[0]?.Status
-        // DELETED or VOIDED in Xero — clear so we re-push
-        if (!res.ok || status === 'DELETED' || status === 'VOIDED') {
-          await supabase.from('invoices').update({
-            xero_invoice_id: null,
-            xero_contact_id: null,
-            xero_pushed_at:  null,
-          }).eq('id', inv.id)
-          inv.xero_invoice_id = null
-        }
-      } catch (_) { /* leave as-is if check fails */ }
-    }
-  }
-
-  const invoices = allInvoices.filter(i => !i.xero_invoice_id)
+  if (!invoices?.length) return NextResponse.json({ pushed: 0, message: 'No new invoices to push' })
 
   // Fetch term info for due date
   const { data: term } = await supabase.from('terms').select('name, end_date').eq('id', term_id).single()
   const dueDate = term?.end_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
   const termName = term?.name || 'Term'
 
-  // Fetch classes for this term only (for line item labels + enrolment filtering)
+  // Fetch classes for this term only
   const { data: classes } = await supabase
     .from('classes')
     .select('id, class_name, courses(course_name)')
     .eq('term_id', term_id)
   const classMap = Object.fromEntries((classes || []).map(c => [c.id, c]))
+  const termClassIds = (classes || []).map(c => c.id)
 
   const results = { pushed: 0, skipped: 0, errors: [] }
 
@@ -95,34 +70,31 @@ export async function POST(req) {
 
       if (!studentIds.length) { results.skipped++; continue }
 
-      // Build display name
+      // Build contact name
       const primaryStudent = studentIds[0]
       const contactName = studentIds.length > 1
         ? `${studentIds.map(s => s.full_name.split(' ')[0]).join(' & ')} ${primaryStudent.full_name.split(' ').pop()} Family`
         : primaryStudent.full_name
 
-      const contactEmail = primaryStudent.email || undefined
-      const contactPhone = primaryStudent.phone || undefined
-
       // Find/create Xero contact
       const contactId = await findOrCreateContact({
         name:  contactName,
-        email: contactEmail,
-        phone: contactPhone,
+        email: primaryStudent.email || undefined,
+        phone: primaryStudent.phone || undefined,
       })
 
-      // Build line items from enrolments
-      // Only enrolments for classes in this term
-      const termClassIds = (classes || []).map(c => c.id)
-      const enrolments = await supabase
-        .from('enrolments')
-        .select('student_id, class_id, price')
-        .in('student_id', studentIds.map(s => s.id))
-        .in('class_id', termClassIds)
+      // Fetch enrolments for this term's classes only
+      const enrolments = termClassIds.length
+        ? (await supabase
+            .from('enrolments')
+            .select('student_id, class_id, price')
+            .in('student_id', studentIds.map(s => s.id))
+            .in('class_id', termClassIds)).data || []
+        : []
 
       const lineItems = []
 
-      for (const enrol of enrolments.data || []) {
+      for (const enrol of enrolments) {
         const cls = classMap[enrol.class_id]
         const courseName = cls?.courses?.course_name || cls?.class_name || 'Tutoring'
         const student = studentIds.find(s => s.id === enrol.student_id)
@@ -135,7 +107,6 @@ export async function POST(req) {
         })
       }
 
-      // Add sibling discount line if applicable
       if (Number(inv.sibling_discount) > 0) {
         lineItems.push({
           Description: 'Sibling discount',
@@ -146,7 +117,6 @@ export async function POST(req) {
         })
       }
 
-      // Add multi-course discount line if applicable
       if (Number(inv.multi_course_discount) > 0) {
         lineItems.push({
           Description: 'Multi-course discount',
@@ -168,14 +138,11 @@ export async function POST(req) {
       })
 
       // Save xero_invoice_id back to DB
-      await supabase
-        .from('invoices')
-        .update({
-          xero_invoice_id: xeroInvoiceId,
-          xero_contact_id: contactId,
-          xero_pushed_at:  new Date().toISOString(),
-        })
-        .eq('id', inv.id)
+      await supabase.from('invoices').update({
+        xero_invoice_id: xeroInvoiceId,
+        xero_contact_id: contactId,
+        xero_pushed_at:  new Date().toISOString(),
+      }).eq('id', inv.id)
 
       results.pushed++
     } catch (err) {
