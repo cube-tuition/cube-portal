@@ -93,7 +93,8 @@ export async function POST(req) {
           Description: `${courseName}${studentIds.length > 1 ? ` (${student?.full_name?.split(' ')[0]})` : ''} — ${termName}`,
           Quantity:    1,
           UnitAmount:  Number(enrol.price),
-          AccountCode: '200',  // standard sales account — adjust if needed
+          AccountCode: '200',
+          TaxType:     'OUTPUT2',  // GST on Income (10% inclusive)
         })
       }
 
@@ -104,6 +105,7 @@ export async function POST(req) {
           Quantity:    1,
           UnitAmount:  -Number(inv.sibling_discount),
           AccountCode: '200',
+          TaxType:     'OUTPUT2',
         })
       }
 
@@ -114,6 +116,7 @@ export async function POST(req) {
           Quantity:    1,
           UnitAmount:  -Number(inv.multi_course_discount),
           AccountCode: '200',
+          TaxType:     'OUTPUT2',
         })
       }
 
