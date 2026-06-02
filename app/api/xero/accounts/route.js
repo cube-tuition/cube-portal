@@ -19,8 +19,14 @@ export async function GET() {
       return NextResponse.json({ tokenAge, refreshError: err.message })
     }
 
-    // Test the token against Xero
-    const res = await fetch('https://api.xero.com/api.xro/2.0/Organisations', {
+    // Check what tenants are actually connected to this token
+    const connRes = await fetch('https://api.xero.com/connections', {
+      headers: { Authorization: `Bearer ${validToken.access_token}`, Accept: 'application/json' },
+    })
+    const connText = await connRes.text()
+
+    // Test the token against Xero using stored tenant_id
+    const res = await fetch('https://api.xero.com/api.xro/2.0/Invoices?page=1&pageSize=1', {
       headers: {
         Authorization:    `Bearer ${validToken.access_token}`,
         'Xero-Tenant-Id': validToken.tenant_id,
@@ -28,7 +34,13 @@ export async function GET() {
       },
     })
     const text = await res.text()
-    return NextResponse.json({ tokenAge, xeroStatus: res.status, body: text.slice(0, 500) })
+    return NextResponse.json({
+      tokenAge,
+      storedTenantId: validToken.tenant_id,
+      connections: connText.slice(0, 500),
+      xeroStatus: res.status,
+      body: text.slice(0, 300),
+    })
   } catch (err) {
     return NextResponse.json({ fatalError: err.message })
   }
