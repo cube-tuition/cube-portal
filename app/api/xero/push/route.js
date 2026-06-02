@@ -63,7 +63,12 @@ export async function POST(req) {
   const results = { pushed: 0, skipped: 0, errors: [] }
 
   // ── Phase 1: bulk-fetch all existing Xero contacts (1–2 API calls total) ─────
-  const contactMaps = await fetchAllContacts()
+  let contactMaps
+  try {
+    contactMaps = await fetchAllContacts()
+  } catch (err) {
+    return NextResponse.json({ error: `Xero contacts fetch failed: ${err.message}` }, { status: 502 })
+  }
 
   const invoicePayloads = []  // { inv, contactId, lineItems }
 
