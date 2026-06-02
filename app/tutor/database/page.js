@@ -1390,9 +1390,10 @@ export default function DatabasePage() {
         body:    JSON.stringify({ term_id: invoiceTermId }),
       })
       const rawText = await res.text()
+      console.log('Xero push response status:', res.status, 'body:', rawText.slice(0, 500))
       let result
-      try { result = JSON.parse(rawText) } catch { throw new Error(rawText.slice(0, 300)) }
-      if (!res.ok) throw new Error(result.error || 'Push failed')
+      try { result = JSON.parse(rawText) } catch { throw new Error(`HTTP ${res.status}: ${rawText.slice(0, 300) || '(empty body)'}`) }
+      if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`)
       setXeroPushResult(result)
       if (result.errors?.length) console.error('Xero push errors:', JSON.stringify(result.errors, null, 2))
       setReloadKey(k => k + 1)
