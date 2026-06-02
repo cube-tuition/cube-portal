@@ -64,6 +64,7 @@ export async function GET(req) {
     return NextResponse.redirect(`${portalBase}/tutor/database?xero=connected`)
   } catch (err) {
     console.error('Xero callback error:', err)
-    return NextResponse.redirect(`${portalBase}/tutor/database?xero=error`)
+    // Return error details directly so we can diagnose
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
