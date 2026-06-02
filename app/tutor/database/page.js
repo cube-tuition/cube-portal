@@ -1392,6 +1392,7 @@ export default function DatabasePage() {
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Push failed')
       setXeroPushResult(result)
+      if (result.errors?.length) console.error('Xero push errors:', JSON.stringify(result.errors, null, 2))
       setReloadKey(k => k + 1)
     } catch (err) {
       alert('Xero push failed: ' + err.message)
