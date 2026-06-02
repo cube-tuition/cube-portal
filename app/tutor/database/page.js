@@ -2720,6 +2720,13 @@ export default function DatabasePage() {
                     </a>
                   ) : xeroConnected === true ? (
                     <div className="flex items-center gap-2">
+                      <a
+                        href="/api/xero/auth"
+                        className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-[#2A2035]/50 hover:text-[#2A2035] transition"
+                        title="Reconnect Xero (use if token expired)"
+                      >
+                        🔗 Reconnect
+                      </a>
                       <button
                         onClick={handlePushToXero}
                         disabled={!invoiceTermId || xeroPushing}
