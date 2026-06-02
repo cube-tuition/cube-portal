@@ -32,8 +32,14 @@ function SessionModal({ session, onClose, onSaved }) {
   const [err, setErr]               = useState('')
 
   useEffect(() => {
-    supabase.from('tutors').select('id, full_name').order('full_name')
-      .then(({ data }) => setTutorsList(data || []))
+    Promise.all([
+      supabase.from('tutors').select('id, full_name').order('full_name'),
+      supabase.from('directors').select('id, full_name').order('full_name'),
+    ]).then(([{ data: tutors }, { data: directors }]) => {
+      const all = [...(tutors || []), ...(directors || [])]
+      all.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+      setTutorsList(all)
+    })
   }, [])
 
   const toggleSubject = s => setForm(f => ({

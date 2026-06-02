@@ -164,6 +164,7 @@ export default function TutorClassesPage() {
   const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, year }] }
   const [subSessions, setSubSessions] = useState([]) // [{ classId, dateISO, cls }] — sessions this tutor is subbing
   const [makeupSessions, setMakeupSessions] = useState([]) // [{ dateISO, lesson }] — 1:1 makeup lessons for this tutor
+  const [dropinSessions, setDropinSessions] = useState([]) // [dropin_sessions row] — drop-in sessions for this tutor
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
   const [search, setSearch] = useState('')
   const [authErr, setAuthErr] = useState(null)
@@ -279,6 +280,8 @@ export default function TutorClassesPage() {
       if (!isAdmin) makeupQuery.eq('scheduled_teacher_id', staff.id)
       const { data: makeupRows } = await makeupQuery
       setMakeupSessions((makeupRows || []).map(r => ({ dateISO: r.lesson_date, lesson: r })))
+
+      // (dropin sessions fetched in separate effect below)
     }
     load()
   }, [staff, selectedTermId, classView])
@@ -302,6 +305,28 @@ export default function TutorClassesPage() {
         setSubDates(new Set((data || []).map(r => `${r.class_id}|${r.session_date}`)))
       })
   }, [weekStart, classes, staff])
+
+  // ── Drop-in sessions: re-fetch whenever week or staff changes ────────────
+  useEffect(() => {
+    if (!staff) return
+    const isAdmin = staff.role === 'admin'
+    const weekISODates = Array.from({ length: 7 }, (_, i) => isoDate(addDays(weekStart, i)))
+    const weekMin = weekISODates[0]
+    const weekMax = weekISODates[6]
+    const fetchDropins = async () => {
+      let q = supabase
+        .from('dropin_sessions')
+        .select('*')
+        .gte('session_date', weekMin)
+        .lte('session_date', weekMax)
+      if (!isAdmin || classView === 'mine') {
+        q = q.contains('tutors', [staff.full_name])
+      }
+      const { data } = await q
+      setDropinSessions(data || [])
+    }
+    fetchDropins()
+  }, [staff, weekStart, classView])
 
   // ── Top section: distinct courses by class_name ────────────────────────
   // We merge multiple DB rows that share a name (e.g. a course that runs on
@@ -473,8 +498,31 @@ export default function TutorClassesPage() {
         studentName,
       })
     }
+    // Inject drop-in sessions for this tutor
+    for (const di of dropinSessions) {
+      const weekISODates = weekDays.map(d => isoDate(d))
+      if (!weekISODates.includes(di.session_date)) continue
+      if (!map.has(di.session_date)) map.set(di.session_date, [])
+      const syntheticCls = {
+        id: `dropin-${di.id}`,
+        class_name: `Drop-in · ${di.location || 'Centre'}`,
+        start_time: di.start_time,
+        end_time: di.end_time,
+        room: di.location || null,
+        teacher: null,
+      }
+      map.get(di.session_date).push({
+        key: `dropin-${di.id}`,
+        date: new Date(di.session_date + 'T00:00:00'),
+        dateISO: di.session_date,
+        dayName: '',
+        cls: syntheticCls,
+        isDropin: true,
+        dropin: di,
+      })
+    }
     return map
-  }, [upcomingSessions, subSessions, weekDays, subDates, makeupSessions])
+  }, [upcomingSessions, subSessions, weekDays, subDates, makeupSessions, dropinSessions])
 
   const todayISO = useMemo(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return isoDate(d)
@@ -1182,11 +1230,14 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                     : `/tutor/classes/${s.cls.id}`
                   const isAmber  = s.isSub || s.hasSub
                   const isMakeup = s.isMakeup
-                  const pillBg     = isMakeup ? '#EDE9FECC' : isAmber ? '#FEF9ECCC' : col.bg + 'AA'
-                  const pillBorder = isMakeup ? '1px solid #C4B5FD' : isAmber ? '1px solid #FDE68A' : 'none'
-                  const textColor  = isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
-                  const subColor   = isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
-                  const pillHref = isMakeup
+                  const isDropin = s.isDropin
+                  const pillBg     = isDropin ? '#CCFBF1CC' : isMakeup ? '#EDE9FECC' : isAmber ? '#FEF9ECCC' : col.bg + 'AA'
+                  const pillBorder = isDropin ? '1px solid #5EEAD4' : isMakeup ? '1px solid #C4B5FD' : isAmber ? '1px solid #FDE68A' : 'none'
+                  const textColor  = isDropin ? '#0F766E' : isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
+                  const subColor   = isDropin ? '#0F766E99' : isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
+                  const pillHref = isDropin
+                    ? '/tutor/dropin'
+                    : isMakeup
                     ? `/tutor/classes/makeup/${s.lesson?.id}`
                     : href
                   return (
@@ -1215,10 +1266,16 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                                 Makeup
                               </span>
                             )}
+                            {isDropin && (
+                              <span className="text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#CCFBF1] text-[#0F766E] shrink-0 whitespace-nowrap">
+                                Drop-in
+                              </span>
+                            )}
                           </div>
                           <p className="text-[10px] mt-0.5 leading-tight truncate" style={{ color: subColor }}>
                             {fmtTimeRange(s.cls.start_time, s.cls.end_time)}
-                            {s.cls.room && <> · {s.cls.room}</>}
+                            {!isDropin && s.cls.room && <> · {s.cls.room}</>}
+                            {isDropin && s.dropin?.tutors?.length > 0 && <> · {s.dropin.tutors.join(', ')}</>}
                           </p>
                           {showTeacher && s.cls.teacher && (
                             <p className="text-[10px] leading-tight truncate" style={{ color: textColor + '88' }}>

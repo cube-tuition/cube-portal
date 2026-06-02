@@ -5,7 +5,7 @@ import { supabase } from '../../../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
 import TutorNav from '../../../components/TutorNav'
 import { buildClassLabelMap } from '../../../lib/classLabels'
-import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_RESULTS, T_SHIFTS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
+import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
 
 /*
  * Admin-only: Database Explorer — /tutor/database
@@ -66,7 +66,18 @@ function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
 // Columns that show a dropdown picker when edited, keyed as "table:col"
 const CELL_DROPDOWNS = {
   [`${T_STUDENTS}:year`]:      ['5','6','7','8','9','10','11','12'],
+  [`${T_STUDENTS}:status`]:    ['active','trial','disenrol','quit trial'],
   [`${T_ATTENDANCE}:status`]:  ['present','late','absent','makeup'],
+}
+
+// Coloured pill badges for specific table:column values
+const CELL_BADGE_COLORS = {
+  [`${T_STUDENTS}:status`]: {
+    'active':     'bg-emerald-100 text-emerald-800 border border-emerald-200',
+    'trial':      'bg-amber-100 text-amber-800 border border-amber-200',
+    'disenrol':   'bg-gray-100 text-gray-500 border border-gray-200',
+    'quit trial': 'bg-gray-100 text-gray-500 border border-gray-200',
+  },
 }
 
 function displayVal(v) {
@@ -739,7 +750,13 @@ export default function DatabasePage() {
   const [currentTermName, setCurrentTermName] = useState('')
   // Invoices
   const [invoiceTermId, setInvoiceTermId]       = useState(null)
+  const [creditModal, setCreditModal]           = useState(null)  // { invoiceId, members } | null
+  const [referralModal, setReferralModal]       = useState(false)
+  const [allStudentsForReferral, setAllStudentsForReferral] = useState([])
   const [generatingInvoices, setGeneratingInvoices] = useState(false)
+  const [xeroConnected, setXeroConnected]       = useState(null)  // null=loading, true/false
+  const [xeroPushing, setXeroPushing]           = useState(false)
+  const [xeroPushResult, setXeroPushResult]     = useState(null)  // { pushed, skipped, errors }
   const [invoiceViewMode, setInvoiceViewMode]   = useState('data')   // 'data' | 'cards'
   const [invoiceCardsData, setInvoiceCardsData] = useState([])
   const [loadingCards, setLoadingCards]         = useState(false)
@@ -944,6 +961,19 @@ export default function DatabasePage() {
   // ── Auth ────────────────────────────────────────────────────────────────────
   // Role is stored in app_metadata (server-side only) so it survives DB changes.
   useEffect(() => {
+    // Handle Xero OAuth redirect feedback
+    const params = new URLSearchParams(window.location.search)
+    const xeroParam = params.get('xero')
+    if (xeroParam === 'connected') {
+      setXeroConnected(true)
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (xeroParam === 'error') {
+      alert('Xero connection failed. Please try again.')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
+  useEffect(() => {
     ;(async () => {
       const { data:{ user } } = await supabase.auth.getUser()
       if (!user) { router.push('/'); return }
@@ -960,6 +990,14 @@ export default function DatabasePage() {
         setCurrentTermName(cur.name || `Term ${cur.term_number} ${cur.year}`)
         setInvoiceTermId(cur.id)  // default invoice generation to current term
       }
+
+      // Check Xero connection status
+      supabase.auth.getSession().then(({ data: { session: s } }) => {
+        if (!s) return
+        fetch('/api/xero/status', {
+          headers: { Authorization: `Bearer ${s.access_token}` },
+        }).then(r => r.json()).then(d => setXeroConnected(d.connected)).catch(() => setXeroConnected(false))
+      })
 
       // Fetch PostgreSQL OIDs for all public tables. OIDs are stable across
       // renames, so we use them as localStorage key suffixes — column
@@ -1339,6 +1377,28 @@ export default function DatabasePage() {
     setGeneratingInvoices(false)
   }
 
+  // ── Push invoices to Xero ─────────────────────────────────────────────────────
+  const handlePushToXero = async () => {
+    if (!invoiceTermId) return
+    setXeroPushing(true)
+    setXeroPushResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/xero/push', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body:    JSON.stringify({ term_id: invoiceTermId }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Push failed')
+      setXeroPushResult(result)
+      setReloadKey(k => k + 1)
+    } catch (err) {
+      alert('Xero push failed: ' + err.message)
+    }
+    setXeroPushing(false)
+  }
+
   // ── Add row ──────────────────────────────────────────────────────────────────
   const handleAddRow = async () => {
     setAddingSaving(true)
@@ -1520,7 +1580,7 @@ export default function DatabasePage() {
 
       // 4. Classes for this term (with course name) + full class list for labels
       const [{ data: termClasses }, { data: allClassesForLabels }] = await Promise.all([
-        supabase.from(T_CLASSES).select('id, class_name, created_at, courses(course_name)').eq('term_id', invoiceTermId),
+        supabase.from(T_CLASSES).select('id, class_name, courses(course_name)').eq('term_id', invoiceTermId),
         supabase.from(T_CLASSES).select('id, class_name'),
       ])
       const invoiceClassLabelMap = buildClassLabelMap(allClassesForLabels || [])
@@ -1534,7 +1594,27 @@ export default function DatabasePage() {
         enrolments = data || []
       }
 
-      // 6. Build enriched cards
+      // 6. Credits already applied to these invoices
+      const invoiceIds = invoices.map(i => i.id)
+      const { data: creditRows } = await supabase
+        .from(T_STUDENT_CREDITS).select('*').in('invoice_id', invoiceIds)
+      const creditsByInvoice = {}
+      for (const c of creditRows || []) {
+        if (!creditsByInvoice[c.invoice_id]) creditsByInvoice[c.invoice_id] = []
+        creditsByInvoice[c.invoice_id].push(c)
+      }
+
+      // 7. Pending credits for all students on these invoices (not yet linked to an invoice)
+      const { data: pendingRows } = allStudentIds.length
+        ? await supabase.from(T_STUDENT_CREDITS).select('*').in('student_id', allStudentIds).is('invoice_id', null)
+        : { data: [] }
+      const pendingByStudent = {}
+      for (const c of pendingRows || []) {
+        if (!pendingByStudent[c.student_id]) pendingByStudent[c.student_id] = []
+        pendingByStudent[c.student_id].push(c)
+      }
+
+      // 8. Build enriched cards
       const cards = invoices.map(inv => {
         const members = inv.family_id != null
           ? allStudents.filter(s => s.family_id === inv.family_id)
@@ -1555,12 +1635,23 @@ export default function DatabasePage() {
           : `${firstNames.slice(0, -1).join(', ')} & ${firstNames[firstNames.length - 1]}`
         const familyDisplay = `${joinedFirst} ${sharedLast}`.trim()
 
+        const credits = creditsByInvoice[inv.id] || []
+        const creditsTotal = credits.reduce((s, c) => s + Number(c.amount), 0)
+        const memberIds = members.map(m => m.id)
+        const pendingCredits = memberIds.flatMap(id => pendingByStudent[id] || [])
+        const pendingTotal = pendingCredits.reduce((s, c) => s + Number(c.amount), 0)
+
         return {
           ...inv,
           termName,
           displayName: inv.family_id != null ? familyDisplay : (members[0]?.full_name ?? 'Unknown'),
           isFamily: inv.family_id != null,
           members: membersWithEnrols,
+          credits,
+          creditsTotal,
+          pendingCredits,
+          pendingTotal,
+          adjustedTotal: Number(inv.total),
         }
       })
 
@@ -1820,6 +1911,88 @@ export default function DatabasePage() {
     setMakeupSaving(false); setMakeupMode(null); setMakeupStudent(null)
     setReloadKey(k => k + 1)  // refresh lessons table
   }, [makeupStudent, lessonSidebar, oneToOneDate, oneToOneStart, oneToOneEnd, oneToOneRoom, oneToOneTutorId])
+
+  // ── Credit & referral handlers ────────────────────────────────────────────────
+  const CREDIT_REASON_LABELS = {
+    missed_lesson:       'Missed lesson',
+    late_start:          'Late start',
+    referral_referring:  'Referral (referring)',
+    referral_referred:   'Referral (referred)',
+    other:               'Other',
+  }
+
+  const handleAddCredit = async ({ invoiceId, studentId, amount, reason, notes }) => {
+    const { error } = await supabase.from(T_STUDENT_CREDITS).insert({
+      student_id: studentId,
+      amount: Number(amount),
+      reason,
+      notes: notes.trim() || null,
+      invoice_id: invoiceId,
+      created_by: staff?.id,
+    })
+    if (error) { alert('Failed to add credit: ' + error.message); return }
+    // Reduce the invoice total
+    const inv = invoiceCardsData.find(i => i.id === invoiceId)
+    if (inv) {
+      const newTotal = Math.max(0, Number(inv.total) - Number(amount))
+      await supabase.from(T_INVOICES).update({ total: newTotal }).eq('id', invoiceId)
+    }
+    setCreditModal(null)
+    setReloadKey(k => k + 1)
+  }
+
+  const handleApplyPending = async (inv) => {
+    if (!inv.pendingCredits?.length) return
+    for (const credit of inv.pendingCredits) {
+      await supabase.from(T_STUDENT_CREDITS).update({ invoice_id: inv.id }).eq('id', credit.id)
+    }
+    const newTotal = Math.max(0, Number(inv.total) - inv.pendingTotal)
+    await supabase.from(T_INVOICES).update({ total: newTotal }).eq('id', inv.id)
+    setReloadKey(k => k + 1)
+  }
+
+  const handleLogReferral = async ({ referringStudentId, referredStudentId }) => {
+    if (!referringStudentId || !referredStudentId || referringStudentId === referredStudentId) {
+      alert('Please select two different students.'); return
+    }
+    // Insert referral record
+    const { error: refErr } = await supabase.from(T_REFERRALS).insert({
+      referring_student_id: referringStudentId,
+      referred_student_id:  referredStudentId,
+      created_by: staff?.id,
+    })
+    if (refErr) { alert('Failed to log referral: ' + refErr.message); return }
+
+    // Immediate $50 credit for referred student → apply to their current draft/unpaid invoice if one exists
+    const { data: referredInv } = await supabase.from(T_INVOICES)
+      .select('id, total').eq('student_id', referredStudentId).neq('status', 'paid').order('id', { ascending: false }).limit(1).maybeSingle()
+
+    await supabase.from(T_STUDENT_CREDITS).insert({
+      student_id: referredStudentId,
+      amount: 50,
+      reason: 'referral_referred',
+      notes: 'Referral discount — welcome credit',
+      invoice_id: referredInv?.id ?? null,
+      created_by: staff?.id,
+    })
+    if (referredInv) {
+      await supabase.from(T_INVOICES).update({ total: Math.max(0, Number(referredInv.total) - 50) }).eq('id', referredInv.id)
+    }
+
+    // Pending $50 credit for referring student → no invoice_id (applied to NEXT invoice)
+    await supabase.from(T_STUDENT_CREDITS).insert({
+      student_id: referringStudentId,
+      amount: 50,
+      reason: 'referral_referring',
+      notes: 'Referral reward — $50 off next invoice',
+      invoice_id: null,
+      created_by: staff?.id,
+    })
+
+    setReferralModal(false)
+    setReloadKey(k => k + 1)
+    alert('Referral logged! $50 applied to referred student\'s invoice. $50 credit pending for referring student\'s next invoice.')
+  }
 
   const handleInvoiceStatusUpdate = async (invoiceId, newStatus) => {
     const prev = invoiceCardsData
@@ -2280,6 +2453,24 @@ export default function DatabasePage() {
       {showCreateModal && <CreateTableModal onClose={() => setShowCreateModal(false)} onCreated={handleTableCreated} />}
 
       {/* Drop table confirm modal */}
+      {/* ── Add Credit Modal ──────────────────────────────────────────────────── */}
+      {creditModal && (
+        <AddCreditModal
+          members={creditModal.members}
+          onClose={() => setCreditModal(null)}
+          onSave={(fields) => handleAddCredit({ invoiceId: creditModal.invoiceId, ...fields })}
+        />
+      )}
+
+      {/* ── Log Referral Modal ────────────────────────────────────────────────── */}
+      {referralModal && (
+        <ReferralModal
+          students={allStudentsForReferral}
+          onClose={() => setReferralModal(false)}
+          onSave={handleLogReferral}
+        />
+      )}
+
       {dropConfirmTable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
@@ -2508,6 +2699,42 @@ export default function DatabasePage() {
                   >
                     {generatingInvoices ? '⟳ Generating…' : '⟳ Generate Invoices'}
                   </button>
+                  <button
+                    onClick={async () => {
+                      const { data } = await supabase.from(T_STUDENTS).select('id, full_name').order('full_name')
+                      setAllStudentsForReferral(data || [])
+                      setReferralModal(true)
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition"
+                  >
+                    🔗 Log Referral
+                  </button>
+                  {/* Xero integration */}
+                  {xeroConnected === false ? (
+                    <a
+                      href="/api/xero/auth"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B5B0] text-white text-xs font-semibold rounded-lg hover:bg-[#009E9A] transition"
+                      title="Connect your Xero account to enable invoice pushing"
+                    >
+                      🔗 Connect Xero
+                    </a>
+                  ) : xeroConnected === true ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handlePushToXero}
+                        disabled={!invoiceTermId || xeroPushing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B5B0] text-white text-xs font-semibold rounded-lg hover:bg-[#009E9A] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Push unpushed invoices for this term to Xero as drafts"
+                      >
+                        {xeroPushing ? '⟳ Pushing…' : '↑ Push to Xero'}
+                      </button>
+                      {xeroPushResult && (
+                        <span className="text-[10px] text-[#2A2035]/60">
+                          {xeroPushResult.message || `✓ ${xeroPushResult.pushed} pushed${xeroPushResult.skipped ? `, ${xeroPushResult.skipped} skipped` : ''}${xeroPushResult.errors?.length ? `, ${xeroPushResult.errors.length} errors` : ''}`}
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
                 </>
               ) : selectedTable === T_DROPIN_SESSIONS ? (
                 <>
@@ -2835,11 +3062,13 @@ export default function DatabasePage() {
                   const totalSubtotal      = invoiceCardsData.reduce((s, i) => s + Number(i.subtotal || 0), 0)
                   const totalSibDisc       = invoiceCardsData.reduce((s, i) => s + Number(i.sibling_discount || 0), 0)
                   const totalMultiDisc     = invoiceCardsData.reduce((s, i) => s + Number(i.multi_course_discount || 0), 0)
-                  const totalDiscounts     = totalSibDisc + totalMultiDisc
-                  const totalAfterDiscount = invoiceCardsData.reduce((s, i) => s + Number(i.total || 0), 0)
-                  const paidAmt    = invoiceCardsData.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.total || 0), 0)
-                  const partialAmt = invoiceCardsData.filter(i => i.status === 'partial').reduce((s, i) => s + Number(i.total || 0), 0)
-                  const unpaidAmt  = invoiceCardsData.filter(i => i.status === 'unpaid').reduce((s, i) => s + Number(i.total || 0), 0)
+                  const totalCredits       = invoiceCardsData.reduce((s, i) => s + Number(i.creditsTotal || 0), 0)
+                  const totalDiscounts     = totalSibDisc + totalMultiDisc + totalCredits
+                  const adjTotal = i => Number(i.adjustedTotal != null ? i.adjustedTotal : (i.total || 0))
+                  const totalAfterDiscount = invoiceCardsData.reduce((s, i) => s + adjTotal(i), 0)
+                  const paidAmt    = invoiceCardsData.filter(i => i.status === 'paid').reduce((s, i) => s + adjTotal(i), 0)
+                  const partialAmt = invoiceCardsData.filter(i => i.status === 'partial').reduce((s, i) => s + adjTotal(i), 0)
+                  const unpaidAmt  = invoiceCardsData.filter(i => i.status === 'unpaid').reduce((s, i) => s + adjTotal(i), 0)
                   const fmt = n => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
                   return (
                     <div className="mx-6 mt-6 mb-2 bg-white rounded-2xl border border-[#E8EDF8] shadow-sm overflow-hidden">
@@ -2853,10 +3082,12 @@ export default function DatabasePage() {
                         <div className="px-6 py-4">
                           <p className="text-[10px] font-semibold uppercase tracking-widest text-[#059669]/70 mb-1">Total discounts</p>
                           <p className="text-xl font-bold text-[#059669] tabular-nums">−{fmt(totalDiscounts)}</p>
-                          <p className="text-[10px] text-[#2A2035]/40 mt-0.5">
+                          <p className="text-[10px] text-[#2A2035]/40 mt-0.5 flex flex-wrap gap-x-1">
                             {totalSibDisc > 0 && <span>Sibling {fmt(totalSibDisc)}</span>}
-                            {totalSibDisc > 0 && totalMultiDisc > 0 && <span className="mx-1">·</span>}
+                            {totalSibDisc > 0 && totalMultiDisc > 0 && <span>·</span>}
                             {totalMultiDisc > 0 && <span>Multi-course {fmt(totalMultiDisc)}</span>}
+                            {totalCredits > 0 && totalSibDisc + totalMultiDisc > 0 && <span>·</span>}
+                            {totalCredits > 0 && <span>Credits {fmt(totalCredits)}</span>}
                             {totalDiscounts === 0 && <span>No discounts applied</span>}
                           </p>
                         </div>
@@ -2943,7 +3174,7 @@ export default function DatabasePage() {
                         </div>
 
                         {/* Totals footer */}
-                        <div className="px-5 pb-5 pt-3 border-t border-[#F0F4FF] flex flex-col gap-1">
+                        <div className="px-5 pb-4 pt-3 border-t border-[#F0F4FF] flex flex-col gap-1">
                           <div className="flex justify-between text-xs text-[#2A2035]/60">
                             <span>Subtotal</span>
                             <span className="tabular-nums">${Number(inv.subtotal).toLocaleString()}</span>
@@ -2965,10 +3196,41 @@ export default function DatabasePage() {
                               <span className="tabular-nums">−${Number(inv.multi_course_discount).toLocaleString()}</span>
                             </div>
                           )}
+                          {/* Applied credits */}
+                          {(inv.credits || []).map((c, i) => (
+                            <div key={i} className="flex justify-between text-xs text-[#0F766E]">
+                              <span className="truncate">
+                                {CREDIT_REASON_LABELS[c.reason] || c.reason}
+                                {c.notes ? <span className="text-[#0F766E]/60 ml-1">· {c.notes}</span> : null}
+                              </span>
+                              <span className="tabular-nums shrink-0 ml-2">−${Number(c.amount).toLocaleString()}</span>
+                            </div>
+                          ))}
                           <div className="flex justify-between items-center pt-1.5 mt-0.5 border-t border-[#E8EDF8]">
                             <span className="text-sm font-bold text-[#062E63]">Total</span>
-                            <span className="text-sm font-bold text-[#062E63] tabular-nums">${Number(inv.total).toLocaleString()}</span>
+                            <span className="text-sm font-bold text-[#062E63] tabular-nums">${Number(inv.adjustedTotal ?? inv.total).toLocaleString()}</span>
                           </div>
+                          {/* Pending credits notice */}
+                          {inv.pendingTotal > 0 && (
+                            <div className="mt-1 flex items-center justify-between gap-2 rounded-lg bg-[#FFFBEB] border border-[#FDE68A] px-2.5 py-1.5">
+                              <span className="text-[10px] text-[#92400E] font-medium">
+                                ${inv.pendingTotal} pending credit{inv.pendingCredits.length > 1 ? 's' : ''} available
+                              </span>
+                              <button
+                                onClick={() => handleApplyPending(inv)}
+                                className="text-[10px] font-bold text-[#92400E] underline hover:no-underline"
+                              >Apply</button>
+                            </div>
+                          )}
+                        </div>
+                        {/* Add Credit button */}
+                        <div className="px-5 pb-4">
+                          <button
+                            onClick={() => setCreditModal({ invoiceId: inv.id, members: inv.members })}
+                            className="w-full text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg py-1.5 hover:bg-[#F0F4FF] transition"
+                          >
+                            + Add credit
+                          </button>
                         </div>
                       </div>
                     )
@@ -3243,11 +3505,21 @@ export default function DatabasePage() {
                                   }
                                 </div>
 
-                              ) : (
-                                <div className={`px-3 py-1.5 overflow-hidden whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic text-[10px]' : isPk ? 'text-[#325099]/60 font-mono text-[10px]' : isGuardian ? 'text-[#92400E]/80 text-xs' : isName ? 'text-emerald-800 text-xs font-medium' : 'text-[#2A2035] text-xs'} ${!isPk && !isName ? 'cursor-text' : 'cursor-default'}`} title={truncated ? dv : undefined}>
-                                  {dv === null ? 'null' : truncated ? dv.slice(0,50)+'…' : dv}
-                                </div>
-                              )}
+                              ) : (() => {
+                                const badgeClass = CELL_BADGE_COLORS[`${selectedTable}:${col}`]?.[dv]
+                                return badgeClass ? (
+                                  <div className="px-3 py-1.5 cursor-text">
+                                    <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}`}>
+                                      {dv}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className={`px-3 py-1.5 overflow-hidden whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic text-[10px]' : isPk ? 'text-[#325099]/60 font-mono text-[10px]' : isGuardian ? 'text-[#92400E]/80 text-xs' : isName ? 'text-emerald-800 text-xs font-medium' : 'text-[#2A2035] text-xs'} ${!isPk && !isName ? 'cursor-text' : 'cursor-default'}`} title={truncated ? dv : undefined}>
+                                    {dv === null ? 'null' : truncated ? dv.slice(0,50)+'…' : dv}
+                                  </div>
+                                )
+                              })()
+                              }
                             </td>
                           )
                         })}
@@ -3613,6 +3885,140 @@ export default function DatabasePage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Add Credit Modal ──────────────────────────────────────────────────────────
+function AddCreditModal({ members, onClose, onSave }) {
+  const [studentId, setStudentId] = useState(members?.[0]?.id ?? '')
+  const [amount, setAmount]       = useState('')
+  const [reason, setReason]       = useState('missed_lesson')
+  const [notes, setNotes]         = useState('')
+  const [saving, setSaving]       = useState(false)
+
+  const REASONS = [
+    { value: 'missed_lesson',  label: 'Missed lesson' },
+    { value: 'late_start',     label: 'Late start' },
+    { value: 'other',          label: 'Other' },
+  ]
+
+  const handleSubmit = async () => {
+    if (!studentId || !amount || Number(amount) <= 0) return
+    setSaving(true)
+    await onSave({ studentId, amount, reason, notes })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-[#2A2035] text-sm">Add Credit</h3>
+          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
+        </div>
+
+        {members.length > 1 && (
+          <div>
+            <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Student</label>
+            <select value={studentId} onChange={e => setStudentId(e.target.value)}
+              className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+              {members.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Reason</label>
+          <select value={reason} onChange={e => setReason(e.target.value)}
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+            {REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Amount ($)</label>
+          <input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
+            placeholder="e.g. 50"
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+        </div>
+
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Notes (optional)</label>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="e.g. Missed Week 4 lesson"
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+        </div>
+
+        <div className="flex gap-2 justify-end pt-1">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving || !amount || Number(amount) <= 0}
+            className="px-5 py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">
+            {saving ? 'Saving…' : 'Apply Credit'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Log Referral Modal ────────────────────────────────────────────────────────
+function ReferralModal({ students, onClose, onSave }) {
+  const [referringId, setReferringId] = useState('')
+  const [referredId, setReferredId]   = useState('')
+  const [saving, setSaving]           = useState(false)
+
+  const handleSubmit = async () => {
+    if (!referringId || !referredId) return
+    setSaving(true)
+    await onSave({ referringStudentId: referringId, referredStudentId: referredId })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-[#2A2035] text-sm">Log Referral</h3>
+          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
+        </div>
+        <p className="text-xs text-[#2A2035]/60 -mt-2">
+          Both families receive <strong>$50 off</strong>. The referred family gets it immediately; the referring family gets it on their next invoice.
+        </p>
+
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Referring student (existing family)</label>
+          <select value={referringId} onChange={e => setReferringId(e.target.value)}
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+            <option value="">Select student…</option>
+            {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Referred student (new family)</label>
+          <select value={referredId} onChange={e => setReferredId(e.target.value)}
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+            <option value="">Select student…</option>
+            {students.filter(s => s.id !== referringId).map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+          </select>
+        </div>
+
+        {referringId && referredId && (
+          <div className="rounded-xl bg-[#F0FDF4] border border-[#A7F3D0] px-4 py-3 text-xs text-[#065F46]">
+            <p>✓ <strong>{students.find(s => s.id === referredId)?.full_name}</strong> — $50 applied to their current invoice</p>
+            <p className="mt-1">✓ <strong>{students.find(s => s.id === referringId)?.full_name}</strong> — $50 pending for their next invoice</p>
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end pt-1">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving || !referringId || !referredId || referringId === referredId}
+            className="px-5 py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40">
+            {saving ? 'Logging…' : 'Log Referral'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
