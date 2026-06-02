@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { findOrCreateContact, createXeroInvoicesBatch } from '../../../../lib/xero'
+import { fetchAllContacts, findOrCreateContactCached, createXeroInvoicesBatch } from '../../../../lib/xero'
 
 // Contacts are fetched sequentially (~1–2 calls each) then invoices are
 // created in a single batch call — well within 60s for 30 invoices.
@@ -62,18 +62,12 @@ export async function POST(req) {
 
   const results = { pushed: 0, skipped: 0, errors: [] }
 
-  // ── Phase 1: resolve contacts (sequential, ~1–2 Xero calls each) ─────────────
-  // Cache by contact key so sibling families don't double-lookup
-  const contactCache = {}  // key -> xeroContactId
+  // ── Phase 1: bulk-fetch all existing Xero contacts (1–2 API calls total) ─────
+  const contactMaps = await fetchAllContacts()
 
   const invoicePayloads = []  // { inv, contactId, lineItems }
 
-  for (let i = 0; i < invoices.length; i++) {
-    const inv = invoices[i]
-
-    // Throttle contact lookups: 1s gap between each (well under 60 req/min)
-    if (i > 0) await new Promise(r => setTimeout(r, 1000))
-
+  for (const inv of invoices) {
     try {
       // Get students on this invoice
       const studentRows = inv.family_id
@@ -87,17 +81,12 @@ export async function POST(req) {
         ? `${studentRows.map(s => s.full_name.split(' ')[0]).join(' & ')} ${primaryStudent.full_name.split(' ').pop()} Family`
         : primaryStudent.full_name
 
-      // Use cache to avoid duplicate contact lookups for same family
-      const cacheKey = contactName.toLowerCase()
-      let contactId = contactCache[cacheKey]
-      if (!contactId) {
-        contactId = await findOrCreateContact({
-          name:  contactName,
-          email: primaryStudent.email || undefined,
-          phone: primaryStudent.phone || undefined,
-        })
-        contactCache[cacheKey] = contactId
-      }
+      // Resolve contact using in-memory map — only hits Xero if truly new
+      const contactId = await findOrCreateContactCached({
+        name:  contactName,
+        email: primaryStudent.email || undefined,
+        phone: primaryStudent.phone || undefined,
+      }, contactMaps)
 
       // Fetch enrolments for this term's classes only
       const enrolments = termClassIds.length
