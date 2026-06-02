@@ -149,6 +149,8 @@ export async function POST(req) {
       console.error(`Invoice ${inv.id} push error:`, err.message)
       results.errors.push({ invoice_id: inv.id, error: err.message })
     }
+    // Avoid Xero rate limit (60 req/min)
+    await new Promise(r => setTimeout(r, 1100))
   }
 
   return NextResponse.json(results)
