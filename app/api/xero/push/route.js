@@ -77,8 +77,11 @@ export async function POST(req) {
   const dueDate = term?.end_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
   const termName = term?.name || 'Term'
 
-  // Fetch all classes for line item labels
-  const { data: classes } = await supabase.from('classes').select('id, class_name, courses(course_name)')
+  // Fetch classes for this term only (for line item labels + enrolment filtering)
+  const { data: classes } = await supabase
+    .from('classes')
+    .select('id, class_name, courses(course_name)')
+    .eq('term_id', term_id)
   const classMap = Object.fromEntries((classes || []).map(c => [c.id, c]))
 
   const results = { pushed: 0, skipped: 0, errors: [] }
@@ -128,7 +131,7 @@ export async function POST(req) {
           Quantity:    1,
           UnitAmount:  Number(enrol.price),
           AccountCode: '200',
-          TaxType:     'OUTPUT2',  // GST on Income (10% inclusive)
+          TaxType:     'OUTPUT2',
         })
       }
 
