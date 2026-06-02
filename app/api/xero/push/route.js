@@ -102,8 +102,8 @@ export async function POST(req) {
           Description: `${courseName}${studentIds.length > 1 ? ` (${student?.full_name?.split(' ')[0]})` : ''} — ${termName}`,
           Quantity:    1,
           UnitAmount:  Number(enrol.price),
-          AccountCode: '200',
-          TaxType:     'OUTPUT2',
+
+
         })
       }
 
@@ -112,8 +112,8 @@ export async function POST(req) {
           Description: 'Sibling discount',
           Quantity:    1,
           UnitAmount:  -Number(inv.sibling_discount),
-          AccountCode: '200',
-          TaxType:     'OUTPUT2',
+
+
         })
       }
 
@@ -122,8 +122,8 @@ export async function POST(req) {
           Description: 'Multi-course discount',
           Quantity:    1,
           UnitAmount:  -Number(inv.multi_course_discount),
-          AccountCode: '200',
-          TaxType:     'OUTPUT2',
+
+
         })
       }
 
