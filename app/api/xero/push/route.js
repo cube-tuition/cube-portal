@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { fetchAllContacts, findOrCreateContactCached, createXeroInvoicesBatch } from '../../../../lib/xero'
+import { createXeroContact, createXeroInvoicesBatch } from '../../../../lib/xero'
 
 // Contacts are fetched sequentially (~1–2 calls each) then invoices are
 // created in a single batch call — well within 60s for 30 invoices.
@@ -62,12 +62,18 @@ export async function POST(req) {
 
   const results = { pushed: 0, skipped: 0, errors: [] }
 
-  // ── Phase 1: bulk-fetch all existing Xero contacts (1–2 API calls total) ─────
-  let contactMaps
-  try {
-    contactMaps = await fetchAllContacts()
-  } catch (err) {
-    return NextResponse.json({ error: `Xero contacts fetch failed: ${err.message}` }, { status: 502 })
+  // ── Phase 1: resolve contacts using Supabase (zero Xero API calls for existing contacts) ──
+  // Build a DB-side cache: family_id/student_id → xero_contact_id from any past invoice
+  const { data: pastInvoices } = await supabase
+    .from('invoices')
+    .select('family_id, student_id, xero_contact_id')
+    .not('xero_contact_id', 'is', null)
+
+  // In-memory cache: "family:123" or "student:456" → contactId
+  const dbContactCache = {}
+  for (const pi of pastInvoices || []) {
+    const key = pi.family_id ? `family:${pi.family_id}` : `student:${pi.student_id}`
+    dbContactCache[key] = pi.xero_contact_id
   }
 
   const invoicePayloads = []  // { inv, contactId, lineItems }
@@ -86,12 +92,17 @@ export async function POST(req) {
         ? `${studentRows.map(s => s.full_name.split(' ')[0]).join(' & ')} ${primaryStudent.full_name.split(' ').pop()} Family`
         : primaryStudent.full_name
 
-      // Resolve contact using in-memory map — only hits Xero if truly new
-      const contactId = await findOrCreateContactCached({
-        name:  contactName,
-        email: primaryStudent.email || undefined,
-        phone: primaryStudent.phone || undefined,
-      }, contactMaps)
+      // Look up contact ID from DB first — only call Xero for genuinely new contacts
+      const cacheKey = inv.family_id ? `family:${inv.family_id}` : `student:${inv.student_id}`
+      let contactId = dbContactCache[cacheKey]
+      if (!contactId) {
+        contactId = await createXeroContact({
+          name:  contactName,
+          email: primaryStudent.email || undefined,
+          phone: primaryStudent.phone || undefined,
+        })
+        dbContactCache[cacheKey] = contactId
+      }
 
       // Fetch enrolments for this term's classes only
       const enrolments = termClassIds.length
