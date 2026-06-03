@@ -61,10 +61,12 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const [marks, setMarks] = useState({})
   const [history, setHistory] = useState({})
   const [expanded, setExpanded] = useState(() => new Set())
-  const [notesFromCube, setNotesFromCube] = useState('')
-  const [notesGeneral,  setNotesGeneral]  = useState('')
-  const [notesWorkbook, setNotesWorkbook] = useState('')
-  const [notesHomework, setNotesHomework] = useState('')
+  const [lessonId,        setLessonId]        = useState(null)
+  const [notesFromCube,   setNotesFromCube]   = useState('')
+  const [notesSaveStatus, setNotesSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'error'
+  const [notesGeneral,    setNotesGeneral]    = useState('')
+  const [notesWorkbook,   setNotesWorkbook]   = useState('')
+  const [notesHomework,   setNotesHomework]   = useState('')
   const [term, setTerm] = useState(null)
   const [booklet, setBooklet] = useState(null)
   const [bookletWeek, setBookletWeek] = useState(null)
@@ -83,6 +85,21 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
     const t = setTimeout(() => setArmed(false), 5000)
     return () => clearTimeout(t)
   }, [armed])
+
+  const saveNotesFromCube = async () => {
+    if (!lessonId) return
+    setNotesSaveStatus('saving')
+    const { error } = await supabase
+      .from('lessons')
+      .update({ notes: notesFromCube.trim() || null })
+      .eq('id', lessonId)
+    if (error) {
+      setNotesSaveStatus('error')
+    } else {
+      setNotesSaveStatus('saved')
+      setTimeout(() => setNotesSaveStatus('idle'), 3000)
+    }
+  }
 
   const handleSaveClick = () => {
     if (saving || isLocked) return
@@ -259,6 +276,20 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         }
       }
       setHistory(hist)
+
+      // Load lesson notes (admin "Notes from CUBE" field)
+      const { data: lessonRow } = await supabase
+        .from('lessons')
+        .select('id, notes')
+        .eq('class_id', classId)
+        .eq('lesson_date', dateISO)
+        .eq('is_makeup', false)
+        .maybeSingle()
+      if (!cancelled && lessonRow) {
+        setLessonId(lessonRow.id)
+        setNotesFromCube(lessonRow.notes || '')
+      }
+
       setLoading(false)
 
       // Booklet match
@@ -448,6 +479,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             onChange={setNotesFromCube}
             editable={isAdmin && !readOnly}
             placeholder={isAdmin && !readOnly ? 'Anything the admin should know about this session…' : 'Nothing from admin yet.'}
+            onSave={isAdmin && !readOnly ? saveNotesFromCube : undefined}
+            saveStatus={notesSaveStatus}
           />
           <NotesGroup
             label="Notes to CUBE"
@@ -969,7 +1002,7 @@ function NotesGroup({ label, sub, editable, sections }) {
   )
 }
 
-function NotesBox({ label, sub, value, onChange, editable, placeholder }) {
+function NotesBox({ label, sub, value, onChange, editable, placeholder, onSave, saveStatus }) {
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden flex flex-col">
       <div className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
@@ -983,7 +1016,7 @@ function NotesBox({ label, sub, value, onChange, editable, placeholder }) {
           {editable ? '✎ Editable' : '🔒 Read only'}
         </span>
       </div>
-      <div className="px-5 pb-5 flex-1">
+      <div className="px-5 pb-5 flex-1 flex flex-col gap-3">
         <textarea
           value={value}
           onChange={editable ? e => onChange(e.target.value) : undefined}
@@ -996,6 +1029,23 @@ function NotesBox({ label, sub, value, onChange, editable, placeholder }) {
               : 'bg-[#F4F4F4] border-[#E5E7EB] text-[#2A2035]/70 placeholder:text-[#2A2035]/40 cursor-not-allowed'
           }`}
         />
+        {onSave && (
+          <div className="flex items-center justify-end gap-3">
+            {saveStatus === 'saved' && (
+              <span className="text-[11px] text-[#059669] font-semibold">✓ Saved</span>
+            )}
+            {saveStatus === 'error' && (
+              <span className="text-[11px] text-red-500 font-semibold">Save failed</span>
+            )}
+            <button
+              onClick={onSave}
+              disabled={saveStatus === 'saving'}
+              className="px-4 py-1.5 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50"
+            >
+              {saveStatus === 'saving' ? 'Saving…' : 'Save notes'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1365,6 +1365,11 @@ export default function DatabasePage() {
     setEditValue(currentVal === null || currentVal === undefined ? '' : String(currentVal))
   }
 
+  // Sync a field change into invoiceCardsData so cards stay live with the data view
+  const syncInvoiceCard = (rowId, col, newVal) => {
+    setInvoiceCardsData(d => d.map(c => c.id === rowId ? { ...c, [col]: newVal } : c))
+  }
+
   const handleCellSave = async () => {
     if (!editingCell) { setEditingCell(null); return }
     const { rowId, col } = editingCell
@@ -1396,6 +1401,7 @@ export default function DatabasePage() {
       const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
       const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
       if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+      else if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
     }
     setSaving(false)
   }
@@ -1412,6 +1418,7 @@ export default function DatabasePage() {
     const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
     const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
     if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+    else if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
     setSaving(false)
   }
 
@@ -2754,7 +2761,7 @@ export default function DatabasePage() {
                       className={`px-3 py-1.5 text-xs font-semibold transition ${invoiceViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >⊞ Data</button>
                     <button
-                      onClick={() => setInvoiceViewMode('cards')}
+                      onClick={() => { setInvoiceViewMode('cards'); setReloadKey(k => k + 1) }}
                       className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${invoiceViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >◧ Cards</button>
                   </div>
@@ -3244,6 +3251,12 @@ export default function DatabasePage() {
                       : { bg: 'bg-[#FEE2E2]', text: 'text-[#991B1B]', border: 'border-[#FCA5A5]', dot: 'bg-[#EF4444]' }
                     const nextStatus = inv.status === 'unpaid' ? 'paid' : 'unpaid'
                     const statusLabels = { unpaid: 'Unpaid', paid: 'Paid' }
+                    const handleToggleEmailSent = async () => {
+                      const newVal = !inv.email_sent
+                      const now = newVal ? new Date().toISOString() : null
+                      setInvoiceCardsData(d => d.map(c => c.id === inv.id ? { ...c, email_sent: newVal, email_sent_at: now } : c))
+                      await supabase.from(T_INVOICES).update({ email_sent: newVal, email_sent_at: now }).eq('id', inv.id)
+                    }
 
                     const liveSubtotal = inv.members.reduce((sum, m) => sum + m.enrolments.reduce((s, e) => s + Number(e.price ?? 0), 0), 0)
                     const isStale = Math.abs(liveSubtotal - Number(inv.subtotal)) > 0.01
@@ -3270,15 +3283,31 @@ export default function DatabasePage() {
                             </div>
                             <p className="text-[10px] text-[#2A2035]/40 font-medium">{inv.termName}</p>
                           </div>
-                          {/* Status badge — click to cycle */}
-                          <button
-                            onClick={() => handleInvoiceStatusUpdate(inv.id, nextStatus)}
-                            title={`Click to mark as ${statusLabels[nextStatus]}`}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider transition hover:opacity-80 ${statusColour.bg} ${statusColour.text} ${statusColour.border}`}
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${statusColour.dot}`} />
-                            {statusLabels[inv.status]}
-                          </button>
+                          {/* Badges */}
+                          <div className="flex items-center gap-2 flex-col">
+                            {/* Paid/Unpaid — click to cycle */}
+                            <button
+                              onClick={() => handleInvoiceStatusUpdate(inv.id, nextStatus)}
+                              title={`Click to mark as ${statusLabels[nextStatus]}`}
+                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider transition hover:opacity-80 ${statusColour.bg} ${statusColour.text} ${statusColour.border}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${statusColour.dot}`} />
+                              {statusLabels[inv.status]}
+                            </button>
+                            {/* Email sent toggle */}
+                            <button
+                              onClick={handleToggleEmailSent}
+                              title={inv.email_sent ? `Sent ${inv.email_sent_at ? new Date(inv.email_sent_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : ''}· Click to unmark` : 'Click to mark as sent'}
+                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider transition hover:opacity-80 ${
+                                inv.email_sent
+                                  ? 'bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]'
+                                  : 'bg-white text-[#2A2035]/30 border-[#E5E7EB] hover:border-[#BFDBFE] hover:text-[#1D4ED8]'
+                              }`}
+                            >
+                              <span>{inv.email_sent ? '✉' : '✉'}</span>
+                              {inv.email_sent ? 'Sent' : 'Not sent'}
+                            </button>
+                          </div>
                         </div>
 
                         {/* Enrolment breakdown per student */}

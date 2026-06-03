@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
@@ -20,6 +21,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
     term_number:  booklet?.term_number  ?? defaultTerm ?? '',
     week:         booklet?.week         ?? defaultWeek  ?? '',
     notes:        booklet?.notes        ?? '',
+    topic:        booklet?.topic        ?? '',
   })
   const [newFiles, setNewFiles]           = useState([])
   const [existingPaths, setExistingPaths] = useState(
@@ -68,6 +70,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
       term_number:  form.term_number !== '' ? Number(form.term_number) : null,
       week:         form.week        !== '' ? Number(form.week)        : null,
       notes:        form.notes.trim() || null,
+      topic:        form.topic.trim()  || null,
       file_path:    finalPaths[0] ?? null,
       file_paths:   finalPaths,
     }
@@ -124,6 +127,16 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
               <input type="number" min={1} max={10} value={form.week} onChange={set('week')} placeholder="e.g. 3" className={INP} />
             </div>
           </div>
+          {/* Topic */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Topic <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
+            <input type="text" value={form.topic} onChange={set('topic')} placeholder="e.g. Linear Relationships" className={INP} list="topic-suggestions" />
+            <datalist id="topic-suggestions">
+              {['Number & Algebra','Fractions & Decimals','Ratios & Rates','Percentages','Linear Relationships','Equations & Inequalities','Quadratics','Functions & Graphs','Measurement & Geometry','Trigonometry','Probability & Statistics','Financial Mathematics','Calculus','Reading Comprehension','Creative Writing','Persuasive Writing','Grammar & Punctuation','Vocabulary','Poetry','Narrative Techniques','Essay Writing'].map(t => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+          </div>
           {/* Notes */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Notes <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
@@ -166,6 +179,114 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
   )
 }
 
+// ── Assign Booklet Modal (pick from master database) ─────────────────────────
+function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) {
+  const [allBooklets, setAllBooklets] = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [query, setQuery]             = useState('')
+  const [assigning, setAssigning]     = useState(null)
+
+  useEffect(() => {
+    supabase
+      .from('booklets')
+      .select('id, booklet_name, topic, term_number, week, pdf_filenames, file_paths, file_path')
+      .eq('year', year)
+      .eq('subject', subject)
+      .order('topic', { nullsFirst: false })
+      .order('booklet_name')
+      .then(({ data }) => { setAllBooklets(data || []); setLoading(false) })
+  }, [year, subject])
+
+  const filtered = allBooklets.filter(b => {
+    if (!query.trim()) return true
+    const q = query.toLowerCase()
+    return b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q)
+  })
+
+  const handleAssign = async (booklet) => {
+    setAssigning(booklet.id)
+    await supabase.from('booklets').update({ term_number: term, week }).eq('id', booklet.id)
+    onAssigned()
+  }
+
+  const accentColor = subject === 'Maths' ? '#325099' : '#7C3AED'
+  const accentBg    = subject === 'Maths' ? '#EEF4FF'  : '#F5F3FF'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
+          <div>
+            <h2 className="text-sm font-bold text-[#062E63]">Assign Booklet</h2>
+            <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} {subject} · Term {term}, Week {week}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+        </div>
+
+        <div className="px-4 pt-3 pb-2">
+          <input
+            autoFocus
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search booklets…"
+            className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-[#F8FAFF]"
+          />
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-4 pb-4">
+          {loading ? (
+            <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-xs text-center text-[#2A2035]/40 py-8">
+              {query ? 'No booklets match your search.' : `No booklets in master database for Year ${year} ${subject}.`}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {filtered.map(b => {
+                const pdfCount = b.file_paths?.length || (b.file_path ? 1 : 0)
+                const isCurrentlyAssigned = b.term_number != null && b.week != null
+                return (
+                  <button
+                    key={b.id}
+                    onClick={() => handleAssign(b)}
+                    disabled={assigning === b.id}
+                    className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[#062E63] truncate">{b.booklet_name}</p>
+                      {b.topic && (
+                        <p className="text-[10px] font-medium mt-0.5 truncate" style={{ color: accentColor }}>
+                          {b.topic}
+                        </p>
+                      )}
+                      {isCurrentlyAssigned && (
+                        <p className="text-[10px] text-[#2A2035]/30 mt-0.5">
+                          Currently: T{b.term_number} W{b.week}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {pdfCount > 0 && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: accentBg, color: accentColor }}>
+                          {pdfCount} PDF{pdfCount > 1 ? 's' : ''}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-semibold text-[#325099] opacity-0 group-hover:opacity-100 transition">
+                        {assigning === b.id ? 'Assigning…' : 'Assign →'}
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BookletsPage() {
   const router = useRouter()
@@ -179,6 +300,7 @@ export default function BookletsPage() {
   const [editing, setEditing]       = useState(null)
   const [deleteId, setDeleteId]     = useState(null)
   const [deleteFilePaths, setDeleteFilePaths] = useState([])
+  const [assignSlot, setAssignSlot] = useState(null) // { term, week }
 
   // Auth
   useEffect(() => {
@@ -194,7 +316,7 @@ export default function BookletsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, term_number, week, notes, file_path, file_paths')
+      .select('id, booklet_name, year, subject, topic, term_number, week, notes, file_path, file_paths')
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
@@ -246,12 +368,18 @@ export default function BookletsPage() {
             <h1 className="text-2xl font-bold text-[#062E63]">Booklet Library</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">{booklets.length} booklet{booklets.length !== 1 ? 's' : ''} across all years and subjects</p>
           </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition"
-          >
-            <span className="text-base leading-none">+</span> Add Booklet
-          </button>
+          <div className="flex items-center gap-3">
+            <Link href="/tutor/booklets/master"
+              className="px-4 py-2 text-sm font-semibold text-[#325099] border border-[#DEE7FF] rounded-xl hover:bg-[#F0F4FF] transition">
+              📚 Master Database
+            </Link>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition"
+            >
+              <span className="text-base leading-none">+</span> Add Booklet
+            </button>
+          </div>
         </div>
 
         {/* Year tabs */}
@@ -349,6 +477,10 @@ export default function BookletsPage() {
                                 <div className="flex gap-2.5">
                                   <button onClick={() => setEditing(b)}
                                     className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                                  <button onClick={async () => {
+                                    await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
+                                    load()
+                                  }} className="text-[10px] font-semibold text-[#2A2035]/30 hover:text-[#D97706] hover:underline transition">Unassign</button>
                                   <button onClick={() => { setDeleteId(b.id); setDeleteFilePaths(pdfPaths) }}
                                     className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
                                 </div>
@@ -377,7 +509,7 @@ export default function BookletsPage() {
                         return (
                           <button
                             key={week}
-                            onClick={() => { setAddPrefill({ term_number: termNum, week }); setShowAdd(true) }}
+                            onClick={() => setAssignSlot({ term: termNum, week })}
                             className="group w-full border-2 border-dashed border-[#FDE68A] rounded-xl flex flex-col overflow-hidden hover:border-[#F59E0B] hover:bg-[#FFFBEB] transition text-left"
                           >
                             <div className="h-[3px] w-full" style={{ background: '#FDE68A' }} />
@@ -409,6 +541,18 @@ export default function BookletsPage() {
           </div>
         )}
       </div>
+
+      {/* Assign modal */}
+      {assignSlot && (
+        <AssignBookletModal
+          year={activeYear}
+          subject={activeSub}
+          term={assignSlot.term}
+          week={assignSlot.week}
+          onClose={() => setAssignSlot(null)}
+          onAssigned={() => { setAssignSlot(null); load() }}
+        />
+      )}
 
       {/* Modals */}
       {(showAdd || editing) && (
