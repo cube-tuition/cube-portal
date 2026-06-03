@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../lib/getProfile'
 import TutorNav from '../../components/TutorNav'
 import { normalizeDays } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
-import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SHIFTS } from '../../lib/tables'
+import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SHIFTS } from '../../lib/tables'
 import { buildClassLabelMap } from '../../lib/classLabels'
 
 /*
@@ -83,6 +83,12 @@ export default function TutorHome() {
   //   tutor: own shifts only (RLS enforces)
   //   admin: all shifts in the period
   const [shifts, setShifts] = useState([])
+  const [unsavedSessions, setUnsavedSessions] = useState([])
+  // Admin to-do: unsaved sessions grouped by tutor first name
+  const [adminUnsaved, setAdminUnsaved] = useState({}) // { 'Amber': [...], 'Daniel': [...] }
+  const [selectedTutor, setSelectedTutor] = useState('All')
+  const [completedTrials, setCompletedTrials] = useState([]) // [{ studentName, className, classId, enrolmentId, trialStartDate, lessonDates, parentEmail }]
+  const [emailModal, setEmailModal] = useState(null) // trial object when open
   const [authErr, setAuthErr] = useState(null)
   const router = useRouter()
 
@@ -161,6 +167,154 @@ export default function TutorHome() {
       if (!isAdmin) sq = sq.eq('tutor_id', user.id)
       const { data: sh } = await sq
       setShifts(sh || [])
+
+      // Admin to-do: unsaved sessions for all tutors (excluding Aiden & Ryan)
+      const term = getCurrentTerm(terms)
+      if (isAdmin && term && primaryClasses.length > 0) {
+        const EXCLUDED = ['aiden', 'ryan']
+        const now = new Date()
+        const todayIso = isoDate(now)
+        const nowMinutes = now.getHours() * 60 + now.getMinutes()
+
+        // Group classes by teacher first name (exclude Aiden/Ryan)
+        const byTeacher = {}
+        for (const c of primaryClasses) {
+          const teacher = (c.teacher || '').trim()
+          if (!teacher) continue
+          const first = teacher.split(' ')[0]
+          if (EXCLUDED.includes(first.toLowerCase())) continue
+          if (!byTeacher[first]) byTeacher[first] = []
+          byTeacher[first].push(c)
+        }
+
+        // Generate all expected past session dates per teacher
+        const candidates = [] // { teacher, classId, dateIso, class_name, start_time, end_time }
+        for (const [teacher, tClasses] of Object.entries(byTeacher)) {
+          for (const c of tClasses) {
+            const days = normalizeDays(c.day_of_week)
+            if (days.length === 0) continue
+            const cursor = new Date(term.start_date + 'T00:00:00')
+            const termEnd = new Date(term.end_date + 'T00:00:00')
+            while (cursor <= termEnd) {
+              const curIso = isoDate(cursor)
+              if (curIso > todayIso) break
+              const curDay = DAY_ORDER[(cursor.getDay() + 6) % 7]
+              if (days.includes(curDay)) {
+                if (curIso === todayIso) {
+                  const endMins = startMinutes(c.end_time)
+                  if (nowMinutes <= endMins) { cursor.setDate(cursor.getDate() + 1); continue }
+                }
+                candidates.push({ teacher, classId: c.id, dateIso: curIso, class_name: c.class_name, start_time: c.start_time, end_time: c.end_time })
+              }
+              cursor.setDate(cursor.getDate() + 1)
+            }
+          }
+        }
+
+        if (candidates.length > 0) {
+          const classIds = [...new Set(candidates.map(c => c.classId))]
+          const { data: attRows } = await supabase
+            .from(T_ATTENDANCE)
+            .select('class_id, session_date')
+            .in('class_id', classIds)
+            .gte('session_date', term.start_date)
+            .lte('session_date', todayIso)
+          const savedSet = new Set((attRows || []).map(r => `${r.class_id}|${r.session_date}`))
+          const missing = candidates.filter(c => !savedSet.has(`${c.classId}|${c.dateIso}`))
+
+          // Group by teacher
+          const grouped = {}
+          for (const s of missing) {
+            if (!grouped[s.teacher]) grouped[s.teacher] = []
+            grouped[s.teacher].push(s)
+          }
+          setAdminUnsaved(grouped)
+        }
+
+        // Completed trials — enrolments with status='trial', trial_start_date set,
+        // and 2+ attended (present/late) sessions since trial_start_date.
+        const { data: trialEnrolments } = await supabase
+          .from(T_ENROLMENTS)
+          .select('id, class_id, trial_start_date, students(id, full_name, email), classes(class_name)')
+          .eq('status', 'trial')
+          .not('trial_start_date', 'is', null)
+        if (trialEnrolments && trialEnrolments.length > 0) {
+          const todayIso = isoDate(new Date())
+          const finished = []
+          for (const enr of trialEnrolments) {
+            const studentId = enr.students?.id
+            if (!studentId) continue
+            const { data: attRows } = await supabase
+              .from(T_ATTENDANCE)
+              .select('session_date')
+              .eq('class_id', enr.class_id)
+              .eq('student_id', studentId)
+              .in('status', ['present', 'late'])
+              .gte('session_date', enr.trial_start_date)
+              .lte('session_date', todayIso)
+              .order('session_date')
+            if ((attRows || []).length >= 2) {
+              finished.push({
+                enrolmentId: enr.id,
+                classId: enr.class_id,
+                studentId: enr.students?.id,
+                className: enr.classes?.class_name || 'Class',
+                studentName: enr.students?.full_name || 'Student',
+                trialStartDate: enr.trial_start_date,
+                lessonDates: attRows.slice(0, 2).map(r => r.session_date),
+                parentEmail: enr.students?.email || '',
+              })
+            }
+          }
+          setCompletedTrials(finished)
+        }
+      }
+
+      // Unsaved sessions — tutors only (not admin)
+      if (!isAdmin && term && primaryClasses.length > 0) {
+        const now = new Date()
+        const todayIso = isoDate(now)
+        const nowMinutes = now.getHours() * 60 + now.getMinutes()
+
+        // Build list of expected past session dates per class
+        const candidates = [] // { classId, dateIso, class_name, start_time, end_time }
+        for (const c of primaryClasses) {
+          const days = normalizeDays(c.day_of_week)
+          if (days.length === 0) continue
+          const termStart = new Date(term.start_date + 'T00:00:00')
+          const termEnd   = new Date(term.end_date   + 'T00:00:00')
+          const cursor    = new Date(termStart)
+          while (cursor <= termEnd) {
+            const curIso = isoDate(cursor)
+            if (curIso > todayIso) break
+            const curDay = DAY_ORDER[(cursor.getDay() + 6) % 7]
+            if (days.includes(curDay)) {
+              // For today, only flag if current time is past end_time
+              if (curIso === todayIso) {
+                const endMins = startMinutes(c.end_time) // reuses existing helper
+                if (nowMinutes <= endMins) { cursor.setDate(cursor.getDate() + 1); continue }
+              }
+              candidates.push({ classId: c.id, dateIso: curIso, class_name: c.class_name, start_time: c.start_time, end_time: c.end_time })
+            }
+            cursor.setDate(cursor.getDate() + 1)
+          }
+        }
+
+        if (candidates.length > 0) {
+          // Fetch all attendance rows for these class+date combos in one query
+          // by fetching all attendance within term range for these classes.
+          const classIds = [...new Set(candidates.map(c => c.classId))]
+          const { data: attRows } = await supabase
+            .from(T_ATTENDANCE)
+            .select('class_id, session_date')
+            .in('class_id', classIds)
+            .gte('session_date', term.start_date)
+            .lte('session_date', todayIso)
+          const savedSet = new Set((attRows || []).map(r => `${r.class_id}|${r.session_date}`))
+          const missing = candidates.filter(c => !savedSet.has(`${c.classId}|${c.dateIso}`))
+          setUnsavedSessions(missing)
+        }
+      }
     }
     load()
   }, [])
@@ -250,51 +404,8 @@ export default function TutorHome() {
       </section>
 
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
-        {/* Quick-action cards — now with live counts + links */}
-        <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-4 font-display">
-          Jump in
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
-          <ActionCard
-            href="/tutor/classes"
-            emoji="🎓"
-            accent="#FEF3C7"
-            label="My classes"
-            desc={
-              weekRows.length === 0
-                ? 'No classes assigned yet'
-                : `${weekRows.length} this week · ${Object.values(enrollmentCounts).reduce((a, b) => a + b, 0)} student spots`
-            }
-          />
-          {isAdmin ? (
-            <ActionCard
-              href="/tutor/payroll"
-              emoji="💼"
-              accent="#DEE7FF"
-              label="Payroll"
-              desc={
-                shifts.length === 0
-                  ? `${fmtPeriodLabel(period)} · nothing logged yet`
-                  : `${fmtPeriodLabel(period)} · ${shifts.length} shift${shifts.length === 1 ? '' : 's'} · ${fmtMoney(periodAmount)}`
-              }
-            />
-          ) : (
-            <ActionCard
-              href="/tutor/pay"
-              emoji="💰"
-              accent="#D1FAE5"
-              label="My pay"
-              desc={
-                shifts.length === 0
-                  ? `${fmtPeriodLabel(period)} · no shifts yet`
-                  : `${fmtPeriodLabel(period)} · ${periodHours.toFixed(1)}h · ${fmtMoney(periodAmount)}`
-              }
-            />
-          )}
-        </div>
-
-        {/* MAIN ROW — today */}
-        <div className="grid grid-cols-1 gap-5 mb-6">
+        {/* MAIN ROW — today's classes + to-do */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
           {/* Today's classes */}
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
             <div className="flex items-center justify-between mb-4">
@@ -342,6 +453,51 @@ export default function TutorHome() {
             )}
           </div>
 
+          {/* To-do list */}
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
+            {isAdmin ? (
+              <AdminTodoPanel
+                adminUnsaved={adminUnsaved}
+                selectedTutor={selectedTutor}
+                setSelectedTutor={setSelectedTutor}
+                fmtTime={fmtTime}
+                completedTrials={completedTrials}
+                onEmailClick={(trial) => setEmailModal(trial)}
+              />
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+                      Tasks
+                    </p>
+                    <h2 className="text-lg font-semibold text-[#2A2035] font-display">
+                      To-do
+                    </h2>
+                  </div>
+                  {unsavedSessions.length > 0 && (
+                    <span className="text-[10px] tracking-widest uppercase font-semibold text-[#B23A3A]">
+                      {unsavedSessions.length} unsaved
+                    </span>
+                  )}
+                </div>
+                {unsavedSessions.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-4xl mb-2">✅</div>
+                    <p className="text-sm font-semibold text-[#2A2035]">All caught up.</p>
+                    <p className="text-xs text-[#2A2035]/50 mt-1">No outstanding tasks.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {unsavedSessions.map((s, i) => (
+                      <UnsavedSessionCard key={`${s.classId}-${s.dateIso}-${i}`} s={s} fmtTime={fmtTime} />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
         </div>
       </section>
 
@@ -352,6 +508,11 @@ export default function TutorHome() {
           </p>
         </div>
       </footer>
+
+      {/* Trial completion email modal */}
+      {emailModal && (
+        <TrialEmailModal trial={emailModal} onClose={() => setEmailModal(null)} />
+      )}
     </div>
   )
 }
@@ -376,6 +537,221 @@ function MiniStat({ label, value }) {
     <div className="rounded-xl border border-[#DEE7FF] bg-white px-3 py-2">
       <p className="text-[9px] tracking-[0.2em] uppercase text-[#325099]/80 font-semibold">{label}</p>
       <p className="text-base font-bold text-[#2A2035] font-display tabular-nums">{value}</p>
+    </div>
+  )
+}
+
+function UnsavedSessionCard({ s, fmtTime }) {
+  const d = new Date(s.dateIso + 'T00:00:00')
+  const dateLabel = d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+  return (
+    <Link
+      href={`/tutor/classes/${s.classId}/${s.dateIso}`}
+      className="flex items-start gap-3 rounded-xl px-4 py-3 border border-[#FDE8E8] bg-[#FFF5F5] hover:border-[#F4A0A0] hover:bg-white transition group"
+    >
+      <div className="w-1 h-10 rounded-full shrink-0 bg-[#B23A3A] mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm text-[#2A2035]">Save session</p>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
+          <span>{s.class_name || 'Untitled class'}</span>
+          <span>📅 {dateLabel}</span>
+          <span>🕐 {fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+        </div>
+      </div>
+      <span className="text-[#B23A3A] transition-transform group-hover:translate-x-0.5 mt-0.5">→</span>
+    </Link>
+  )
+}
+
+function AdminTodoPanel({ adminUnsaved, selectedTutor, setSelectedTutor, fmtTime, completedTrials = [], onEmailClick }) {
+  const tutors = Object.keys(adminUnsaved).sort()
+  const totalUnsaved = Object.values(adminUnsaved).reduce((a, b) => a + b.length, 0)
+
+  const visibleSessions = selectedTutor === 'All'
+    ? Object.entries(adminUnsaved).flatMap(([teacher, sessions]) => sessions.map(s => ({ ...s, teacher })))
+    : (adminUnsaved[selectedTutor] || []).map(s => ({ ...s, teacher: selectedTutor }))
+
+  visibleSessions.sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.class_name.localeCompare(b.class_name))
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+            Tutor tasks
+          </p>
+          <h2 className="text-lg font-semibold text-[#2A2035] font-display">Unsaved sessions</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {totalUnsaved > 0 && (
+            <span className="text-[10px] tracking-widest uppercase font-semibold text-[#B23A3A]">
+              {totalUnsaved} unsaved
+            </span>
+          )}
+          {tutors.length > 0 && (
+            <select
+              value={selectedTutor}
+              onChange={e => setSelectedTutor(e.target.value)}
+              className="text-xs font-semibold text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#325099]"
+            >
+              <option value="All">All tutors</option>
+              {tutors.map(t => (
+                <option key={t} value={t}>{t} ({(adminUnsaved[t] || []).length})</option>
+              ))}
+            </select>
+          )}
+        </div>
+      </div>
+      {completedTrials.length > 0 && (
+        <div className="mb-4">
+          <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold mb-2 font-display">
+            Trial completions — {completedTrials.length}
+          </p>
+          <div className="space-y-2">
+            {completedTrials.map((t, i) => {
+              const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+              return (
+                <div key={`${t.enrolmentId}-${i}`} className="flex items-start gap-3 rounded-xl px-4 py-3 border border-[#BFDBFE] bg-[#EFF6FF]">
+                  <div className="w-1 h-10 rounded-full shrink-0 bg-[#2563EB] mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-sm text-[#2A2035]">{t.studentName}</p>
+                      <span className="text-[10px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#DBEAFE] text-[#1D4ED8]">trial complete</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
+                      <span>{t.className}</span>
+                      <span>📅 {fmt(t.lessonDates[0])} &amp; {fmt(t.lessonDates[1])}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onEmailClick(t)}
+                    className="shrink-0 text-[10px] font-bold tracking-wide uppercase px-2.5 py-1.5 rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition"
+                  >
+                    Email ✉
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {visibleSessions.length === 0 && completedTrials.length === 0 ? (
+        <div className="text-center py-8">
+          <div className="text-4xl mb-2">✅</div>
+          <p className="text-sm font-semibold text-[#2A2035]">All caught up.</p>
+          <p className="text-xs text-[#2A2035]/50 mt-1">No unsaved sessions.</p>
+        </div>
+      ) : visibleSessions.length > 0 ? (
+        <div className="space-y-2 max-h-[32rem] overflow-y-auto pr-1">
+          {visibleSessions.map((s, i) => (
+            <div key={`${s.classId}-${s.dateIso}-${i}`} className="flex items-start gap-3 rounded-xl px-4 py-3 border border-[#FDE8E8] bg-[#FFF5F5]">
+              <div className="w-1 h-10 rounded-full shrink-0 bg-[#B23A3A] mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-sm text-[#2A2035]">{s.teacher}</p>
+                  <span className="text-[10px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#FEE2E2] text-[#B23A3A]">unsaved</span>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
+                  <span>{s.class_name || 'Untitled class'}</span>
+                  <span>📅 {new Date(s.dateIso + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                  <span>🕐 {fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+function TrialEmailModal({ trial, onClose }) {
+  const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
+  const subject = `CUBE Tuition — ${trial.studentName}'s Trial Has Concluded`
+
+  const [rawFeedbacks, setRawFeedbacks] = useState([]) // [{ date, text }]
+  const [copied, setCopied] = useState(false)
+
+  // Fetch trial_feedback from attendance on mount
+  useEffect(() => {
+    if (!trial.classId || !trial.studentId || !trial.lessonDates?.length) return
+    supabase
+      .from('attendance')
+      .select('session_date, trial_feedback')
+      .eq('class_id', trial.classId)
+      .eq('student_id', trial.studentId)
+      .in('session_date', trial.lessonDates)
+      .then(({ data }) => {
+        if (!data) return
+        // Sort to match lessonDates order
+        const sorted = trial.lessonDates.map(d => {
+          const row = data.find(r => r.session_date === d)
+          return { date: d, text: row?.trial_feedback || '' }
+        })
+        setRawFeedbacks(sorted)
+      })
+  }, [trial.classId, trial.studentId, trial.lessonDates])
+
+  const hasFeedback = rawFeedbacks.some(f => f.text.trim())
+
+  const feedbackSection = hasFeedback
+    ? `\n\nHere is some feedback from your child's tutor:\n\n${rawFeedbacks.filter(f => f.text).map((f, i) => `Session ${i + 1} (${fmt(f.date)}): ${f.text}`).join('\n')}`
+    : ''
+
+  const body = `Dear Parent/Guardian,
+
+We hope this message finds you well.
+
+We're writing to let you know that ${trial.studentName}'s two-lesson trial for ${trial.className} at CUBE Tuition has now been completed (lessons on ${fmt(trial.lessonDates[0])} and ${fmt(trial.lessonDates[1])}).${feedbackSection}
+
+We hope ${trial.studentName} enjoyed the sessions and found them beneficial. We would love to have them continue as a regular student!
+
+If you'd like to officially enrol ${trial.studentName}, please don't hesitate to get in touch with us. We're happy to answer any questions about the program, schedule, or pricing.
+
+Warm regards,
+The CUBE Tuition Team
+📍 Chatswood
+📧 admin@cubetuition.com.au`
+
+  const copy = () => {
+    navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF]">
+          <div>
+            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold font-display">Trial complete</p>
+            <h2 className="text-base font-semibold text-[#2A2035] font-display">{trial.studentName} — {trial.className}</h2>
+          </div>
+          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-xl transition">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div>
+            <p className="text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">To</p>
+            <p className="text-sm text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-2">{trial.parentEmail || '— no email on file —'}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</p>
+            <p className="text-sm text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-2">{subject}</p>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Body</p>
+            <pre className="text-sm text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-4 py-3 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-[#DEE7FF] flex justify-end gap-3">
+          <button onClick={onClose} className="text-xs font-semibold text-[#2A2035]/50 hover:text-[#2A2035] px-4 py-2 transition">Close</button>
+          <button onClick={copy} className="text-xs font-bold px-5 py-2 rounded-xl bg-[#062E63] text-white hover:bg-[#325099] transition">
+            {copied ? '✓ Copied!' : 'Copy to clipboard'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

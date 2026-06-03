@@ -97,11 +97,14 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         missing.push(`${s.full_name} (attendance)`)
         continue
       }
-      if (!isAbsent) {
+      if (!isAbsent && bookletWeek !== 1 && bookletWeek !== 10) {
         const issues = []
         if (!m.hw) issues.push("prev week's HWK")
         if (m.rq === '' || m.rq == null) issues.push('RQ')
         if (issues.length) missing.push(`${s.full_name} (${issues.join(', ')})`)
+      }
+      if (s.enrolmentStatus === 'trial' && !isAbsent && !(m.trialFeedback || '').trim()) {
+        missing.push(`${s.full_name} (trial feedback)`)
       }
     }
 
@@ -127,15 +130,20 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
     const load = async () => {
       setLoading(true)
 
-      // Roster — enrolled students
+      // Roster — enrolled students (include enrolment-level trial status)
       const { data: links } = await supabase
         .from(T_ENROLMENTS)
-        .select('students (id, full_name, school, year)')
+        .select('status, trial_start_date, students (id, full_name, school, year)')
         .eq('class_id', classId)
       if (cancelled) return
       const students = (links || [])
-        .map(l => l.students)
+        .map(l => l.students ? { ...l.students, enrolmentStatus: l.status, trialStartDate: l.trial_start_date } : null)
         .filter(Boolean)
+        // Trial students only appear from their trial_start_date onwards
+        .filter(s => {
+          if (s.enrolmentStatus !== 'trial' || !s.trialStartDate) return true
+          return dateISO >= s.trialStartDate
+        })
 
       // Also include makeup guests: students who have an attendance record for
       // this session (moved from another class) but are not enrolled here.
@@ -149,7 +157,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       for (const row of guestAttRows || []) {
         if (!row.students) continue
         if (!enrolledIds.has(row.students.id)) {
-          students.push({ ...row.students, isMakeupGuest: true })
+          students.push({ ...row.students, isMakeupGuest: true, enrolmentStatus: 'active' })
         }
       }
 
@@ -180,7 +188,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       if (studentIds.length > 0) {
         const { data: attRows } = await supabase
           .from(T_ATTENDANCE)
-          .select('student_id, status, notes, created_at')
+          .select('student_id, status, notes, trial_feedback, created_at')
           .eq('class_id', classId)
           .eq('session_date', dateISO)
           .in('student_id', studentIds)
@@ -190,6 +198,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             ...seed[a.student_id],
             attendance: a.status || '',
             comment: a.notes || '',
+            trialFeedback: a.trial_feedback || '',
           }
           anyPriorData = true
           if (a.created_at && (!latestSavedAt || a.created_at > latestSavedAt)) latestSavedAt = a.created_at
@@ -288,12 +297,13 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
 
     for (const s of roster) {
       const m = marks[s.id] || {}
-      const hasAttendance = !!m.attendance
-      const hasComment    = (m.comment || '').trim() !== ''
-      const hasHw         = !!m.hw
-      const hasRq         = m.rq !== '' && m.rq != null
+      const hasAttendance    = !!m.attendance
+      const hasComment       = (m.comment || '').trim() !== ''
+      const hasHw            = !!m.hw
+      const hasRq            = m.rq !== '' && m.rq != null
+      const hasTrialFeedback = s.enrolmentStatus === 'trial' && (m.trialFeedback || '').trim() !== ''
 
-      if (hasAttendance || hasComment) {
+      if (hasAttendance || hasComment || hasTrialFeedback) {
         try {
           const { data: existing } = await supabase
             .from(T_ATTENDANCE)
@@ -309,6 +319,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             session_date: dateISO,
             status: m.attendance || 'present',
             notes: hasComment ? m.comment.trim() : null,
+            trial_feedback: hasTrialFeedback ? m.trialFeedback.trim() : null,
           }
           const { error } = existingId
             ? await supabase.from(T_ATTENDANCE).update(payload).eq('id', existingId)
@@ -319,6 +330,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         }
       }
 
+      if (bookletWeek === 1) continue
       if ((hasHw || hasRq) && !weekLabel) {
         errors.push(`HW/RQ · ${s.full_name}: can't save — session is outside any term, no week to assign.`)
         continue
@@ -616,8 +628,8 @@ function MarkTable({
             <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
               <Th className="text-left pl-5 pr-3 w-[26%]">Student name</Th>
               <Th className="text-center px-3 w-[14%]">Attendance <span className="text-[#EF4444]">*</span></Th>
-              <Th className="text-center px-3 w-[14%]">HW completion <span className="text-[#EF4444]">*</span></Th>
-              <Th className="text-center px-3 w-[14%]">{isOneToOne ? 'Understanding %' : 'RQ mark %'} <span className="text-[#EF4444]">*</span></Th>
+              {currentWeek !== 1 && currentWeek !== 10 && <Th className="text-center px-3 w-[14%]">HW completion <span className="text-[#EF4444]">*</span></Th>}
+              {currentWeek !== 1 && currentWeek !== 10 && <Th className="text-center px-3 w-[14%]">{isOneToOne ? 'Understanding %' : 'RQ mark %'} <span className="text-[#EF4444]">*</span></Th>}
               <Th className="text-left px-5 bg-[#EEF4FF] text-[#062E63]">Additional comments</Th>
             </tr>
           </thead>
@@ -630,22 +642,25 @@ function MarkTable({
               const isOpen = expanded?.has(s.id)
               const sHist = history?.[s.id] || { quizzes: [], attendance: [] }
 
+              const isTrial = s.enrolmentStatus === 'trial'
+
               // Validation highlights — only shown after a failed save attempt
-              const attInvalid = showValidation && !att
-              const hwInvalid  = showValidation && !isAbsent && att && !m.hw
-              const rqInvalid  = showValidation && !isAbsent && att && (m.rq === '' || m.rq == null)
+              const attInvalid          = showValidation && !att
+              const hwInvalid           = showValidation && !isAbsent && att && !m.hw
+              const rqInvalid           = showValidation && !isAbsent && att && (m.rq === '' || m.rq == null)
+              const trialFeedbackInvalid = showValidation && isTrial && !isAbsent && !(m.trialFeedback || '').trim()
 
               return (
                 <Fragment key={s.id}>
                   <tr className="border-b last:border-0 border-[#DEE7FF] transition-colors"
-                      style={tint ? { background: tint } : undefined}>
+                      style={tint ? { background: tint } : isTrial ? { background: '#FFFBEB' } : undefined}>
                     <td className="pl-5 pr-3 py-3">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <button
                           type="button"
                           onClick={() => onToggleExpand?.(s.id)}
                           aria-label={isOpen ? 'Hide history' : 'Show history'}
-                          className={`w-8 h-8 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0 transition ${s.isMakeupGuest ? 'bg-[#7C3AED] hover:bg-[#6D28D9]' : 'bg-[#062E63] hover:bg-[#325099]'}`}
+                          className={`w-8 h-8 rounded-full text-white text-[11px] font-bold flex items-center justify-center shrink-0 transition ${s.isMakeupGuest ? 'bg-[#7C3AED] hover:bg-[#6D28D9]' : isTrial ? 'bg-[#D97706] hover:bg-[#B45309]' : 'bg-[#062E63] hover:bg-[#325099]'}`}
                         >
                           {(s.full_name || '?').slice(0, 1).toUpperCase()}
                         </button>
@@ -654,6 +669,9 @@ function MarkTable({
                             <p className="text-sm font-semibold text-[#2A2035] truncate leading-tight">
                               {s.full_name || 'Unknown'}
                             </p>
+                            {isTrial && (
+                              <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] shrink-0 whitespace-nowrap">Trial</span>
+                            )}
                             {s.isMakeupGuest && (
                               <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#8B5CF6]/15 text-[#5B21B6] shrink-0 whitespace-nowrap">Makeup</span>
                             )}
@@ -674,27 +692,31 @@ function MarkTable({
                                     onChange={v => onChange(s.id, 'attendance', v)} disabled={isLocked} />
                       </div>
                     </td>
-                    <td className="px-3 py-3">
-                      <div className={hwInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
-                        <PillSelect value={m.hw || ''} options={GRADE_OPTIONS}
-                                    onChange={v => onChange(s.id, 'hw', v)} disabled={isLocked || isAbsent} />
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className={rqInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
-                        {isOneToOne ? (
-                          <PillSelect
-                            value={m.rq || ''}
-                            options={UNDERSTANDING_OPTIONS}
-                            onChange={v => onChange(s.id, 'rq', v)}
-                            disabled={isLocked || isAbsent}
-                          />
-                        ) : (
-                          <NumberPill value={m.rq || ''} min={1} max={100}
-                                      onChange={v => onChange(s.id, 'rq', v)} disabled={isLocked || isAbsent} />
-                        )}
-                      </div>
-                    </td>
+                    {currentWeek !== 1 && currentWeek !== 10 && (
+                      <td className="px-3 py-3">
+                        <div className={hwInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
+                          <PillSelect value={m.hw || ''} options={GRADE_OPTIONS}
+                                      onChange={v => onChange(s.id, 'hw', v)} disabled={isLocked || isAbsent} />
+                        </div>
+                      </td>
+                    )}
+                    {currentWeek !== 1 && currentWeek !== 10 && (
+                      <td className="px-3 py-3">
+                        <div className={rqInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
+                          {isOneToOne ? (
+                            <PillSelect
+                              value={m.rq || ''}
+                              options={UNDERSTANDING_OPTIONS}
+                              onChange={v => onChange(s.id, 'rq', v)}
+                              disabled={isLocked || isAbsent}
+                            />
+                          ) : (
+                            <NumberPill value={m.rq || ''} min={1} max={100}
+                                        onChange={v => onChange(s.id, 'rq', v)} disabled={isLocked || isAbsent} />
+                          )}
+                        </div>
+                      </td>
+                    )}
                     <td className="px-5 py-3 bg-[#F5F8FF]/60">
                       <input
                         type="text"
@@ -706,6 +728,28 @@ function MarkTable({
                       />
                     </td>
                   </tr>
+                  {isTrial && !isAbsent && (
+                    <tr className="border-b last:border-0 border-[#FDE68A]" style={{ background: '#FFFBEB' }}>
+                      <td colSpan={currentWeek !== 1 && currentWeek !== 10 ? 5 : 3} className="pl-5 pr-5 pb-3 pt-1">
+                        <div className="flex items-start gap-2">
+                          <span className="text-[10px] font-bold tracking-widest uppercase text-[#92400E] mt-2 shrink-0">Trial feedback</span>
+                          <div className="flex-1">
+                            <textarea
+                              rows={2}
+                              value={m.trialFeedback || ''}
+                              onChange={e => onChange(s.id, 'trialFeedback', e.target.value)}
+                              placeholder="How did the trial go? Strengths, areas for improvement, recommendation to enrol…"
+                              disabled={isLocked}
+                              className={`w-full bg-white border rounded-lg px-3 py-2 text-xs text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 transition resize-none disabled:bg-[#FFFBEB] disabled:cursor-not-allowed ${trialFeedbackInvalid ? 'border-[#EF4444] ring-2 ring-[#EF4444]/30' : 'border-[#FDE68A] focus:ring-[#D97706]/20 focus:border-[#D97706]'}`}
+                            />
+                            {trialFeedbackInvalid && (
+                              <p className="text-[10px] text-[#EF4444] mt-1">Trial feedback is required before saving.</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {isOpen && (
                     <tr className="border-b last:border-0 border-[#DEE7FF]" style={{ background: '#FBFCFF' }}>
                       <td colSpan={5} className="px-5 md:px-6 py-4">

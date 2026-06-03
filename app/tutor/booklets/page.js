@@ -21,31 +21,45 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
     week:         booklet?.week         ?? defaultWeek  ?? '',
     notes:        booklet?.notes        ?? '',
   })
-  const [file, setFile]       = useState(null)
-  const [saving, setSaving]   = useState(false)
-  const [err, setErr]         = useState('')
-  const fileRef               = useRef()
+  const [newFiles, setNewFiles]           = useState([])
+  const [existingPaths, setExistingPaths] = useState(
+    booklet?.file_paths?.length ? booklet.file_paths : (booklet?.file_path ? [booklet.file_path] : [])
+  )
+  const [saving, setSaving] = useState(false)
+  const [err, setErr]       = useState('')
+  const fileRef             = useRef()
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const handleFileChange = e => {
+    const picked = Array.from(e.target.files || [])
+    setNewFiles(prev => [...prev, ...picked])
+    e.target.value = ''
+  }
+
+  const removeExisting = idx => setExistingPaths(p => p.filter((_, i) => i !== idx))
+  const removeNew      = idx => setNewFiles(p => p.filter((_, i) => i !== idx))
 
   const handleSubmit = async () => {
     if (!form.booklet_name.trim()) { setErr('Booklet name is required.'); return }
     setSaving(true); setErr('')
 
-    let file_path = booklet?.file_path ?? null
-
-    // Upload new PDF if provided
-    if (file) {
+    // Upload new files
+    const uploadedPaths = []
+    for (const file of newFiles) {
       const ext  = file.name.split('.').pop()
-      const path = `y${form.year}/${form.subject.toLowerCase()}/${Date.now()}.${ext}`
+      const path = `y${form.year}/${form.subject.toLowerCase()}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
       const { error: upErr } = await supabase.storage.from('booklets').upload(path, file, { upsert: true })
       if (upErr) { setErr('Upload failed: ' + upErr.message); setSaving(false); return }
-      // Remove old file if replacing
-      if (booklet?.file_path) {
-        await supabase.storage.from('booklets').remove([booklet.file_path])
-      }
-      file_path = path
+      uploadedPaths.push(path)
     }
+
+    // Remove storage files the user deleted
+    const originalPaths = booklet?.file_paths?.length ? booklet.file_paths : (booklet?.file_path ? [booklet.file_path] : [])
+    const removedPaths  = originalPaths.filter(p => !existingPaths.includes(p))
+    if (removedPaths.length) await supabase.storage.from('booklets').remove(removedPaths)
+
+    const finalPaths = [...existingPaths, ...uploadedPaths]
 
     const payload = {
       booklet_name: form.booklet_name.trim(),
@@ -54,7 +68,8 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
       term_number:  form.term_number !== '' ? Number(form.term_number) : null,
       week:         form.week        !== '' ? Number(form.week)        : null,
       notes:        form.notes.trim() || null,
-      file_path,
+      file_path:    finalPaths[0] ?? null,
+      file_paths:   finalPaths,
     }
 
     const { error } = isEdit
@@ -64,6 +79,8 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
     if (error) { setErr(error.message); setSaving(false); return }
     onSaved()
   }
+
+  const totalFiles = existingPaths.length + newFiles.length
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
@@ -112,26 +129,28 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Notes <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
             <textarea value={form.notes} onChange={set('notes')} rows={2} placeholder="Any notes about this booklet…" className={INP + ' resize-none'} />
           </div>
-          {/* PDF upload */}
+          {/* PDF uploads */}
           <div>
-            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">
-              PDF {isEdit && booklet?.file_path ? '(replace existing)' : '(optional)'}
-            </label>
-            {isEdit && booklet?.file_path && !file && (
-              <p className="text-[10px] text-[#059669] mb-1.5">✓ File already uploaded — upload a new one to replace it</p>
-            )}
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">PDFs</label>
+            {existingPaths.map((path, i) => (
+              <div key={path} className="flex items-center justify-between px-3 py-2 mb-1.5 bg-[#F0F4FF] rounded-lg">
+                <span className="text-xs font-semibold text-[#325099]">📄 PDF {i + 1} <span className="font-normal text-[#2A2035]/40">(uploaded)</span></span>
+                <button onClick={() => removeExisting(i)} className="text-[10px] text-red-400 hover:text-red-600 font-semibold">Remove</button>
+              </div>
+            ))}
+            {newFiles.map((file, i) => (
+              <div key={i} className="flex items-center justify-between px-3 py-2 mb-1.5 bg-[#F5F3FF] rounded-lg">
+                <span className="text-xs font-semibold text-[#7C3AED]">📄 {file.name}</span>
+                <button onClick={() => removeNew(i)} className="text-[10px] text-red-400 hover:text-red-600 font-semibold">Remove</button>
+              </div>
+            ))}
             <div
               onClick={() => fileRef.current?.click()}
-              className="border-2 border-dashed border-[#DEE7FF] rounded-xl px-4 py-4 text-center cursor-pointer hover:border-[#325099] hover:bg-[#F8FAFF] transition"
+              className="border-2 border-dashed border-[#DEE7FF] rounded-xl px-4 py-3 text-center cursor-pointer hover:border-[#325099] hover:bg-[#F8FAFF] transition mt-1"
             >
-              {file ? (
-                <p className="text-xs font-semibold text-[#325099]">📄 {file.name}</p>
-              ) : (
-                <p className="text-xs text-[#2A2035]/40">Click to select PDF</p>
-              )}
+              <p className="text-xs text-[#2A2035]/40">{totalFiles > 0 ? '+ Add another PDF' : 'Click to select PDF(s)'}</p>
             </div>
-            <input ref={fileRef} type="file" accept="application/pdf" className="hidden"
-              onChange={e => setFile(e.target.files?.[0] ?? null)} />
+            <input ref={fileRef} type="file" accept="application/pdf" multiple className="hidden" onChange={handleFileChange} />
           </div>
           {err && <p className="text-xs text-red-500">{err}</p>}
         </div>
@@ -139,7 +158,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
           <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving}
             className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
-            {saving ? (file ? 'Uploading…' : 'Saving…') : isEdit ? 'Save Changes' : 'Add Booklet'}
+            {saving ? (newFiles.length ? 'Uploading…' : 'Saving…') : isEdit ? 'Save Changes' : 'Add Booklet'}
           </button>
         </div>
       </div>
@@ -156,10 +175,10 @@ export default function BookletsPage() {
   const [activeYear, setActiveYear] = useState(8)
   const [activeSub, setActiveSub]   = useState('Maths')
   const [showAdd, setShowAdd]       = useState(false)
-  const [addPrefill, setAddPrefill] = useState({})   // { term_number, week } for blank-slot clicks
+  const [addPrefill, setAddPrefill] = useState({})
   const [editing, setEditing]       = useState(null)
   const [deleteId, setDeleteId]     = useState(null)
-  const [deleteFilePath, setDeleteFilePath] = useState(null)
+  const [deleteFilePaths, setDeleteFilePaths] = useState([])
 
   // Auth
   useEffect(() => {
@@ -175,7 +194,7 @@ export default function BookletsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, term_number, week, notes, file_path')
+      .select('id, booklet_name, year, subject, term_number, week, notes, file_path, file_paths')
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
@@ -185,10 +204,10 @@ export default function BookletsPage() {
 
   // Delete
   const handleDelete = async () => {
-    if (deleteFilePath) await supabase.storage.from('booklets').remove([deleteFilePath])
+    if (deleteFilePaths.length) await supabase.storage.from('booklets').remove(deleteFilePaths)
     await supabase.from('booklets').delete().eq('id', deleteId)
     setBooklets(b => b.filter(x => x.id !== deleteId))
-    setDeleteId(null); setDeleteFilePath(null)
+    setDeleteId(null); setDeleteFilePaths([])
   }
 
   // Get public URL for a stored PDF
@@ -274,7 +293,6 @@ export default function BookletsPage() {
           <div className="pb-12">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {TERMS.map(termNum => {
-                // Build a week → booklet map for O(1) lookup
                 const byWeek = {}
                 visible.filter(b => b.term_number === termNum).forEach(b => {
                   if (b.week != null) byWeek[b.week] = b
@@ -305,7 +323,10 @@ export default function BookletsPage() {
                     <div className="flex flex-col gap-2">
                       {Array.from({ length: 10 }, (_, i) => i + 1).map(week => {
                         const b = byWeek[week]
-                        const pdfUrl = b ? getPdfUrl(b.file_path) : null
+                        // Resolve all PDF paths for this booklet
+                        const pdfPaths = b
+                          ? (b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : []))
+                          : []
 
                         if (b) {
                           // ── Assigned card ──────────────────────────────
@@ -328,15 +349,22 @@ export default function BookletsPage() {
                                 <div className="flex gap-2.5">
                                   <button onClick={() => setEditing(b)}
                                     className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
-                                  <button onClick={() => { setDeleteId(b.id); setDeleteFilePath(b.file_path) }}
+                                  <button onClick={() => { setDeleteId(b.id); setDeleteFilePaths(pdfPaths) }}
                                     className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
                                 </div>
-                                {pdfUrl ? (
-                                  <a href={pdfUrl} target="_blank" rel="noopener noreferrer"
-                                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-lg transition"
-                                    style={{ background: accentBg, color: accentColor }}>
-                                    📄 PDF
-                                  </a>
+                                {pdfPaths.length > 0 ? (
+                                  <div className="flex gap-1">
+                                    {pdfPaths.map((path, i) => {
+                                      const url = getPdfUrl(path)
+                                      return url ? (
+                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                                          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-lg transition"
+                                          style={{ background: accentBg, color: accentColor }}>
+                                          📄 {pdfPaths.length > 1 ? `PDF ${i + 1}` : 'PDF'}
+                                        </a>
+                                      ) : null
+                                    })}
+                                  </div>
                                 ) : (
                                   <span className="text-[10px] text-[#2A2035]/20">No PDF</span>
                                 )}
@@ -352,9 +380,7 @@ export default function BookletsPage() {
                             onClick={() => { setAddPrefill({ term_number: termNum, week }); setShowAdd(true) }}
                             className="group w-full border-2 border-dashed border-[#FDE68A] rounded-xl flex flex-col overflow-hidden hover:border-[#F59E0B] hover:bg-[#FFFBEB] transition text-left"
                           >
-                            {/* Matches accent bar height */}
                             <div className="h-[3px] w-full" style={{ background: '#FDE68A' }} />
-                            {/* Matches body padding */}
                             <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5 flex-1">
                               <span
                                 className="text-[9px] font-bold uppercase tracking-widest"
@@ -362,11 +388,10 @@ export default function BookletsPage() {
                               >
                                 Wk {week}
                               </span>
-                                              <p className="text-[12px] font-semibold text-[#2A2035]/20 group-hover:text-[#325099]/40 transition leading-snug">
+                              <p className="text-[12px] font-semibold text-[#2A2035]/20 group-hover:text-[#325099]/40 transition leading-snug">
                                 + assign booklet
                               </p>
                             </div>
-                            {/* Matches footer padding */}
                             <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
                               <div className="flex gap-2.5">
                                 <span className="text-[10px] text-transparent select-none">Edit</span>
@@ -403,13 +428,13 @@ export default function BookletsPage() {
             <div className="px-6 py-5">
               <p className="text-sm font-bold text-[#062E63] mb-2">Delete this booklet?</p>
               <p className="text-xs text-[#2A2035]/60 leading-relaxed">
-                {deleteFilePath
-                  ? 'The booklet record and its uploaded PDF will both be permanently deleted.'
+                {deleteFilePaths.length
+                  ? `The booklet record and its ${deleteFilePaths.length} uploaded PDF${deleteFilePaths.length > 1 ? 's' : ''} will both be permanently deleted.`
                   : 'The booklet record will be permanently deleted.'}
               </p>
             </div>
             <div className="px-6 pb-5 flex gap-2 justify-end">
-              <button onClick={() => { setDeleteId(null); setDeleteFilePath(null) }}
+              <button onClick={() => { setDeleteId(null); setDeleteFilePaths([]) }}
                 className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
               <button onClick={handleDelete}
                 className="px-4 py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Delete</button>

@@ -5,6 +5,7 @@ import { supabase } from '../../../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
 import TutorNav from '../../../components/TutorNav'
 import { buildClassLabelMap } from '../../../lib/classLabels'
+import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
 
 /*
@@ -25,7 +26,7 @@ import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COUR
 // ── Table groups ──────────────────────────────────────────────────────────────
 const INITIAL_TABLE_GROUPS = [
   { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS] },
-  { label: 'Scheduling',           tables: [T_LESSONS,T_SHIFTS] },
+  { label: 'Scheduling',           tables: [T_LESSONS] },
   { label: 'Finance',              tables: [T_INVOICES] },
 ]
 
@@ -47,6 +48,10 @@ const VIRTUAL = {
     realTable: T_LESSONS, filterCol: null, filterOp: null, filterVal: null,
     showCols: null, excludeCols: [], joinLessonClassName: true, defaultRow: { status: 'scheduled' },
   },
+  invoices: {
+    realTable: T_INVOICES, filterCol: null, filterOp: null, filterVal: null,
+    showCols: null, excludeCols: [], joinTermName: true, joinInvoiceFamily: true, defaultRow: {},
+  },
 }
 
 const GUARDIAN_COLS    = ['guardian_name','guardian_relationship','guardian_email','guardian_phone']
@@ -54,20 +59,22 @@ const PARENT_COL_MAP   = { guardian_name:'full_name', guardian_relationship:'rel
 const ENROLMENT_NAME_COLS = ['student_name','class_name']
 const TERM_NAME_COL      = 'term_name'
 const COURSE_NAME_COL    = 'course_name'
+const INVOICE_FAMILY_COL      = 'family_name'
 const LESSON_CLASS_COL        = 'class_label'          // joined "ClassName (Day)" shown in lessons table
 const LESSON_WEEK_COL         = 'week'                  // computed from lesson_date, read-only
 const LESSON_MAIN_TEACHER_COL = 'main_teacher'          // rollup from class.teacher, read-only
 const LESSON_SCHED_TEACHER_COL = 'scheduled_teacher'    // resolved name from scheduled_teacher_id, editable dropdown
 
 const DEFAULT_WIDTH  = 150
-const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200, class_label:240, lesson_date:120, week:60, main_teacher:130, scheduled_teacher:160, status:120, price:100, subtotal:110, sibling_discount:140, total:100, notes:200, family_id:90, student_id:200 }
+const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200, class_label:240, lesson_date:120, week:60, main_teacher:130, scheduled_teacher:160, status:120, price:100, subtotal:110, sibling_discount:140, multi_course_discount:160, total:100, notes:200, family_id:90, student_id:200, family_name:200 }
 function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
 
 // Columns that show a dropdown picker when edited, keyed as "table:col"
 const CELL_DROPDOWNS = {
-  [`${T_STUDENTS}:year`]:      ['5','6','7','8','9','10','11','12'],
-  [`${T_STUDENTS}:status`]:    ['active','trial','disenrol','quit trial'],
-  [`${T_ATTENDANCE}:status`]:  ['present','late','absent','makeup'],
+  [`${T_STUDENTS}:year`]:        ['5','6','7','8','9','10','11','12'],
+  [`${T_STUDENTS}:status`]:      ['active','trial','disenrol','quit trial'],
+  [`${T_ATTENDANCE}:status`]:    ['present','late','absent','makeup'],
+  [`${T_ENROLMENTS}:status`]:    ['active','trial','trial complete','disenrol'],
 }
 
 // Coloured pill badges for specific table:column values
@@ -77,6 +84,12 @@ const CELL_BADGE_COLORS = {
     'trial':      'bg-amber-100 text-amber-800 border border-amber-200',
     'disenrol':   'bg-gray-100 text-gray-500 border border-gray-200',
     'quit trial': 'bg-gray-100 text-gray-500 border border-gray-200',
+  },
+  [`${T_ENROLMENTS}:status`]: {
+    'active':         'bg-emerald-100 text-emerald-800 border border-emerald-200',
+    'trial':          'bg-amber-100 text-amber-800 border border-amber-200',
+    'trial complete': 'bg-blue-100 text-blue-800 border border-blue-200',
+    'disenrol':       'bg-gray-100 text-gray-500 border border-gray-200',
   },
 }
 
@@ -751,6 +764,7 @@ export default function DatabasePage() {
   // Invoices
   const [invoiceTermId, setInvoiceTermId]       = useState(null)
   const [creditModal, setCreditModal]           = useState(null)  // { invoiceId, members } | null
+  const [topUpModal,  setTopUpModal]            = useState(null)  // invoice card object | null  (new invoice modal)
   const [referralModal, setReferralModal]       = useState(false)
   const [allStudentsForReferral, setAllStudentsForReferral] = useState([])
   const [generatingInvoices, setGeneratingInvoices] = useState(false)
@@ -806,7 +820,7 @@ export default function DatabasePage() {
     const HIDDEN = new Set([T_ATTENDANCE, T_QUIZ_RESULTS])
     // Bump this whenever INITIAL_TABLE_GROUPS order/membership changes intentionally.
     // A mismatch clears the cached layout so the new defaults take effect immediately.
-    const GROUPS_VERSION = 'v10'
+    const GROUPS_VERSION = 'v11'
 
     try {
       const saved = typeof window !== 'undefined' && localStorage.getItem('cube_db_table_groups')
@@ -895,6 +909,9 @@ export default function DatabasePage() {
   const [newRowData, setNewRowData]     = useState({})
   const [addingSaving, setAddingSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+
+  // Add Enrolment modal (enrolments table only)
+  const [showAddEnrolmentModal, setShowAddEnrolmentModal] = useState(false)
 
   // Add Class modal (classes table only)
   const [showAddClassModal, setShowAddClassModal] = useState(false)
@@ -1116,6 +1133,41 @@ export default function DatabasePage() {
         const idCol = base.includes('id') ? ['id'] : []
         const rest  = base.filter(c => c !== 'id')
         cols = [...idCol, TERM_NAME_COL, ...rest]
+      }
+
+      if (v?.joinInvoiceFamily && enrichedRows.length > 0) {
+        const familyIds    = [...new Set(enrichedRows.map(row => row.family_id).filter(Boolean))]
+        const soloIds      = [...new Set(enrichedRows.map(row => row.student_id).filter(Boolean))]
+        const [famRes, soloRes] = await Promise.all([
+          familyIds.length ? supabase.from(T_STUDENTS).select('id, full_name, family_id').in('family_id', familyIds) : { data: [] },
+          soloIds.length   ? supabase.from(T_STUDENTS).select('id, full_name').in('id', soloIds) : { data: [] },
+        ])
+        // Build family_id → display name map
+        const famStudents = famRes.data || []
+        const familyNameMap = {}
+        for (const s of famStudents) {
+          if (!familyNameMap[s.family_id]) familyNameMap[s.family_id] = []
+          familyNameMap[s.family_id].push(s.full_name)
+        }
+        const soloNameMap = Object.fromEntries((soloRes.data || []).map(s => [s.id, s.full_name]))
+        enrichedRows = enrichedRows.map(row => {
+          let name = null
+          if (row.family_id != null) {
+            const names = familyNameMap[row.family_id] || []
+            const lastName = names[0]?.split(' ').pop() ?? ''
+            const firstNames = names.map(n => n.split(' ').slice(0, -1).join(' ') || n)
+            name = firstNames.length <= 1 ? names[0] : `${firstNames.slice(0,-1).join(', ')} & ${firstNames[firstNames.length-1]} ${lastName}`.trim()
+          } else if (row.student_id != null) {
+            name = soloNameMap[row.student_id] ?? null
+          }
+          return { ...row, [INVOICE_FAMILY_COL]: name }
+        })
+        // Place family_name right after term_name (or after id), hide raw IDs
+        const base = cols.filter(c => c !== INVOICE_FAMILY_COL && c !== 'family_id' && c !== 'student_id')
+        const idCol   = base.includes('id') ? ['id'] : []
+        const termCol = base.includes(TERM_NAME_COL) ? [TERM_NAME_COL] : []
+        const rest    = base.filter(c => c !== 'id' && c !== TERM_NAME_COL)
+        cols = [...idCol, ...termCol, INVOICE_FAMILY_COL, ...rest]
       }
 
       if (v?.joinCourseName && r.length > 0) {
@@ -1348,6 +1400,21 @@ export default function DatabasePage() {
     setSaving(false)
   }
 
+  // Dropdown cells: save immediately with the chosen value (avoids stale-closure
+  // bug where onBlur fires before the onChange state update has re-rendered).
+  const handleDropdownSave = async (value) => {
+    if (!editingCell) return
+    const { rowId, col } = editingCell
+    setEditingCell(null); setSaving(true)
+    const newVal = value === '' ? null : value
+    const prevRows = rows
+    setRows(prev => prev.map(r => r[pkCol] === rowId ? { ...r, [col]: newVal } : r))
+    const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
+    const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
+    if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+    setSaving(false)
+  }
+
   const handleCellKeyDown = (e) => {
     if (e.key === 'Enter')  { e.preventDefault(); handleCellSave() }
     if (e.key === 'Escape') { setEditingCell(null) }
@@ -1568,9 +1635,11 @@ export default function DatabasePage() {
       const { data: invoices } = await supabase.from(T_INVOICES).select('*').eq('term_id', invoiceTermId).order('id')
       if (!invoices?.length) { setInvoiceCardsData([]); setLoadingCards(false); return }
 
-      // 2. Term name
-      const { data: termRow } = await supabase.from(T_TERMS).select('id, name').eq('id', invoiceTermId).single()
-      const termName = termRow?.name ?? ''
+      // 2. Term name + dates
+      const { data: termRow } = await supabase.from(T_TERMS).select('id, name, start_date, end_date').eq('id', invoiceTermId).single()
+      const termName      = termRow?.name ?? ''
+      const termStartDate = termRow?.start_date ?? null
+      const termEndDate   = termRow?.end_date   ?? null
 
       // 3. Students
       const familyIds    = [...new Set(invoices.filter(i => i.family_id != null).map(i => i.family_id))]
@@ -1591,10 +1660,10 @@ export default function DatabasePage() {
       const classMap = Object.fromEntries((termClasses || []).map(c => [c.id, c]))
       const termClassIds = (termClasses || []).map(c => c.id)
 
-      // 5. Enrolments
+      // 5. Enrolments (include created_at so we can hide post-invoice enrolments on paid cards)
       let enrolments = []
       if (allStudentIds.length && termClassIds.length) {
-        const { data } = await supabase.from(T_ENROLMENTS).select('student_id, class_id, price').in('student_id', allStudentIds).in('class_id', termClassIds)
+        const { data } = await supabase.from(T_ENROLMENTS).select('student_id, class_id, price, created_at').in('student_id', allStudentIds).in('class_id', termClassIds)
         enrolments = data || []
       }
 
@@ -1624,11 +1693,13 @@ export default function DatabasePage() {
           ? allStudents.filter(s => s.family_id === inv.family_id)
           : allStudents.filter(s => s.id === inv.student_id)
 
+        // For paid invoices with a generated_at stamp, only show enrolments that existed at generation time
+        const genCutoff = inv.generated_at ? new Date(inv.generated_at) : null
         const membersWithEnrols = members.map(s => ({
           ...s,
           enrolments: enrolments
-            .filter(e => e.student_id === s.id)
-            .map(e => ({ label: invoiceClassLabelMap.get(e.class_id) || classMap[e.class_id]?.courses?.course_name || classMap[e.class_id]?.class_name || '—', price: e.price })),
+            .filter(e => e.student_id === s.id && (!genCutoff || new Date(e.created_at) <= genCutoff))
+            .map(e => ({ label: invoiceClassLabelMap.get(e.class_id) || classMap[e.class_id]?.courses?.course_name || classMap[e.class_id]?.class_name || '—', price: e.price, classId: e.class_id })),
         }))
 
         const sharedLast  = members[0]?.full_name?.split(' ').pop() ?? ''
@@ -1648,6 +1719,8 @@ export default function DatabasePage() {
         return {
           ...inv,
           termName,
+          termStartDate,
+          termEndDate,
           displayName: inv.family_id != null ? familyDisplay : (members[0]?.full_name ?? 'Unknown'),
           isFamily: inv.family_id != null,
           members: membersWithEnrols,
@@ -1670,7 +1743,7 @@ export default function DatabasePage() {
     ;(async () => {
       setLoadingStudentCards(true)
       const [{ data: students }, { data: enrolments }, { data: parents }] = await Promise.all([
-        supabase.from(T_STUDENTS).select('id, full_name, email, school, year, gender, phone').order('full_name'),
+        supabase.from(T_STUDENTS).select('id, full_name, email, school, year, gender, phone, status').order('full_name'),
         supabase.from(T_ENROLMENTS).select('student_id'),
         supabase.from(T_PARENTS).select('*'),
       ])
@@ -2775,6 +2848,10 @@ export default function DatabasePage() {
                 <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Class
                 </button>
+              ) : selectedTable === T_ENROLMENTS ? (
+                <button onClick={() => setShowAddEnrolmentModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  <span className="text-sm leading-none">+</span> Add Enrolment
+                </button>
               ) : (
                 <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Row
@@ -2866,6 +2943,7 @@ export default function DatabasePage() {
                                     {s.year && <SDBadge text={`Yr ${s.year}`} cls={yearBadgeColor(s.year)} />}
                                     {enrolCount > 0 && <SDBadge text={`${enrolCount} class${enrolCount === 1 ? '' : 'es'}`} cls="bg-[#DEE7FF] text-[#062E63]" />}
                                     {s.gender && <SDBadge text={s.gender} cls="bg-[#FCE7F3] text-[#9D174D]" />}
+                                    {s.status && s.status !== 'active' && <SDBadge text={s.status} cls={s.status === 'trial' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-gray-100 text-gray-500 border border-gray-200'} />}
                                   </div>
                                   <p className="text-[11px] text-[#2A2035]/55 mt-0.5 truncate">{s.email || '—'}</p>
                                   <div className="flex items-center gap-3 mt-0.5 text-[10px] text-[#2A2035]/40">
@@ -2890,13 +2968,7 @@ export default function DatabasePage() {
                             <div className="flex flex-col items-center justify-center h-full text-center py-16">
                               <div className="w-12 h-12 rounded-2xl bg-[#FEF3C7] flex items-center justify-center text-2xl mb-3">👈</div>
                               <p className="text-sm font-semibold text-[#2A2035]">No student selected</p>
-                              <p className="text-xs text-[#2A2035]/50 mt-1.5 max-w-xs">Click a student on the left to view their guardian contact details.</p>
-                            </div>
-                          ) : !selectedParent ? (
-                            <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                              <div className="w-12 h-12 rounded-2xl bg-[#DEE7FF] flex items-center justify-center text-2xl mb-3">📭</div>
-                              <p className="text-sm font-semibold text-[#2A2035]">No guardian on file</p>
-                              <p className="text-xs text-[#2A2035]/50 mt-1.5 max-w-xs">Guardian details can be added when creating a student.</p>
+                              <p className="text-xs text-[#2A2035]/50 mt-1.5 max-w-xs">Click a student on the left to view their details.</p>
                             </div>
                           ) : (
                             <div className="space-y-4">
@@ -2907,20 +2979,51 @@ export default function DatabasePage() {
                                 {selected.year && <span className="text-[10px] text-[#2A2035]/50 ml-1">· Year {selected.year}</span>}
                                 <span className="ml-auto text-[10px] font-semibold text-[#325099]/60 tracking-wide">linked student</span>
                               </div>
+                              {/* Status selector */}
+                              <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white border border-[#DEE7FF]">
+                                <span className="text-[11px] font-semibold text-[#2A2035]/60">Enrolment status</span>
+                                <select
+                                  value={selected.status || 'active'}
+                                  onChange={async (e) => {
+                                    const newStatus = e.target.value
+                                    const { error } = await supabase.from(T_STUDENTS).update({ status: newStatus }).eq('id', selected.id)
+                                    if (error) { alert(`Failed to update status: ${error.message}`); return }
+                                    setStudentCardsData(prev => prev.map(s => s.id === selected.id ? { ...s, status: newStatus } : s))
+                                  }}
+                                  className="text-[11px] font-bold rounded-lg px-2.5 py-1 border focus:outline-none focus:ring-2 focus:ring-[#325099]/20 cursor-pointer transition"
+                                  style={
+                                    (selected.status || 'active') === 'active' ? { background:'#D1FAE5', color:'#065F46', borderColor:'#6EE7B7' } :
+                                    selected.status === 'trial'                 ? { background:'#FEF3C7', color:'#92400E', borderColor:'#FDE68A' } :
+                                    { background:'#F3F4F6', color:'#6B7280', borderColor:'#D1D5DB' }
+                                  }
+                                >
+                                  <option value="active">Active</option>
+                                  <option value="trial">Trial</option>
+                                  <option value="disenrol">Disenrol</option>
+                                  <option value="quit trial">Quit trial</option>
+                                </select>
+                              </div>
                               {/* Guardian card */}
-                              <div className="rounded-2xl border border-[#DEE7FF] p-5 bg-[#FAFBFF]">
-                                <div className="flex items-start gap-3 mb-4">
-                                  <div className="w-10 h-10 rounded-full bg-[#FEF3C7] flex items-center justify-center text-base font-bold text-[#92400E] shrink-0">{(selectedParent.full_name||'?').charAt(0)}</div>
-                                  <div>
-                                    <p className="text-base font-semibold text-[#2A2035] font-display">{selectedParent.full_name || '—'}</p>
-                                    {selectedParent.relationship && <SDBadge text={selectedParent.relationship} cls="bg-[#FEF3C7] text-[#92400E] mt-0.5" />}
+                              {!selectedParent ? (
+                                <div className="flex items-center gap-3 px-3.5 py-3 rounded-xl border border-dashed border-[#DEE7FF] text-[#2A2035]/40">
+                                  <span className="text-lg">📭</span>
+                                  <span className="text-xs">No guardian on file</span>
+                                </div>
+                              ) : (
+                                <div className="rounded-2xl border border-[#DEE7FF] p-5 bg-[#FAFBFF]">
+                                  <div className="flex items-start gap-3 mb-4">
+                                    <div className="w-10 h-10 rounded-full bg-[#FEF3C7] flex items-center justify-center text-base font-bold text-[#92400E] shrink-0">{(selectedParent.full_name||'?').charAt(0)}</div>
+                                    <div>
+                                      <p className="text-base font-semibold text-[#2A2035] font-display">{selectedParent.full_name || '—'}</p>
+                                      {selectedParent.relationship && <SDBadge text={selectedParent.relationship} cls="bg-[#FEF3C7] text-[#92400E] mt-0.5" />}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-3">
+                                    <SDDetailRow icon="✉️" label="Email" value={selectedParent.email} />
+                                    <SDDetailRow icon="📞" label="Phone" value={selectedParent.phone} />
                                   </div>
                                 </div>
-                                <div className="space-y-3">
-                                  <SDDetailRow icon="✉️" label="Email" value={selectedParent.email} />
-                                  <SDDetailRow icon="📞" label="Phone" value={selectedParent.phone} />
-                                </div>
-                              </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -3086,7 +3189,6 @@ export default function DatabasePage() {
                   const adjTotal = i => Number(i.adjustedTotal != null ? i.adjustedTotal : (i.total || 0))
                   const totalAfterDiscount = invoiceCardsData.reduce((s, i) => s + adjTotal(i), 0)
                   const paidAmt    = invoiceCardsData.filter(i => i.status === 'paid').reduce((s, i) => s + adjTotal(i), 0)
-                  const partialAmt = invoiceCardsData.filter(i => i.status === 'partial').reduce((s, i) => s + adjTotal(i), 0)
                   const unpaidAmt  = invoiceCardsData.filter(i => i.status === 'unpaid').reduce((s, i) => s + adjTotal(i), 0)
                   const fmt = n => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
                   return (
@@ -3117,18 +3219,12 @@ export default function DatabasePage() {
                         </div>
                       </div>
                       {/* Bottom row: payment status breakdown */}
-                      <div className="border-t border-[#F0F4FF] grid grid-cols-3 divide-x divide-[#F0F4FF] bg-[#FAFBFF]">
+                      <div className="border-t border-[#F0F4FF] grid grid-cols-2 divide-x divide-[#F0F4FF] bg-[#FAFBFF]">
                         <div className="px-6 py-2.5 flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-[#059669] shrink-0" />
                           <span className="text-[10px] text-[#2A2035]/50 font-medium">Paid</span>
                           <span className="ml-auto text-[11px] font-bold text-[#065F46] tabular-nums">{fmt(paidAmt)}</span>
                           <span className="text-[10px] text-[#2A2035]/30">({invoiceCardsData.filter(i => i.status === 'paid').length})</span>
-                        </div>
-                        <div className="px-6 py-2.5 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-[#D97706] shrink-0" />
-                          <span className="text-[10px] text-[#2A2035]/50 font-medium">Partial</span>
-                          <span className="ml-auto text-[11px] font-bold text-[#92400E] tabular-nums">{fmt(partialAmt)}</span>
-                          <span className="text-[10px] text-[#2A2035]/30">({invoiceCardsData.filter(i => i.status === 'partial').length})</span>
                         </div>
                         <div className="px-6 py-2.5 flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-[#EF4444] shrink-0" />
@@ -3145,14 +3241,26 @@ export default function DatabasePage() {
                   {invoiceCardsData.map(inv => {
                     const statusColour = inv.status === 'paid'
                       ? { bg: 'bg-[#D1FAE5]', text: 'text-[#065F46]', border: 'border-[#6EE7B7]', dot: 'bg-[#059669]' }
-                      : inv.status === 'partial'
-                      ? { bg: 'bg-[#FEF3C7]', text: 'text-[#92400E]', border: 'border-[#FDE68A]', dot: 'bg-[#D97706]' }
                       : { bg: 'bg-[#FEE2E2]', text: 'text-[#991B1B]', border: 'border-[#FCA5A5]', dot: 'bg-[#EF4444]' }
-                    const nextStatus = inv.status === 'unpaid' ? 'partial' : inv.status === 'partial' ? 'paid' : 'unpaid'
-                    const statusLabels = { unpaid: 'Unpaid', partial: 'Partial', paid: 'Paid' }
+                    const nextStatus = inv.status === 'unpaid' ? 'paid' : 'unpaid'
+                    const statusLabels = { unpaid: 'Unpaid', paid: 'Paid' }
+
+                    const liveSubtotal = inv.members.reduce((sum, m) => sum + m.enrolments.reduce((s, e) => s + Number(e.price ?? 0), 0), 0)
+                    const isStale = Math.abs(liveSubtotal - Number(inv.subtotal)) > 0.01
 
                     return (
                       <div key={inv.id} className="bg-white rounded-2xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-shadow">
+                        {/* Stale warning banner */}
+                        {isStale && (
+                          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200">
+                            <span className="text-amber-500 text-sm">⚠</span>
+                            <p className="text-[11px] text-amber-700 font-medium">
+                              {inv.status === 'paid'
+                                ? 'New enrolments since payment — re-run Generate Invoices to create a new invoice.'
+                                : 'Enrolments have changed — re-run Generate Invoices to update totals.'}
+                            </p>
+                          </div>
+                        )}
                         {/* Card header */}
                         <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-[#F0F4FF]">
                           <div>
@@ -3242,13 +3350,24 @@ export default function DatabasePage() {
                             </div>
                           )}
                         </div>
-                        {/* Add Credit button */}
-                        <div className="px-5 pb-4">
+                        {/* Action buttons */}
+                        <div className="px-5 pb-4 flex flex-col gap-2">
                           <button
                             onClick={() => setCreditModal({ invoiceId: inv.id, members: inv.members })}
                             className="w-full text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg py-1.5 hover:bg-[#F0F4FF] transition"
                           >
                             + Add credit
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm(`Delete invoice for ${inv.displayName}? This cannot be undone.`)) return
+                              const { error } = await supabase.from(T_INVOICES).delete().eq('id', inv.id)
+                              if (error) alert(`Delete failed: ${error.message}`)
+                              else setReloadKey(k => k + 1)
+                            }}
+                            className="w-full text-[11px] font-semibold text-red-400 border border-dashed border-red-200 rounded-lg py-1.5 hover:bg-red-50 transition"
+                          >
+                            Delete invoice
                           </button>
                         </div>
                       </div>
@@ -3273,7 +3392,7 @@ export default function DatabasePage() {
               <div className="flex flex-col items-center justify-center h-full gap-3">
                 <p className="text-4xl">📭</p>
                 <p className="text-sm font-semibold text-[#2A2035]">No rows yet</p>
-                <button onClick={selectedTable === 'classes' ? openAddClassModal : () => setAddingRow(true)} className="px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">{selectedTable === 'classes' ? '+ Add Class' : '+ Add first row'}</button>
+                <button onClick={selectedTable === 'classes' ? openAddClassModal : selectedTable === T_ENROLMENTS ? () => setShowAddEnrolmentModal(true) : () => setAddingRow(true)} className="px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">{selectedTable === 'classes' ? '+ Add Class' : selectedTable === T_ENROLMENTS ? '+ Add Enrolment' : '+ Add first row'}</button>
               </div>
             ) : (
               <table className="text-xs border-separate border-spacing-0" style={{ tableLayout:'fixed', minWidth:'max-content' }}>
@@ -3507,7 +3626,7 @@ export default function DatabasePage() {
                               ) : isEditing ? (
                                 CELL_DROPDOWNS[`${selectedTable}:${col}`]
                                   ? (
-                                    <select ref={editInputRef} value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs cursor-pointer" style={{ width:w }}>
+                                    <select ref={editInputRef} value={editValue} onChange={e => handleDropdownSave(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null) }} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs cursor-pointer" style={{ width:w }}>
                                       <option value="">—</option>
                                       {CELL_DROPDOWNS[`${selectedTable}:${col}`].map(o => <option key={o} value={o}>{o}</option>)}
                                     </select>
@@ -3904,6 +4023,24 @@ export default function DatabasePage() {
           </div>
         </div>
       )}
+
+      {/* ── Top-up Invoice Modal ─────────────────────────────────────────────── */}
+      {topUpModal && (
+        <TopUpInvoiceModal
+          inv={topUpModal}
+          onClose={() => setTopUpModal(null)}
+          onCreated={() => { setTopUpModal(null); setReloadKey(k => k + 1) }}
+        />
+      )}
+
+      {/* ── Add Enrolment Modal ──────────────────────────────────────────────── */}
+      {showAddEnrolmentModal && (
+        <AddEnrolmentModal
+          allTerms={allTerms}
+          onClose={() => setShowAddEnrolmentModal(false)}
+          onCreated={() => { setShowAddEnrolmentModal(false); setReloadKey(k => k + 1) }}
+        />
+      )}
     </div>
   )
 }
@@ -4035,6 +4172,419 @@ function ReferralModal({ students, onClose, onSave }) {
           <button onClick={handleSubmit} disabled={saving || !referringId || !referredId || referringId === referredId}
             className="px-5 py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40">
             {saving ? 'Logging…' : 'Log Referral'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Add Enrolment Modal ───────────────────────────────────────────────────────
+const DAY_ORDER_ENR = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+
+function isoDateEnr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+function AddEnrolmentModal({ allTerms, onClose, onCreated }) {
+  const [students, setStudents]   = useState([])
+  const [classes,  setClasses]    = useState([])
+  const [studentSearch, setStudentSearch] = useState('')
+  const [classSearch,   setClassSearch]   = useState('')
+  const [studentId, setStudentId] = useState('')
+  const [classId,   setClassId]   = useState('')
+  const [status,    setStatus]    = useState('active')
+  const [startWeek, setStartWeek] = useState(1)
+  const [trialStartDate, setTrialStartDate] = useState(null)
+  const [trialLoading,   setTrialLoading]   = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState('')
+
+  useEffect(() => {
+    supabase.from('students').select('id, full_name, school, year').order('full_name')
+      .then(({ data }) => setStudents(data || []))
+    // Join courses to get course_price
+    supabase.from('classes').select('id, class_name, day_of_week, start_time, end_time, courses(course_price)').order('class_name')
+      .then(({ data }) => setClasses(data || []))
+  }, [])
+
+  useEffect(() => {
+    if (status !== 'trial' || !classId) { setTrialStartDate(null); return }
+    const cls = classes.find(c => c.id === classId)
+    if (!cls) return
+    setTrialLoading(true)
+    const today = isoDateEnr(new Date())
+    supabase
+      .from('lessons')
+      .select('lesson_date')
+      .eq('class_id', classId)
+      .gte('lesson_date', today)
+      .order('lesson_date', { ascending: true })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setTrialStartDate(data[0].lesson_date)
+          setTrialLoading(false)
+          return
+        }
+        const days = normalizeDays(cls.day_of_week)
+        if (days.length === 0 || !allTerms?.length) { setTrialStartDate(null); setTrialLoading(false); return }
+        const sortedTerms = [...allTerms].sort((a, b) => a.start_date.localeCompare(b.start_date))
+        let nextDate = null
+        for (const term of sortedTerms) {
+          if (!term.start_date || !term.end_date) continue
+          const startMs = Math.max(new Date(term.start_date + 'T00:00:00').getTime(), new Date(today + 'T00:00:00').getTime())
+          const cursor = new Date(startMs)
+          const termEnd = new Date(term.end_date + 'T00:00:00')
+          while (cursor <= termEnd) {
+            const curDay = DAY_ORDER_ENR[(cursor.getDay() + 6) % 7]
+            if (days.includes(curDay)) { nextDate = isoDateEnr(cursor); break }
+            cursor.setDate(cursor.getDate() + 1)
+          }
+          if (nextDate) break
+        }
+        setTrialStartDate(nextDate)
+        setTrialLoading(false)
+      })
+  }, [classId, status, classes, allTerms])
+
+  const filteredStudents = students.filter(s =>
+    !studentSearch || s.full_name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+    (s.school || '').toLowerCase().includes(studentSearch.toLowerCase())
+  )
+  const filteredClasses = classes.filter(c =>
+    !classSearch || (c.class_name || '').toLowerCase().includes(classSearch.toLowerCase())
+  )
+
+  const fmtDate = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+  const fmtTime = (t) => {
+    if (!t) return ''
+    const [h, m] = t.split(':')
+    let hr = parseInt(h); const mn = (m||'00').padStart(2,'0')
+    const ap = (hr >= 1 && hr <= 7) ? 'pm' : (hr >= 8 && hr <= 11) ? 'am' : 'pm'
+    return `${hr}:${mn}${ap}`
+  }
+
+  const selectedStudent = students.find(s => s.id === studentId)
+  const selectedClass   = classes.find(c => c.id === classId)
+  const coursePrice     = selectedClass ? Number(selectedClass.courses?.course_price ?? 0) : 0
+  const weeksRemaining  = Math.max(1, 11 - startWeek)
+  const proRatedPrice   = coursePrice > 0 ? Math.round(coursePrice * weeksRemaining / 10 * 100) / 100 : null
+
+  const canSubmit = studentId && classId && (status !== 'trial' || trialStartDate)
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return
+    setSaving(true); setError('')
+    const payload = {
+      student_id: studentId,
+      class_id:   classId,
+      status,
+      price: proRatedPrice,
+      trial_start_date: status === 'trial' ? trialStartDate : null,
+    }
+    const { error: err } = await supabase.from('enrolments').insert(payload)
+    if (err) { setError(err.message); setSaving(false); return }
+    onCreated()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
+          <h2 className="text-base font-bold text-[#2A2035] font-display">Add Enrolment</h2>
+          <p className="text-xs text-[#2A2035]/50 mt-0.5">Link an existing student to an existing class.</p>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-5 flex flex-col gap-5 flex-1">
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Student</label>
+            {selectedStudent ? (
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-[#325099] bg-[#EEF4FF]">
+                <div>
+                  <p className="text-sm font-semibold text-[#2A2035]">{selectedStudent.full_name}</p>
+                  <p className="text-[11px] text-[#2A2035]/50">{selectedStudent.school}{selectedStudent.year ? ` · Year ${selectedStudent.year}` : ''}</p>
+                </div>
+                <button onClick={() => { setStudentId(''); setStudentSearch('') }} className="text-xs text-[#325099] hover:underline">Change</button>
+              </div>
+            ) : (
+              <>
+                <input type="text" placeholder="Search by name or school…" value={studentSearch} onChange={e => setStudentSearch(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-[#DEE7FF] text-xs text-[#2A2035] placeholder-[#2A2035]/30 focus:outline-none focus:border-[#325099] mb-1.5" />
+                <div className="border border-[#DEE7FF] rounded-lg overflow-hidden max-h-36 overflow-y-auto">
+                  {filteredStudents.length === 0
+                    ? <p className="px-3 py-2 text-xs text-[#2A2035]/40 italic">No students found</p>
+                    : filteredStudents.map(s => (
+                      <button key={s.id} onClick={() => setStudentId(s.id)}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-[#EEF4FF] transition border-b border-[#DEE7FF] last:border-0">
+                        <span className="font-semibold text-[#2A2035]">{s.full_name}</span>
+                        <span className="text-[#2A2035]/50 ml-2">{s.school}{s.year ? ` · Yr ${s.year}` : ''}</span>
+                      </button>
+                    ))
+                  }
+                </div>
+              </>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Class</label>
+            {selectedClass ? (
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-[#325099] bg-[#EEF4FF]">
+                <div>
+                  <p className="text-sm font-semibold text-[#2A2035]">{selectedClass.class_name}</p>
+                  <p className="text-[11px] text-[#2A2035]/50">{selectedClass.day_of_week} · {fmtTime(selectedClass.start_time)}–{fmtTime(selectedClass.end_time)}</p>
+                </div>
+                <button onClick={() => { setClassId(''); setClassSearch('') }} className="text-xs text-[#325099] hover:underline">Change</button>
+              </div>
+            ) : (
+              <>
+                <input type="text" placeholder="Search by class name…" value={classSearch} onChange={e => setClassSearch(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-[#DEE7FF] text-xs text-[#2A2035] placeholder-[#2A2035]/30 focus:outline-none focus:border-[#325099] mb-1.5" />
+                <div className="border border-[#DEE7FF] rounded-lg overflow-hidden max-h-36 overflow-y-auto">
+                  {filteredClasses.length === 0
+                    ? <p className="px-3 py-2 text-xs text-[#2A2035]/40 italic">No classes found</p>
+                    : filteredClasses.map(c => (
+                      <button key={c.id} onClick={() => setClassId(c.id)}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-[#EEF4FF] transition border-b border-[#DEE7FF] last:border-0">
+                        <span className="font-semibold text-[#2A2035]">{c.class_name}</span>
+                        <span className="text-[#2A2035]/50 ml-2">{c.day_of_week} · {fmtTime(c.start_time)}–{fmtTime(c.end_time)}</span>
+                      </button>
+                    ))
+                  }
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-[#DEE7FF] text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                <option value="active">Active</option>
+                <option value="trial">Trial</option>
+                <option value="trial complete">Trial complete</option>
+                <option value="disenrol">Disenrol</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Start week</label>
+              <select value={startWeek} onChange={e => setStartWeek(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-lg border border-[#DEE7FF] text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                {[1,2,3,4,5,6,7,8,9,10].map(w => (
+                  <option key={w} value={w}>Week {w}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Pro-rated price preview */}
+          {classId && (
+            <div className={`rounded-xl px-4 py-3 text-xs ${proRatedPrice !== null ? 'bg-[#F0FDF4] border border-[#A7F3D0]' : 'bg-[#F8FAFF] border border-[#DEE7FF]'}`}>
+              <p className="font-bold text-[10px] tracking-widest uppercase text-[#065F46] mb-1">Pro-rated price</p>
+              {proRatedPrice !== null ? (
+                <>
+                  <p className="font-semibold text-[#2A2035] text-sm">${proRatedPrice.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  <p className="text-[#2A2035]/50 mt-0.5">
+                    ${coursePrice.toLocaleString()} full price × {weeksRemaining}/10 weeks (starting Week {startWeek})
+                  </p>
+                </>
+              ) : (
+                <p className="text-[#2A2035]/40 italic">No course price set — price will be left blank.</p>
+              )}
+            </div>
+          )}
+
+          {status === 'trial' && classId && (
+            <div className={`rounded-xl px-4 py-3 text-xs ${trialStartDate ? 'bg-[#FFFBEB] border border-[#FDE68A]' : 'bg-[#F8FAFF] border border-[#DEE7FF]'}`}>
+              <p className="font-bold text-[10px] tracking-widest uppercase text-[#92400E] mb-1">Trial start date</p>
+              {trialLoading ? (
+                <p className="text-[#2A2035]/50 italic">Finding next lesson…</p>
+              ) : trialStartDate ? (
+                <>
+                  <p className="font-semibold text-[#2A2035]">{fmtDate(trialStartDate)}</p>
+                  <p className="text-[#2A2035]/50 mt-0.5">Trial covers the next 2 lessons from this date (inclusive).</p>
+                </>
+              ) : (
+                <p className="text-[#B23A3A]">No upcoming lessons found for this class. Check term dates.</p>
+              )}
+            </div>
+          )}
+
+          {error && <p className="text-xs text-[#B23A3A] rounded-lg bg-red-50 border border-red-200 px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving || !canSubmit}
+            className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+            {saving ? 'Adding…' : 'Add Enrolment'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── New Invoice Modal ─────────────────────────────────────────────────────────
+function TopUpInvoiceModal({ inv, onClose, onCreated }) {
+  const [enrolments, setEnrolments] = useState([])   // new enrolments only (added after invoice)
+  const [checked,    setChecked]    = useState({})
+  const [loading,    setLoading]    = useState(true)
+  const [saving,     setSaving]     = useState(false)
+  const [error,      setError]      = useState('')
+
+  const memberIds = inv.members.map(m => m.id)
+  const genCutoff = inv.generated_at ? new Date(inv.generated_at) : null
+
+  useEffect(() => {
+    if (!memberIds.length || !inv.term_id) { setLoading(false); return }
+    ;(async () => {
+      const { data: termClasses } = await supabase
+        .from(T_CLASSES).select('id, class_name').eq('term_id', inv.term_id)
+      const termClassIds = (termClasses || []).map(c => c.id)
+      if (!termClassIds.length) { setLoading(false); return }
+
+      const classNameMap = Object.fromEntries((termClasses || []).map(c => [c.id, c.class_name]))
+
+      const { data: enrRows } = await supabase
+        .from(T_ENROLMENTS)
+        .select('id, student_id, class_id, price, created_at')
+        .in('student_id', memberIds)
+        .in('class_id', termClassIds)
+        .order('created_at', { ascending: true })
+
+      const allRows = (enrRows || []).map(e => ({
+        key:         `${e.student_id}__${e.class_id}`,
+        enrolmentId: e.id,
+        studentId:   e.student_id,
+        studentName: inv.members.find(m => m.id === e.student_id)?.full_name ?? '—',
+        classId:     e.class_id,
+        className:   classNameMap[e.class_id] ?? '—',
+        price:       Number(e.price ?? 0),
+        createdAt:   e.created_at,
+      }))
+
+      // Show all enrolments; pre-tick those added after the invoice was last generated
+      const newRows = allRows
+      const initChecked = Object.fromEntries(newRows.map(r => [r.key, !genCutoff || new Date(r.createdAt) > genCutoff]))
+
+      setEnrolments(newRows)
+      setChecked(initChecked)
+      setLoading(false)
+    })()
+  }, [])
+
+  const checkedRows = enrolments.filter(e => checked[e.key])
+
+  // Multi-course discount: -$50 per student being topped up who already had enrolments at invoice generation time
+  const studentsWithDiscount = [...new Set(checkedRows.map(e => e.studentId))].filter(id =>
+    inv.members.find(m => m.id === id)?.enrolments?.length > 0
+  )
+  const multiCourseDiscount  = studentsWithDiscount.length * 50
+
+  // Price is already pro-rated on the enrolment — no further pro-rating needed
+  const subtotal = checkedRows.reduce((s, e) => s + e.price, 0)
+  const total    = Math.max(0, subtotal - multiCourseDiscount)
+
+  const fmt = n => `$${Number(n).toFixed(2).replace(/\.00$/, '')}`
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+
+  const handleSubmit = async () => {
+    if (!checkedRows.length) return
+    setSaving(true); setError('')
+    const payload = {
+      term_id:              inv.term_id,
+      family_id:            inv.family_id   ?? null,
+      student_id:           inv.student_id  ?? null,
+      subtotal:             subtotal,
+      sibling_discount:     0,
+      multi_course_discount: multiCourseDiscount,
+      total:                total,
+      status:               'unpaid',
+    }
+    const { error: err } = await supabase.from(T_INVOICES).insert(payload)
+    if (err) { setError(err.message); setSaving(false); return }
+    onCreated()
+  }
+
+  // Group enrolments by student for display
+  const byStudent = {}
+  for (const e of enrolments) {
+    if (!byStudent[e.studentId]) byStudent[e.studentId] = { name: e.studentName, rows: [] }
+    byStudent[e.studentId].rows.push(e)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-[#E8D5FF] bg-gradient-to-r from-[#FAF5FF] to-[#F3E8FF]">
+          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#7C3AED]/60 mb-0.5">New invoice</p>
+          <h2 className="text-base font-bold text-[#2A2035] font-display">{inv.displayName} — {inv.termName}</h2>
+          <p className="text-[11px] text-[#2A2035]/50 mt-0.5">Select enrolments to include. New enrolments are pre-ticked. Prices are already pro-rated.</p>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-5 flex flex-col gap-5 flex-1">
+          {loading ? (
+            <p className="text-sm text-[#2A2035]/50 italic text-center py-4">Loading enrolments…</p>
+          ) : enrolments.length === 0 ? (
+            <p className="text-sm text-[#2A2035]/50 italic text-center py-4">No enrolments found for this family in this term.</p>
+          ) : (
+            <>
+              {Object.values(byStudent).map(({ name, rows }) => (
+                <div key={name}>
+                  <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-2">{name}</p>
+                  <div className="space-y-1.5">
+                    {rows.map(e => {
+                      const isChecked = !!checked[e.key]
+                      return (
+                        <label key={e.key} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition ${isChecked ? 'border-[#7C3AED] bg-[#FAF5FF]' : 'border-[#DEE7FF] bg-white hover:bg-[#F8FAFF]'}`}>
+                          <input type="checkbox" checked={isChecked} onChange={() => setChecked(p => ({ ...p, [e.key]: !p[e.key] }))} className="accent-[#7C3AED] w-3.5 h-3.5 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-[#2A2035]">{e.className}</p>
+                            <p className="text-[10px] text-[#2A2035]/50">Added {fmtDate(e.createdAt)}</p>
+                          </div>
+                          <p className="text-xs font-bold text-[#7C3AED] shrink-0">{fmt(e.price)}</p>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              {/* Totals */}
+              {checkedRows.length > 0 && (
+                <div className="rounded-xl border border-[#E8D5FF] bg-[#FAF5FF] px-4 py-3 space-y-1.5">
+                  <div className="flex justify-between text-xs text-[#2A2035]/60">
+                    <span>Subtotal</span>
+                    <span className="tabular-nums font-semibold">{fmt(subtotal)}</span>
+                  </div>
+                  {multiCourseDiscount > 0 && (
+                    <div className="flex justify-between text-xs text-[#7C3AED]">
+                      <span>Multi-course discount ({studentsWithDiscount.length}× −$50)</span>
+                      <span className="tabular-nums">−{fmt(multiCourseDiscount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm font-bold text-[#2A2035] pt-1.5 border-t border-[#E8D5FF]">
+                    <span>Total</span>
+                    <span className="tabular-nums text-[#7C3AED]">{fmt(total)}</span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {error && <p className="text-xs text-[#B23A3A] bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-6 py-4 border-t border-[#E8D5FF] bg-[#FAF5FF] flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving || !checkedRows.length}
+            className="px-4 py-2 text-xs font-semibold text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40 disabled:cursor-not-allowed">
+            {saving ? 'Creating…' : `Create invoice (${fmt(total)})`}
           </button>
         </div>
       </div>
