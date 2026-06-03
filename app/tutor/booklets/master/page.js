@@ -257,6 +257,7 @@ function FileCell({ booklet, type, accentColor, accentBg, onUpdated }) {
 const TERMS = [1, 2, 3, 4]
 const INP   = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
+
 // ── Booklet Form Modal (add + edit) ──────────────────────────────────────────
 function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], onClose, onSaved }) {
   const isEdit = !!booklet
@@ -529,6 +530,7 @@ export default function MasterDatabasePage() {
 
   useEffect(() => { if (staff) loadTopicBank() }, [staff, loadTopicBank])
 
+
   const handleBookletUpdated = (updated) => {
     setBooklets(bs => bs.map(b => b.id === updated.id ? updated : b))
   }
@@ -580,11 +582,11 @@ export default function MasterDatabasePage() {
           <div>
             <Link href="/tutor/booklets"
               className="text-xs font-semibold text-[#325099]/50 hover:text-[#325099] transition block mb-1">
-              ← Booklet Library
+              ← Curriculum
             </Link>
             <h1 className="text-2xl font-bold text-[#062E63]">Master Database</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">
-              {booklets.length} booklet{booklets.length !== 1 ? 's' : ''} total · click a topic to edit · hover a file to remove it
+              {booklets.length} booklet{booklets.length !== 1 ? 's' : ''} total
             </p>
           </div>
           <div className="flex items-center gap-3 mt-2">
