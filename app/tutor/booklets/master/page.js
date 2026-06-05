@@ -6,8 +6,29 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 
-const YEARS    = [5, 6, 7, 8, 9, 10, 11, 12]
-const SUBJECTS = ['Maths', 'English']
+const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
+
+const SUBJECTS_BY_YEAR = {
+  11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
+  12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
+}
+const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
+
+const SUBJECT_CODE = {
+  'Maths': 'M', 'English': 'E',
+  'Standard Maths': 'MS', 'Adv Maths': 'MA',
+  'Ext 1 Maths': 'M1', 'Ext 2 Maths': 'M2',
+  'Chemistry': 'C', 'Physics': 'P',
+}
+const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
+const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
+const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry' || s === 'Physics' ? '#F0FDF4' : '#F5F3FF'
+
+const bookletLabel = (b) => {
+  if (!b?.year) return b?.booklet_name ?? ''
+  const code = SUBJECT_CODE[b.subject] || (b.subject || '')[0] || ''
+  return `${b.year}.${code}. ${b.booklet_name}`
+}
 
 // ── Manage Topics Panel ───────────────────────────────────────────────────────
 function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTopicsChanged }) {
@@ -149,6 +170,123 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
   )
 }
 
+// ── Manage Skills Panel ───────────────────────────────────────────────────────
+function ManageSkillsPanel({ year, subject, accentColor, accentBg, onClose, onSkillsChanged }) {
+  const [skills,     setSkills]     = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [newName,    setNewName]    = useState('')
+  const [adding,     setAdding]     = useState(false)
+  const [renamingId, setRenamingId] = useState(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [deletingId,  setDeletingId]  = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase.from('skills').select('id, name').eq('year', year).eq('subject', subject).order('name')
+    setSkills(data || [])
+    setLoading(false)
+  }, [year, subject])
+
+  useEffect(() => { load() }, [load])
+
+  const handleAdd = async () => {
+    const name = newName.trim()
+    if (!name) return
+    setAdding(true)
+    const { data, error } = await supabase.from('skills').insert({ year, subject, name }).select().single()
+    if (!error && data) setSkills(s => [...s, data].sort((a, b) => a.name.localeCompare(b.name)))
+    setNewName(''); setAdding(false)
+    onSkillsChanged()
+  }
+
+  const handleRename = async (id) => {
+    const name = renameDraft.trim()
+    if (!name) return
+    const oldName = skills.find(s => s.id === id)?.name
+    const { error } = await supabase.from('skills').update({ name }).eq('id', id)
+    if (!error) {
+      await supabase.from('booklets').update({ skill: name }).eq('year', year).eq('subject', subject).eq('skill', oldName)
+      setSkills(s => s.map(x => x.id === id ? { ...x, name } : x).sort((a, b) => a.name.localeCompare(b.name)))
+      onSkillsChanged()
+    }
+    setRenamingId(null)
+  }
+
+  const handleDelete = async (id) => {
+    if (deletingId !== id) { setDeletingId(id); return }
+    const name = skills.find(s => s.id === id)?.name
+    await supabase.from('skills').delete().eq('id', id)
+    await supabase.from('booklets').update({ skill: null }).eq('year', year).eq('subject', subject).eq('skill', name)
+    setSkills(s => s.filter(x => x.id !== id))
+    setDeletingId(null)
+    onSkillsChanged()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-end bg-black/20 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white w-full sm:w-80 sm:h-full sm:max-h-screen h-[70vh] rounded-t-2xl sm:rounded-none shadow-2xl flex flex-col border-l border-[#E8EDF8]"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#F0F4FF]">
+          <div>
+            <p className="text-xs font-bold text-[#062E63]">Skill Bank</p>
+            <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} · {subject}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full text-[#2A2035]/30 hover:bg-[#F0F4FF] transition text-base">×</button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-4 py-3">
+          {loading ? (
+            <p className="text-xs text-[#2A2035]/30 animate-pulse text-center py-6">Loading…</p>
+          ) : skills.length === 0 ? (
+            <p className="text-xs text-[#2A2035]/30 text-center py-6 italic">No skills yet for this year/subject.</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {skills.map(s => (
+                <div key={s.id} className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-[#F8FAFF] group">
+                  {renamingId === s.id ? (
+                    <>
+                      <input autoFocus value={renameDraft} onChange={e => setRenameDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleRename(s.id); if (e.key === 'Escape') setRenamingId(null) }}
+                        className="flex-1 border border-[#325099] rounded px-2 py-1 text-xs focus:outline-none" />
+                      <button onClick={() => handleRename(s.id)} className="text-[10px] font-bold text-[#059669] shrink-0">✓</button>
+                      <button onClick={() => setRenamingId(null)} className="text-[10px] font-bold text-[#2A2035]/30 hover:text-red-400 shrink-0">✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-xs font-medium text-[#2A2035] truncate">{s.name}</span>
+                      <button onClick={() => { setRenamingId(s.id); setRenameDraft(s.name) }}
+                        className="text-[9px] font-semibold opacity-0 group-hover:opacity-100 transition" style={{ color: accentColor }}>Rename</button>
+                      <button onClick={() => handleDelete(s.id)}
+                        className={`text-[9px] font-semibold opacity-0 group-hover:opacity-100 transition ${deletingId === s.id ? 'text-red-500 opacity-100' : 'text-[#2A2035]/30'}`}
+                        title={deletingId === s.id ? 'Click again to confirm' : 'Delete skill'}>
+                        {deletingId === s.id ? 'Confirm?' : 'Delete'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-[#F0F4FF]">
+          <div className="flex gap-2">
+            <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+              placeholder="New skill name…"
+              className="flex-1 border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white" />
+            <button onClick={handleAdd} disabled={adding || !newName.trim()}
+              className="px-3 py-2 text-xs font-bold text-white rounded-lg transition disabled:opacity-40"
+              style={{ background: accentColor }}>
+              {adding ? '…' : 'Add'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Inline file upload cell ───────────────────────────────────────────────────
 function FileCell({ booklet, type, accentColor, accentBg, onUpdated }) {
   const isPdf  = type === 'pdf'
@@ -259,13 +397,14 @@ const INP   = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-
 
 
 // ── Booklet Form Modal (add + edit) ──────────────────────────────────────────
-function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], onClose, onSaved }) {
+function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], skillBank = [], onClose, onSaved }) {
   const isEdit = !!booklet
   const [form, setForm] = useState({
     booklet_name: booklet?.booklet_name ?? '',
     year:         booklet?.year         ?? defaultYear,
     subject:      booklet?.subject      ?? defaultSubject,
     topic:        booklet?.topic        ?? '',
+    skill:        booklet?.skill        ?? '',
     term_number:  booklet?.term_number  ?? '',
     week:         booklet?.week         ?? '',
     notes:        booklet?.notes        ?? '',
@@ -331,6 +470,7 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
         year:           Number(form.year),
         subject:        form.subject,
         topic:          form.topic.trim() || null,
+        skill:          form.skill.trim() || null,
         term_number:    form.term_number !== '' ? Number(form.term_number) : null,
         week:           form.week        !== '' ? Number(form.week)        : null,
         notes:          form.notes.trim() || null,
@@ -378,7 +518,7 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
             <div>
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</label>
               <select value={form.subject} onChange={set('subject')} className={INP}>
-                {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                {getSubjects(Number(form.year)).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
@@ -392,6 +532,18 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
             </select>
             {topicBank.length === 0 && (
               <p className="text-[10px] text-[#2A2035]/40 mt-1">No topics in the bank yet for this year/subject. Add some via the 🏷 Topics button.</p>
+            )}
+          </div>
+
+          {/* Skill */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Skill <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
+            <select value={form.skill} onChange={set('skill')} className={INP}>
+              <option value="">— No skill —</option>
+              {skillBank.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+            {skillBank.length === 0 && (
+              <p className="text-[10px] text-[#2A2035]/40 mt-1">No skills in the bank yet for this year/subject. Add some via the 🎯 Skills button.</p>
             )}
           </div>
 
@@ -495,9 +647,13 @@ export default function MasterDatabasePage() {
 
   const [editingTopic,   setEditingTopic]   = useState(null)
   const [topicDraft,     setTopicDraft]     = useState('')
+  const [editingSkill,   setEditingSkill]   = useState(null)
+  const [skillDraft,     setSkillDraft]     = useState('')
   const [editingBooklet, setEditingBooklet] = useState(null)
   const [showTopics,     setShowTopics]     = useState(false)
-  const [topicBank,      setTopicBank]      = useState([]) // topics for active year+subject
+  const [showSkills,     setShowSkills]     = useState(false)
+  const [topicBank,      setTopicBank]      = useState([])
+  const [skillBank,      setSkillBank]      = useState([])
 
   useEffect(() => {
     getAuthProfile().then(({ user, profile }) => {
@@ -511,7 +667,7 @@ export default function MasterDatabasePage() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, topic, term_number, week, notes, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
+      .select('id, booklet_name, year, subject, topic, skill, term_number, week, notes, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
       .order('topic', { nullsFirst: false })
       .order('booklet_name')
     setBooklets(data || [])
@@ -519,6 +675,12 @@ export default function MasterDatabasePage() {
   }, [])
 
   useEffect(() => { if (staff) load() }, [staff, load])
+
+  // Reset activeSub when year changes if subject isn't valid for new year
+  useEffect(() => {
+    const subjects = getSubjects(activeYear)
+    if (!subjects.includes(activeSub)) setActiveSub(subjects[0])
+  }, [activeYear])
 
   const loadTopicBank = useCallback(async () => {
     const { data } = await supabase
@@ -528,7 +690,16 @@ export default function MasterDatabasePage() {
     setTopicBank(data || [])
   }, [activeYear, activeSub])
 
+  const loadSkillBank = useCallback(async () => {
+    const { data } = await supabase
+      .from('skills').select('id, name')
+      .eq('year', activeYear).eq('subject', activeSub)
+      .order('name')
+    setSkillBank(data || [])
+  }, [activeYear, activeSub])
+
   useEffect(() => { if (staff) loadTopicBank() }, [staff, loadTopicBank])
+  useEffect(() => { if (staff) loadSkillBank() }, [staff, loadSkillBank])
 
 
   const handleBookletUpdated = (updated) => {
@@ -542,6 +713,13 @@ export default function MasterDatabasePage() {
     setEditingTopic(null)
   }
 
+  const saveSkill = async (id, skill) => {
+    const val = skill.trim() || null
+    await supabase.from('booklets').update({ skill: val }).eq('id', id)
+    setBooklets(bs => bs.map(b => b.id === id ? { ...b, skill: val } : b))
+    setEditingSkill(null)
+  }
+
   const tabBooklets = booklets.filter(b => {
     if (b.year !== activeYear || b.subject !== activeSub) return false
     if (search.trim()) {
@@ -549,6 +727,7 @@ export default function MasterDatabasePage() {
       return (
         b.booklet_name?.toLowerCase().includes(q) ||
         b.topic?.toLowerCase().includes(q) ||
+        b.skill?.toLowerCase().includes(q) ||
         b.notes?.toLowerCase().includes(q)
       )
     }
@@ -567,8 +746,8 @@ export default function MasterDatabasePage() {
     return a.localeCompare(b)
   })
 
-  const accentColor = activeSub === 'Maths' ? '#325099' : '#7C3AED'
-  const accentBg    = activeSub === 'Maths' ? '#EEF4FF'  : '#F5F3FF'
+  const accentColor = getAccentColor(activeSub)
+  const accentBg    = getAccentBg(activeSub)
 
   if (!staff) return null
 
@@ -604,6 +783,12 @@ export default function MasterDatabasePage() {
               🏷 Topics
             </button>
             <button
+              onClick={() => setShowSkills(true)}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap text-[#325099]"
+            >
+              🎯 Skills
+            </button>
+            <button
               onClick={() => setShowAdd(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-xl hover:bg-[#062E63] transition whitespace-nowrap"
             >
@@ -627,8 +812,8 @@ export default function MasterDatabasePage() {
 
       <div className="max-w-7xl mx-auto px-6 md:px-10 py-6">
         {/* Subject tabs */}
-        <div className="flex gap-2 mb-7">
-          {SUBJECTS.map(s => (
+        <div className="flex gap-2 mb-7 flex-wrap">
+          {getSubjects(activeYear).map(s => (
             <button key={s} onClick={() => setActiveSub(s)}
               className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
                 activeSub === s ? 'text-white border-transparent' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -673,6 +858,7 @@ export default function MasterDatabasePage() {
                           <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-16">Term</th>
                           <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-14">Week</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Topic</th>
+                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Skill</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">PDFs</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#0F766E]/60">Word Docs</th>
                           <th className="px-4 py-3 w-12"></th>
@@ -682,7 +868,7 @@ export default function MasterDatabasePage() {
                         {bks.map(b => (
                           <tr key={b.id} className="border-b border-[#F0F4FF] last:border-0 hover:bg-[#F8FAFF] transition-colors">
                             <td className="px-5 py-3 font-semibold text-[#2A2035]">
-                              <div>{b.booklet_name}</div>
+                              <div>{bookletLabel(b)}</div>
                               {b.notes && <div className="text-[10px] text-[#2A2035]/40 mt-0.5 font-normal">{b.notes}</div>}
                             </td>
                             <td className="px-4 py-3 text-[#2A2035]/50">{b.term_number ? `T${b.term_number}` : '—'}</td>
@@ -714,6 +900,36 @@ export default function MasterDatabasePage() {
                                   }`}
                                 >
                                   {b.topic || 'set topic…'}
+                                </button>
+                              )}
+                            </td>
+
+                            {/* Inline skill edit */}
+                            <td className="px-5 py-3">
+                              {editingSkill === b.id ? (
+                                <div className="flex items-center gap-1">
+                                  <select
+                                    autoFocus
+                                    value={skillDraft}
+                                    onChange={e => setSkillDraft(e.target.value)}
+                                    className="w-full border border-[#325099] rounded px-2 py-1 text-xs focus:outline-none bg-white"
+                                  >
+                                    <option value="">— No skill —</option>
+                                    {skillBank.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                  </select>
+                                  <button onClick={() => saveSkill(b.id, skillDraft)}
+                                    className="text-[10px] font-bold text-[#059669] hover:text-[#065F46] shrink-0">✓</button>
+                                  <button onClick={() => setEditingSkill(null)}
+                                    className="text-[10px] font-bold text-[#2A2035]/30 hover:text-red-400 shrink-0">✕</button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setEditingSkill(b.id); setSkillDraft(b.skill || '') }}
+                                  className={`text-left hover:underline transition truncate max-w-[120px] block ${
+                                    b.skill ? 'text-[#2A2035]/60' : 'text-[#2A2035]/20 italic'
+                                  }`}
+                                >
+                                  {b.skill || 'set skill…'}
                                 </button>
                               )}
                             </td>
@@ -773,12 +989,24 @@ export default function MasterDatabasePage() {
         />
       )}
 
+      {showSkills && (
+        <ManageSkillsPanel
+          year={activeYear}
+          subject={activeSub}
+          accentColor={accentColor}
+          accentBg={accentBg}
+          onClose={() => setShowSkills(false)}
+          onSkillsChanged={() => { loadSkillBank(); load() }}
+        />
+      )}
+
       {showAdd && (
         <BookletFormModal
           booklet={null}
           defaultYear={activeYear}
           defaultSubject={activeSub}
           topicBank={topicBank}
+          skillBank={skillBank}
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); load() }}
         />
@@ -790,6 +1018,7 @@ export default function MasterDatabasePage() {
           defaultYear={activeYear}
           defaultSubject={activeSub}
           topicBank={topicBank}
+          skillBank={skillBank}
           onClose={() => setEditingBooklet(null)}
           onSaved={() => { setEditingBooklet(null); load() }}
         />

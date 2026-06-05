@@ -6,6 +6,28 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 
+const SUBJECTS_BY_YEAR = {
+  11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
+  12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
+}
+const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
+
+const SUBJECT_CODE = {
+  'Maths': 'M', 'English': 'E',
+  'Standard Maths': 'MS', 'Adv Maths': 'MA',
+  'Ext 1 Maths': 'M1', 'Ext 2 Maths': 'M2',
+  'Chemistry': 'C', 'Physics': 'P',
+}
+const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
+const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
+const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry' || s === 'Physics' ? '#F0FDF4' : '#F5F3FF'
+
+const bookletLabel = (b) => {
+  if (!b?.year) return b?.booklet_name ?? ''
+  const code = SUBJECT_CODE[b.subject] || (b.subject || '')[0] || ''
+  return `${b.year}.${code}. ${b.booklet_name}`
+}
+
 // ── Class Assign Modal ────────────────────────────────────────────────────────
 function ClassAssignModal({ classId, className, year, subject, term, week, accentColor, accentBg, onClose, onAssigned }) {
   const [booklets, setBooklets] = useState([])
@@ -65,7 +87,7 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
                   <button key={b.id} onClick={() => handleAssign(b)} disabled={!!saving}
                     className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[#062E63] truncate">{b.booklet_name}</p>
+                      <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
                       {b.topic && <p className="text-[10px] font-medium mt-0.5" style={{ color: accentColor }}>{b.topic}</p>}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -140,7 +162,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                       <div className="h-[3px] w-full" style={{ background: accentColor }} />
                       <div className="px-3 pt-2 pb-1.5">
                         <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5" style={{ color: accentColor }}>Wk {week}</span>
-                        <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.booklet_name}</p>
+                        <p className="text-[11px] font-bold text-[#062E63] leading-snug">{bookletLabel(b)}</p>
                         {b.topic && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{b.topic}</p>}
                       </div>
                       <div className="px-3 pb-2 flex items-center justify-between gap-1">
@@ -196,9 +218,8 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
   )
 }
 
-const YEARS    = [5, 6, 7, 8, 9, 10, 11, 12]
-const SUBJECTS = ['Maths', 'English']
-const TERMS    = [1, 2, 3, 4]
+const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
+const TERMS = [1, 2, 3, 4]
 const INP      = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 // ── Booklet Modal (add + edit) ────────────────────────────────────────────────
@@ -299,7 +320,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
             <div>
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</label>
               <select value={form.subject} onChange={set('subject')} className={INP}>
-                {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                {getSubjects(Number(form.year)).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
@@ -399,8 +420,8 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) 
     onAssigned()
   }
 
-  const accentColor = subject === 'Maths' ? '#325099' : '#7C3AED'
-  const accentBg    = subject === 'Maths' ? '#EEF4FF'  : '#F5F3FF'
+  const accentColor = getAccentColor(subject)
+  const accentBg    = getAccentBg(subject)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
@@ -444,7 +465,7 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) 
                     className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[#062E63] truncate">{b.booklet_name}</p>
+                      <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
                       {b.topic && (
                         <p className="text-[10px] font-medium mt-0.5 truncate" style={{ color: accentColor }}>
                           {b.topic}
@@ -526,7 +547,15 @@ export default function BookletsPage() {
       const parts  = code.split('.')
       const yr     = parseInt(parts[0])
       const suffix = parts[1] || ''
-      const subj   = suffix.startsWith('M') ? 'Maths' : suffix.startsWith('E') ? 'English' : null
+      const subj = yr >= 11
+        ? (suffix.startsWith('M1') ? 'Standard Maths'
+          : suffix.startsWith('M2') ? 'Adv Maths'
+          : suffix.startsWith('M3') ? 'Ext 1 Maths'
+          : suffix.startsWith('M4') ? 'Ext 2 Maths'
+          : suffix.startsWith('E') ? 'English'
+          : suffix.startsWith('C') ? 'Chemistry'
+          : null)
+        : (suffix.startsWith('M') ? 'Maths' : suffix.startsWith('E') ? 'English' : null)
       return yr === activeYear && subj === activeSub
     })
     const dayOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
@@ -539,6 +568,12 @@ export default function BookletsPage() {
   }, [activeYear, activeSub])
 
   useEffect(() => { if (staff) loadClasses() }, [staff, loadClasses])
+
+  // Reset activeSub when year changes if subject isn't valid for new year
+  useEffect(() => {
+    const subjects = getSubjects(activeYear)
+    if (!subjects.includes(activeSub)) setActiveSub(subjects[0])
+  }, [activeYear])
 
   // Delete
   const handleDelete = async () => {
@@ -615,8 +650,8 @@ export default function BookletsPage() {
 
       <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6">
         {/* Subject tabs */}
-        <div className="flex gap-2 mb-5">
-          {SUBJECTS.map(s => (
+        <div className="flex gap-2 mb-5 flex-wrap">
+          {getSubjects(activeYear).map(s => (
             <button key={s} onClick={() => setActiveSub(s)}
               className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
                 activeSub === s
@@ -660,8 +695,8 @@ export default function BookletsPage() {
         {/* Class term board */}
         {activeClass !== null && (() => {
           const cls         = classes.find(c => c.id === activeClass)
-          const accentColor = activeSub === 'Maths' ? '#325099' : '#7C3AED'
-          const accentBg    = activeSub === 'Maths' ? '#EEF4FF'  : '#F5F3FF'
+          const accentColor = getAccentColor(activeSub)
+          const accentBg    = getAccentBg(activeSub)
           return cls ? <ClassTermBoard key={cls.id} cls={cls} year={activeYear} subject={activeSub} accentColor={accentColor} accentBg={accentBg} /> : null
         })()}
 
@@ -679,8 +714,8 @@ export default function BookletsPage() {
                   if (b.week != null) byWeek[b.week] = b
                 })
                 const assignedCount = Object.keys(byWeek).length
-                const accentColor = activeSub === 'Maths' ? '#325099' : '#7C3AED'
-                const accentBg    = activeSub === 'Maths' ? '#EEF4FF'  : '#F5F3FF'
+                const accentColor = getAccentColor(activeSub)
+                const accentBg    = getAccentBg(activeSub)
 
                 return (
                   <div key={termNum} className="flex flex-col min-w-0">
@@ -721,7 +756,7 @@ export default function BookletsPage() {
                                 >
                                   Week {week}
                                 </span>
-                                <p className="text-[12px] font-bold text-[#062E63] leading-snug">{b.booklet_name}</p>
+                                <p className="text-[12px] font-bold text-[#062E63] leading-snug">{bookletLabel(b)}</p>
                                 {b.notes && (
                                   <p className="text-[10px] text-[#2A2035]/45 line-clamp-1">{b.notes}</p>
                                 )}

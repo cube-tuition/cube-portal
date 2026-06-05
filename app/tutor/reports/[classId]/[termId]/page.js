@@ -58,6 +58,9 @@ export default function ReportPage() {
   const [attendance, setAttendance] = useState([])
   const [quizzes, setQuizzes] = useState([])
   const [comments, setComments] = useState({})        // studentId → comment
+  const [savingPDFs, setSavingPDFs] = useState(false)
+  const [savedCount, setSavedCount] = useState(0)
+  const [saveComplete, setSaveComplete] = useState(false)
   const [criteria, setCriteria] = useState({})        // studentId → { subject_knowledge, ... }
   const [prepost,  setPrepost]  = useState(null)      // { topics, totalMarks, scores: { [studentId]: { pre, post } } }
   const [error, setError] = useState(null)
@@ -188,6 +191,55 @@ export default function ReportPage() {
     return m
   }, [roster, attendance, quizzes])
 
+  const saveAllToStorage = async () => {
+    setSavingPDFs(true)
+    setSavedCount(0)
+    setSaveComplete(false)
+
+    // Dynamic imports — avoids SSR issues
+    const htmlToImage = await import('html-to-image')
+    const { jsPDF }   = await import('jspdf')
+
+    let count = 0
+    for (const student of roster) {
+      const wrapper = document.getElementById(`student-report-${student.id}`)
+      if (!wrapper) continue
+
+      const articles = wrapper.querySelectorAll('article.report-page')
+      if (!articles.length) continue
+
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
+
+      for (let i = 0; i < articles.length; i++) {
+        const dataUrl = await htmlToImage.toJpeg(articles[i], {
+          quality:         0.92,
+          pixelRatio:      2,
+          backgroundColor: '#ffffff',
+          skipFonts:       false,
+        })
+        // Get image dimensions to calculate PDF height
+        const img = new window.Image()
+        await new Promise(res => { img.onload = res; img.src = dataUrl })
+        const pdfW = pdf.internal.pageSize.getWidth()
+        const pdfH = (img.height * pdfW) / img.width
+        if (i > 0) pdf.addPage()
+        pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfW, pdfH)
+      }
+
+      const pdfBlob = pdf.output('blob')
+      const path    = `${termId}/${student.id}_${classId}.pdf`
+      await supabase.storage
+        .from('term-reports')
+        .upload(path, pdfBlob, { upsert: true, contentType: 'application/pdf' })
+
+      count++
+      setSavedCount(count)
+    }
+
+    setSavingPDFs(false)
+    setSaveComplete(true)
+  }
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
       <p className="text-sm text-[#2A2035]/60">Loading report…</p>
@@ -213,13 +265,26 @@ export default function ReportPage() {
           <div className="text-sm font-semibold text-[#2A2035]">
             {cls.class_name} · {term ? formatTermLabel(term) : '—'} · {roster.length} student{roster.length === 1 ? '' : 's'}
           </div>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2 rounded-full transition"
-          >
-            Print / Save as PDF
-          </button>
+          <div className="flex items-center gap-2">
+            {saveComplete && (
+              <span className="text-xs font-semibold text-[#10b981]">✓ {savedCount} reports saved</span>
+            )}
+            <button
+              type="button"
+              onClick={saveAllToStorage}
+              disabled={savingPDFs || roster.length === 0}
+              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-40"
+            >
+              {savingPDFs ? `Saving ${savedCount}/${roster.length}…` : '☁ Save to Storage'}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2 rounded-full transition"
+            >
+              Print / Save as PDF
+            </button>
+          </div>
         </div>
       </div>
 
@@ -369,7 +434,7 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
   )
 
   return (
-    <>
+    <div id={`student-report-${student.id}`}>
       {/* ── PAGE 1: Stats + Criteria + Teacher comment ── */}
       <article className="report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 mb-4">
         {reportHeader(1)}
@@ -750,7 +815,7 @@ function StudentReport({ student, cls, term, attendance, quizzes, comment, crite
 
         {pageFooter}
       </article>
-    </>
+    </div>
   )
 }
 

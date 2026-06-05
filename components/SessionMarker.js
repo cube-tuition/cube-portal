@@ -277,10 +277,10 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       }
       setHistory(hist)
 
-      // Load lesson notes (admin "Notes from CUBE" field)
+      // Load lesson notes (admin "Notes from CUBE" + tutor "Notes to CUBE" fields)
       const { data: lessonRow } = await supabase
         .from('lessons')
-        .select('id, notes')
+        .select('id, notes, notes_general, notes_workbook, notes_homework')
         .eq('class_id', classId)
         .eq('lesson_date', dateISO)
         .eq('is_makeup', false)
@@ -288,6 +288,9 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       if (!cancelled && lessonRow) {
         setLessonId(lessonRow.id)
         setNotesFromCube(lessonRow.notes || '')
+        setNotesGeneral(lessonRow.notes_general || '')
+        setNotesWorkbook(lessonRow.notes_workbook || '')
+        setNotesHomework(lessonRow.notes_homework || '')
       }
 
       setLoading(false)
@@ -391,6 +394,36 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         } catch (e) {
           errors.push(`HW/RQ · ${s.full_name}: ${e.message}`)
         }
+      }
+    }
+
+    // Save "Notes to CUBE" (general / workbook / homework) onto the lesson row.
+    // If no lesson row exists yet, create a minimal one so the notes have a home.
+    const notesPayload = {
+      notes_general:  notesGeneral.trim()  || null,
+      notes_workbook: notesWorkbook.trim() || null,
+      notes_homework: notesHomework.trim() || null,
+    }
+    const hasAnyNote = Object.values(notesPayload).some(v => v !== null)
+    if (hasAnyNote || lessonId) {
+      try {
+        if (lessonId) {
+          const { error } = await supabase.from('lessons').update(notesPayload).eq('id', lessonId)
+          if (error) errors.push(`Notes to CUBE: ${error.message}`)
+        } else {
+          // Create lesson row to store the notes
+          const { data: newLesson, error } = await supabase.from('lessons').insert({
+            class_id:    Number(classId),
+            lesson_date: dateISO,
+            is_makeup:   false,
+            status:      'scheduled',
+            ...notesPayload,
+          }).select('id').single()
+          if (error) errors.push(`Notes to CUBE: ${error.message}`)
+          else if (newLesson) setLessonId(newLesson.id)
+        }
+      } catch (e) {
+        errors.push(`Notes to CUBE: ${e.message}`)
       }
     }
 

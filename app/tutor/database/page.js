@@ -116,6 +116,8 @@ function undoLabel(action) {
   if (action.type === 'drop_col')     return `Undo drop column "${action.col}"`
   if (action.type === 'rename_table') return `Undo rename table "${action.oldName}" → "${action.newName}"`
   if (action.type === 'delete_row')   return `Undo delete row`
+  if (action.type === 'edit_cell')    return `Undo edit "${action.col}" (was: ${action.oldVal ?? '—'})`
+  if (action.type === 'add_row')      return `Undo add row`
   return 'Undo'
 }
 
@@ -915,6 +917,7 @@ export default function DatabasePage() {
 
   // Add Class modal (classes table only)
   const [showAddClassModal, setShowAddClassModal] = useState(false)
+  const [showRolloverModal, setShowRolloverModal] = useState(false)
   const [newClassForm, setNewClassForm] = useState({ course_id: '', day_of_week: '', start_time: '', end_time: '' })
   const [coursesList, setCoursesList]   = useState([])
   const [addClassSaving, setAddClassSaving] = useState(false)
@@ -925,6 +928,11 @@ export default function DatabasePage() {
   const [generatingLessons, setGeneratingLessons]   = useState(false)
   const [allStaffForLessons, setAllStaffForLessons] = useState([])   // [{id, full_name}] for scheduled_teacher dropdown
   const [editingSchedTeacher, setEditingSchedTeacher] = useState(null) // rowId being edited
+
+  // Term filter — applies to classes, enrolments, lessons, invoices
+  // Tables where rows have a direct or indirect term_id relationship
+  const TERM_SCOPED = useMemo(() => new Set([T_CLASSES, T_ENROLMENTS, T_LESSONS, T_INVOICES]), [])
+  const [dbTermFilter, setDbTermFilter] = useState(null) // term id | null = all terms
 
   // Search
   const [search, setSearch] = useState('')
@@ -1005,7 +1013,8 @@ export default function DatabasePage() {
       if (cur) {
         setCurrentTermId(cur.id)
         setCurrentTermName(cur.name || `Term ${cur.term_number} ${cur.year}`)
-        setInvoiceTermId(cur.id)  // default invoice generation to current term
+        setInvoiceTermId(cur.id)    // default invoice generation to current term
+        setDbTermFilter(cur.id)     // default table term filter to current term
       }
 
       // Check Xero connection status
@@ -1067,10 +1076,31 @@ export default function DatabasePage() {
     const realTable = v ? v.realTable : selectedTable
     const selectStr = v?.showCols ? v.showCols.join(',') : '*'
 
-    let q = supabase.from(realTable).select(selectStr).limit(500)
-    if (v?.filterCol) q = v.filterOp === 'in' ? q.in(v.filterCol, v.filterVal) : q.eq(v.filterCol, v.filterVal)
-    // Lessons table: filter by selected class if one is chosen
-    if (selectedTable === 'lessons' && lessonClassFilter) q = q.eq('class_id', Number(lessonClassFilter))
+    ;(async () => {
+      // For enrolments + lessons, term filtering requires resolving class IDs first
+      let termClassIds = null
+      if (dbTermFilter && (selectedTable === T_ENROLMENTS || selectedTable === T_LESSONS)) {
+        const { data: termClasses } = await supabase
+          .from(T_CLASSES).select('id').eq('term_id', dbTermFilter)
+        termClassIds = (termClasses || []).map(c => c.id)
+      }
+
+      let q = supabase.from(realTable).select(selectStr).limit(500)
+      if (v?.filterCol) q = v.filterOp === 'in' ? q.in(v.filterCol, v.filterVal) : q.eq(v.filterCol, v.filterVal)
+      // Term filter — direct for classes/invoices; via class_id list for enrolments/lessons
+      if (dbTermFilter) {
+        if (selectedTable === T_CLASSES || selectedTable === T_INVOICES) {
+          q = q.eq('term_id', dbTermFilter)
+        } else if ((selectedTable === T_ENROLMENTS || selectedTable === T_LESSONS) && termClassIds) {
+          if (termClassIds.length === 0) {
+            // No classes in this term — short-circuit to empty result
+            setColumns([]); setRows([]); setLoading(false); return
+          }
+          q = q.in('class_id', termClassIds)
+        }
+      }
+      // Lessons table: also filter by selected class if one is chosen
+      if (selectedTable === 'lessons' && lessonClassFilter) q = q.eq('class_id', Number(lessonClassFilter))
 
     q.then(async ({ data, error }) => {
       if (error) { setTableError(error.message); setLoading(false); return }
@@ -1234,7 +1264,8 @@ export default function DatabasePage() {
 
       setColumns(cols); setRows(enrichedRows); setLoading(false)
     })
-  }, [selectedTable, staff, reloadKey, lessonClassFilter])
+    })()  // close async IIFE
+  }, [selectedTable, staff, reloadKey, lessonClassFilter, dbTermFilter])
 
   // ── Load enrolments when classes table is active ────────────────────────────
   useEffect(() => {
@@ -1384,6 +1415,8 @@ export default function DatabasePage() {
     setEditingCell(null); setSaving(true)
     const newVal = editValue === '' ? null : editValue
     const prevRows = rows
+    const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
+    if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return } // no change
     setRows(prev => prev.map(r => r[pkCol] === rowId ? { ...r, [col]: newVal } : r))
     if (isGuardianCol(col)) {
       const parentCol = PARENT_COL_MAP[col]
@@ -1397,11 +1430,15 @@ export default function DatabasePage() {
         if (newParent) setParentMap(prev => ({ ...prev, [rowId]: newParent }))
       }
       if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+      else pushUndo({ type: 'edit_cell', table: selectedTable, realTable: T_PARENTS, pkCol: 'student_id', rowId, col: PARENT_COL_MAP[col], oldVal, newVal })
     } else {
       const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
       const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
       if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
-      else if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
+      else {
+        pushUndo({ type: 'edit_cell', table: selectedTable, realTable, pkCol, rowId, col, oldVal, newVal })
+        if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
+      }
     }
     setSaving(false)
   }
@@ -1414,11 +1451,16 @@ export default function DatabasePage() {
     setEditingCell(null); setSaving(true)
     const newVal = value === '' ? null : value
     const prevRows = rows
+    const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
+    if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return }
     setRows(prev => prev.map(r => r[pkCol] === rowId ? { ...r, [col]: newVal } : r))
     const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
     const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
     if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
-    else if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
+    else {
+      pushUndo({ type: 'edit_cell', table: selectedTable, realTable, pkCol, rowId, col, oldVal, newVal })
+      if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
+    }
     setSaving(false)
   }
 
@@ -1505,6 +1547,7 @@ export default function DatabasePage() {
     if (columns.length === 0) setColumns(Object.keys(enriched))
     setNewRowData({}); setAddingRow(false)
     setRowCounts(prev => ({ ...prev, [selectedTable]: (prev[selectedTable] ?? 0) + 1 }))
+    pushUndo({ type: 'add_row', table: selectedTable, realTable, pkCol, rowId: data[pkCol ?? 'id'] })
     setAddingSaving(false)
   }
 
@@ -2293,6 +2336,21 @@ export default function DatabasePage() {
         const { error } = await supabase.from(action.realTable).insert(rowData)
         if (error) throw error
         if (selectedTable === action.table) setReloadKey(k => k + 1)
+
+      } else if (action.type === 'edit_cell') {
+        const { error } = await supabase.from(action.realTable).update({ [action.col]: action.oldVal }).eq(action.pkCol, action.rowId)
+        if (error) throw error
+        if (selectedTable === action.table) {
+          setRows(prev => prev.map(r => r[action.pkCol] === action.rowId ? { ...r, [action.col]: action.oldVal } : r))
+        }
+
+      } else if (action.type === 'add_row') {
+        const { error } = await supabase.from(action.realTable).delete().eq(action.pkCol, action.rowId)
+        if (error) throw error
+        if (selectedTable === action.table) {
+          setRows(prev => prev.filter(r => r[action.pkCol] !== action.rowId))
+          setRowCounts(prev => ({ ...prev, [action.table]: Math.max(0, (prev[action.table] ?? 1) - 1) }))
+        }
       }
     } catch (err) {
       alert(`Undo failed: ${err.message}`)
@@ -2711,6 +2769,23 @@ export default function DatabasePage() {
                 {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/60 text-xs">✕</button>}
               </div>
 
+              {/* Term filter — shown for classes, enrolments, lessons, invoices */}
+              {TERM_SCOPED.has(selectedTable) && allTerms.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold text-[#325099]/50 shrink-0">Term</span>
+                  <select
+                    value={dbTermFilter ?? ''}
+                    onChange={e => setDbTermFilter(e.target.value || null)}
+                    className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] max-w-[150px]"
+                  >
+                    <option value="">All terms</option>
+                    {allTerms.map(t => (
+                      <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {selectedTable === 'lessons' ? (
                 <>
                   <select
@@ -2852,9 +2927,14 @@ export default function DatabasePage() {
                   )}
                 </>
               ) : selectedTable === 'classes' ? (
-                <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
-                  <span className="text-sm leading-none">+</span> Add Class
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowRolloverModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-[#325099] border border-[#DEE7FF] text-xs font-semibold rounded-lg hover:bg-[#F0F4FF] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    📋 Roll over term
+                  </button>
+                  <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    <span className="text-sm leading-none">+</span> Add Class
+                  </button>
+                </div>
               ) : selectedTable === T_ENROLMENTS ? (
                 <button onClick={() => setShowAddEnrolmentModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Enrolment
@@ -4053,6 +4133,17 @@ export default function DatabasePage() {
         </div>
       )}
 
+      {/* ── Roll Over Term Modal ────────────────────────────────────────────── */}
+      {showRolloverModal && (
+        <RolloverTermModal
+          currentTermId={currentTermId}
+          currentTermName={currentTermName}
+          allTerms={allTerms}
+          onClose={() => setShowRolloverModal(false)}
+          onDone={() => { setShowRolloverModal(false); setReloadKey(k => k + 1) }}
+        />
+      )}
+
       {/* ── Top-up Invoice Modal ─────────────────────────────────────────────── */}
       {topUpModal && (
         <TopUpInvoiceModal
@@ -4616,6 +4707,240 @@ function TopUpInvoiceModal({ inv, onClose, onCreated }) {
             {saving ? 'Creating…' : `Create invoice (${fmt(total)})`}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Roll Over Term Modal ───────────────────────────────────────────────────────
+function RolloverTermModal({ currentTermId, currentTermName, allTerms, onClose, onDone }) {
+  const [classes,        setClasses]        = useState([])
+  const [checked,        setChecked]        = useState({})   // class id → bool
+  const [targetTermId,   setTargetTermId]   = useState('')
+  const [copyEnrolments, setCopyEnrolments] = useState(true)
+  const [loading,        setLoading]        = useState(true)
+  const [saving,         setSaving]         = useState(false)
+  const [done,           setDone]           = useState(null) // { created, skipped, enrolments }
+  const [err,            setErr]            = useState('')
+
+  // Future terms only
+  const futureTerms = allTerms.filter(t => t.id !== currentTermId)
+
+  useEffect(() => {
+    if (!currentTermId) return
+    supabase
+      .from('classes')
+      .select('id, class_name, day_of_week, start_time, end_time, teacher, room, course_id')
+      .eq('term_id', currentTermId)
+      .order('class_name')
+      .then(({ data }) => {
+        setClasses(data || [])
+        const init = {}
+        for (const c of data || []) init[c.id] = true
+        setChecked(init)
+        setLoading(false)
+      })
+    // Default to first future term
+    if (futureTerms.length > 0) setTargetTermId(futureTerms[0].id)
+  }, [currentTermId])
+
+  const toggleAll = (val) => {
+    const next = {}
+    for (const c of classes) next[c.id] = val
+    setChecked(next)
+  }
+
+  const selectedIds  = classes.filter(c => checked[c.id]).map(c => c.id)
+  const selectedClasses = classes.filter(c => checked[c.id])
+  const allChecked   = selectedIds.length === classes.length
+  const noneChecked  = selectedIds.length === 0
+
+  const handleRollover = async () => {
+    if (!targetTermId || noneChecked) return
+    setSaving(true); setErr('')
+    let created = 0, skipped = 0, enrolmentsCopied = 0
+
+    try {
+      // Check which class+term combos already exist (to avoid duplicates)
+      const { data: existing } = await supabase
+        .from('classes')
+        .select('course_id, day_of_week, start_time')
+        .eq('term_id', targetTermId)
+
+      const existingKeys = new Set(
+        (existing || []).map(c => `${c.course_id}|${c.day_of_week}|${c.start_time}`)
+      )
+
+      for (const cls of selectedClasses) {
+        const key = `${cls.course_id}|${cls.day_of_week}|${cls.start_time}`
+        if (existingKeys.has(key)) { skipped++; continue }
+
+        const { data: newCls, error } = await supabase
+          .from('classes')
+          .insert({
+            class_name:  cls.class_name,
+            course_id:   cls.course_id,
+            day_of_week: cls.day_of_week,
+            start_time:  cls.start_time,
+            end_time:    cls.end_time,
+            teacher:     cls.teacher,
+            room:        cls.room,
+            term_id:     targetTermId,
+          })
+          .select('id')
+          .single()
+
+        if (error) { setErr(`Failed to copy "${cls.class_name}": ${error.message}`); setSaving(false); return }
+        created++
+
+        if (copyEnrolments && newCls) {
+          const { data: enrs } = await supabase
+            .from('enrolments')
+            .select('student_id, price_per_lesson, status')
+            .eq('class_id', cls.id)
+            .eq('status', 'active')
+
+          if (enrs?.length) {
+            const payload = enrs.map(e => ({
+              class_id:         newCls.id,
+              student_id:       e.student_id,
+              price_per_lesson: e.price_per_lesson,
+              status:           'active',
+            }))
+            const { error: enrErr } = await supabase.from('enrolments').insert(payload)
+            if (!enrErr) enrolmentsCopied += enrs.length
+          }
+        }
+      }
+
+      setDone({ created, skipped, enrolmentsCopied })
+    } catch (e) {
+      setErr(e.message)
+    }
+    setSaving(false)
+  }
+
+  const targetName = allTerms.find(t => t.id === targetTermId)?.name ?? ''
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF] shrink-0">
+          <h2 className="text-base font-bold text-[#2A2035]">Roll over term</h2>
+          <p className="text-xs text-[#2A2035]/50 mt-0.5">
+            Copy classes from <span className="font-semibold text-[#325099]">{currentTermName}</span> into a future term.
+          </p>
+        </div>
+
+        {done ? (
+          /* Success state */
+          <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center gap-3">
+            <div className="text-4xl">✅</div>
+            <p className="text-sm font-bold text-[#2A2035]">Done!</p>
+            <p className="text-xs text-[#2A2035]/60">
+              Created <span className="font-semibold text-[#325099]">{done.created}</span> class{done.created !== 1 ? 'es' : ''} in <span className="font-semibold text-[#325099]">{targetName}</span>.
+              {done.skipped > 0 && <> Skipped <span className="font-semibold">{done.skipped}</span> (already existed).</>}
+              {copyEnrolments && done.enrolmentsCopied > 0 && <> Copied <span className="font-semibold text-[#059669]">{done.enrolmentsCopied}</span> active enrolment{done.enrolmentsCopied !== 1 ? 's' : ''}.</>}
+            </p>
+            <button onClick={onDone} className="mt-2 px-5 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition">
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-y-auto flex-1 px-6 py-5 flex flex-col gap-5">
+
+              {/* Target term */}
+              <div>
+                <label className="block text-xs font-bold text-[#325099] uppercase tracking-wider mb-1.5">Copy into</label>
+                {futureTerms.length === 0 ? (
+                  <p className="text-xs text-[#2A2035]/40 italic">No future terms found. Add one in the Terms table first.</p>
+                ) : (
+                  <select
+                    value={targetTermId}
+                    onChange={e => setTargetTermId(e.target.value)}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]"
+                  >
+                    {futureTerms.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Copy enrolments toggle */}
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <div
+                  onClick={() => setCopyEnrolments(v => !v)}
+                  className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${copyEnrolments ? 'bg-[#325099]' : 'bg-[#DEE7FF]'}`}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${copyEnrolments ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-[#2A2035]">Copy active enrolments</p>
+                  <p className="text-[10px] text-[#2A2035]/40">Re-enrols currently active students into each copied class</p>
+                </div>
+              </label>
+
+              {/* Class list */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-[#325099] uppercase tracking-wider">
+                    Classes to copy <span className="font-normal text-[#2A2035]/40">({selectedIds.length}/{classes.length})</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <button onClick={() => toggleAll(true)}  className="text-[10px] font-semibold text-[#325099] hover:underline">All</button>
+                    <button onClick={() => toggleAll(false)} className="text-[10px] font-semibold text-[#325099] hover:underline">None</button>
+                  </div>
+                </div>
+
+                {loading ? (
+                  <p className="text-xs text-[#2A2035]/30 animate-pulse py-4 text-center">Loading classes…</p>
+                ) : classes.length === 0 ? (
+                  <p className="text-xs text-[#2A2035]/40 italic text-center py-4">No classes found in the current term.</p>
+                ) : (
+                  <div className="border border-[#E8EDF8] rounded-xl overflow-hidden">
+                    {classes.map((cls, i) => (
+                      <label
+                        key={cls.id}
+                        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-[#F8FAFF] transition ${i > 0 ? 'border-t border-[#F0F4FF]' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!checked[cls.id]}
+                          onChange={e => setChecked(prev => ({ ...prev, [cls.id]: e.target.checked }))}
+                          className="accent-[#325099] w-3.5 h-3.5 shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-[#2A2035] truncate">{cls.class_name}</p>
+                          <p className="text-[10px] text-[#2A2035]/40">{cls.day_of_week} · {cls.start_time?.slice(0,5)}–{cls.end_time?.slice(0,5)}{cls.teacher ? ` · ${cls.teacher}` : ''}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {err && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2 shrink-0">
+              <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">
+                Cancel
+              </button>
+              <button
+                onClick={handleRollover}
+                disabled={saving || noneChecked || !targetTermId || futureTerms.length === 0}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Copying…' : `Copy ${selectedIds.length} class${selectedIds.length !== 1 ? 'es' : ''} →`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

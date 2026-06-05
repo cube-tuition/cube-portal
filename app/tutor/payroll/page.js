@@ -587,8 +587,21 @@ function downloadBlob(content, filename, type) {
 // ─── One shift row — inline-editable while pay run is 'open' ────────────────
 // Uses uncontrolled inputs with `key={shift.id|hours|rate}` so the row remounts
 // after a save and picks up the new values without manual state syncing.
+function lessonUrl(shift) {
+  if (shift.source_table === 'class_session' && shift.source_id) {
+    const idx = shift.source_id.indexOf('_')
+    if (idx > 0) {
+      const classId = shift.source_id.slice(0, idx)
+      const date    = shift.source_id.slice(idx + 1)
+      return `/tutor/classes/${classId}/${date}`
+    }
+  }
+  return null
+}
+
 function ShiftRow({ shift, editable, saving, onUpdate }) {
   const rowKey = `${shift.id}-${shift.hours}-${shift.rate_snapshot ?? 'null'}`
+  const url    = lessonUrl(shift)
 
   const commitHours = (raw) => {
     const n = Number(raw)
@@ -603,15 +616,22 @@ function ShiftRow({ shift, editable, saving, onUpdate }) {
   const missingRate = shift.rate_snapshot == null
   const amount = (Number(shift.hours || 0) * (Number(shift.rate_snapshot) || 0)).toFixed(2)
 
+  const linkClass = url ? 'group cursor-pointer hover:bg-[#F0F4FF] transition' : ''
+
   return (
-    <div key={rowKey} className={`grid grid-cols-12 gap-3 items-center px-6 py-3 text-sm ${missingRate ? 'bg-[#FFFBEB]' : ''}`}>
+    <div key={rowKey} className={`grid grid-cols-12 gap-3 items-center px-6 py-3 text-sm ${missingRate ? 'bg-[#FFFBEB]' : ''} ${linkClass}`}
+      onClick={url && !editable ? () => window.open(url, '_blank') : undefined}
+    >
       {/* date */}
       <div className="col-span-3 md:col-span-2">
-        <p className="font-semibold text-[#2A2035]">{fmtDateLong(shift.work_date)}</p>
+        <p className={`font-semibold ${url ? 'text-[#325099] group-hover:text-[#062E63]' : 'text-[#2A2035]'} transition`}>{fmtDateLong(shift.work_date)}</p>
       </div>
       {/* class name + time */}
       <div className="col-span-9 md:col-span-4">
-        <p className="font-medium text-[#2A2035] truncate">{shift.notes?.replace(/^Auto:\s*/, '') || `(${shift.kind})`}</p>
+        <p className="font-medium text-[#2A2035] truncate flex items-center gap-1">
+          {shift.notes?.replace(/^Auto:\s*/, '') || `(${shift.kind})`}
+          {url && <span className="text-[#325099]/30 group-hover:text-[#325099] transition text-xs">↗</span>}
+        </p>
         <p className="text-xs text-[#2A2035]/50">
           {fmtTime(shift.start_time)}–{fmtTime(shift.end_time)} · {shift.kind}
         </p>

@@ -12,10 +12,13 @@
     "@supabase/supabase-js": "^2.105.4",
     "airtable": "^0.12.2",
     "dotenv": "^17.4.2",
+    "html-to-image": "^1.11.13",
+    "jspdf": "^4.2.1",
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "resend": "^6.12.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
