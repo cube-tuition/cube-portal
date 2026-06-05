@@ -27,16 +27,23 @@ import { createClient } from '@supabase/supabase-js'
  *                                  defaults to onboarding@resend.dev for testing
  */
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+
+function followupDate() {
+  const d = new Date()
+  d.setDate(d.getDate() + 7)
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
 
 function fillTemplate(template, vars) {
   return template
-    .replace(/\{\{parent_name\}\}/g,   vars.parentName   || 'there')
-    .replace(/\{\{term_name\}\}/g,     vars.termName     || '')
-    .replace(/\{\{student_names\}\}/g, vars.studentNames || '')
-    .replace(/\{\{possessive\}\}/g,    vars.possessive   || 'their')
-    .replace(/\{\{they_have\}\}/g,     vars.theyHave     || 'they have')
-    .replace(/\{\{plural\}\}/g,        vars.plural       || '')
+    .replace(/\{\{parent_name\}\}/g,    vars.parentName   || 'there')
+    .replace(/\{\{term_name\}\}/g,      vars.termName     || '')
+    .replace(/\{\{student_names\}\}/g,  vars.studentNames || '')
+    .replace(/\{\{possessive\}\}/g,     vars.possessive   || 'their')
+    .replace(/\{\{they_have\}\}/g,      vars.theyHave     || 'they have')
+    .replace(/\{\{plural\}\}/g,         vars.plural       || '')
+    .replace(/\{\{followup_date\}\}/g,  vars.followupDate || followupDate())
+    .replace(/\[date\]/gi,              vars.followupDate || followupDate())
 }
 
 function toHtml(plainText) {
@@ -46,7 +53,7 @@ function toHtml(plainText) {
     .replace(/>/g, '&gt;')
   const paragraphs = escaped
     .split(/\n\n+/)
-    .map(p => `<p style="margin:0 0 16px 0;line-height:1.7;">${p.replace(/\n/g, '<br/>')}</p>`)
+    .map(p => `<p style="margin:0 0 16px 0;line-height:1.7;">${p.replace(/\n/g, '<br/>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
     .join('')
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;color:#2A2035;background:#ffffff;">
@@ -76,6 +83,7 @@ export async function POST(request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     )
 
+    const resend    = new Resend(process.env.RESEND_API_KEY)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
     const results = []
 

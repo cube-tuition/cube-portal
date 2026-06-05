@@ -5,7 +5,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
-import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_INVOICES, T_TERMS } from '../../../lib/tables'
+import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS } from '../../../lib/tables'
 
 /*
  * Term Transition Wizard — /tutor/transition
@@ -32,12 +32,10 @@ import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_INVOICES, T_TERMS } f
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const STEPS = [
-  { id: 1, label: 'Setup',       icon: '📋' },
-  { id: 2, label: 'Enrolments',  icon: '👥' },
-  { id: 3, label: 'Classes',     icon: '📚' },
-  { id: 4, label: 'Comms',       icon: '✉️'  },
-  { id: 5, label: 'Invoices',    icon: '💰' },
-  { id: 6, label: 'Done',        icon: '✅' },
+  { id: 1, label: 'Setup',      icon: '📋' },
+  { id: 2, label: 'Enrolments', icon: '👥' },
+  { id: 3, label: 'Classes',    icon: '📚' },
+  { id: 4, label: 'Done',       icon: '✅' },
 ]
 
 const END_REASONS = [
@@ -58,33 +56,6 @@ const fmtDate = (iso) => {
 
 const isoToday = () => new Date().toISOString().slice(0, 10)
 
-function buildEmailBody(parentName, students, toTerm) {
-  const termRange = toTerm
-    ? `${fmtDate(toTerm.start_date)} to ${fmtDate(toTerm.end_date)}`
-    : 'the upcoming term'
-  const weeks = toTerm
-    ? Math.round((new Date(toTerm.end_date) - new Date(toTerm.start_date)) / (7 * 86400000)) + 1
-    : '?'
-
-  const classLines = students
-    .map(s => `  • ${s.student_name} — ${s.class_name || s.class?.class_name || '—'}${s.class_day ? ` (${s.class_day}${s.class_start ? ', ' + s.class_start : ''})` : ''}`)
-    .join('\n')
-
-  return `Hi ${parentName || 'there'},
-
-We're looking forward to seeing you again for ${toTerm?.name || 'the next term'} at CUBE Tutoring.
-
-This is a confirmation that the following enrolments have been carried over:
-
-${classLines}
-
-Term dates: ${termRange} (${weeks} weeks)
-
-An invoice will follow shortly. Please reply if anything has changed or if you have any questions.
-
-Kind regards,
-The CUBE Team`.trim()
-}
 
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function TransitionPage() {
@@ -123,13 +94,6 @@ export default function TransitionPage() {
   const [rolloverDone, setRolloverDone]       = useState(false)
   const [rolloverResult, setRolloverResult]   = useState(null)
 
-  // Step 4
-  const [emailRows, setEmailRows] = useState([])
-
-  // Step 5
-  const [invoiceRows, setInvoiceRows]     = useState([])
-  const [invoicesDone, setInvoicesDone]   = useState(false)
-  const [invoicesCreated, setInvoicesCreated] = useState(0)
 
   // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -291,62 +255,11 @@ export default function TransitionPage() {
       .eq('id', enrolmentId)
   }
 
-  // ── Step 4: build email rows ──────────────────────────────────────────────
-  const buildEmailRows = useCallback(() => {
-    const toTerm = terms.find(t => t.id === toTermId)
-    const continuing = enrolments.filter(e => !endings[e.id]?.ending)
-
-    const familyMap = {}
-    for (const e of continuing) {
-      const key = e.family_id || ('student:' + e.student_id)
-      if (!familyMap[key]) familyMap[key] = {
-        family_id:    e.family_id,
-        parent_name:  e.parent_name || e.student_name,
-        parent_email: e.parent_email,
-        students:     [],
-      }
-      familyMap[key].students.push(e)
-    }
-
-    setEmailRows(Object.values(familyMap).map(f => ({
-      ...f,
-      subject: `CUBE Tutoring — ${toTerm?.name || 'Next Term'} Re-enrolment`,
-      body:    buildEmailBody(f.parent_name, f.students, toTerm),
-      copied:  false,
-    })))
-  }, [enrolments, endings, terms, toTermId])
-
-  // ── Step 5: build invoice rows ─────────────────────────────────────────────
-  const buildInvoiceRows = useCallback(() => {
-    const continuing = enrolments.filter(e => !endings[e.id]?.ending)
-
-    const familyMap = {}
-    for (const e of continuing) {
-      const key = e.family_id || ('student:' + e.student_id)
-      if (!familyMap[key]) familyMap[key] = {
-        family_id:    e.family_id,
-        parent_name:  e.parent_name || e.student_name,
-        parent_email: e.parent_email,
-        students:     [],
-        fee:          '',
-        checked:      true,
-      }
-      familyMap[key].students.push({
-        student_id:   e.student_id,
-        student_name: e.student_name,
-        class_name:   e.class_name,
-      })
-    }
-    setInvoiceRows(Object.values(familyMap))
-  }, [enrolments, endings])
-
   // ── Navigation ─────────────────────────────────────────────────────────────
   const goTo = async (nextStep) => {
     setError(null)
     if (nextStep === 2) await loadData()
     if (nextStep >= 3 && !dataLoaded) await loadData()
-    if (nextStep === 4) buildEmailRows()
-    if (nextStep === 5) buildInvoiceRows()
     setStep(nextStep)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -441,26 +354,6 @@ export default function TransitionPage() {
     setSaving(false)
   }
 
-  // ── Copy single email ─────────────────────────────────────────────────────
-  const copyEmail = (idx) => {
-    const row = emailRows[idx]
-    navigator.clipboard.writeText(`To: ${row.parent_email}\nSubject: ${row.subject}\n\n${row.body}`)
-    setEmailRows(prev => prev.map((r, i) => i === idx ? { ...r, copied: true } : r))
-  }
-
-  // ── Download comms CSV ────────────────────────────────────────────────────
-  const downloadEmailCSV = () => {
-    const toTerm = terms.find(t => t.id === toTermId)
-    const header = ['Name', 'Email', 'Subject', 'Body']
-    const csvRows = [header, ...emailRows.map(r => [
-      r.parent_name, r.parent_email, r.subject, r.body.replace(/\n/g, '\\n'),
-    ])]
-    const csv = csvRows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
-    const a = document.createElement('a')
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
-    a.download = `comms_${(toTerm?.name || 'term').replace(/\s+/g, '_')}.csv`
-    a.click()
-  }
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const fromTerm          = terms.find(t => t.id === fromTermId)
@@ -833,170 +726,6 @@ export default function TransitionPage() {
                   onClick={() => goTo(4)}
                   className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full hover:bg-[#325099] transition"
                 >
-                  Next: Communications →
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ═══ STEP 4: Communications ══════════════════════════════════════ */}
-        {step === 4 && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-8">
-            <div className="flex items-start justify-between mb-2 gap-4">
-              <div>
-                <h2 className="text-lg font-bold text-[#062E63]">Parent communications</h2>
-                <p className="text-sm text-[#325099]/60 mt-0.5">
-                  Re-enrolment email drafts for {emailRows.length} {emailRows.length === 1 ? 'family' : 'families'}. Copy individually or download all as a CSV for bulk sending.
-                </p>
-              </div>
-              {emailRows.length > 0 && (
-                <button
-                  onClick={downloadEmailCSV}
-                  className="flex-shrink-0 text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:bg-[#F0F4FF] transition"
-                >
-                  ↓ Download CSV
-                </button>
-              )}
-            </div>
-
-            <div className="mt-6 space-y-4 mb-6">
-              {emailRows.length === 0 ? (
-                <div className="text-center py-12 text-[#325099]/40 text-sm">No continuing enrolments to communicate with.</div>
-              ) : emailRows.map((row, i) => (
-                <div key={i} className="border border-[#DEE7FF] rounded-xl overflow-hidden">
-                  <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="font-semibold text-sm text-[#062E63]">{row.parent_name || '—'}</span>
-                      <span className="text-xs text-[#325099]/50 ml-2">{row.parent_email || 'no email on file'}</span>
-                    </div>
-                    <button
-                      onClick={() => copyEmail(i)}
-                      className={`flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full transition ${
-                        row.copied
-                          ? 'bg-[#D1FAE5] text-[#065F46]'
-                          : 'border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF]'
-                      }`}
-                    >
-                      {row.copied ? '✓ Copied' : 'Copy email'}
-                    </button>
-                  </div>
-                  <div className="px-4 py-4">
-                    <div className="text-[11px] text-[#325099]/40 mb-2 font-medium">Subject: {row.subject}</div>
-                    <pre className="text-xs text-[#2A2035]/75 whitespace-pre-wrap font-sans leading-relaxed">{row.body}</pre>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-between">
-              <button onClick={() => setStep(3)} className="text-sm text-[#325099]/60 hover:text-[#062E63] px-4 py-2 rounded-full transition">← Back</button>
-              <button onClick={() => goTo(5)} className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full hover:bg-[#325099] transition">
-                Next: Invoices →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ═══ STEP 5: Invoices ════════════════════════════════════════════ */}
-        {step === 5 && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-8">
-            <h2 className="text-lg font-bold text-[#062E63] mb-1.5">Generate invoices</h2>
-            <p className="text-sm text-[#325099]/60 mb-6">
-              Enter the term fee per family and bulk-create invoice records for {toTerm?.name}. Skip this step if you invoice through Xero — you can always create invoices manually in the Database page.
-            </p>
-
-            {invoiceRows.length === 0 ? (
-              <div className="text-center py-12 text-[#325099]/40 text-sm">No continuing families to invoice.</div>
-            ) : (
-              <>
-                <div className="border border-[#DEE7FF] rounded-xl overflow-hidden mb-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[500px]">
-                      <thead>
-                        <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-                          <th className="px-3 py-2.5 w-8"></th>
-                          <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Family</th>
-                          <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Students / Classes</th>
-                          <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60 w-36">Term fee ($)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {invoiceRows.map((row, i) => (
-                          <tr key={i} className={`border-b border-[#DEE7FF] last:border-0 ${i % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'}`}>
-                            <td className="px-3 py-2.5 text-center">
-                              <input
-                                type="checkbox"
-                                checked={row.checked}
-                                onChange={e => setInvoiceRows(prev => prev.map((r, j) => j === i ? { ...r, checked: e.target.checked } : r))}
-                                className="accent-[#062E63] w-4 h-4"
-                              />
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <div className="font-semibold text-[#062E63]">{row.parent_name || '—'}</div>
-                              <div className="text-xs text-[#325099]/50">{row.parent_email}</div>
-                            </td>
-                            <td className="px-4 py-2.5 text-xs text-[#325099]/70">
-                              {row.students.map(s => `${s.student_name} (${s.class_name})`).join(' · ')}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <input
-                                type="number"
-                                value={row.fee}
-                                onChange={e => setInvoiceRows(prev => prev.map((r, j) => j === i ? { ...r, fee: e.target.value } : r))}
-                                placeholder="e.g. 800"
-                                className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/20"
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Total */}
-                <div className="flex items-center gap-4 p-4 bg-[#EEF3FF] rounded-xl mb-6 text-sm">
-                  <span className="text-[#325099]/70">Total revenue:</span>
-                  <span className="font-bold text-[#062E63] text-lg">
-                    ${invoiceRows
-                      .filter(r => r.checked && r.fee)
-                      .reduce((s, r) => s + (parseFloat(r.fee) || 0), 0)
-                      .toLocaleString('en-AU', { minimumFractionDigits: 0 })}
-                  </span>
-                  <span className="text-[#325099]/50 text-xs">
-                    across {invoiceRows.filter(r => r.checked && r.fee).length} families
-                  </span>
-                </div>
-              </>
-            )}
-
-            {invoicesDone && (
-              <div className="bg-[#D1FAE5] border border-[#34D399] rounded-xl px-4 py-3.5 mb-6">
-                <p className="text-sm font-semibold text-[#065F46]">✓ {invoicesCreated} invoice records created for {toTerm?.name}</p>
-              </div>
-            )}
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>
-            )}
-
-            <div className="flex justify-between items-center">
-              <button onClick={() => setStep(4)} className="text-sm text-[#325099]/60 hover:text-[#062E63] px-4 py-2 rounded-full transition">← Back</button>
-              <div className="flex gap-3">
-                {!invoicesDone && invoiceRows.some(r => r.checked && r.fee) && (
-                  <button
-                    onClick={generateInvoices}
-                    disabled={saving}
-                    className="bg-[#325099] text-white text-sm font-semibold px-6 py-2.5 rounded-full disabled:opacity-40 hover:bg-[#062E63] transition"
-                  >
-                    {saving ? 'Generating…' : '💰 Generate invoices'}
-                  </button>
-                )}
-                <button
-                  onClick={() => goTo(6)}
-                  className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full hover:bg-[#325099] transition"
-                >
                   Finish →
                 </button>
               </div>
@@ -1004,19 +733,17 @@ export default function TransitionPage() {
           </div>
         )}
 
-        {/* ═══ STEP 6: Done ════════════════════════════════════════════════ */}
-        {step === 6 && (
+        {/* ═══ STEP 4: Done ════════════════════════════════════════════════ */}
+        {step === 4 && (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
             <div className="text-5xl mb-5">✅</div>
             <h2 className="text-xl font-bold text-[#062E63] mb-1">Transition complete</h2>
             <p className="text-sm text-[#325099]/60 mb-8">{fromTerm?.name} → {toTerm?.name}</p>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10 text-left max-w-2xl mx-auto">
+            <div className="grid grid-cols-2 gap-4 mb-10 text-left max-w-sm mx-auto">
               {[
-                { label: 'Classes created',   value: rolloverResult?.createdClasses  ?? '—', icon: '📚' },
-                { label: 'Students enrolled',  value: rolloverResult?.createdEnrolments ?? '—', icon: '👥' },
-                { label: 'Emails drafted',     value: emailRows.length,                       icon: '✉️' },
-                { label: 'Invoices created',   value: invoicesCreated || '—',                 icon: '💰' },
+                { label: 'Classes created',  value: rolloverResult?.createdClasses    ?? '—', icon: '📚' },
+                { label: 'Students enrolled', value: rolloverResult?.createdEnrolments ?? '—', icon: '👥' },
               ].map(s => (
                 <div key={s.label} className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl p-4">
                   <div className="text-2xl mb-1">{s.icon}</div>
@@ -1028,22 +755,21 @@ export default function TransitionPage() {
 
             <div className="flex justify-center gap-3 flex-wrap">
               <a
-                href="/tutor/classes"
+                href={`/tutor/emails/term-start?termId=${toTermId}`}
                 className="bg-[#062E63] text-white text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#325099] transition"
               >
-                View {toTerm?.name} classes
+                ✉ Send Term Start emails →
               </a>
               <a
-                href="/tutor/database"
+                href="/tutor/classes"
                 className="border border-[#DEE7FF] text-[#325099] text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
               >
-                Open database
+                View {toTerm?.name} classes
               </a>
               <button
                 onClick={() => {
                   setStep(1); setDataLoaded(false); setRolloverDone(false)
-                  setRolloverResult(null); setInvoicesDone(false); setInvoicesCreated(0)
-                  setEmailRows([]); setInvoiceRows([]); setEnrolments([]); setEndings({})
+                  setRolloverResult(null); setEnrolments([]); setEndings({})
                 }}
                 className="border border-[#DEE7FF] text-[#325099]/60 text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
               >

@@ -8,6 +8,9 @@ export const maxDuration = 60
 /**
  * POST /api/xero/push
  * Body: { term_id, reset_ids?: number[] }
+ *
+ * Pushes approved portal invoices to Xero using the same line items,
+ * amounts, and invoice number as the portal PDF — no discrepancy.
  */
 export async function POST(req) {
   const authHeader = req.headers.get('authorization') || ''
@@ -31,77 +34,84 @@ export async function POST(req) {
     }).in('id', reset_ids)
   }
 
-  // Fetch unpushed invoices
+  // Fetch unpushed invoices that have line_items (new format)
   const { data: invoices, error: invErr } = await supabase
-    .from('invoices').select('*').eq('term_id', term_id).is('xero_invoice_id', null).order('id')
+    .from('invoices')
+    .select('*')
+    .eq('term_id', term_id)
+    .is('xero_invoice_id', null)
+    .not('status', 'eq', 'voided')
+    .not('line_items', 'is', null)
+    .order('id')
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
   if (!invoices?.length) return NextResponse.json({ pushed: 0, message: 'No new invoices to push' })
 
-  // Fetch term
-  const { data: term } = await supabase.from('terms').select('name, end_date').eq('id', term_id).single()
-  const dueDate  = term?.end_date || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
-  const termName = term?.name || 'Term'
+  // ── Step 1: collect all student IDs to fetch guardians in one query ──────────
+  const allStudentIds = [...new Set(invoices.flatMap(inv =>
+    (inv.line_items || [])
+      .filter(l => l.type === 'enrolment')
+      .map(l => l.student_id)
+      .filter(Boolean)
+  ))]
 
-  // Fetch classes for this term
-  const { data: classes } = await supabase
-    .from('classes').select('id, class_name, courses(course_name)').eq('term_id', term_id)
-  const classMap     = Object.fromEntries((classes || []).map(c => [c.id, c]))
-  const termClassIds = (classes || []).map(c => c.id)
+  const { data: guardians } = allStudentIds.length
+    ? await supabase.from('guardians').select('student_id, full_name, email, phone').in('student_id', allStudentIds)
+    : { data: [] }
+  const guardianMap = Object.fromEntries((guardians || []).map(g => [g.student_id, g]))
 
-  // ── Step 1: build invoice data from Supabase (no Xero calls yet) ─────────────
-  const built = []   // { inv, contactKey, contactName, email, phone, lineItems }
+  // ── Step 2: build invoice payloads from stored line_items ────────────────────
+  const built   = []
   const skipped = []
 
   for (const inv of invoices) {
-    const studentRows = inv.family_id
-      ? (await supabase.from('students').select('id, full_name, email, phone').eq('family_id', inv.family_id)).data || []
-      : (await supabase.from('students').select('id, full_name, email, phone').eq('id', inv.student_id)).data || []
+    const enrolLines = (inv.line_items || []).filter(l => l.type === 'enrolment')
+    if (!enrolLines.length) { skipped.push(inv.id); continue }
 
-    if (!studentRows.length) { skipped.push(inv.id); continue }
+    // Derive contact from the first student's guardian
+    const firstStudentId = enrolLines[0]?.student_id
+    const guardian       = guardianMap[firstStudentId] || {}
 
-    const primary     = studentRows[0]
-    const contactName = studentRows.length > 1
-      ? `${studentRows.map(s => s.full_name.split(' ')[0]).join(' & ')} ${primary.full_name.split(' ').pop()} Family`
-      : primary.full_name
+    // Contact name: "First1 & First2 Surname Family" for siblings, or guardian name
+    const studentNames = [...new Set(enrolLines.map(l => l.student_name))]
+    const contactName  = guardian.full_name
+      || (studentNames.length > 1
+        ? `${studentNames.map(n => n.split(' ')[0]).join(' & ')} ${enrolLines[0].student_name.split(' ').pop()} Family`
+        : enrolLines[0].student_name)
 
-    const enrolments = termClassIds.length
-      ? (await supabase.from('enrolments').select('student_id, class_id, price')
-          .in('student_id', studentRows.map(s => s.id)).in('class_id', termClassIds)).data || []
-      : []
-
-    const lineItems = []
-    for (const enrol of enrolments) {
-      const cls        = classMap[enrol.class_id]
-      const courseName = cls?.courses?.course_name || cls?.class_name || 'Tutoring'
-      const student    = studentRows.find(s => s.id === enrol.student_id)
-      lineItems.push({
-        Description: `${courseName}${studentRows.length > 1 ? ` (${student?.full_name?.split(' ')[0]})` : ''} — ${termName}`,
-        Quantity:    1,
-        UnitAmount:  Number(enrol.price),
-      })
-    }
-    if (Number(inv.sibling_discount) > 0)
-      lineItems.push({ Description: 'Sibling discount', Quantity: 1, UnitAmount: -Number(inv.sibling_discount) })
-    if (Number(inv.multi_course_discount) > 0)
-      lineItems.push({ Description: 'Multi-course discount', Quantity: 1, UnitAmount: -Number(inv.multi_course_discount) })
-
-    if (!lineItems.length) { skipped.push(inv.id); continue }
+    // Build Xero line items directly from stored line_items — same as the PDF
+    const xeroLineItems = (inv.line_items || []).map(l => {
+      if (l.type === 'enrolment') {
+        const desc = [
+          l.student_name,
+          l.class_name,
+          l.day ? `${l.day}${l.start_time ? ' ' + l.start_time : ''}` : null,
+        ].filter(Boolean).join(' — ')
+        return { Description: desc, Quantity: 1, UnitAmount: Number(l.amount) }
+      }
+      if (l.type === 'discount') {
+        return { Description: l.reason || 'Discount', Quantity: 1, UnitAmount: Number(l.amount) }
+      }
+      if (l.type === 'credit') {
+        return { Description: `Credit: ${l.reason || ''}`.trim(), Quantity: 1, UnitAmount: Number(l.amount) }
+      }
+      return null
+    }).filter(Boolean)
 
     built.push({
       inv,
-      contactKey:  inv.family_id ? `family:${inv.family_id}` : `student:${inv.student_id}`,
+      contactKey:    inv.family_id ? `family:${inv.family_id}` : `student:${inv.student_id}`,
       contactName,
-      email: primary.email || undefined,
-      phone: primary.phone || undefined,
-      lineItems,
-      invoiceRef: `CUBE-${inv.id}-${termName.replace(/\s/g, '')}`,
+      email:         guardian.email  || undefined,
+      phone:         guardian.phone  || undefined,
+      xeroLineItems,
+      invoiceNumber: inv.invoice_number,
+      dueDate:       inv.due_date,
     })
   }
 
   if (!built.length) return NextResponse.json({ pushed: 0, skipped: skipped.length, errors: [] })
 
-  // ── Step 2: deduplicate contacts, then batch-upsert in ONE Xero call ─────────
-  // Build ordered unique contact list
+  // ── Step 3: deduplicate contacts, batch-upsert in ONE Xero call ──────────────
   const contactKeyOrder = []
   const contactByKey    = {}
   for (const b of built) {
@@ -114,28 +124,28 @@ export async function POST(req) {
   let contactIdByKey = {}
   try {
     const uniqueContacts = contactKeyOrder.map(k => contactByKey[k])
-    const contactIds     = await upsertXeroContacts(uniqueContacts)   // 1 Xero API call
+    const contactIds     = await upsertXeroContacts(uniqueContacts)
     contactKeyOrder.forEach((key, i) => { contactIdByKey[key] = contactIds[i] })
   } catch (err) {
     return NextResponse.json({ error: `Xero contacts failed: ${err.message}` }, { status: 502 })
   }
 
-  // ── Step 3: batch-create all invoices in ONE Xero call ───────────────────────
+  // ── Step 4: batch-create all invoices in ONE Xero call ───────────────────────
   const invoicePayloads = built.map(b => ({
-    contactId:  contactIdByKey[b.contactKey],
-    invoiceRef: b.invoiceRef,
-    lineItems:  b.lineItems,
-    dueDate,
+    contactId:     contactIdByKey[b.contactKey],
+    invoiceNumber: b.invoiceNumber,   // matches portal PDF exactly
+    lineItems:     b.xeroLineItems,
+    dueDate:       b.dueDate,
   }))
 
   let xeroInvoices
   try {
-    xeroInvoices = await createXeroInvoicesBatch(invoicePayloads)     // 1 Xero API call
+    xeroInvoices = await createXeroInvoicesBatch(invoicePayloads)
   } catch (err) {
     return NextResponse.json({ error: `Xero invoices failed: ${err.message}` }, { status: 502 })
   }
 
-  // ── Step 4: save results to Supabase ─────────────────────────────────────────
+  // ── Step 5: save Xero IDs back to Supabase ───────────────────────────────────
   const results = { pushed: 0, skipped: skipped.length, errors: [] }
   const now     = new Date().toISOString()
 
@@ -151,6 +161,7 @@ export async function POST(req) {
       xero_invoice_id: xeroInv.InvoiceID,
       xero_contact_id: contactIdByKey[built[i].contactKey],
       xero_pushed_at:  now,
+      status:          'synced_to_xero',
     }).eq('id', inv.id)
     results.pushed++
   }

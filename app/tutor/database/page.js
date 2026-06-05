@@ -27,7 +27,7 @@ import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COUR
 const INITIAL_TABLE_GROUPS = [
   { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS] },
   { label: 'Scheduling',           tables: [T_LESSONS] },
-  { label: 'Finance',              tables: [T_INVOICES] },
+  // Invoices moved to /tutor/accounting/invoices
 ]
 
 // students keeps its parent/guardian join. tutors and admins are plain tables.
@@ -822,7 +822,7 @@ export default function DatabasePage() {
     const HIDDEN = new Set([T_ATTENDANCE, T_QUIZ_RESULTS])
     // Bump this whenever INITIAL_TABLE_GROUPS order/membership changes intentionally.
     // A mismatch clears the cached layout so the new defaults take effect immediately.
-    const GROUPS_VERSION = 'v11'
+    const GROUPS_VERSION = 'v12'
 
     try {
       const saved = typeof window !== 'undefined' && localStorage.getItem('cube_db_table_groups')
@@ -2826,89 +2826,6 @@ export default function DatabasePage() {
                       <span className="text-sm leading-none">+</span> Add Student
                     </button>
                   )}
-                </>
-              ) : selectedTable === T_INVOICES ? (
-                <>
-                  {/* Data / Cards toggle */}
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                    <button
-                      onClick={() => setInvoiceViewMode('data')}
-                      className={`px-3 py-1.5 text-xs font-semibold transition ${invoiceViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
-                    >⊞ Data</button>
-                    <button
-                      onClick={() => { setInvoiceViewMode('cards'); setReloadKey(k => k + 1) }}
-                      className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${invoiceViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
-                    >◧ Cards</button>
-                  </div>
-                  <select
-                    value={invoiceTermId ?? ''}
-                    onChange={e => setInvoiceTermId(e.target.value)}
-                    className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] max-w-[180px]"
-                  >
-                    <option value="">Select term…</option>
-                    {allTerms.map(t => (
-                      <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={handleGenerateInvoices}
-                    disabled={!invoiceTermId || generatingInvoices || loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Generate one invoice per family / solo student for the selected term"
-                  >
-                    {generatingInvoices ? '⟳ Generating…' : '⟳ Generate Invoices'}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      const { data } = await supabase.from(T_STUDENTS).select('id, full_name').order('full_name')
-                      setAllStudentsForReferral(data || [])
-                      setReferralModal(true)
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition"
-                  >
-                    🔗 Log Referral
-                  </button>
-                  {/* Xero integration */}
-                  {xeroConnected === false ? (
-                    <a
-                      href="/api/xero/auth"
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B5B0] text-white text-xs font-semibold rounded-lg hover:bg-[#009E9A] transition"
-                      title="Connect your Xero account to enable invoice pushing"
-                    >
-                      🔗 Connect Xero
-                    </a>
-                  ) : xeroConnected === true ? (
-                    <div className="flex items-center gap-2">
-                      <a
-                        href="/api/xero/auth"
-                        className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-[#2A2035]/50 hover:text-[#2A2035] transition"
-                        title="Reconnect Xero (use if token expired)"
-                      >
-                        🔗 Reconnect
-                      </a>
-                      <button
-                        onClick={handlePushToXero}
-                        disabled={!invoiceTermId || xeroPushing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B5B0] text-white text-xs font-semibold rounded-lg hover:bg-[#009E9A] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                        title="Push unpushed invoices for this term to Xero as drafts"
-                      >
-                        {xeroPushing ? '⟳ Pushing…' : '↑ Push to Xero'}
-                      </button>
-                      {xeroPushResult && (
-                        <span className="text-[10px] text-[#2A2035]/60">
-                          {xeroPushResult.message || `✓ ${xeroPushResult.pushed} pushed${xeroPushResult.skipped ? `, ${xeroPushResult.skipped} skipped` : ''}${xeroPushResult.errors?.length ? `, ${xeroPushResult.errors.length} errors` : ''}`}
-                        </span>
-                      )}
-                      {xeroPushResult?.errors?.length > 0 && (
-                        <textarea
-                          readOnly
-                          className="block w-full mt-1 text-[10px] text-red-600 bg-red-50 border border-red-200 rounded p-1.5 font-mono"
-                          rows={6}
-                          value={xeroPushResult.errors.map(e => `#${e.invoice_id}: ${e.error}`).join('\n\n')}
-                        />
-                      )}
-                    </div>
-                  ) : null}
                 </>
               ) : selectedTable === T_DROPIN_SESSIONS ? (
                 <>

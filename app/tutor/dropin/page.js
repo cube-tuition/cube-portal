@@ -286,6 +286,11 @@ export default function DropinPage() {
     ? new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
     : '—'
 
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const upcoming = sessions.filter(s => s.session_date >= todayIso)
+  const past     = sessions.filter(s => s.session_date <  todayIso)
+  const [showPast, setShowPast] = useState(false)
+
   if (!staff) return null
 
   return (
@@ -322,8 +327,16 @@ export default function DropinPage() {
             </button>
           </div>
         ) : (
+          <>
+          {upcoming.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
+              <p className="text-3xl">📋</p>
+              <p className="text-sm font-semibold text-[#2A2035]">No upcoming sessions</p>
+              <p className="text-xs text-[#2A2035]/40">Create a new session to get started.</p>
+            </div>
+          )}
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-            {sessions.map(session => {
+            {upcoming.map(session => {
               const isFull    = session.signins.length >= session.max_capacity
               const spotsLeft = session.max_capacity - session.signins.length
               const capColour = isFull
@@ -414,6 +427,96 @@ export default function DropinPage() {
               )
             })}
           </div>
+
+          {/* Previous sessions */}
+          {past.length > 0 && (
+            <div className="mt-10">
+              <button
+                onClick={() => setShowPast(p => !p)}
+                className="flex items-center gap-2 text-sm font-semibold text-[#325099]/60 hover:text-[#325099] transition mb-4"
+              >
+                <span className={`transition-transform duration-200 ${showPast ? 'rotate-90' : ''}`}>▶</span>
+                Previous Sessions ({past.length})
+              </button>
+              {showPast && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5 opacity-70">
+                  {past.map(session => {
+                    const isFull    = session.signins.length >= session.max_capacity
+                    const spotsLeft = session.max_capacity - session.signins.length
+                    const capColour = isFull
+                      ? 'text-[#991B1B] bg-[#FEE2E2]'
+                      : spotsLeft <= 2 ? 'text-[#92400E] bg-[#FEF3C7]'
+                      : 'text-[#065F46] bg-[#D1FAE5]'
+                    return (
+                      <div key={session.id} className="bg-white rounded-2xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden">
+                        <div className="px-5 pt-5 pb-4 border-b border-[#F0F4FF]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-[#062E63]">{fmtDate(session.session_date)}</p>
+                              <p className="text-xs text-[#2A2035]/60 mt-0.5">
+                                {fmt12(session.start_time)} – {fmt12(session.end_time)}
+                                {session.location && <> · {session.location}</>}
+                              </p>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${capColour}`}>
+                              {session.signins.length}/{session.max_capacity}
+                            </span>
+                          </div>
+                          {(session.subjects || []).length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {session.subjects.map(s => (
+                                <span key={s} className="text-[10px] font-semibold bg-[#EEF4FF] text-[#325099] px-2 py-0.5 rounded-full border border-[#DEE7FF]">{s}</span>
+                              ))}
+                            </div>
+                          )}
+                          {(session.tutors || []).length > 0 && (
+                            <p className="mt-2 text-[10px] text-[#2A2035]/50">
+                              <span className="font-semibold uppercase tracking-wider mr-1">Tutors:</span>
+                              {session.tutors.join(', ')}
+                            </p>
+                          )}
+                          <div className="mt-3 flex gap-3">
+                            <button onClick={() => setEditingSession(session)} className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                            <span className="text-[#2A2035]/20">·</span>
+                            <button onClick={() => setDeleteSessionId(session.id)} className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
+                          </div>
+                        </div>
+                        <div className="px-5 py-3 flex flex-col gap-1.5 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-[#325099]/60 mb-1">
+                            Attendees {session.signins.length > 0 ? `(${session.signins.length})` : ''}
+                          </p>
+                          {session.signins.length === 0 && (
+                            <p className="text-[10px] text-[#2A2035]/30 italic pl-1">No students attended</p>
+                          )}
+                          {session.signins.map(si => {
+                            const stu = allStudents.find(s => s.id === si.student_id)
+                            const statusColour = si.status === 'attended'
+                              ? 'text-[#065F46] bg-[#D1FAE5] border-[#6EE7B7]'
+                              : si.status === 'absent'
+                              ? 'text-[#991B1B] bg-[#FEE2E2] border-[#FCA5A5]'
+                              : 'text-[#1e40af] bg-[#EEF4FF] border-[#BFDBFE]'
+                            return (
+                              <div key={si.id} className="flex items-start gap-2 px-2.5 py-2 rounded-xl bg-[#FAFBFF] border border-[#F0F4FF]">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-semibold text-[#062E63] truncate">{stu?.full_name ?? '—'}</span>
+                                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${statusColour}`}>{si.status}</span>
+                                    <span className="text-[10px] text-[#325099]/60 font-medium">{si.subject}</span>
+                                  </div>
+                                  {si.question && <p className="text-[10px] text-[#2A2035]/40 mt-0.5 truncate">{si.question}</p>}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+          </>
         )}
       </div>
 

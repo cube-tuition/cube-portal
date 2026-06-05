@@ -7,6 +7,13 @@ import TutorNav from '../../../components/TutorNav'
 
 const CAMPAIGNS = [
   {
+    href:        '/tutor/emails/term-start',
+    icon:        '🎉',
+    title:       'Term Start',
+    description: 'Send re-enrolment confirmation emails to families at the start of a new term. Includes class details, term dates, and invoice notice.',
+    badge:       null,
+  },
+  {
     href:        '/tutor/emails/end-of-term',
     icon:        '📋',
     title:       'End-of-Term Reports',

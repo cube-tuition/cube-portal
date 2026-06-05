@@ -49,14 +49,22 @@ function formatNames(names) {
   return names.slice(0, -1).join(', ') + ' and ' + names.slice(-1)
 }
 
+function followupDate() {
+  const d = new Date()
+  d.setDate(d.getDate() + 7)
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 function fillTemplate(template, vars) {
   return template
-    .replace(/\{\{parent_name\}\}/g,   vars.parentName   || 'there')
-    .replace(/\{\{term_name\}\}/g,     vars.termName     || '')
-    .replace(/\{\{student_names\}\}/g, vars.studentNames || '')
-    .replace(/\{\{possessive\}\}/g,    vars.possessive   || 'their')
-    .replace(/\{\{they_have\}\}/g,     vars.theyHave     || 'they have')
-    .replace(/\{\{plural\}\}/g,        vars.plural       || '')
+    .replace(/\{\{parent_name\}\}/g,    vars.parentName    || 'there')
+    .replace(/\{\{term_name\}\}/g,      vars.termName      || '')
+    .replace(/\{\{student_names\}\}/g,  vars.studentNames  || '')
+    .replace(/\{\{possessive\}\}/g,     vars.possessive    || 'their')
+    .replace(/\{\{they_have\}\}/g,      vars.theyHave      || 'they have')
+    .replace(/\{\{plural\}\}/g,         vars.plural        || '')
+    .replace(/\{\{followup_date\}\}/g,  vars.followupDate  || followupDate())
+    .replace(/\[date\]/gi,              vars.followupDate  || followupDate())
 }
 
 function buildEmailHtml(template, family, termName) {
@@ -75,7 +83,7 @@ function buildEmailHtml(template, family, termName) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const paragraphs = escaped
     .split(/\n\n+/)
-    .map(p => `<p style="margin:0 0 16px 0;line-height:1.7;">${p.replace(/\n/g, '<br/>')}</p>`)
+    .map(p => `<p style="margin:0 0 16px 0;line-height:1.7;">${p.replace(/\n/g, '<br/>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
     .join('')
   return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4ff;">
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:32px auto;padding:32px 24px;color:#2A2035;background:#ffffff;border-radius:12px;box-shadow:0 2px 16px rgba(6,46,99,0.08);">
@@ -342,11 +350,13 @@ export default function EndOfTermEmailPage() {
 
   const handleSend = () => {
     const term = terms.find(t => t.id === termId)
+    const unsentFamilies = familiesWithEmail.filter(f => !results.find(r => r.email === f.parent_email && r.success))
+    if (!unsentFamilies.length) return
     setConfirmSend({
-      families: familiesWithEmail,
+      families: unsentFamilies,
       isBulk: true,
-      label: `Send to all ${familiesWithEmail.length} ${familiesWithEmail.length === 1 ? 'family' : 'families'}`,
-      detail: `${term?.name || 'this term'} · ${familiesWithEmail.length} email${familiesWithEmail.length > 1 ? 's' : ''}`,
+      label: `Send to ${unsentFamilies.length} unsent ${unsentFamilies.length === 1 ? 'family' : 'families'}`,
+      detail: `${term?.name || 'this term'} · ${unsentFamilies.length} email${unsentFamilies.length > 1 ? 's' : ''}`,
     })
   }
 
@@ -479,7 +489,11 @@ export default function EndOfTermEmailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {students.map((s, i) => {
+                    {[...students].sort((a, b) => {
+                      const aUp = uploads[`${a.student_id}_${a.class_id}`]?.exists ? 1 : 0
+                      const bUp = uploads[`${b.student_id}_${b.class_id}`]?.exists ? 1 : 0
+                      return aUp - bUp
+                    }).map((s, i) => {
                       const key      = `${s.student_id}_${s.class_id}`
                       const upStatus = uploads[key] || { exists: false, uploading: false }
                       return (
@@ -541,7 +555,7 @@ export default function EndOfTermEmailPage() {
                 </button>
               </div>
               <p className="text-xs text-[#325099]/60 mb-3">
-                Available placeholders: <code className="bg-[#F0F4FF] px-1 rounded">{'{{parent_name}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>
+                Available placeholders: <code className="bg-[#F0F4FF] px-1 rounded">{'{{parent_name}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{followup_date}}'}</code> <span className="text-[#325099]/40">(7 days from send)</span>
               </p>
               <textarea
                 value={template}
@@ -654,35 +668,38 @@ export default function EndOfTermEmailPage() {
               </div>
             )}
 
-            {/* Send button */}
-            {results.length === 0 ? (
-              <div className="flex justify-end">
-                <button
-                  onClick={handleSend}
-                  disabled={sending || familiesWithEmail.length === 0}
-                  className="bg-[#062E63] text-white text-sm font-semibold px-8 py-3 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
-                >
-                  {sending ? 'Sending…' : `✉ Send to ${familiesWithEmail.length} ${familiesWithEmail.length === 1 ? 'family' : 'families'}`}
-                </button>
-              </div>
-            ) : (
+            {/* Results summary */}
+            {results.length > 0 && (
               <div className="bg-[#D1FAE5] border border-[#34D399] rounded-xl px-5 py-4">
-                <p className="text-sm font-semibold text-[#065F46] mb-1">
+                <p className="text-sm font-semibold text-[#065F46]">
                   ✓ {results.filter(r => r.success).length} of {results.length} emails sent successfully
                 </p>
                 {results.filter(r => !r.success).length > 0 && (
-                  <p className="text-xs text-red-600">
+                  <p className="text-xs text-red-600 mt-1">
                     {results.filter(r => !r.success).length} failed: {results.filter(r => !r.success).map(r => r.family).join(', ')}
                   </p>
                 )}
-                <button
-                  onClick={() => { setResults([]); if (resultsKey) localStorage.removeItem(resultsKey) }}
-                  className="mt-2 text-xs font-semibold text-[#065F46] hover:text-[#062E63] transition"
-                >
-                  Send again
-                </button>
               </div>
             )}
+
+            {/* Bulk send button — always visible, only targets unsent families */}
+            {(() => {
+              const unsentFamilies = familiesWithEmail.filter(f => !results.find(r => r.email === f.parent_email && r.success))
+              return (
+                <div className="flex items-center justify-between">
+                  {unsentFamilies.length < familiesWithEmail.length && familiesWithEmail.length > 0 ? (
+                    <span className="text-xs text-[#325099]/50">{familiesWithEmail.length - unsentFamilies.length} already sent</span>
+                  ) : <span />}
+                  <button
+                    onClick={handleSend}
+                    disabled={sending || unsentFamilies.length === 0}
+                    className="bg-[#062E63] text-white text-sm font-semibold px-8 py-3 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
+                  >
+                    {sending ? 'Sending…' : unsentFamilies.length === 0 ? '✓ All sent' : `✉ Send to ${unsentFamilies.length} unsent ${unsentFamilies.length === 1 ? 'family' : 'families'}`}
+                  </button>
+                </div>
+              )
+            })()}
           </div>
         )}
 
