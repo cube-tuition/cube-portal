@@ -325,8 +325,59 @@ export default function TransitionPage() {
         await supabase.from(T_ENROLMENTS).update(update).eq('id', id)
       }
 
-      setRolloverResult({ createdClasses: createdClassObjs.length, createdEnrolments, skipped })
+      setRolloverResult({
+        createdClasses:    createdClassObjs.length,
+        createdEnrolments,
+        skipped,
+        createdClassIds:   createdClassObjs.map(c => c.id),
+        disenrolledIds:    [...endingIds],   // source enrolment IDs we flipped to disenrol
+      })
       setRolloverDone(true)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ── Step 3: reset rollover ────────────────────────────────────────────────
+  const resetRollover = async () => {
+    if (!rolloverResult) return
+    setSaving(true); setError(null)
+    try {
+      const { createdClassIds = [], disenrolledIds = [] } = rolloverResult
+
+      // 1. Delete enrolments in the newly-created classes
+      if (createdClassIds.length) {
+        await supabase.from(T_ENROLMENTS).delete().in('class_id', createdClassIds)
+      }
+
+      // 2. Delete the newly-created classes themselves
+      if (createdClassIds.length) {
+        await supabase.from(T_CLASSES).delete().in('id', createdClassIds)
+      }
+
+      // 3. Restore source enrolments that were disenrolled during this rollover
+      if (disenrolledIds.length) {
+        await supabase.from(T_ENROLMENTS)
+          .update({ status: 'active', next_term_status: 'confirmed', ended_at: null, end_reason: null })
+          .in('id', disenrolledIds)
+
+        // Sync local state so they show as confirmed again in Step 2
+        setNextTermStatus(prev => {
+          const next = { ...prev }
+          disenrolledIds.forEach(id => { next[id] = 'confirmed' })
+          return next
+        })
+        setEndings(prev => {
+          const next = { ...prev }
+          disenrolledIds.forEach(id => { next[id] = { ending: false, reason: '' } })
+          return next
+        })
+      }
+
+      setRolloverDone(false)
+      setRolloverResult(null)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -694,15 +745,24 @@ export default function TransitionPage() {
 
             {/* Rollover result */}
             {rolloverDone && rolloverResult && (
-              <div className="bg-[#D1FAE5] border border-[#34D399] rounded-xl px-4 py-3.5 mb-6">
-                <p className="text-sm font-semibold text-[#065F46]">
-                  ✓ Rollover complete — {rolloverResult.createdClasses} classes and {rolloverResult.createdEnrolments} enrolments created in {toTerm?.name}
-                </p>
-                {rolloverResult.skipped?.length > 0 && (
-                  <p className="text-xs text-[#065F46]/70 mt-1">
-                    Skipped (already existed): {rolloverResult.skipped.join(', ')}
+              <div className="bg-[#D1FAE5] border border-[#34D399] rounded-xl px-4 py-3.5 mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-[#065F46]">
+                    ✓ Rollover complete — {rolloverResult.createdClasses} classes and {rolloverResult.createdEnrolments} enrolments created in {toTerm?.name}
                   </p>
-                )}
+                  {rolloverResult.skipped?.length > 0 && (
+                    <p className="text-xs text-[#065F46]/70 mt-1">
+                      Skipped (already existed): {rolloverResult.skipped.join(', ')}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={resetRollover}
+                  disabled={saving}
+                  className="flex-shrink-0 text-xs font-semibold text-red-600 border border-red-200 bg-white hover:bg-red-50 px-3 py-1.5 rounded-full transition disabled:opacity-40"
+                >
+                  {saving ? 'Resetting…' : '↩ Reset rollover'}
+                </button>
               </div>
             )}
 

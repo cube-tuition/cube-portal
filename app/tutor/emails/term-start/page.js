@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
@@ -107,6 +107,14 @@ function buildPreviewHtml(template, family, termName, termDates) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function TermStartEmailPage() {
+  return (
+    <Suspense>
+      <TermStartEmailPageInner />
+    </Suspense>
+  )
+}
+
+function TermStartEmailPageInner() {
   const router       = useRouter()
   const searchParams = useSearchParams()
 
