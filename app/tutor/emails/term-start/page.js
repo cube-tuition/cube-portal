@@ -18,17 +18,21 @@ import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/
 
 const TEMPLATE_KEY = 'cube_term_start_template'
 
-const DEFAULT_TEMPLATE = `Hi {{parent_name}},
+const DEFAULT_TEMPLATE = `Dear {{parent_name}},
 
-We're looking forward to seeing you again for **{{term_name}}** at CUBE Tuition!
+We hope you had a great experience with CUBE during the previous term! As **{{term_name}}** approaches, we'd like to share a few important reminders regarding your child's enrolment. Attached to this email you'll find the invoice for {{term_name}}.
 
-This is a confirmation that the following enrolments have been carried over:
+First and foremost, if you have any feedback or questions, please feel free to reach out — we are always here to help and would love to hear your thoughts.
+
+For your reference, here are the enrolment details and lesson times for {{term_name}}:
 
 {{class_details}}
 
-Term dates: {{term_dates}}
+{{term_name}} starts on {{term_start}}.
 
-Please find your invoice attached to this email. If you have any questions about your invoice or enrolments, don't hesitate to reach out.
+Please review the attached invoice. If you would like to make any changes or adjustments, don't hesitate to let us know — we're happy to assist.
+
+Thank you once again for your continued support, and we look forward to another great term ahead!
 
 Kind regards,
 The CUBE Team`
@@ -58,12 +62,21 @@ function buildClassDetails(students) {
     a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i
   )
   return unique.map(s => {
-    const time = s.class_day ? ` (${s.class_day}${s.class_start ? ', ' + s.class_start : ''})` : ''
-    return `  • ${s.student_name} — ${s.class_name}${time}`
+    const time = [
+      s.class_day,
+      s.class_start && s.class_end ? `${s.class_start} - ${s.class_end}` : s.class_start,
+    ].filter(Boolean).join(' ')
+    const trial = s.enr_status === 'trial' ? ' (Trial)' : ''
+    return `  • ${s.student_name} — ${s.class_name}${time ? ' · ' + time : ''}${trial}`
   }).join('\n')
 }
 
-function fillTemplatePreview(template, family, termName, termDates) {
+function fmtStartDate(iso) {
+  if (!iso) return ''
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+function fillTemplatePreview(template, family, termName, termDates, termStart) {
   const unique       = family.students.filter((s, i, a) => a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i)
   const firstNames   = unique.map(s => s.student_name.split(' ')[0])
   const count        = firstNames.length
@@ -74,6 +87,7 @@ function fillTemplatePreview(template, family, termName, termDates) {
     .replace(/\{\{parent_name\}\}/g,    family.parent_name || 'there')
     .replace(/\{\{term_name\}\}/g,      termName)
     .replace(/\{\{term_dates\}\}/g,     termDates)
+    .replace(/\{\{term_start\}\}/g,     termStart || '')
     .replace(/\{\{student_names\}\}/g,  studentNames)
     .replace(/\{\{class_details\}\}/g,  classDetails)
     .replace(/\{\{followup_date\}\}/g,  followupDate())
@@ -83,8 +97,8 @@ function fillTemplatePreview(template, family, termName, termDates) {
     .replace(/\{\{plural\}\}/g,         count > 1 ? 's' : '')
 }
 
-function buildPreviewHtml(template, family, termName, termDates) {
-  const body    = fillTemplatePreview(template, family, termName, termDates)
+function buildPreviewHtml(template, family, termName, termDates, termStart) {
+  const body    = fillTemplatePreview(template, family, termName, termDates, termStart)
   const escaped = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const paras   = escaped.split(/\n\n+/)
     .map(p => `<p style="margin:0 0 16px 0;line-height:1.7;">${
@@ -203,6 +217,8 @@ function TermStartEmailPageInner() {
           class_name:   c.class_name || '—',
           class_day:    c.day_of_week || '',
           class_start:  c.start_time?.slice(0, 5) || '',
+          class_end:    c.end_time?.slice(0, 5)   || '',
+          enr_status:   e.status || 'active',
           parent_name:  p.full_name || '',
           parent_email: p.email || '',
         }
@@ -258,6 +274,7 @@ function TermStartEmailPageInner() {
         term_id:    termId,
         term_name:  term?.name || '',
         term_dates: termDates,
+        term_start: fmtStartDate(term?.start_date),
         template,
         families: fams.map(f => ({
           ...f,
@@ -315,22 +332,15 @@ function TermStartEmailPageInner() {
             <h1 className="text-2xl font-bold text-[#062E63]">Term Start</h1>
             <p className="text-sm text-[#325099]/60 mt-1">Send re-enrolment confirmation emails to families at the start of a new term.</p>
           </div>
-          {term ? (
-            <div className="flex items-center gap-2 border border-[#DEE7FF] rounded-xl px-4 py-2 bg-white">
-              <span className="text-sm font-semibold text-[#062E63]">{term.name}</span>
-              <Link href="/tutor/transition" className="text-[11px] text-[#325099]/50 hover:text-[#325099] transition">← Change</Link>
-            </div>
-          ) : (
-            <Link href="/tutor/transition" className="text-sm font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-2 rounded-xl hover:bg-[#F0F4FF] transition">
-              Run transition first →
-            </Link>
-          )}
+          <select
+            value={termId}
+            onChange={e => { setTermId(e.target.value); setResults([]) }}
+            className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/25"
+          >
+            <option value="">Select term…</option>
+            {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
         </div>
-        {!termId && (
-          <div className="bg-[#FEF9C3] border border-[#FDE047] text-[#854D0E] text-sm font-medium px-4 py-3 rounded-xl mb-6">
-            ⚠ No term selected. Complete the <Link href="/tutor/transition" className="underline">term transition</Link> first, then use the "Send Term Start emails" button on the Done step.
-          </div>
-        )}
 
         {/* Stats */}
         {students.length > 0 && (
@@ -378,8 +388,8 @@ function TermStartEmailPageInner() {
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{class_details}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>{' '}
+                <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_start}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_dates}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded">{'{{followup_date}}'}</code>{' '}
                 <span className="text-[#325099]/40">· Use **bold** for bold text</span>
               </p>
               <textarea
@@ -557,7 +567,7 @@ function TermStartEmailPageInner() {
             </div>
             <div className="flex-1 overflow-auto">
               <iframe
-                srcDoc={buildPreviewHtml(template, previewFamily, term?.name || '', termDates)}
+                srcDoc={buildPreviewHtml(template, previewFamily, term?.name || '', termDates, fmtStartDate(term?.start_date))}
                 className="w-full border-0"
                 style={{ minHeight: '500px' }}
                 title="Email preview"

@@ -46,6 +46,18 @@ export async function POST(req) {
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
   if (!invoices?.length) return NextResponse.json({ pushed: 0, message: 'No new invoices to push' })
 
+  // ── Load Xero settings + per-course item mappings ────────────────────────────
+  const [{ data: xeroSettings }, { data: itemMappings }] = await Promise.all([
+    supabase.from('xero_settings').select('*').eq('id', 1).maybeSingle(),
+    supabase.from('xero_item_mappings').select('class_name, item_code'),
+  ])
+  // Map class_name → Xero item_code for O(1) lookup during line-item building
+  const itemCodeByClass = Object.fromEntries(
+    (itemMappings || [])
+      .filter(m => m.item_code)
+      .map(m => [m.class_name, m.item_code])
+  )
+
   // ── Step 1: collect all student IDs to fetch guardians in one query ──────────
   const allStudentIds = [...new Set(invoices.flatMap(inv =>
     (inv.line_items || [])
@@ -78,22 +90,40 @@ export async function POST(req) {
         ? `${studentNames.map(n => n.split(' ')[0]).join(' & ')} ${enrolLines[0].student_name.split(' ').pop()} Family`
         : enrolLines[0].student_name)
 
-    // Build Xero line items directly from stored line_items — same as the PDF
+    // Build Xero line items — account codes from settings, no TaxType override.
+    // Xero derives tax from each account's own default tax setting, which avoids
+    // the "TaxType cannot be used with account code" validation error.
     const xeroLineItems = (inv.line_items || []).map(l => {
       if (l.type === 'enrolment') {
-        const desc = [
+        const description = [
           l.student_name,
           l.class_name,
           l.day ? `${l.day}${l.start_time ? ' ' + l.start_time : ''}` : null,
         ].filter(Boolean).join(' — ')
-        return { Description: desc, Quantity: 1, UnitAmount: Number(l.amount) }
+        const item = { Description: description, Quantity: 1, UnitAmount: Math.abs(Number(l.amount)) }
+        // Use a Xero item code if mapped — Xero resolves the account internally.
+        // Fall back to the global enrolment account code if no item mapping exists.
+        const itemCode = itemCodeByClass[l.class_name]
+        if (itemCode) {
+          item.ItemCode = itemCode
+        } else if (xeroSettings?.enrolment_account_code) {
+          item.AccountCode = xeroSettings.enrolment_account_code
+        }
+        return item
       }
+
       if (l.type === 'discount') {
-        return { Description: l.reason || 'Discount', Quantity: 1, UnitAmount: Number(l.amount) }
+        const item = { Description: l.reason || 'Discount', Quantity: 1, UnitAmount: -Math.abs(Number(l.amount)) }
+        if (xeroSettings?.discount_account_code) item.AccountCode = xeroSettings.discount_account_code
+        return item
       }
+
       if (l.type === 'credit') {
-        return { Description: `Credit: ${l.reason || ''}`.trim(), Quantity: 1, UnitAmount: Number(l.amount) }
+        const item = { Description: l.reason || 'Credit', Quantity: 1, UnitAmount: -Math.abs(Number(l.amount)) }
+        if (xeroSettings?.credit_account_code) item.AccountCode = xeroSettings.credit_account_code
+        return item
       }
+
       return null
     }).filter(Boolean)
 
@@ -105,6 +135,7 @@ export async function POST(req) {
       phone:         guardian.phone  || undefined,
       xeroLineItems,
       invoiceNumber: inv.invoice_number,
+      reference:     inv.reference_code || undefined,
       dueDate:       inv.due_date,
     })
   }
@@ -133,7 +164,8 @@ export async function POST(req) {
   // ── Step 4: batch-create all invoices in ONE Xero call ───────────────────────
   const invoicePayloads = built.map(b => ({
     contactId:     contactIdByKey[b.contactKey],
-    invoiceNumber: b.invoiceNumber,   // matches portal PDF exactly
+    invoiceNumber: b.invoiceNumber,   // e.g. 26T2-0001
+    reference:     b.reference,       // e.g. INV0001
     lineItems:     b.xeroLineItems,
     dueDate:       b.dueDate,
   }))

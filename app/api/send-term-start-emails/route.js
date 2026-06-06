@@ -35,10 +35,12 @@ function buildClassDetails(students) {
     a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i
   )
   return unique.map(s => {
-    const time = s.class_day
-      ? ` (${s.class_day}${s.class_start ? ', ' + s.class_start : ''})`
-      : ''
-    return `  • ${s.student_name} — ${s.class_name}${time}`
+    const time = [
+      s.class_day,
+      s.class_start && s.class_end ? `${s.class_start} - ${s.class_end}` : s.class_start,
+    ].filter(Boolean).join(' ')
+    const trial = s.enr_status === 'trial' ? ' (Trial)' : ''
+    return `  • ${s.student_name} — ${s.class_name}${time ? ' · ' + time : ''}${trial}`
   }).join('\n')
 }
 
@@ -47,6 +49,7 @@ function fillTemplate(template, vars) {
     .replace(/\{\{parent_name\}\}/g,    vars.parentName    || 'there')
     .replace(/\{\{term_name\}\}/g,      vars.termName      || '')
     .replace(/\{\{term_dates\}\}/g,     vars.termDates     || '')
+    .replace(/\{\{term_start\}\}/g,     vars.termStart     || '')
     .replace(/\{\{student_names\}\}/g,  vars.studentNames  || '')
     .replace(/\{\{class_details\}\}/g,  vars.classDetails  || '')
     .replace(/\{\{followup_date\}\}/g,  vars.followupDate  || followupDate())
@@ -84,7 +87,7 @@ function toHtml(plainText) {
 
 export async function POST(request) {
   try {
-    const { term_id, term_name, term_dates, template, families } = await request.json()
+    const { term_id, term_name, term_dates, term_start, template, families } = await request.json()
 
     if (!families?.length) {
       return Response.json({ error: 'Missing families' }, { status: 400 })
@@ -161,6 +164,7 @@ export async function POST(request) {
         parentName:   family.parent_name || 'there',
         termName:     term_name,
         termDates:    term_dates || '',
+        termStart:    term_start || '',
         studentNames,
         classDetails: buildClassDetails(family.students),
         possessive:   'their',

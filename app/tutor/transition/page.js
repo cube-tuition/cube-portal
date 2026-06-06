@@ -840,6 +840,173 @@ export default function TransitionPage() {
         )}
 
       </div>
+
+      {/* ── Revert a transition ──────────────────────────────────────────── */}
+      <RevertPanel terms={terms} />
+    </div>
+  )
+}
+
+// ── Revert Panel ──────────────────────────────────────────────────────────────
+function RevertPanel({ terms }) {
+  const [open,       setOpen]       = useState(false)
+  const [termId,     setTermId]     = useState('')
+  const [preview,    setPreview]    = useState(null)  // { classes, enrolments, disenrolled }
+  const [loading,    setLoading]    = useState(false)
+  const [reverting,  setReverting]  = useState(false)
+  const [done,       setDone]       = useState(false)
+  const [error,      setError]      = useState(null)
+  const [confirm,    setConfirm]    = useState(false)
+
+  const loadPreview = async (tid) => {
+    if (!tid) { setPreview(null); return }
+    setLoading(true); setError(null); setDone(false)
+    try {
+      const { data: cls } = await supabase.from(T_CLASSES).select('id, class_name').eq('term_id', tid)
+      const classIds = (cls || []).map(c => c.id)
+
+      let enrolments = 0
+      if (classIds.length) {
+        const { count } = await supabase.from(T_ENROLMENTS)
+          .select('id', { count: 'exact', head: true })
+          .in('class_id', classIds)
+        enrolments = count || 0
+      }
+
+      // Find disenrolled enrolments in OTHER terms' classes that have next_term_status='not_continuing'
+      // and ended_at set (likely marked during this transition)
+      const term      = terms.find(t => t.id === tid)
+      const fromTerms = terms.filter(t => t.start_date < term?.start_date)
+      let disenrolled = []
+      if (fromTerms.length) {
+        const { data: fromCls } = await supabase.from(T_CLASSES)
+          .select('id').in('term_id', fromTerms.map(t => t.id))
+        const fromClassIds = (fromCls || []).map(c => c.id)
+        if (fromClassIds.length) {
+          const { data: dis } = await supabase.from(T_ENROLMENTS)
+            .select('id, student_id, ended_at')
+            .in('class_id', fromClassIds)
+            .eq('status', 'disenrol')
+            .not('ended_at', 'is', null)
+          disenrolled = dis || []
+        }
+      }
+
+      setPreview({ classes: cls || [], enrolments, disenrolled })
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  const executeRevert = async () => {
+    setConfirm(false); setReverting(true); setError(null)
+    try {
+      const classIds = preview.classes.map(c => c.id)
+
+      // Delete enrolments in target term classes
+      if (classIds.length) {
+        await supabase.from(T_ENROLMENTS).delete().in('class_id', classIds)
+      }
+      // Delete target term classes
+      if (classIds.length) {
+        await supabase.from(T_CLASSES).delete().in('id', classIds)
+      }
+      // Restore disenrolled enrolments from preceding terms
+      if (preview.disenrolled.length) {
+        await supabase.from(T_ENROLMENTS)
+          .update({ status: 'active', next_term_status: 'confirmed', ended_at: null, end_reason: null })
+          .in('id', preview.disenrolled.map(d => d.id))
+      }
+
+      setDone(true); setPreview(null); setTermId('')
+    } catch (e) { setError(e.message) }
+    finally { setReverting(false) }
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto px-6 pb-16">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 text-sm text-[#325099]/50 hover:text-[#325099] transition"
+      >
+        <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+        Revert a transition
+      </button>
+
+      {open && (
+        <div className="mt-4 bg-white border border-red-100 rounded-2xl p-6">
+          <h3 className="text-sm font-bold text-red-700 mb-1">Revert a term transition</h3>
+          <p className="text-xs text-[#325099]/60 mb-5">
+            Deletes all classes and enrolments in the selected term, and restores any students that were marked as not continuing. This cannot be undone.
+          </p>
+
+          <div className="flex gap-3 items-end mb-5">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-[#325099]/70 mb-1.5">Term to revert (delete)</label>
+              <select
+                value={termId}
+                onChange={e => { setTermId(e.target.value); loadPreview(e.target.value); setDone(false) }}
+                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none"
+              >
+                <option value="">Select term…</option>
+                {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {loading && <p className="text-xs text-[#325099]/50 mb-4">Loading…</p>}
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-4 py-3 mb-4">{error}</div>}
+
+          {done && (
+            <div className="bg-[#D1FAE5] border border-[#34D399] text-[#065F46] text-sm font-semibold rounded-xl px-4 py-3 mb-4">
+              ✓ Transition reverted successfully.
+            </div>
+          )}
+
+          {preview && !done && (
+            <div className="border border-red-100 rounded-xl overflow-hidden mb-5">
+              <div className="bg-red-50 px-4 py-2.5 border-b border-red-100">
+                <span className="text-xs font-semibold text-red-700">What will be deleted / restored</span>
+              </div>
+              <div className="px-4 py-3 space-y-1.5 text-xs text-[#325099]">
+                <div className="flex justify-between">
+                  <span>Classes deleted</span>
+                  <span className="font-bold text-red-600">{preview.classes.length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Enrolments deleted</span>
+                  <span className="font-bold text-red-600">{preview.enrolments}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Disenrolled students restored to active</span>
+                  <span className="font-bold text-[#065F46]">{preview.disenrolled.length}</span>
+                </div>
+              </div>
+              {preview.classes.length === 0 && (
+                <div className="px-4 pb-3 text-xs text-[#325099]/50">No classes found in this term — nothing to revert.</div>
+              )}
+            </div>
+          )}
+
+          {preview && preview.classes.length > 0 && !done && (
+            confirm ? (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-red-600 font-semibold">Are you sure? This cannot be undone.</span>
+                <button onClick={executeRevert} disabled={reverting}
+                  className="text-xs font-semibold bg-red-600 text-white px-4 py-1.5 rounded-full hover:bg-red-700 transition disabled:opacity-40">
+                  {reverting ? 'Reverting…' : 'Yes, revert'}
+                </button>
+                <button onClick={() => setConfirm(false)} className="text-xs text-[#325099]/60 hover:text-[#325099]">Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirm(true)}
+                className="text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 px-5 py-2 rounded-full transition">
+                ↩ Revert this transition
+              </button>
+            )
+          )}
+        </div>
+      )}
     </div>
   )
 }

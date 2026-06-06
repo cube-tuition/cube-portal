@@ -1,32 +1,59 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { fetchAllTerms } from '../../../../lib/terms'
+import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 
 /*
  * Invoice Dashboard — /tutor/accounting/invoices
  * Phase 1: draft generation, warnings, approve, generate + download PDF
  */
 
-const STATUS_LABELS = {
-  draft:          { label: 'Draft',            cls: 'bg-[#F0F4FF] text-[#325099]' },
-  approved:       { label: 'Approved',          cls: 'bg-[#EDE9FE] text-[#5B21B6]' },
-  synced_to_xero: { label: 'In Xero',           cls: 'bg-[#ECFDF5] text-[#065F46]' },
-  sent:           { label: 'Sent',              cls: 'bg-[#D1FAE5] text-[#065F46]' },
-  awaiting_payment:{ label: 'Awaiting payment', cls: 'bg-[#FEF3C7] text-[#92400E]' },
-  paid:           { label: 'Paid',              cls: 'bg-[#D1FAE5] text-[#065F46] font-bold' },
-  overdue:        { label: 'Overdue',           cls: 'bg-[#FEE2E2] text-red-700 font-bold' },
-  voided:         { label: 'Voided',            cls: 'bg-[#F3F4F6] text-gray-500' },
-  credited:       { label: 'Credited',          cls: 'bg-[#F0F4FF] text-[#325099]' },
-  unpaid:         { label: 'Unpaid',            cls: 'bg-[#FEF3C7] text-[#92400E]' },
+// Workflow stage
+const STAGE_LABELS = {
+  draft:          { label: 'Draft',    cls: 'bg-[#F0F4FF] text-[#325099]' },
+  approved:       { label: 'Approved', cls: 'bg-[#EDE9FE] text-[#5B21B6]' },
+  synced_to_xero: { label: 'In Xero', cls: 'bg-[#ECFDF5] text-[#065F46]' },
+  voided:         { label: 'Voided',  cls: 'bg-[#F3F4F6] text-gray-500' },
+}
+// Delivery
+const DELIVERY_LABELS = {
+  unsent: { label: 'Unsent', cls: 'bg-[#F3F4F6] text-gray-500' },
+  sent:   { label: 'Sent',   cls: 'bg-[#D1FAE5] text-[#065F46]' },
+}
+// Payment
+const PAYMENT_LABELS = {
+  unpaid:  { label: 'Unpaid',  cls: 'bg-[#FEF3C7] text-[#92400E]' },
+  paid:    { label: 'Paid',    cls: 'bg-[#D1FAE5] text-[#065F46] font-bold' },
+  overdue: { label: 'Overdue', cls: 'bg-[#FEE2E2] text-red-700 font-bold' },
+}
+// Keep for backwards compat badge display
+const STATUS_LABELS = { ...STAGE_LABELS, ...DELIVERY_LABELS, ...PAYMENT_LABELS }
+
+// Dropdown colour classes (background + text + border for the select element itself)
+const STAGE_SELECT_CLS = {
+  draft:          'bg-[#F0F4FF] text-[#325099] border-[#C7D5F8]',
+  approved:       'bg-[#EDE9FE] text-[#5B21B6] border-[#C4B5FD]',
+  synced_to_xero: 'bg-[#ECFDF5] text-[#065F46] border-[#6EE7B7]',
+  voided:         'bg-[#F3F4F6] text-gray-500  border-[#D1D5DB]',
+}
+const DELIVERY_SELECT_CLS = {
+  unsent: 'bg-[#F3F4F6] text-gray-500  border-[#D1D5DB]',
+  sent:   'bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7]',
+}
+const PAYMENT_SELECT_CLS = {
+  '':      'bg-[#F3F4F6] text-gray-400  border-[#D1D5DB]',
+  unpaid:  'bg-[#FEF3C7] text-[#92400E] border-[#FCD34D]',
+  paid:    'bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7]',
+  overdue: 'bg-[#FEE2E2] text-red-700   border-[#FCA5A5]',
 }
 
 const fmtMoney = n => `$${(Number(n) || 0).toFixed(2)}`
-const fmtDate  = iso => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+const fmtDate     = iso => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short',  year: 'numeric' }) : '—'
+const fmtDateLong = iso => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long',  year: 'numeric' }) : '—'
 
 function Warning({ text }) {
   return (
@@ -38,190 +65,530 @@ function Warning({ text }) {
 
 function getWarnings(inv, prevUnpaid) {
   const w = []
-  if (!inv.parent_email)                             w.push('missing email')
-  if (!inv.invoice_number)                           w.push('no invoice number')
-  if ((inv.total || 0) <= 0)                        w.push('zero/negative total')
-  if (!inv.xero_contact_id)                         w.push('no Xero contact')
-  if (inv.status !== 'voided' && prevUnpaid)         w.push('unpaid previous invoice')
+  if (!inv.parent_email)                              w.push('missing email')
+  if (!inv.invoice_number)                            w.push('no invoice number')
+  if ((inv.total || 0) <= 0)                         w.push('zero/negative total')
+  if (inv.status !== 'voided' && prevUnpaid)          w.push('unpaid previous invoice')
   const missingFee  = (inv.line_items || []).filter(l => l.type === 'enrolment' && !l.unit_price)
-  if (missingFee.length)                             w.push(`${missingFee.length} missing fee`)
+  if (missingFee.length)                              w.push(`${missingFee.length} missing fee`)
   const missingTime = (inv.line_items || []).filter(l => l.type === 'enrolment' && !l.start_time)
-  if (missingTime.length)                            w.push(`${missingTime.length} missing time`)
+  if (missingTime.length)                             w.push(`${missingTime.length} missing time`)
   const creditTotal = (inv.line_items || []).filter(l => l.type === 'credit').reduce((s, l) => s + Math.abs(l.amount || 0), 0)
   if (creditTotal > (inv.subtotal || 0) * 0.5 && creditTotal > 50) w.push('unusual credit')
   return w
 }
 
-// ── PDF generation (client-side jsPDF, no plugins) ───────────────────────────
+// ── PDF generation (client-side jsPDF, Xero-style layout) ────────────────────
 async function generateInvoicePdf(inv, termName, termDates) {
   const { jsPDF } = await import('jspdf')
 
-  const doc  = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
-  const W    = doc.internal.pageSize.getWidth()
-  const H    = doc.internal.pageSize.getHeight()
-  const navy = [6, 46, 99]
-  const grey = [120, 130, 155]
-  const light = [230, 235, 245]
+  const doc      = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
+  const W        = doc.internal.pageSize.getWidth()
+  const H        = doc.internal.pageSize.getHeight()
+  const navy     = [15,  43,  89]
+  const blue     = [30,  100, 200]
+  const black    = [20,  20,  20]
+  const darkgrey = [80,  80,  80]
+  const midgrey  = [140, 140, 140]
+  const linegrey = [210, 210, 210]
+  const L = 14
+  const R = W - 14
 
-  // ── Header bar ─────────────────────────────────────────────────────────
+  // ── Logo (navy hexagon with white "C" arc) ───────────────────────────────
+  const cx = R - 2, cy = 21, r = 14
+  const hexPts = []
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i - Math.PI / 6
+    hexPts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
+  }
   doc.setFillColor(...navy)
-  doc.rect(0, 0, W, 26, 'F')
-  doc.setTextColor(255, 255, 255)
+  doc.setDrawColor(...navy)
+  const segs = hexPts.slice(1).map((p, i) => [p[0] - hexPts[i][0], p[1] - hexPts[i][1]])
+  doc.lines(segs, hexPts[0][0], hexPts[0][1], [1, 1], 'F', true)
+  doc.setDrawColor(255, 255, 255)
+  doc.setLineWidth(2.2)
+  const arcR = 6.5
+  const arcPts = []
+  for (let i = 0; i <= 20; i++) {
+    const a = (Math.PI * 0.2) + (Math.PI * 1.6) * (i / 20)
+    arcPts.push([cx + arcR * Math.cos(a), cy + arcR * Math.sin(a)])
+  }
+  for (let i = 0; i < arcPts.length - 1; i++) {
+    doc.line(arcPts[i][0], arcPts[i][1], arcPts[i+1][0], arcPts[i+1][1])
+  }
+  doc.setLineWidth(0.4)
+
+  // ── Title ────────────────────────────────────────────────────────────────
+  doc.setTextColor(...black)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(20)
-  doc.text('CUBE', 14, 17)
-  doc.setFontSize(7.5)
+  doc.setFontSize(22)
+  const title = inv.status === 'draft' ? 'Draft Tax Invoice' : 'Tax Invoice'
+  doc.text(title, L, 22)
+
+  let y = 46
+
+  // ── Address block ────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(...black)
+  doc.text(inv.parent_name || '—', L, y)
   doc.setFont('helvetica', 'normal')
-  doc.text('TUITION', 36, 17)
-  doc.setFontSize(15)
+  doc.setFontSize(9)
+  doc.setTextColor(...darkgrey)
+  let ly = y + 5.5
+  if (inv.parent_email) { doc.text(inv.parent_email, L, ly); ly += 5 }
+  if (inv.parent_phone) { doc.text(inv.parent_phone, L, ly); ly += 5 }
+
+  let ry = y
   doc.setFont('helvetica', 'bold')
-  doc.text('TAX INVOICE', W - 14, 17, { align: 'right' })
+  doc.setFontSize(10)
+  doc.setTextColor(...black)
+  doc.text('CUBE Tuition', R, ry, { align: 'right' }); ry += 5.5
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(...darkgrey)
+  doc.text('2 Help St', R, ry, { align: 'right' }); ry += 5
+  doc.text('CHATSWOOD NSW 2067', R, ry, { align: 'right' }); ry += 6
+  doc.text('ABN: 12685204335', R, ry, { align: 'right' }); ry += 5
+  doc.text('admin@cubetuition.com.au', R, ry, { align: 'right' })
 
-  // ── Invoice meta (top-right) ────────────────────────────────────────────
-  let y = 35
-  const metaLeft = W - 85
-  const metaRight = W - 14
+  y = Math.max(ly, ry) + 12
 
-  const metaRow = (label, value, highlight = false) => {
-    doc.setFontSize(8.5)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(...grey)
-    doc.text(label, metaLeft, y)
-    doc.setFont('helvetica', highlight ? 'bold' : 'normal')
-    if (highlight) doc.setTextColor(...navy); else doc.setTextColor(0, 0, 0)
-    doc.text(value, metaRight, y, { align: 'right' })
-    y += 6
-  }
+  // ── Key info bar ─────────────────────────────────────────────────────────
+  doc.setDrawColor(...linegrey)
+  doc.setLineWidth(0.4)
+  doc.line(L, y, R, y)
+  y += 8
 
-  metaRow('Invoice number:', inv.invoice_number || '—', true)
-  metaRow('Invoice date:', fmtDate(inv.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10)))
-  metaRow('Due date:', fmtDate(inv.due_date))
-  metaRow('Term:', termName || '—')
-
-  // ── From / Bill To (left side) ──────────────────────────────────────────
-  let ly = 35
-  doc.setFontSize(7.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(...grey)
-  doc.text('FROM', 14, ly); ly += 5
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
-  doc.text('CUBE Tuition Pty Ltd', 14, ly); ly += 5
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...grey)
-  doc.text('admin@cubetuition.com.au', 14, ly); ly += 10
-
-  doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...grey)
-  doc.text('BILL TO', 14, ly); ly += 5
-  doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0)
-  doc.text(inv.parent_name || '—', 14, ly); ly += 5
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...grey)
-  if (inv.parent_email) { doc.text(inv.parent_email, 14, ly); ly += 5 }
-  if (inv.parent_phone) { doc.text(inv.parent_phone, 14, ly); ly += 5 }
-  if (termDates) { doc.setFontSize(8); doc.text(`Term: ${termDates}`, 14, ly); ly += 5 }
-
-  // ── Divider ─────────────────────────────────────────────────────────────
-  const tableStartY = Math.max(y, ly) + 6
-  doc.setDrawColor(...light)
-  doc.line(14, tableStartY - 3, W - 14, tableStartY - 3)
-
-  // ── Table header ────────────────────────────────────────────────────────
-  const cols = { student: 14, description: 50, qty: 118, unitPrice: 134, amount: 166 }
-  const rowH = 7
-
-  doc.setFillColor(...navy)
-  doc.rect(14, tableStartY, W - 28, rowH, 'F')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.5)
-  doc.setTextColor(255, 255, 255)
-  doc.text('Student',        cols.student + 2,   tableStartY + 4.5)
-  doc.text('Class / Schedule', cols.description + 2, tableStartY + 4.5)
-  doc.text('Qty',          cols.qty + 2,        tableStartY + 4.5, { align: 'center' })
-  doc.text('Unit price',   cols.unitPrice + 16,  tableStartY + 4.5, { align: 'right' })
-  doc.text('Amount',       W - 15,              tableStartY + 4.5, { align: 'right' })
-
-  // ── Table rows ──────────────────────────────────────────────────────────
-  const enrolLines = (inv.line_items || []).filter(l => l.type === 'enrolment')
-  const creditLines = (inv.line_items || []).filter(l => l.type === 'credit')
-  let ry = tableStartY + rowH
-
-  const drawRow = (studentName, description, qty, unitPrice, amount, shade, isCredit = false) => {
-    const lines = doc.splitTextToSize(description, 60)
-    const cellH = Math.max(rowH, lines.length * 4.5 + 3)
-    if (shade) { doc.setFillColor(248, 250, 255); doc.rect(14, ry, W - 28, cellH, 'F') }
-    doc.setDrawColor(...light); doc.line(14, ry + cellH, W - 28 + 14, ry + cellH)
-    doc.setFont('helvetica', isCredit ? 'italic' : 'normal')
-    doc.setFontSize(8); doc.setTextColor(isCredit ? 5 : 0, isCredit ? 95 : 0, isCredit ? 70 : 0)
-    doc.text(studentName, cols.student + 2, ry + 5)
-    doc.text(lines, cols.description + 2, ry + 5)
-    doc.text(qty, cols.qty + 2, ry + 5, { align: 'center' })
-    doc.text(unitPrice, cols.unitPrice + 16, ry + 5, { align: 'right' })
-    doc.setFont('helvetica', 'bold')
-    doc.text(amount, W - 15, ry + 5, { align: 'right' })
-    ry += cellH
-  }
-
-  enrolLines.forEach((l, i) => {
-    const desc = [
-      l.class_name,
-      l.day ? `${l.day}${l.start_time ? ', ' + l.start_time : ''}` : '',
-    ].filter(Boolean).join(' · ')
-    drawRow(l.student_name, desc, '1', fmtMoney(l.unit_price), fmtMoney(l.amount), i % 2 === 1)
-  })
-
-  creditLines.forEach((l, i) => {
-    drawRow('Credit', l.reason || 'Credit applied', '', '', `(${fmtMoney(Math.abs(l.amount))})`, (enrolLines.length + i) % 2 === 1, true)
-  })
-
-  // ── Totals ──────────────────────────────────────────────────────────────
   const totalIncGst = parseFloat(inv.total) || 0
-  const gst         = totalIncGst / 11
-  let ty2 = ry + 6
-  const totalsL = W - 85
+  const issueDate   = inv.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10)
 
+  const infoItems = [
+    { label: 'Amount due',     value: `$${fmtMoney(totalIncGst)}`,  size: 17 },
+    { label: 'Due date',       value: fmtDateLong(inv.due_date),     size: 14 },
+    { label: 'Issue date',     value: fmtDateLong(issueDate),        size: 11 },
+    { label: 'Invoice number', value: inv.invoice_number || '—',     size: 11 },
+    { label: 'Reference',      value: inv.reference_code  || '—',    size: 11 },
+  ]
+  const colWidths = [38, 46, 36, 36, 30]
+  let cx2 = L
+  infoItems.forEach(({ label, value, size }, i) => {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...midgrey)
+    doc.text(label, cx2, y)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(size)
+    doc.setTextColor(...black)
+    doc.text(value, cx2, y + (size >= 14 ? 9 : 7.5))
+    cx2 += colWidths[i]
+  })
+
+  y += 20
+  doc.setDrawColor(...linegrey)
+  doc.setLineWidth(0.8)
+  doc.line(L, y, R, y)
+  doc.setLineWidth(0.4)
+  y += 10
+
+  // ── Table header ─────────────────────────────────────────────────────────
+  const cDesc  = L
+  const cQty   = 143
+  const cPrice = 160
+  const cTax   = 174
+  const cAmt   = R
+
+  doc.setFont('helvetica', 'normal')
   doc.setFontSize(8.5)
-  const addTotRow = (label, value, bold = false) => {
-    doc.setFont('helvetica', bold ? 'bold' : 'normal')
-    doc.setTextColor(...grey)
-    doc.text(label, totalsL, ty2)
-    doc.setTextColor(0, 0, 0)
-    doc.text(value, W - 15, ty2, { align: 'right' })
-    ty2 += 6
+  doc.setTextColor(...midgrey)
+  doc.text('Description', cDesc, y)
+  doc.text('Quantity',    cQty,   y, { align: 'center' })
+  doc.text('Price',       cPrice, y, { align: 'right' })
+  doc.text('Tax',         cTax,   y, { align: 'center' })
+  doc.text('Amount',      cAmt,   y, { align: 'right' })
+
+  y += 4
+  doc.setDrawColor(...linegrey)
+  doc.line(L, y, R, y)
+  y += 7
+
+  // ── Table rows ────────────────────────────────────────────────────────────
+  const enrolLines    = (inv.line_items || []).filter(l => l.type === 'enrolment')
+  const discountLines = (inv.line_items || []).filter(l => l.type === 'discount')
+  const creditLines2  = (inv.line_items || []).filter(l => l.type === 'credit')
+  const allLines      = [...enrolLines, ...discountLines, ...creditLines2]
+
+  allLines.forEach(l => {
+    const desc = l.type === 'enrolment'
+      ? [l.student_name, l.class_name, l.day ? `${l.day}${l.start_time ? ' ' + l.start_time : ''}` : null]
+          .filter(Boolean).join(' — ')
+      : l.reason || (l.type === 'credit' ? 'Credit' : 'Discount')
+
+    const amt      = Number(l.amount) || 0
+    const price    = Number(l.unit_price ?? l.amount) || 0
+    const taxLabel = amt !== 0 ? '10%' : ''
+
+    const descLines = doc.splitTextToSize(desc, cQty - cDesc - 4)
+    const rowH      = Math.max(10, descLines.length * 5.5 + 5)
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(...black)
+    doc.text(descLines, cDesc, y + 5)
+    doc.text('1',             cQty,   y + 5, { align: 'center' })
+    doc.text(fmtMoney(price), cPrice, y + 5, { align: 'right' })
+    doc.setTextColor(...midgrey)
+    doc.text(taxLabel,        cTax,   y + 5, { align: 'center' })
+    doc.setTextColor(...black)
+    doc.text(fmtMoney(amt),   cAmt,   y + 5, { align: 'right' })
+
+    y += rowH
+    doc.setDrawColor(...linegrey)
+    doc.line(L, y, R, y)
+    y += 4
+  })
+
+  y += 8
+
+  // ── Payment instructions (left) + Totals (right) ─────────────────────────
+  if (y > H - 65) { doc.addPage(); y = 20 }
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(...blue)
+  doc.text('Payment instructions', L, y)
+  y += 6
+
+  const instrRaw   = (inv.payment_instructions || 'Please contact admin@cubetuition.com.au for payment details.')
+    .replace('[Invoice Number]', inv.invoice_number || '')
+    .replace('[Reference]', inv.reference_code || inv.invoice_number || '')
+  const instrLines = doc.splitTextToSize(instrRaw, 95)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(...darkgrey)
+  instrLines.forEach((line, i) => doc.text(line, L, y + i * 5))
+
+  // Totals block
+  const gst = totalIncGst / 11
+  const tx  = 128
+  let   ty  = y - 6
+
+  const totRow = (label, value, lineAbove = false) => {
+    if (lineAbove) {
+      doc.setDrawColor(...linegrey)
+      doc.line(tx, ty - 2, R, ty - 2)
+    }
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(...midgrey)
+    doc.text(label, tx, ty)
+    doc.setTextColor(...black)
+    doc.text(value, R, ty, { align: 'right' })
+    ty += 6
   }
 
-  if (inv.sibling_discount > 0)      addTotRow('Sibling discount', `(${fmtMoney(inv.sibling_discount)})`)
-  if (inv.multi_course_discount > 0) addTotRow('Multi-course discount', `(${fmtMoney(inv.multi_course_discount)})`)
-  addTotRow('GST (included)', fmtMoney(gst))
+  totRow('Subtotal', fmtMoney(totalIncGst))
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(...midgrey)
+  doc.text(`Includes GST of ${fmtMoney(gst)}`, tx, ty)
+  ty += 6
+  totRow('Total', fmtMoney(totalIncGst), true)
 
-  doc.setDrawColor(...light); doc.line(totalsL, ty2 - 3, W - 14, ty2 - 3)
-  doc.setFillColor(...navy)
-  doc.roundedRect(totalsL - 2, ty2 - 1, W - totalsL + 2 - 14 + 2, 11, 2, 2, 'F')
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255)
-  doc.text('TOTAL DUE (inc GST)', totalsL + 2, ty2 + 7)
-  doc.text(fmtMoney(totalIncGst), W - 16, ty2 + 7, { align: 'right' })
-  ty2 += 18
-
-  // ── Payment instructions ────────────────────────────────────────────────
-  if (ty2 > H - 40) { doc.addPage(); ty2 = 20 }
-  doc.setDrawColor(...light); doc.line(14, ty2, W - 14, ty2); ty2 += 6
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(0, 0, 0)
-  doc.text('Payment Instructions', 14, ty2); ty2 += 5
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...grey)
-  const instrText = (inv.payment_instructions || 'Please contact admin@cubetuition.com.au for payment details.')
-    .replace('[Invoice Number]', inv.invoice_number || '')
-  const instrLines = doc.splitTextToSize(instrText, W - 28)
-  doc.text(instrLines, 14, ty2)
+  ty += 2
+  doc.setDrawColor(...linegrey)
+  doc.line(tx, ty - 2, R, ty - 2)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(...midgrey)
+  doc.text('Amount due', tx, ty + 7)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(17)
+  doc.setTextColor(...black)
+  doc.text(`$${fmtMoney(totalIncGst)}`, R, ty + 7, { align: 'right' })
 
   // ── Footer on every page ────────────────────────────────────────────────
   const pages = doc.internal.getNumberOfPages()
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p)
-    doc.setFontSize(7); doc.setTextColor(180, 185, 200)
+    doc.setFontSize(7)
+    doc.setTextColor(180, 185, 200)
     doc.text(
-      `CUBE Tuition Pty Ltd  ·  ABN: XX XXX XXX XXX  ·  ${inv.invoice_number || ''}  ·  Page ${p} of ${pages}`,
+      `CUBE Tuition Pty Ltd  ·  ABN: 12685204335  ·  ${inv.invoice_number || ''}${inv.reference_code ? '  ·  ' + inv.reference_code : ''}  ·  Page ${p} of ${pages}`,
       W / 2, H - 8, { align: 'center' }
     )
   }
 
   return doc
+}
+
+// ── Xero Banner + Account Mapping ────────────────────────────────────────────
+function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync }) {
+  const [showSettings,  setShowSettings]  = useState(false)
+  const [activeTab,     setActiveTab]     = useState('global') // 'global' | 'items'
+  const [accounts,      setAccounts]      = useState([])
+  const [xeroItems,     setXeroItems]     = useState([])  // Xero Products & Services
+  const [settings,      setSettings]      = useState({ enrolment_account_code: '', discount_account_code: '', credit_account_code: '' })
+  const [loadingAcc,    setLoadingAcc]    = useState(false)
+  const [accError,      setAccError]      = useState(null)
+  const [saving,        setSaving]        = useState(false)
+  const [saved,         setSaved]         = useState(false)
+  // Per-course item mappings: class_name → { item_code, item_name }
+  const [courseNames,   setCourseNames]   = useState([])
+  const [itemMappings,  setItemMappings]  = useState({})
+  const [savingItems,   setSavingItems]   = useState(false)
+  const [savedItems,    setSavedItems]    = useState(false)
+
+  const openSettings = async () => {
+    setShowSettings(true)
+    if (accounts.length) return
+    setLoadingAcc(true); setAccError(null)
+    try {
+      const [accRes, xeroItemsRes, settRes, itemMappingRes] = await Promise.all([
+        fetch('/api/xero/accounts').then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d }),
+        fetch('/api/xero/items').then(r => r.json()),
+        fetch('/api/xero/settings').then(r => r.json()),
+        fetch('/api/xero/item-mappings' + (termId ? '?term_id=' + termId : '')).then(r => r.json()),
+      ])
+      if (!accRes.accounts?.length) throw new Error('No accounts returned from Xero — your chart of accounts may be empty or all accounts are archived.')
+      setAccounts(accRes.accounts)
+      setXeroItems(xeroItemsRes.items || [])
+      if (settRes && !settRes.error) setSettings({
+        enrolment_account_code: settRes.enrolment_account_code || '',
+        discount_account_code:  settRes.discount_account_code  || '',
+        credit_account_code:    settRes.credit_account_code    || '',
+      })
+      const names = itemMappingRes.courseNames || []
+      setCourseNames(names)
+      const mappingMap = {}
+      for (const m of (itemMappingRes.mappings || [])) {
+        mappingMap[m.class_name] = { item_code: m.item_code || '', item_name: m.item_name || '' }
+      }
+      for (const n of names) {
+        if (!mappingMap[n]) mappingMap[n] = { item_code: '', item_name: '' }
+      }
+      setItemMappings(mappingMap)
+    } catch (e) { setAccError(e.message) }
+    setLoadingAcc(false)
+  }
+
+  const handleSaveGlobal = async () => {
+    setSaving(true); setSaved(false)
+    await fetch('/api/xero/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    })
+    setSaving(false); setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  const handleSaveItems = async () => {
+    setSavingItems(true); setSavedItems(false)
+    const rows = Object.entries(itemMappings).map(([class_name, v]) => ({
+      class_name,
+      item_code: v.item_code || null,
+      item_name: v.item_name || null,
+    }))
+    await fetch('/api/xero/item-mappings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mappings: rows }),
+    })
+    setSavingItems(false); setSavedItems(true)
+    setTimeout(() => setSavedItems(false), 2000)
+  }
+
+  const allAccounts = accounts
+
+  const AccountSelect = ({ field, label }) => (
+    <div>
+      <label className="block text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">{label}</label>
+      <select
+        value={settings[field] || ''}
+        onChange={e => setSettings(p => ({ ...p, [field]: e.target.value }))}
+        className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+      >
+        <option value="">— not mapped</option>
+        {allAccounts.map(a => (
+          <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
+        ))}
+      </select>
+    </div>
+  )
+
+  // All unique course names: from this term + any previously saved mappings
+  const allCourseNames = [...new Set([
+    ...courseNames,
+    ...Object.keys(itemMappings).filter(k => itemMappings[k].item_code),
+  ])].sort()
+
+  return (
+    <div className="bg-white border border-[#DEE7FF] rounded-xl mb-5 overflow-hidden">
+      {/* Top row */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className={`w-2 h-2 rounded-full ${xeroConnected === null ? 'bg-gray-300 animate-pulse' : xeroConnected ? 'bg-[#10b981]' : 'bg-red-400'}`} />
+          <span className="text-sm text-[#062E63] font-semibold">
+            Xero {xeroConnected === null ? 'checking…' : xeroConnected ? 'connected' : 'not connected'}
+          </span>
+          {xeroConnected && xeroResult && (
+            <span className="text-xs text-[#325099]/60">
+              Last sync: {xeroResult.pushed} pushed
+              {xeroResult.skipped ? `, ${xeroResult.skipped} already in Xero` : ''}
+              {xeroResult.errors?.length ? `, ${xeroResult.errors.length} errors` : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {xeroConnected && termId && (
+            <button onClick={onSync} disabled={xeroSyncing}
+              className="text-xs font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#A7F3D0] hover:bg-[#D1FAE5] px-4 py-1.5 rounded-full transition disabled:opacity-40">
+              {xeroSyncing ? 'Syncing…' : '↑ Sync to Xero'}
+            </button>
+          )}
+          {xeroConnected && (
+            <button onClick={showSettings ? () => setShowSettings(false) : openSettings}
+              className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full transition">
+              {showSettings ? '✕ Close' : '⚙ Account mapping'}
+            </button>
+          )}
+          {xeroConnected === false && (
+            <a href="/api/xero/auth"
+              className="text-xs font-semibold text-white bg-[#1ab5ea] hover:bg-[#0ea5d9] px-4 py-1.5 rounded-full transition">
+              Connect Xero
+            </a>
+          )}
+          {xeroConnected === true && (
+            <a href="/api/xero/auth"
+              className="text-xs font-semibold text-[#325099]/40 hover:text-[#325099] transition">
+              Reconnect
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Account mapping panel */}
+      {showSettings && (
+        <div className="border-t border-[#DEE7FF] bg-[#F8FAFF]">
+          {loadingAcc ? (
+            <p className="text-xs text-[#325099]/50 px-4 py-4">Loading accounts from Xero…</p>
+          ) : accError ? (
+            <div className="px-4 py-4">
+              <p className="text-xs text-red-600 font-semibold mb-1">Failed to load accounts</p>
+              <p className="text-xs text-red-500 font-mono bg-red-50 px-3 py-2 rounded-lg">{accError}</p>
+              <button onClick={() => { setAccounts([]); setAccError(null); openSettings() }}
+                className="mt-2 text-xs font-semibold text-[#325099] hover:underline">Retry</button>
+            </div>
+          ) : accounts.length === 0 ? null : (
+            <>
+              {/* Tabs */}
+              <div className="flex border-b border-[#DEE7FF] px-4">
+                {[
+                  { id: 'global', label: 'Global defaults' },
+                  { id: 'items',  label: 'Course → item mapping' + (allCourseNames.length ? ' (' + allCourseNames.length + ')' : '') },
+                ].map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className={`text-xs font-semibold px-4 py-2.5 border-b-2 -mb-px transition ${
+                      activeTab === tab.id
+                        ? 'border-[#062E63] text-[#062E63]'
+                        : 'border-transparent text-[#325099]/50 hover:text-[#325099]'
+                    }`}>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Global defaults tab */}
+              {activeTab === 'global' && (
+                <div className="px-4 py-4">
+                  <p className="text-[11px] text-[#325099]/50 mb-3">
+                    Fallback account codes used for line items that have no Xero item mapping (e.g. discounts, credits, or unmapped courses).
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <AccountSelect field="enrolment_account_code" label="Tuition fees (fallback)" />
+                    <AccountSelect field="discount_account_code"  label="Discounts" />
+                    <AccountSelect field="credit_account_code"    label="Credits" />
+                  </div>
+                  <div className="flex justify-end mt-4">
+                    <button onClick={handleSaveGlobal} disabled={saving}
+                      className="text-xs font-semibold bg-[#062E63] text-white px-5 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+                      {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save defaults'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Per-course item mapping tab */}
+              {activeTab === 'items' && (
+                <div className="px-4 py-4">
+                  <p className="text-[11px] text-[#325099]/50 mb-3">
+                    Map each course to a Xero Product &amp; Service item. Xero handles the account code and tax type from the item itself.
+                    {!termId && ' Select a term above to load courses from that term.'}
+                  </p>
+                  {xeroItems.length === 0 && (
+                    <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                      No items found in Xero yet — create your Products &amp; Services in Xero first, then come back to map them here.
+                    </p>
+                  )}
+                  {allCourseNames.length === 0 ? (
+                    <p className="text-xs text-[#325099]/40 italic">
+                      No courses found — generate invoices for a term first, then come back here.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[1fr_260px] gap-3 px-1">
+                        <span className="text-[10px] font-semibold text-[#325099]/50 uppercase tracking-wider">Portal course</span>
+                        <span className="text-[10px] font-semibold text-[#325099]/50 uppercase tracking-wider">Xero item (Product &amp; Service)</span>
+                      </div>
+                      {allCourseNames.map(name => {
+                        const current  = itemMappings[name] || { item_code: '', item_name: '' }
+                        const isMapped = !!current.item_code
+                        const mappedItem = xeroItems.find(i => i.code === current.item_code)
+                        return (
+                          <div key={name} className="grid grid-cols-[1fr_260px] gap-3 items-center bg-white border border-[#DEE7FF] rounded-lg px-3 py-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isMapped ? 'bg-[#10b981]' : 'bg-[#DEE7FF]'}`} />
+                              <div className="min-w-0">
+                                <span className="text-xs text-[#062E63] truncate block" title={name}>{name}</span>
+                                {isMapped && mappedItem && (
+                                  <span className="text-[10px] text-[#325099]/40">{'→'} {mappedItem.accountCode}{mappedItem.description ? ' · ' + mappedItem.description : ''}</span>
+                                )}
+                              </div>
+                            </div>
+                            <select
+                              value={current.item_code || ''}
+                              onChange={e => {
+                                const code = e.target.value
+                                const item = xeroItems.find(i => i.code === code)
+                                setItemMappings(p => ({ ...p, [name]: { item_code: code, item_name: item?.name || '' } }))
+                              }}
+                              className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+                            >
+                              <option value="">— use global fallback</option>
+                              {xeroItems.map(item => (
+                                <option key={item.code} value={item.code}>{item.code} — {item.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {allCourseNames.length > 0 && (
+                    <div className="flex justify-end mt-4">
+                      <button onClick={handleSaveItems} disabled={savingItems}
+                        className="text-xs font-semibold bg-[#062E63] text-white px-5 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+                        {savingItems ? 'Saving…' : savedItems ? '✓ Saved' : 'Save item mappings'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Add Credit Modal ──────────────────────────────────────────────────────────
@@ -450,7 +817,12 @@ function TopUpInvoiceModal({ inv, allStudents, onClose, onCreated }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function InvoiceDashboard() {
+  return <Suspense><InvoiceDashboardInner /></Suspense>
+}
+
+function InvoiceDashboardInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [profile,    setProfile]    = useState(null)
   const [terms,      setTerms]      = useState([])
   const [termId,     setTermId]     = useState('')
@@ -459,6 +831,8 @@ export default function InvoiceDashboard() {
   const [generating, setGenerating] = useState(false)
   const [approvingId, setApprovingId] = useState(null)
   const [pdfGenId,   setPdfGenId]   = useState(null)
+  const [regenAll,   setRegenAll]   = useState(false)
+  const [regenProgress, setRegenProgress] = useState({ done: 0, total: 0 })
   const [error,      setError]      = useState(null)
   const [successMsg, setSuccessMsg] = useState(null)
   const [creditModal,   setCreditModal]   = useState(null)  // { invoiceId, members }
@@ -467,13 +841,54 @@ export default function InvoiceDashboard() {
   const [allStudents,   setAllStudents]   = useState([])
   const [statusEditing, setStatusEditing] = useState(null) // invoice id being status-edited
 
+  // Xero
+  const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
+  const [xeroSyncing,   setXeroSyncing]   = useState(false)
+  const [xeroResult,    setXeroResult]    = useState(null)  // { pushed, skipped, errors }
+
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
       if (!profile || (role !== 'admin' && role !== 'director')) router.replace('/tutor')
       else setProfile(profile)
     })
-    fetchAllTerms().then(setTerms)
+    fetchAllTerms().then(allTerms => {
+      setTerms(allTerms)
+      const cur = getCurrentTerm(allTerms)
+      if (cur) setTermId(cur.id)
+    })
   }, [router])
+
+  // Check Xero connection + handle OAuth callback redirect
+  useEffect(() => {
+    const xeroParam = searchParams.get('xero')
+    if (xeroParam === 'connected') setXeroConnected(true)
+    else if (xeroParam === 'error') setError('Xero connection failed — please try again.')
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) return
+      fetch('/api/xero/status', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      }).then(r => r.json()).then(d => setXeroConnected(d.connected)).catch(() => setXeroConnected(false))
+    })
+  }, [searchParams])
+
+  const handleSyncToXero = async () => {
+    if (!termId) return
+    setXeroSyncing(true); setXeroResult(null); setError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res  = await fetch('/api/xero/push', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body:    JSON.stringify({ term_id: termId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setXeroResult(data)
+      await loadInvoices()
+    } catch (e) { setError('Xero sync failed: ' + e.message) }
+    finally { setXeroSyncing(false) }
+  }
 
   const term = terms.find(t => t.id === termId)
 
@@ -541,7 +956,7 @@ export default function InvoiceDashboard() {
         const { data: prevInvs } = await supabase
           .from('invoices').select('family_id')
           .in('family_id', familyIds)
-          .in('status', ['unpaid', 'overdue', 'awaiting_payment'])
+          .in('payment_status', ['unpaid', 'overdue'])
           .neq('term_id', termId)
         for (const p of prevInvs || []) prevUnpaidSet.add(p.family_id)
       }
@@ -649,16 +1064,16 @@ export default function InvoiceDashboard() {
   }
 
   // ── Status change handler ─────────────────────────────────────────────────
-  const handleStatusChange = async (invoiceId, newStatus) => {
+  const handleStatusChange = async (invoiceId, field, value) => {
     setStatusEditing(invoiceId)
     try {
       const res = await fetch('/api/update-invoice-status', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: invoiceId, status: newStatus }),
+        body: JSON.stringify({ invoice_id: invoiceId, field, value }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, status: newStatus } : i))
+      setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, [field]: value } : i))
     } catch (e) { setError('Status update failed: ' + e.message) }
     setStatusEditing(null)
   }
@@ -678,6 +1093,27 @@ export default function InvoiceDashboard() {
     } catch (e) { setError(e.message) } finally { setGenerating(false) }
   }
 
+  const [refreshingId, setRefreshingId] = useState(null)
+
+  const handleRefresh = async (inv) => {
+    setRefreshingId(inv.id)
+    try {
+      const res  = await fetch('/api/refresh-invoice', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: inv.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setInvoices(prev => prev.map(i => i.id === inv.id
+        ? { ...i, line_items: data.line_items, subtotal: data.total, total: data.total }
+        : i
+      ))
+      if (data.updated === 0) setSuccessMsg('Prices already up to date.')
+      else setSuccessMsg(`Refreshed ${data.updated} line item${data.updated !== 1 ? 's' : ''} with latest prices.`)
+    } catch (e) { setError(e.message) }
+    finally { setRefreshingId(null) }
+  }
+
   const handleApprove = async (inv) => {
     setApprovingId(inv.id)
     try {
@@ -689,6 +1125,32 @@ export default function InvoiceDashboard() {
       if (!res.ok) throw new Error(data.error)
       setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: 'approved' } : i))
     } catch (e) { setError(e.message) } finally { setApprovingId(null) }
+  }
+
+  const handleRegenerateAllPdfs = async () => {
+    const targets = invoices.filter(i => i.status !== 'voided')
+    setRegenAll(true)
+    setRegenProgress({ done: 0, total: targets.length })
+    const termDates = term ? `${fmtDate(term.start_date)} to ${fmtDate(term.end_date)}` : ''
+    for (let idx = 0; idx < targets.length; idx++) {
+      const inv = targets[idx]
+      try {
+        const doc = await generateInvoicePdf(inv, term?.name || '', termDates)
+        const pdfBlob = doc.output('blob')
+        const filename = `${inv.invoice_number || 'invoice'}.pdf`
+        const path = `invoices/${termId}/${filename}`
+        const { error: upErr } = await supabase.storage
+          .from('invoices')
+          .upload(path, pdfBlob, { upsert: true, contentType: 'application/pdf' })
+        if (!upErr) {
+          await supabase.from('invoices').update({ pdf_path: path }).eq('id', inv.id)
+          setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, pdf_path: path } : i))
+        }
+      } catch (e) { /* skip failed invoice, continue */ }
+      setRegenProgress({ done: idx + 1, total: targets.length })
+    }
+    setRegenAll(false)
+    setSuccessMsg(`Regenerated ${targets.length} invoice PDFs.`)
   }
 
   const handleGeneratePdf = async (inv) => {
@@ -722,9 +1184,9 @@ export default function InvoiceDashboard() {
     total:    invoices.length,
     draft:    invoices.filter(i => i.status === 'draft').length,
     approved: invoices.filter(i => ['approved', 'synced_to_xero'].includes(i.status)).length,
-    paid:     invoices.filter(i => i.status === 'paid').length,
-    overdue:  invoices.filter(i => i.status === 'overdue').length,
-    revenue:  invoices.filter(i => !['voided', 'draft'].includes(i.status)).reduce((s, i) => s + (Number(i.total) || 0), 0),
+    paid:     invoices.filter(i => i.payment_status === 'paid').length,
+    overdue:  invoices.filter(i => i.payment_status === 'overdue').length,
+    revenue:  invoices.filter(i => i.status !== 'voided' && i.status !== 'draft').reduce((s, i) => s + (Number(i.total) || 0), 0),
     warnings: invoices.filter(i => getWarnings(i, i.prev_unpaid).length > 0).length,
   }
 
@@ -744,6 +1206,17 @@ export default function InvoiceDashboard() {
             <p className="text-sm text-[#325099]/60 mt-1">Generate, approve, and manage term invoices.</p>
           </div>
           <div className="flex items-center gap-2">
+            {termId && (
+              <button
+                onClick={handleRegenerateAllPdfs}
+                disabled={regenAll}
+                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-50"
+              >
+                {regenAll
+                  ? `↻ Regenerating… (${regenProgress.done}/${regenProgress.total})`
+                  : '↻ Regenerate All PDFs'}
+              </button>
+            )}
             <button
               onClick={() => setReferralModal(true)}
               className="text-xs font-semibold text-[#7C3AED] border border-[#EDE9FE] bg-white hover:bg-[#F5F3FF] px-4 py-2 rounded-full transition"
@@ -763,6 +1236,15 @@ export default function InvoiceDashboard() {
 
         {error   && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">{error}</div>}
         {successMsg && <div className="bg-[#D1FAE5] border border-[#34D399] text-[#065F46] text-sm rounded-xl px-4 py-3 mb-5">{successMsg}</div>}
+
+        {/* Xero connection banner */}
+        <XeroBanner
+          xeroConnected={xeroConnected}
+          xeroResult={xeroResult}
+          xeroSyncing={xeroSyncing}
+          termId={termId}
+          onSync={handleSyncToXero}
+        />
 
         {termId && (
           <>
@@ -838,8 +1320,27 @@ export default function InvoiceDashboard() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-sm text-[#062E63]">{inv.invoice_number || `#${inv.id}`}</span>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusStyle.cls}`}>{statusStyle.label}</span>
+                            {/* Stage badge */}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${(STAGE_LABELS[inv.status] || STAGE_LABELS.draft).cls}`}>
+                              {(STAGE_LABELS[inv.status] || STAGE_LABELS.draft).label}
+                            </span>
+                            {/* Delivery badge */}
+                            {inv.delivery_status && (
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${DELIVERY_LABELS[inv.delivery_status]?.cls || 'bg-[#F3F4F6] text-gray-500'}`}>
+                                {DELIVERY_LABELS[inv.delivery_status]?.label || inv.delivery_status}
+                              </span>
+                            )}
+                            {/* Payment badge */}
+                            {inv.payment_status && (
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PAYMENT_LABELS[inv.payment_status]?.cls || 'bg-[#F3F4F6] text-gray-500'}`}>
+                                {PAYMENT_LABELS[inv.payment_status]?.label || inv.payment_status}
+                              </span>
+                            )}
                             {inv.is_legacy && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-gray-500">Legacy</span>}
+                            {inv.xero_invoice_id
+                              ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#ECFDF5] text-[#065F46]">✓ Xero</span>
+                              : xeroConnected && inv.status !== 'draft' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-gray-400">Not synced</span>
+                            }
                             {warnings.map(w => <Warning key={w} text={w} />)}
                           </div>
                           <p className="text-sm font-semibold text-[#2A2035] mt-0.5">{inv.parent_name}</p>
@@ -893,12 +1394,18 @@ export default function InvoiceDashboard() {
                       {/* Actions */}
                       <div className="px-5 py-3 bg-[#F8FAFF] border-t border-[#DEE7FF] flex items-center gap-2 flex-wrap">
                         {inv.status === 'draft' && (
-                          <button onClick={() => handleApprove(inv)} disabled={isApproving}
-                            className="text-xs font-semibold bg-[#062E63] text-white px-4 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
-                            {isApproving ? 'Approving…' : '✓ Approve'}
-                          </button>
+                          <>
+                            <button onClick={() => handleRefresh(inv)} disabled={refreshingId === inv.id}
+                              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
+                              {refreshingId === inv.id ? 'Refreshing…' : '↻ Refresh prices'}
+                            </button>
+                            <button onClick={() => handleApprove(inv)} disabled={isApproving}
+                              className="text-xs font-semibold bg-[#062E63] text-white px-4 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+                              {isApproving ? 'Approving…' : '✓ Approve'}
+                            </button>
+                          </>
                         )}
-                        {['approved', 'synced_to_xero', 'awaiting_payment', 'sent', 'paid', 'overdue'].includes(inv.status) && (
+                        {['approved', 'synced_to_xero'].includes(inv.status) && (
                           <button onClick={() => handleGeneratePdf(inv)} disabled={isGenPdf}
                             className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
                             {isGenPdf ? 'Generating…' : inv.pdf_path ? '↻ PDF' : '📄 Generate PDF'}
@@ -912,7 +1419,7 @@ export default function InvoiceDashboard() {
                           </a>
                         )}
                         {/* Add Credit */}
-                        {!['voided', 'draft'].includes(inv.status) && (() => {
+                        {inv.status !== 'voided' && inv.status !== 'draft' && (() => {
                           const members = [...new Map(
                             (inv.line_items || []).filter(l => l.type === 'enrolment')
                               .map(l => [l.student_id, { id: l.student_id, full_name: l.student_name }])
@@ -925,23 +1432,46 @@ export default function InvoiceDashboard() {
                           )
                         })()}
                         {/* Top-up (only on paid invoices) */}
-                        {inv.status === 'paid' && (
+                        {inv.payment_status === 'paid' && (
                           <button onClick={() => setTopUpModal(inv)}
                             className="text-xs font-semibold text-[#7C3AED] border border-[#EDE9FE] bg-white hover:bg-[#F5F3FF] px-4 py-1.5 rounded-full transition">
                             + Top-up
                           </button>
                         )}
-                        {/* Status change */}
-                        <select
-                          value={inv.status}
-                          disabled={statusEditing === inv.id}
-                          onChange={e => handleStatusChange(inv.id, e.target.value)}
-                          className="ml-auto text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3 py-1 bg-white focus:outline-none disabled:opacity-40"
-                        >
-                          {Object.entries(STATUS_LABELS).map(([v, s]) => (
-                            <option key={v} value={v}>{s.label}</option>
-                          ))}
-                        </select>
+                        {/* Three status dropdowns */}
+                        <div className="ml-auto flex gap-1.5">
+                          <select
+                            value={inv.status}
+                            disabled={statusEditing === inv.id}
+                            onChange={e => handleStatusChange(inv.id, 'status', e.target.value)}
+                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${STAGE_SELECT_CLS[inv.status] || STAGE_SELECT_CLS.draft}`}
+                          >
+                            <option value="draft">Draft</option>
+                            <option value="approved">Approved</option>
+                            <option value="synced_to_xero">In Xero</option>
+                            <option value="voided">Voided</option>
+                          </select>
+                          <select
+                            value={inv.delivery_status || 'unsent'}
+                            disabled={statusEditing === inv.id}
+                            onChange={e => handleStatusChange(inv.id, 'delivery_status', e.target.value)}
+                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${DELIVERY_SELECT_CLS[inv.delivery_status || 'unsent'] || DELIVERY_SELECT_CLS.unsent}`}
+                          >
+                            <option value="unsent">Unsent</option>
+                            <option value="sent">Sent</option>
+                          </select>
+                          <select
+                            value={inv.payment_status || ''}
+                            disabled={statusEditing === inv.id}
+                            onChange={e => handleStatusChange(inv.id, 'payment_status', e.target.value || null)}
+                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${PAYMENT_SELECT_CLS[inv.payment_status || ''] || PAYMENT_SELECT_CLS['']}`}
+                          >
+                            <option value="">— Payment</option>
+                            <option value="unpaid">Unpaid</option>
+                            <option value="paid">Paid</option>
+                            <option value="overdue">Overdue</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
                   )

@@ -14,7 +14,7 @@ export async function GET(req) {
   const portalBase = process.env.XERO_REDIRECT_URI.replace('/api/xero/callback', '')
 
   if (error || !code) {
-    return NextResponse.redirect(`${portalBase}/tutor/database?xero=error`)
+    return NextResponse.redirect(`${portalBase}/tutor/accounting/invoices?xero=error`)
   }
 
   try {
@@ -61,7 +61,7 @@ export async function GET(req) {
     })
     if (dbErr) throw new Error(`DB save failed: ${dbErr.message}`)
 
-    return NextResponse.redirect(`${portalBase}/tutor/database?xero=connected`)
+    return NextResponse.redirect(`${portalBase}/tutor/accounting/invoices?xero=connected`)
   } catch (err) {
     console.error('Xero callback error:', err)
     // Return error details directly so we can diagnose

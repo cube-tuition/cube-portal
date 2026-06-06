@@ -172,13 +172,16 @@ export async function POST(req) {
         .not('invoice_number', 'is', null)
       const seqNum = (invCount || 0) + created + 1
 
-      const invoiceNumber = `CUBE-${term.year}-T${term.term_number}-${String(seqNum).padStart(4, '0')}`
+      const year2d        = String(term.year).slice(-2)  // e.g. '26'
+      const invoiceNumber = `${year2d}T${term.term_number}-${String(seqNum).padStart(4, '0')}`  // e.g. '26T2-0001'
+      const referenceCode = `INV${String(seqNum).padStart(4, '0')}`                             // e.g. 'INV0001'
 
       const { error: insErr } = await sb.from('invoices').insert({
         term_id:              term_id,
         family_id:            family.family_id,
         student_id:           family.student_id,
         invoice_number:       invoiceNumber,
+        reference_code:       referenceCode,
         status:               'draft',
         subtotal:             total,
         sibling_discount:     siblingDiscount,
