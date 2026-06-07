@@ -169,8 +169,61 @@ function TrialCard({ sub, classes, onUpdate, onConvert }) {
                 value={sub.trial_class_id || ''}
                 onChange={async e => {
                   const val = e.target.value ? Number(e.target.value) : null
-                  await supabase.from('trial_submissions').update({ trial_class_id: val }).eq('id', sub.id)
-                  onUpdate(sub.id, { trial_class_id: val })
+
+                  // Remove any existing trial enrolment for this submission
+                  if (sub.converted_student_id) {
+                    await supabase.from('enrolments')
+                      .delete()
+                      .eq('student_id', sub.converted_student_id)
+                      .eq('status', 'trial')
+                  }
+
+                  if (val) {
+                    // Find or create student record
+                    let studentId = sub.converted_student_id
+                    if (!studentId) {
+                      const { data: existing } = await supabase
+                        .from('students').select('id')
+                        .ilike('full_name', sub.student_name || '')
+                        .maybeSingle()
+                      if (existing) {
+                        studentId = existing.id
+                      } else {
+                        const { data: newStudent } = await supabase
+                          .from('students')
+                          .insert({ full_name: sub.student_name || 'Unknown', year: sub.student_year || null, school: sub.school || null, status: 'trial' })
+                          .select('id').single()
+                        studentId = newStudent.id
+                        if (sub.parent_name || sub.parent_email || sub.parent_phone) {
+                          await supabase.from('guardians').insert({
+                            student_id: studentId,
+                            full_name: sub.parent_name || null,
+                            email: sub.parent_email || null,
+                            phone: sub.parent_phone || null,
+                          })
+                        }
+                      }
+                    }
+
+                    // Create trial enrolment — makes student appear on lesson interface
+                    await supabase.from('enrolments').insert({
+                      student_id: studentId,
+                      class_id: val,
+                      status: 'trial',
+                      trial_start_date: new Date().toISOString().split('T')[0],
+                      next_term_status: 'continue',
+                    })
+
+                    await supabase.from('trial_submissions').update({
+                      trial_class_id: val,
+                      converted_student_id: studentId,
+                    }).eq('id', sub.id)
+
+                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId })
+                  } else {
+                    await supabase.from('trial_submissions').update({ trial_class_id: null }).eq('id', sub.id)
+                    onUpdate(sub.id, { trial_class_id: null })
+                  }
                 }}
                 className="w-full text-xs border border-[#DEE7FF] rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#325099]"
               >
@@ -261,13 +314,30 @@ function ConvertModal({ sub, classes, onClose, onDone }) {
         }
       }
 
-      // 2. Create enrolment
-      const { error: eErr } = await supabase.from('enrolments').insert({
-        student_id: studentId,
-        class_id:   Number(classId),
-        status:     'active',
-      })
-      if (eErr) throw new Error('Enrolment creation failed: ' + eErr.message)
+      // 2. Upgrade existing trial enrolment → active, or insert fresh if none
+      const { data: existingEnrol } = await supabase
+        .from('enrolments')
+        .select('id')
+        .eq('student_id', studentId)
+        .eq('class_id', Number(classId))
+        .eq('status', 'trial')
+        .maybeSingle()
+
+      if (existingEnrol) {
+        const { error: eErr } = await supabase
+          .from('enrolments')
+          .update({ status: 'active' })
+          .eq('id', existingEnrol.id)
+        if (eErr) throw new Error('Enrolment upgrade failed: ' + eErr.message)
+      } else {
+        const { error: eErr } = await supabase.from('enrolments').insert({
+          student_id: studentId,
+          class_id:   Number(classId),
+          status:     'active',
+          next_term_status: 'continue',
+        })
+        if (eErr) throw new Error('Enrolment creation failed: ' + eErr.message)
+      }
 
       // 3. Mark trial submission as enrolled
       await supabase.from('trial_submissions').update({
