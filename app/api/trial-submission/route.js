@@ -58,23 +58,63 @@ export async function POST(req) {
       process.env.SUPABASE_SERVICE_ROLE_KEY,
     )
 
+    // ── Create student record ─────────────────────────────────────────────
+    const { data: student, error: studentErr } = await sb
+      .from('students')
+      .insert({
+        full_name: studentName || 'Unknown',
+        year:      year        || null,
+        school:    school      || null,
+        email:     studentEmail || null,
+        phone:     studentPhone || null,
+        status:    'trial',
+      })
+      .select('id')
+      .single()
+
+    if (studentErr) {
+      console.error('[trial-submission] Student creation error:', studentErr)
+      return NextResponse.json({ error: studentErr.message }, { status: 500, headers: CORS })
+    }
+
+    // ── Create guardian record ────────────────────────────────────────────
+    if (parentName || parentEmail || parentPhone) {
+      await sb.from('guardians').insert({
+        student_id: student.id,
+        full_name:  parentName   || null,
+        email:      parentEmail  || null,
+        phone:      parentPhone  || null,
+        relationship: relationship || null,
+      })
+    }
+
+    // ── Create trial enrolment (no class yet — assigned from trials page) ─
+    await sb.from('enrolments').insert({
+      student_id:       student.id,
+      class_id:         null,
+      status:           'trial',
+      next_term_status: 'confirmed',
+    })
+
+    // ── Create trial_submissions row for admin pipeline ───────────────────
     const { data: submission, error: insertErr } = await sb
       .from('trial_submissions')
       .insert({
-        student_name:  studentName,
-        student_year:  year        || null,
-        student_email: studentEmail || null,
-        student_phone: studentPhone || null,
-        school:        school       || null,
-        subjects:      Array.isArray(subjects) ? subjects : (subjects ? [subjects] : null),
-        availability:  availability || null,
-        parent_name:   parentName,
-        parent_email:  parentEmail  || null,
-        parent_phone:  parentPhone  || null,
-        relationship:  relationship || null,
-        how_heard:     referredBy   || null,
-        notes:         notes        || null,
+        student_name:         studentName,
+        student_year:         year         || null,
+        student_email:        studentEmail || null,
+        student_phone:        studentPhone || null,
+        school:               school       || null,
+        subjects:             Array.isArray(subjects) ? subjects : (subjects ? [subjects] : null),
+        availability:         availability || null,
+        parent_name:          parentName,
+        parent_email:         parentEmail  || null,
+        parent_phone:         parentPhone  || null,
+        relationship:         relationship || null,
+        how_heard:            referredBy   || null,
+        notes:                notes        || null,
         source,
+        converted_student_id: student.id,
       })
       .select('id')
       .single()

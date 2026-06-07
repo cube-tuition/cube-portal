@@ -211,7 +211,7 @@ function TrialCard({ sub, classes, onUpdate, onConvert }) {
                       class_id: val,
                       status: 'trial',
                       trial_start_date: new Date().toISOString().split('T')[0],
-                      next_term_status: 'continue',
+                      next_term_status: 'confirmed',
                     })
 
                     await supabase.from('trial_submissions').update({
@@ -243,6 +243,20 @@ function TrialCard({ sub, classes, onUpdate, onConvert }) {
                 const newStatus = e.target.value
                 const extra = newStatus === 'contacted' ? { contacted_at: new Date().toISOString() } : {}
                 await supabase.from('trial_submissions').update({ status: newStatus, ...extra }).eq('id', sub.id)
+                // Sync enrolment status
+                const enrolStatusMap = {
+                  new:              'trial',
+                  contacted:        'trial',
+                  trial_scheduled:  'trial',
+                  trial_completed:  'trial complete',
+                  enrolled:         'active',
+                  declined:         'disenrol',
+                }
+                if (sub.converted_student_id && enrolStatusMap[newStatus]) {
+                  await supabase.from('enrolments')
+                    .update({ status: enrolStatusMap[newStatus] })
+                    .eq('student_id', sub.converted_student_id)
+                }
                 onUpdate(sub.id, { status: newStatus, ...extra })
               }}
               className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] font-semibold focus:outline-none focus:border-[#325099]"
@@ -332,7 +346,7 @@ function ConvertModal({ sub, classes, onClose, onDone }) {
           student_id: studentId,
           class_id:   Number(classId),
           status:     'active',
-          next_term_status: 'continue',
+          next_term_status: 'confirmed',
         })
         if (eErr) throw new Error('Enrolment creation failed: ' + eErr.message)
       }
