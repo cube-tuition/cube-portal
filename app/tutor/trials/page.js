@@ -68,6 +68,7 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
   const [saving,    setSaving]    = useState(false)
   const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
   const age   = daysSince(sub.submitted_at)
+  const stale = ['new','contacted'].includes(sub.status) && age > 7
 
   const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
 
