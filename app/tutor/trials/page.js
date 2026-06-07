@@ -161,10 +161,48 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
               value={sub.trial_class_id || ''}
               onChange={async e => {
                 const val = e.target.value ? Number(e.target.value) : null
-                if (sub.converted_student_id) {
+
+                let studentId = sub.converted_student_id
+
+                // If no student exists yet (old submission), create one now
+                if (!studentId && val) {
+                  const { data: existing } = await supabase
+                    .from('students').select('id')
+                    .ilike('full_name', sub.student_name || '')
+                    .maybeSingle()
+                  if (existing) {
+                    studentId = existing.id
+                  } else {
+                    const { data: newStudent } = await supabase
+                      .from('students')
+                      .insert({ full_name: sub.student_name || 'Unknown', year: sub.student_year || null, school: sub.school || null, status: 'trial' })
+                      .select('id').single()
+                    studentId = newStudent?.id
+                    if (studentId && (sub.parent_name || sub.parent_email || sub.parent_phone)) {
+                      await supabase.from('guardians').insert({
+                        student_id: studentId, full_name: sub.parent_name || null,
+                        email: sub.parent_email || null, phone: sub.parent_phone || null,
+                      })
+                    }
+                  }
+                  // Create the trial enrolment for the first time
+                  if (studentId) {
+                    await supabase.from('enrolments').insert({
+                      student_id: studentId, class_id: val, status: 'trial',
+                      trial_start_date: new Date().toISOString().split('T')[0],
+                      next_term_status: 'confirmed',
+                    })
+                    await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId }).eq('id', sub.id)
+                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId })
+                  }
+                  return
+                }
+
+                // Student already exists — just update the existing trial enrolment's class
+                if (studentId) {
                   await supabase.from('enrolments')
                     .update({ class_id: val, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
-                    .eq('student_id', sub.converted_student_id)
+                    .eq('student_id', studentId)
                     .eq('status', 'trial')
                 }
                 await supabase.from('trial_submissions').update({ trial_class_id: val }).eq('id', sub.id)
