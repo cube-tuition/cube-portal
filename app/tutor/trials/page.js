@@ -88,7 +88,7 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm text-[#062E63]">{sub.student_name || 'Unknown student'}</span>
             <span className="text-[11px] bg-[#F0F4FF] text-[#325099] px-2 py-0.5 rounded-full font-medium">
-              Year {sub.student_year || '?'}
+              Year {sub.student_year ? String(sub.student_year).replace(/^year\s*/i, '') : '?'}
             </span>
             {subjects !== '—' && (
               <span className="text-[11px] text-[#325099]/60">{subjects}</span>
