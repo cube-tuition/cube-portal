@@ -33,6 +33,7 @@ const ADMIN_GROUPS = [
   {
     label: 'Admin',
     links: [
+      { label: 'Trials',     href: '/tutor/trials',     icon: '🧪' },
       { label: 'Drop-ins',   href: '/tutor/dropin',     icon: '☕' },
       { label: 'Emails',     href: '/tutor/emails',     icon: '✉️'  },
       { label: 'Reports',    href: '/tutor/reports',    icon: '📊' },
