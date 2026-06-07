@@ -237,28 +237,26 @@ function TrialCard({ sub, classes, onUpdate, onConvert }) {
 
           {/* Status actions */}
           <div className="flex items-center gap-2 flex-wrap pt-1">
-            {nextStage && (
-              <button
-                onClick={() => onUpdate(sub.id, { status: nextStage }, true)}
-                className="text-xs font-semibold bg-[#062E63] text-white px-3 py-1.5 rounded-full hover:bg-[#325099] transition"
-              >
-                Mark as {STAGE_MAP[nextStage]?.label}
-              </button>
-            )}
+            <select
+              value={sub.status}
+              onChange={async e => {
+                const newStatus = e.target.value
+                const extra = newStatus === 'contacted' ? { contacted_at: new Date().toISOString() } : {}
+                await supabase.from('trial_submissions').update({ status: newStatus, ...extra }).eq('id', sub.id)
+                onUpdate(sub.id, { status: newStatus, ...extra })
+              }}
+              className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] font-semibold focus:outline-none focus:border-[#325099]"
+            >
+              {STAGES.map(s => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
             {sub.status === 'trial_completed' && (
               <button
                 onClick={() => onConvert(sub)}
                 className="text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-full hover:bg-emerald-700 transition"
               >
                 Convert to student
-              </button>
-            )}
-            {sub.status !== 'declined' && sub.status !== 'enrolled' && (
-              <button
-                onClick={() => onUpdate(sub.id, { status: 'declined' }, true)}
-                className="text-xs font-semibold text-gray-500 border border-gray-200 px-3 py-1.5 rounded-full hover:border-gray-400 transition"
-              >
-                Decline
               </button>
             )}
           </div>
