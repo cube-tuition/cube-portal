@@ -45,6 +45,7 @@ export async function POST(req) {
 
     const studentName = [studentFirstName, studentLastName].filter(Boolean).join(' ') || null
     const parentName  = [parentFirstName,  parentLastName ].filter(Boolean).join(' ') || null
+    const cleanYear   = year ? String(year).replace(/^year\s*/i, '').trim() : null
 
     if (!parentEmail && !parentPhone && !studentName) {
       return NextResponse.json(
@@ -63,7 +64,7 @@ export async function POST(req) {
       .from('students')
       .insert({
         full_name: studentName || 'Unknown',
-        year:      year        || null,
+        year:      cleanYear,
         school:    school      || null,
         email:     studentEmail || null,
         phone:     studentPhone || null,
@@ -101,7 +102,7 @@ export async function POST(req) {
       .from('trial_submissions')
       .insert({
         student_name:         studentName,
-        student_year:         year         || null,
+        student_year:         cleanYear,
         student_email:        studentEmail || null,
         student_phone:        studentPhone || null,
         school:               school       || null,
