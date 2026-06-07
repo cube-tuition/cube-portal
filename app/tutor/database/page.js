@@ -1093,10 +1093,18 @@ export default function DatabasePage() {
           q = q.eq('term_id', dbTermFilter)
         } else if ((selectedTable === T_ENROLMENTS || selectedTable === T_LESSONS) && termClassIds) {
           if (termClassIds.length === 0) {
-            // No classes in this term — short-circuit to empty result
-            setColumns([]); setRows([]); setLoading(false); return
+            // No classes in this term — only show unassigned enrolments
+            if (selectedTable === T_ENROLMENTS) {
+              q = q.is('class_id', null)
+            } else {
+              setColumns([]); setRows([]); setLoading(false); return
+            }
+          } else if (selectedTable === T_ENROLMENTS) {
+            // Include enrolments assigned to this term's classes + unassigned (null class_id) trial enrolments
+            q = q.or(`class_id.in.(${termClassIds.join(',')}),class_id.is.null`)
+          } else {
+            q = q.in('class_id', termClassIds)
           }
-          q = q.in('class_id', termClassIds)
         }
       }
       // Lessons table: also filter by selected class if one is chosen

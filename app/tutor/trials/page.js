@@ -61,23 +61,15 @@ function StatsBar({ submissions }) {
 }
 
 // ── Trial card ────────────────────────────────────────────────────────────────
-function TrialCard({ sub, classes, onUpdate, onConvert }) {
+function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
   const [expanded,  setExpanded]  = useState(false)
   const [editNotes, setEditNotes] = useState(false)
   const [notes,     setNotes]     = useState(sub.admin_notes || '')
   const [saving,    setSaving]    = useState(false)
   const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
   const age   = daysSince(sub.submitted_at)
-  const stale = ['new','contacted'].includes(sub.status) && age > 7
 
   const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
-
-  const nextStage = {
-    new:             'contacted',
-    contacted:       'trial_scheduled',
-    trial_scheduled: 'trial_completed',
-    trial_completed: 'enrolled',
-  }[sub.status]
 
   const saveNotes = async () => {
     setSaving(true)
@@ -161,256 +153,59 @@ function TrialCard({ sub, classes, onUpdate, onConvert }) {
             )}
           </div>
 
-          {/* Trial class assignment */}
-          {sub.status === 'trial_scheduled' && (
-            <div>
-              <label className="text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider block mb-1">Assign trial class</label>
-              <select
-                value={sub.trial_class_id || ''}
-                onChange={async e => {
-                  const val = e.target.value ? Number(e.target.value) : null
-
-                  // Remove any existing trial enrolment for this submission
-                  if (sub.converted_student_id) {
-                    await supabase.from('enrolments')
-                      .delete()
-                      .eq('student_id', sub.converted_student_id)
-                      .eq('status', 'trial')
-                  }
-
-                  if (val) {
-                    // Find or create student record
-                    let studentId = sub.converted_student_id
-                    if (!studentId) {
-                      const { data: existing } = await supabase
-                        .from('students').select('id')
-                        .ilike('full_name', sub.student_name || '')
-                        .maybeSingle()
-                      if (existing) {
-                        studentId = existing.id
-                      } else {
-                        const { data: newStudent } = await supabase
-                          .from('students')
-                          .insert({ full_name: sub.student_name || 'Unknown', year: sub.student_year || null, school: sub.school || null, status: 'trial' })
-                          .select('id').single()
-                        studentId = newStudent.id
-                        if (sub.parent_name || sub.parent_email || sub.parent_phone) {
-                          await supabase.from('guardians').insert({
-                            student_id: studentId,
-                            full_name: sub.parent_name || null,
-                            email: sub.parent_email || null,
-                            phone: sub.parent_phone || null,
-                          })
-                        }
-                      }
-                    }
-
-                    // Create trial enrolment — makes student appear on lesson interface
-                    await supabase.from('enrolments').insert({
-                      student_id: studentId,
-                      class_id: val,
-                      status: 'trial',
-                      trial_start_date: new Date().toISOString().split('T')[0],
-                      next_term_status: 'confirmed',
-                    })
-
-                    await supabase.from('trial_submissions').update({
-                      trial_class_id: val,
-                      converted_student_id: studentId,
-                    }).eq('id', sub.id)
-
-                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId })
-                  } else {
-                    await supabase.from('trial_submissions').update({ trial_class_id: null }).eq('id', sub.id)
-                    onUpdate(sub.id, { trial_class_id: null })
-                  }
-                }}
-                className="w-full text-xs border border-[#DEE7FF] rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#325099]"
-              >
-                <option value="">— select class —</option>
-                {classes.map(c => (
-                  <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Status actions */}
-          <div className="flex items-center gap-2 flex-wrap pt-1">
+          {/* Actions */}
+          <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-[#DEE7FF]">
+            {/* Assign class */}
             <select
-              value={sub.status}
+              value={sub.trial_class_id || ''}
               onChange={async e => {
-                const newStatus = e.target.value
-                const extra = newStatus === 'contacted' ? { contacted_at: new Date().toISOString() } : {}
-                await supabase.from('trial_submissions').update({ status: newStatus, ...extra }).eq('id', sub.id)
-                // Sync enrolment status
-                const enrolStatusMap = {
-                  new:              'trial',
-                  contacted:        'trial',
-                  trial_scheduled:  'trial',
-                  trial_completed:  'trial complete',
-                  enrolled:         'active',
-                  declined:         'disenrol',
-                }
-                if (sub.converted_student_id && enrolStatusMap[newStatus]) {
+                const val = e.target.value ? Number(e.target.value) : null
+                if (sub.converted_student_id) {
                   await supabase.from('enrolments')
-                    .update({ status: enrolStatusMap[newStatus] })
+                    .update({ class_id: val, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
                     .eq('student_id', sub.converted_student_id)
+                    .eq('status', 'trial')
                 }
-                onUpdate(sub.id, { status: newStatus, ...extra })
+                await supabase.from('trial_submissions').update({ trial_class_id: val }).eq('id', sub.id)
+                onUpdate(sub.id, { trial_class_id: val })
               }}
-              className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] font-semibold focus:outline-none focus:border-[#325099]"
+              className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
             >
-              {STAGES.map(s => (
-                <option key={s.id} value={s.id}>{s.label}</option>
+              <option value="">Assign a class…</option>
+              {classes.map(c => (
+                <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
               ))}
             </select>
-            {sub.status === 'trial_completed' && (
+
+            {/* Convert */}
+            {sub.status !== 'enrolled' && sub.status !== 'declined' && (
               <button
-                onClick={() => onConvert(sub)}
-                className="text-xs font-semibold bg-emerald-600 text-white px-3 py-1.5 rounded-full hover:bg-emerald-700 transition"
+                onClick={() => onConvertDrop(sub.id, sub.converted_student_id, 'convert')}
+                className="text-xs font-semibold bg-emerald-600 text-white px-4 py-1.5 rounded-full hover:bg-emerald-700 transition"
               >
-                Convert to student
+                Convert
               </button>
+            )}
+
+            {/* Drop */}
+            {sub.status !== 'enrolled' && sub.status !== 'declined' && (
+              <button
+                onClick={() => onConvertDrop(sub.id, sub.converted_student_id, 'drop')}
+                className="text-xs font-semibold text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full hover:border-gray-400 transition"
+              >
+                Drop
+              </button>
+            )}
+
+            {/* Status badge if already resolved */}
+            {(sub.status === 'enrolled' || sub.status === 'declined') && (
+              <span className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${stage.color}`}>
+                {stage.label}
+              </span>
             )}
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Convert modal ─────────────────────────────────────────────────────────────
-function ConvertModal({ sub, classes, onClose, onDone }) {
-  const [classId,  setClassId]  = useState(sub.trial_class_id ? String(sub.trial_class_id) : '')
-  const [saving,   setSaving]   = useState(false)
-  const [error,    setError]    = useState(null)
-
-  const handleConvert = async () => {
-    if (!classId) { setError('Please select a class.'); return }
-    setSaving(true); setError(null)
-    try {
-      // 1. Create or find student
-      let studentId = sub.converted_student_id
-      if (!studentId) {
-        const { data: existing } = await supabase
-          .from('students')
-          .select('id')
-          .ilike('full_name', sub.student_name || '')
-          .maybeSingle()
-
-        if (existing) {
-          studentId = existing.id
-        } else {
-          const { data: newStudent, error: sErr } = await supabase
-            .from('students')
-            .insert({
-              full_name: sub.student_name || 'Unknown',
-              year:      sub.student_year || null,
-              school:    sub.school       || null,
-              status:    'active',
-            })
-            .select('id').single()
-          if (sErr) throw new Error('Student creation failed: ' + sErr.message)
-          studentId = newStudent.id
-
-          // Also create guardian record
-          if (sub.parent_name || sub.parent_email || sub.parent_phone) {
-            await supabase.from('guardians').insert({
-              student_id: studentId,
-              full_name:  sub.parent_name  || null,
-              email:      sub.parent_email || null,
-              phone:      sub.parent_phone || null,
-            })
-          }
-        }
-      }
-
-      // 2. Upgrade existing trial enrolment → active, or insert fresh if none
-      const { data: existingEnrol } = await supabase
-        .from('enrolments')
-        .select('id')
-        .eq('student_id', studentId)
-        .eq('class_id', Number(classId))
-        .eq('status', 'trial')
-        .maybeSingle()
-
-      if (existingEnrol) {
-        const { error: eErr } = await supabase
-          .from('enrolments')
-          .update({ status: 'active' })
-          .eq('id', existingEnrol.id)
-        if (eErr) throw new Error('Enrolment upgrade failed: ' + eErr.message)
-      } else {
-        const { error: eErr } = await supabase.from('enrolments').insert({
-          student_id: studentId,
-          class_id:   Number(classId),
-          status:     'active',
-          next_term_status: 'confirmed',
-        })
-        if (eErr) throw new Error('Enrolment creation failed: ' + eErr.message)
-      }
-
-      // 3. Mark trial submission as enrolled
-      await supabase.from('trial_submissions').update({
-        status:               'enrolled',
-        converted_student_id: studentId,
-        converted_at:         new Date().toISOString(),
-      }).eq('id', sub.id)
-
-      onDone(sub.id, studentId)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-[#062E63] text-sm">Convert to Student</h3>
-          <button onClick={onClose} className="text-[#325099]/40 hover:text-[#325099]">✕</button>
-        </div>
-
-        <div className="space-y-3 mb-5">
-          <div className="bg-[#F0F4FF] rounded-xl px-4 py-3 text-sm">
-            <p className="font-semibold text-[#062E63]">{sub.student_name || 'Unknown'}</p>
-            <p className="text-[#325099]/60 text-xs">Year {sub.student_year || '?'} · {sub.school || '—'}</p>
-            <p className="text-[#325099]/60 text-xs mt-1">{sub.parent_email || sub.parent_phone || '—'}</p>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">
-              Enrol in class
-            </label>
-            <select value={classId} onChange={e => setClassId(e.target.value)}
-              className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:border-[#325099]">
-              <option value="">— select class —</option>
-              {classes.map(c => (
-                <option key={c.id} value={c.id}>{c.class_name} · {c.day_of_week} {c.start_time}</option>
-              ))}
-            </select>
-          </div>
-
-          <p className="text-[11px] text-[#325099]/50">
-            This will create a student record (if one does not exist), a guardian record, and an active enrolment.
-          </p>
-        </div>
-
-        {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
-
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2 rounded-full hover:border-[#325099] transition">
-            Cancel
-          </button>
-          <button onClick={handleConvert} disabled={saving}
-            className="text-xs font-semibold bg-emerald-600 text-white px-5 py-2 rounded-full hover:bg-emerald-700 transition disabled:opacity-40">
-            {saving ? 'Converting…' : 'Convert & Enrol'}
-          </button>
-        </div>
-      </div>
     </div>
   )
 }
@@ -485,7 +280,6 @@ export default function TrialsPage() {
   const [view,        setView]        = useState('pipeline')  // 'pipeline' | 'enrolments'
   const [filterStage, setFilterStage] = useState('all')
   const [search,      setSearch]      = useState('')
-  const [convertSub,  setConvertSub]  = useState(null)
   const [showArchive, setShowArchive] = useState(false)
 
   useEffect(() => {
@@ -534,22 +328,27 @@ export default function TrialsPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const handleUpdate = useCallback(async (id, patch, persist = false) => {
-    if (persist) {
-      const extra = {}
-      if (patch.status === 'contacted')       extra.contacted_at = new Date().toISOString()
-      await supabase.from('trial_submissions').update({ ...patch, ...extra }).eq('id', id)
-    }
+  const handleUpdate = useCallback((id, patch) => {
     setSubmissions(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s))
   }, [])
 
-  const handleConvertDone = useCallback((id, studentId) => {
-    setConvertSub(null)
-    setSubmissions(prev => prev.map(s =>
-      s.id === id ? { ...s, status: 'enrolled', converted_student_id: studentId } : s
-    ))
-    loadData()
-  }, [loadData])
+  const handleConvertDrop = useCallback(async (id, studentId, action) => {
+    if (action === 'convert') {
+      if (studentId) {
+        await supabase.from('enrolments').update({ status: 'active' }).eq('student_id', studentId).in('status', ['trial', 'trial complete'])
+        await supabase.from('students').update({ status: 'active' }).eq('id', studentId)
+      }
+      await supabase.from('trial_submissions').update({ status: 'enrolled', converted_at: new Date().toISOString() }).eq('id', id)
+      setSubmissions(prev => prev.map(s => s.id === id ? { ...s, status: 'enrolled' } : s))
+    } else {
+      if (studentId) {
+        await supabase.from('enrolments').update({ status: 'disenrol' }).eq('student_id', studentId)
+        await supabase.from('students').update({ status: 'quit trial' }).eq('id', studentId)
+      }
+      await supabase.from('trial_submissions').update({ status: 'declined' }).eq('id', id)
+      setSubmissions(prev => prev.map(s => s.id === id ? { ...s, status: 'declined' } : s))
+    }
+  }, [])
 
   // Filter submissions
   const ARCHIVE = ['enrolled', 'declined']
@@ -665,7 +464,7 @@ export default function TrialsPage() {
                     sub={sub}
                     classes={classes}
                     onUpdate={handleUpdate}
-                    onConvert={setConvertSub}
+                    onConvertDrop={handleConvertDrop}
                   />
                 ))}
               </div>
@@ -676,14 +475,6 @@ export default function TrialsPage() {
         )}
       </div>
 
-      {convertSub && (
-        <ConvertModal
-          sub={convertSub}
-          classes={classes}
-          onClose={() => setConvertSub(null)}
-          onDone={handleConvertDone}
-        />
-      )}
     </div>
   )
 }
