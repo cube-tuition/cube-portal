@@ -89,45 +89,53 @@ export async function POST(req) {
       })
     }
 
-    // ── Create trial enrolment (no class yet — assigned from trials page) ─
-    await sb.from('enrolments').insert({
-      student_id:       student.id,
-      class_id:         null,
-      status:           'trial',
-      next_term_status: 'confirmed',
-    })
+    // ── One enrolment + trial_submission row per subject ─────────────────
+    const subjectList = Array.isArray(subjects) && subjects.length > 0 ? subjects : [null]
+    const submissionIds = []
 
-    // ── Create trial_submissions row for admin pipeline ───────────────────
-    const { data: submission, error: insertErr } = await sb
-      .from('trial_submissions')
-      .insert({
-        student_name:         studentName,
-        student_year:         cleanYear,
-        student_email:        studentEmail || null,
-        student_phone:        studentPhone || null,
-        school:               school       || null,
-        subjects:             Array.isArray(subjects) ? subjects : (subjects ? [subjects] : null),
-        availability:         availability || null,
-        parent_name:          parentName,
-        parent_email:         parentEmail  || null,
-        parent_phone:         parentPhone  || null,
-        relationship:         relationship || null,
-        how_heard:            referredBy   || null,
-        notes:                notes        || null,
-        source,
-        converted_student_id: student.id,
-      })
-      .select('id')
-      .single()
+    for (const subj of subjectList) {
+      const { data: newEnrol } = await sb.from('enrolments').insert({
+        student_id:       student.id,
+        class_id:         null,
+        status:           'trial',
+        next_term_status: 'confirmed',
+      }).select('id').single()
 
-    if (insertErr) {
-      console.error('[trial-submission] DB error:', insertErr)
-      return NextResponse.json({ error: insertErr.message }, { status: 500, headers: CORS })
+      const { data: submission, error: insertErr } = await sb
+        .from('trial_submissions')
+        .insert({
+          student_name:         studentName,
+          student_year:         cleanYear,
+          student_email:        studentEmail || null,
+          student_phone:        studentPhone || null,
+          school:               school       || null,
+          subjects:             subj ? [subj] : null,
+          availability:         availability || null,
+          parent_name:          parentName,
+          parent_email:         parentEmail  || null,
+          parent_phone:         parentPhone  || null,
+          relationship:         relationship || null,
+          how_heard:            referredBy   || null,
+          notes:                notes        || null,
+          source,
+          converted_student_id: student.id,
+          enrolment_id:         newEnrol?.id || null,
+        })
+        .select('id')
+        .single()
+
+      if (insertErr) {
+        console.error('[trial-submission] DB error:', insertErr)
+        return NextResponse.json({ error: insertErr.message }, { status: 500, headers: CORS })
+      }
+      submissionIds.push(submission.id)
     }
+
+    const submission = { id: submissionIds[0] }
 
     // ── Admin notification email ──────────────────────────────────────────
     const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'admin@cubetuition.com.au'
-    const subjectList = Array.isArray(subjects) ? subjects.join(', ') : (subjects || '—')
+    const subjectListStr = Array.isArray(subjects) ? subjects.join(', ') : (subjects || '—')
     const availText = availability
       ? Object.entries(availability)
           .map(([day, slots]) => `${day}: ${slots.join(', ')}`)
@@ -139,7 +147,7 @@ export async function POST(req) {
       '',
       `Student:      ${studentName || '—'}, Year ${year || '?'}`,
       `School:       ${school || '—'}`,
-      `Subjects:     ${subjectList}`,
+      `Subjects:     ${subjectListStr}`,
       `Availability: ${availText}`,
       `Student email: ${studentEmail || '—'}`,
       `Student phone: ${studentPhone || '—'}`,
@@ -165,7 +173,7 @@ export async function POST(req) {
           body: JSON.stringify({
             from:    'CUBE Portal <noreply@cubetuition.com.au>',
             to:      [adminEmail],
-            subject: `New free trial: ${studentName || 'Unknown'} (Year ${year || '?'}) — ${subjectList}`,
+            subject: `New free trial: ${studentName || 'Unknown'} (Year ${cleanYear || '?'}) — ${subjectListStr}`,
             text:    emailText,
           }),
         })

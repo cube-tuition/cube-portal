@@ -50,7 +50,7 @@ export async function POST(req) {
       .from('enrolments')
       .select('id, student_id, class_id, price, status')
       .in('class_id', classIds)
-      .in('status', ['active', 'trial'])
+      .eq('status', 'active')
 
     if (!enrolments?.length) return Response.json({ created: 0, skipped: 0, message: 'No active enrolments' })
 

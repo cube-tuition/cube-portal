@@ -62,10 +62,11 @@ function StatsBar({ submissions }) {
 
 // ── Trial card ────────────────────────────────────────────────────────────────
 function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
-  const [expanded,  setExpanded]  = useState(false)
-  const [editNotes, setEditNotes] = useState(false)
-  const [notes,     setNotes]     = useState(sub.admin_notes || '')
-  const [saving,    setSaving]    = useState(false)
+  const [expanded,     setExpanded]     = useState(false)
+  const [editNotes,    setEditNotes]    = useState(false)
+  const [notes,        setNotes]        = useState(sub.admin_notes || '')
+  const [saving,       setSaving]       = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null) // 'convert' | 'drop' | null
   const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
   const age   = daysSince(sub.submitted_at)
   const stale = ['new','contacted'].includes(sub.status) && age > 7
@@ -187,23 +188,29 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
                   }
                   // Create the trial enrolment for the first time
                   if (studentId) {
-                    await supabase.from('enrolments').insert({
+                    const { data: newEnrol } = await supabase.from('enrolments').insert({
                       student_id: studentId, class_id: val, status: 'trial',
                       trial_start_date: new Date().toISOString().split('T')[0],
                       next_term_status: 'confirmed',
-                    })
-                    await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId }).eq('id', sub.id)
-                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId })
+                    }).select('id').single()
+                    await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id }).eq('id', sub.id)
+                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id })
                   }
                   return
                 }
 
-                // Student already exists — just update the existing trial enrolment's class
-                if (studentId) {
+                // Student already exists — update the specific linked enrolment by enrolment_id
+                if (sub.enrolment_id) {
+                  await supabase.from('enrolments')
+                    .update({ class_id: val, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
+                    .eq('id', sub.enrolment_id)
+                } else if (studentId) {
+                  // Fallback: update by student_id if no enrolment_id yet
                   await supabase.from('enrolments')
                     .update({ class_id: val, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
                     .eq('student_id', studentId)
                     .eq('status', 'trial')
+                    .is('class_id', null)
                 }
                 await supabase.from('trial_submissions').update({ trial_class_id: val }).eq('id', sub.id)
                 onUpdate(sub.id, { trial_class_id: val })
@@ -216,24 +223,42 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
               ))}
             </select>
 
-            {/* Convert */}
+            {/* Convert / Drop with double confirmation */}
             {sub.status !== 'enrolled' && sub.status !== 'declined' && (
-              <button
-                onClick={() => onConvertDrop(sub.id, sub.converted_student_id, 'convert')}
-                className="text-xs font-semibold bg-emerald-600 text-white px-4 py-1.5 rounded-full hover:bg-emerald-700 transition"
-              >
-                Convert
-              </button>
-            )}
-
-            {/* Drop */}
-            {sub.status !== 'enrolled' && sub.status !== 'declined' && (
-              <button
-                onClick={() => onConvertDrop(sub.id, sub.converted_student_id, 'drop')}
-                className="text-xs font-semibold text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full hover:border-gray-400 transition"
-              >
-                Drop
-              </button>
+              confirmAction ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#325099]/70">
+                    {confirmAction === 'convert' ? 'Convert to active student?' : 'Drop this trial?'}
+                  </span>
+                  <button
+                    onClick={() => { onConvertDrop(sub.id, sub.converted_student_id, confirmAction); setConfirmAction(null) }}
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-full transition text-white ${confirmAction === 'convert' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-500 hover:bg-red-600'}`}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => setConfirmAction(null)}
+                    className="text-xs text-[#325099]/50 hover:text-[#325099] px-2 py-1.5"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setConfirmAction('convert')}
+                    className="text-xs font-semibold bg-emerald-600 text-white px-4 py-1.5 rounded-full hover:bg-emerald-700 transition"
+                  >
+                    Convert
+                  </button>
+                  <button
+                    onClick={() => setConfirmAction('drop')}
+                    className="text-xs font-semibold text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full hover:border-gray-400 transition"
+                  >
+                    Drop
+                  </button>
+                </>
+              )
             )}
 
             {/* Status badge if already resolved */}
@@ -249,74 +274,12 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
   )
 }
 
-// ── Active enrolments view ────────────────────────────────────────────────────
-function EnrolmentsView({ enrolments }) {
-  const trials  = enrolments.filter(e => e.status === 'trial')
-  const active  = enrolments.filter(e => e.status === 'active')
-
-  const EnrolCard = ({ e }) => {
-    const trialAge = daysSince(e.trial_start_date)
-    const overdue  = e.status === 'trial' && trialAge !== null && trialAge > 14
-
-    return (
-      <div className={`bg-white border rounded-xl px-4 py-3 ${overdue ? 'border-amber-300' : 'border-[#DEE7FF]'}`}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="font-semibold text-sm text-[#062E63]">{e.student_name || '—'}</p>
-            <p className="text-[11px] text-[#325099]/50">{e.class_name || '—'}</p>
-          </div>
-          <div className="text-right flex-shrink-0">
-            <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full ${
-              e.status === 'trial' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-            }`}>{e.status}</span>
-            {e.status === 'trial' && trialAge !== null && (
-              <p className={`text-[10px] mt-0.5 ${overdue ? 'text-amber-600 font-semibold' : 'text-[#325099]/40'}`}>
-                {trialAge}d since trial started{overdue ? ' ⚠' : ''}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-5">
-      {trials.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-[#062E63] mb-2">
-            Trial enrolments <span className="text-[#325099]/40 font-normal">({trials.length})</span>
-          </h3>
-          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-            {trials.map(e => <EnrolCard key={e.id} e={e} />)}
-          </div>
-        </div>
-      )}
-      {active.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-[#062E63] mb-2">
-            Active enrolments <span className="text-[#325099]/40 font-normal">({active.length})</span>
-          </h3>
-          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-            {active.map(e => <EnrolCard key={e.id} e={e} />)}
-          </div>
-        </div>
-      )}
-      {trials.length === 0 && active.length === 0 && (
-        <p className="text-sm text-[#325099]/40 italic">No enrolments found.</p>
-      )}
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function TrialsPage() {
   const [profile,     setProfile]     = useState(null)
   const [submissions, setSubmissions] = useState([])
-  const [enrolments,  setEnrolments]  = useState([])
   const [classes,     setClasses]     = useState([])
   const [loading,     setLoading]     = useState(true)
-  const [view,        setView]        = useState('pipeline')  // 'pipeline' | 'enrolments'
   const [filterStage, setFilterStage] = useState('all')
   const [search,      setSearch]      = useState('')
   const [showArchive, setShowArchive] = useState(false)
@@ -331,37 +294,17 @@ export default function TrialsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [subRes, enrolRes, classRes] = await Promise.all([
+    const [subRes, classRes] = await Promise.all([
       supabase
         .from('trial_submissions')
         .select('*')
         .order('submitted_at', { ascending: false }),
-      supabase
-        .from('enrolments')
-        .select('id, status, trial_start_date, student_id, class_id')
-        .in('status', ['trial', 'active']),
       supabase
         .from('classes')
         .select('id, class_name, day_of_week, start_time, course_id'),
     ])
     setSubmissions(subRes.data || [])
     setClasses(classRes.data || [])
-
-    // Enrich enrolments with student + class names
-    const enrolData = enrolRes.data || []
-    const studentIds = [...new Set(enrolData.map(e => e.student_id).filter(Boolean))]
-    const classIds   = [...new Set(enrolData.map(e => e.class_id).filter(Boolean))]
-    const [studRes, clsRes] = await Promise.all([
-      studentIds.length ? supabase.from('students').select('id, full_name').in('id', studentIds) : { data: [] },
-      classIds.length   ? supabase.from('classes').select('id, class_name').in('id', classIds)   : { data: [] },
-    ])
-    const studMap = Object.fromEntries((studRes.data || []).map(s => [s.id, s.full_name]))
-    const clsMap  = Object.fromEntries((clsRes.data  || []).map(c => [c.id, c.class_name]))
-    setEnrolments(enrolData.map(e => ({
-      ...e,
-      student_name: studMap[e.student_id] || '—',
-      class_name:   clsMap[e.class_id]   || '—',
-    })))
     setLoading(false)
   }, [])
 
@@ -437,26 +380,11 @@ export default function TrialsPage() {
           </div>
         </div>
 
-        {/* View tabs */}
-        <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 mb-5 w-fit">
-          {[
-            { id: 'pipeline',   label: 'Trial pipeline' },
-            { id: 'enrolments', label: 'Enrolment view' },
-          ].map(v => (
-            <button key={v.id} onClick={() => setView(v.id)}
-              className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition ${
-                view === v.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'
-              }`}>
-              {v.label}
-            </button>
-          ))}
-        </div>
-
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <div className="w-6 h-6 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : view === 'pipeline' ? (
+        ) : (
           <>
             <StatsBar submissions={submissions} />
 
@@ -491,9 +419,6 @@ export default function TrialsPage() {
               <div className="text-center py-16 text-[#325099]/40">
                 <p className="text-lg mb-1">No submissions found</p>
                 <p className="text-sm">New trial form submissions will appear here automatically.</p>
-                <p className="text-xs mt-3 font-mono bg-white border border-[#DEE7FF] rounded-lg px-3 py-2 inline-block text-[#325099]/60">
-                  POST {typeof window !== 'undefined' ? window.location.origin : ''}/api/trial-submission
-                </p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -509,8 +434,6 @@ export default function TrialsPage() {
               </div>
             )}
           </>
-        ) : (
-          <EnrolmentsView enrolments={enrolments} />
         )}
       </div>
 

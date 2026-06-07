@@ -833,6 +833,157 @@ function TopUpInvoiceModal({ inv, allStudents, onClose, onCreated }) {
   )
 }
 
+// ── Send Invoice Modal ────────────────────────────────────────────────────────
+function buildEmailBody(inv, template, termName) {
+  return (template || '')
+    .replace(/\{\{guardian\}\}/g,     inv.parent_name ? inv.parent_name.split(' ')[0] : 'there')
+    .replace(/\{\{studentNames\}\}/g, (inv.student_names || []).join(', ') || inv.parent_name || '—')
+    .replace(/\{\{term\}\}/g,         termName || '')
+    .replace(/\{\{invNo\}\}/g,        inv.invoice_number || '—')
+    .replace(/\{\{amount\}\}/g,       fmtMoney(inv.total))
+    .replace(/\{\{dueDate\}\}/g,      fmtDate(inv.due_date))
+}
+
+function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate, onClose, onSent }) {
+  const [subject,  setSubject]  = useState(() => (emailSubjectTemplate || 'Invoice for {{studentNames}} – {{term}}')
+    .replace(/\{\{studentNames\}\}/g, (inv.student_names || []).join(', ') || inv.parent_name || '—')
+    .replace(/\{\{term\}\}/g,         term?.name || '')
+    .replace(/\{\{invNo\}\}/g,        inv.invoice_number || ''))
+  const [body,     setBody]     = useState(() => buildEmailBody(inv, emailTemplate, term?.name))
+  const [sending,  setSending]  = useState(false)
+  const [error,    setError]    = useState(null)
+  const [tab,      setTab]      = useState('edit') // 'edit' | 'preview'
+
+  const handleSend = async () => {
+    if (!inv.parent_email) { setError('No email address on file for this family.'); return }
+    setSending(true); setError(null)
+    try {
+      // Generate PDF as base64
+      const termDates = term ? `${fmtDate(term.start_date)} to ${fmtDate(term.end_date)}` : ''
+      const doc = await generateInvoicePdf(inv, term?.name || '', termDates)
+      // Use arraybuffer → Uint8Array → binary string → btoa for reliable base64
+      const pdfArrayBuffer = doc.output('arraybuffer')
+      const pdfUint8 = new Uint8Array(pdfArrayBuffer)
+      let binary = ''
+      for (let i = 0; i < pdfUint8.length; i++) binary += String.fromCharCode(pdfUint8[i])
+      const pdf_base64  = btoa(binary)
+      const pdf_filename = `${inv.invoice_number || 'invoice'}.pdf`
+
+      const res = await fetch('/api/send-invoice', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoice_id:   inv.id,
+          email_to:     inv.parent_email,
+          subject,
+          body,
+          pdf_base64,
+          pdf_filename,
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json()
+        throw new Error(e.error || 'Send failed')
+      }
+      onSent(inv.id)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#DEE7FF]">
+          <div>
+            <h3 className="font-bold text-[#062E63] text-sm">Send Invoice</h3>
+            <p className="text-[11px] text-[#325099]/50 mt-0.5">
+              To: <span className="font-semibold text-[#325099]">{inv.parent_name}</span>
+              {' · '}<span className="text-blue-600">{inv.parent_email || 'no email'}</span>
+              {' · '}{inv.invoice_number}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-[#325099]/40 hover:text-[#325099] text-lg">✕</button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 px-6 pt-3">
+          {['edit', 'preview'].map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition capitalize ${tab === t ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
+              {t === 'edit' ? 'Edit' : 'Preview'}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-4 flex-1 overflow-y-auto space-y-3">
+          {tab === 'edit' ? (
+            <>
+              <div>
+                <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Subject</label>
+                <input
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] focus:outline-none focus:border-[#325099]"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Email body</label>
+                <textarea
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  rows={18}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#062E63] font-mono resize-y focus:outline-none focus:border-[#325099]"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="border border-[#DEE7FF] rounded-xl overflow-hidden">
+              {/* Email client-style header */}
+              <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 space-y-1">
+                <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">From:</span> CUBE Tuition &lt;admin@cubetuition.com.au&gt;</p>
+                <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">To:</span> {inv.parent_name} &lt;{inv.parent_email}&gt;</p>
+                <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">Subject:</span> {subject}</p>
+                <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">Attachment:</span> 📎 {inv.invoice_number || 'invoice'}.pdf</p>
+              </div>
+              {/* Email body */}
+              <div className="bg-white px-5 py-4">
+                <div className="text-xs text-[#1a1a2e] font-sans leading-relaxed whitespace-pre-wrap"
+                  dangerouslySetInnerHTML={{ __html:
+                    body
+                      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                      .replace(/\n/g, '<br>')
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          <p className="text-[11px] text-[#325099]/40">
+            📎 Invoice PDF ({inv.invoice_number || 'invoice'}.pdf) will be generated and attached automatically.
+          </p>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-[#DEE7FF] flex justify-end gap-2">
+          <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2 rounded-full hover:border-[#325099] transition">
+            Cancel
+          </button>
+          <button onClick={handleSend} disabled={sending || !inv.parent_email}
+            className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+            {sending ? 'Sending…' : '✉ Send Invoice'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function InvoiceDashboard() {
   return <Suspense><InvoiceDashboardInner /></Suspense>
@@ -858,6 +1009,9 @@ function InvoiceDashboardInner() {
   const [topUpModal,    setTopUpModal]    = useState(null)  // invoice object
   const [allStudents,   setAllStudents]   = useState([])
   const [statusEditing, setStatusEditing] = useState(null) // invoice id being status-edited
+  const [sendModalInv,      setSendModalInv]      = useState(null)
+  const [emailTemplate,     setEmailTemplate]     = useState('')
+  const [emailSubjectTmpl,  setEmailSubjectTmpl]  = useState('')
 
   // Xero
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
@@ -874,6 +1028,16 @@ function InvoiceDashboardInner() {
       const cur = getCurrentTerm(allTerms)
       if (cur) setTermId(cur.id)
     })
+    supabase.from('portal_settings')
+      .select('key, value')
+      .in('key', ['invoice_email_template', 'invoice_email_subject'])
+      .then(({ data }) => {
+        if (data) {
+          const map = Object.fromEntries(data.map(r => [r.key, r.value]))
+          if (map.invoice_email_template) setEmailTemplate(map.invoice_email_template)
+          if (map.invoice_email_subject)  setEmailSubjectTmpl(map.invoice_email_subject)
+        }
+      })
   }, [router])
 
   // Check Xero connection + handle OAuth callback redirect
@@ -1417,7 +1581,8 @@ function InvoiceDashboardInner() {
                               className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
                               {refreshingId === inv.id ? 'Refreshing…' : '↻ Refresh prices'}
                             </button>
-                            <button onClick={() => handleApprove(inv)} disabled={isApproving}
+                            <button onClick={() => handleApprove(inv)} disabled={isApproving || warnings.length > 0}
+                              title={warnings.length > 0 ? `Resolve ${warnings.length} warning${warnings.length > 1 ? 's' : ''} before approving` : ''}
                               className="text-xs font-semibold bg-[#062E63] text-white px-4 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
                               {isApproving ? 'Approving…' : '✓ Approve'}
                             </button>
@@ -1469,15 +1634,24 @@ function InvoiceDashboardInner() {
                             <option value="synced_to_xero">In Xero</option>
                             <option value="voided">Voided</option>
                           </select>
-                          <select
-                            value={inv.delivery_status || 'unsent'}
-                            disabled={statusEditing === inv.id}
-                            onChange={e => handleStatusChange(inv.id, 'delivery_status', e.target.value)}
-                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${DELIVERY_SELECT_CLS[inv.delivery_status || 'unsent'] || DELIVERY_SELECT_CLS.unsent}`}
-                          >
-                            <option value="unsent">Unsent</option>
-                            <option value="sent">Sent</option>
-                          </select>
+                          {inv.delivery_status === 'sent' ? (
+                            <span
+                              title="Click to mark as unsent"
+                              onClick={() => handleStatusChange(inv.id, 'delivery_status', 'unsent')}
+                              className="cursor-pointer text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7] hover:opacity-70"
+                            >
+                              ✉ Sent
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setSendModalInv(inv)}
+                              disabled={statusEditing === inv.id || !inv.parent_email || inv.status === 'draft' || inv.status === 'voided'}
+                              title={inv.status === 'draft' ? 'Approve invoice before sending' : inv.status === 'voided' ? 'Invoice is voided' : !inv.parent_email ? 'No email on file' : 'Send invoice by email'}
+                              className="text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#F0F4FF] text-[#325099] border-[#C7D5F8] hover:bg-[#DEE7FF] disabled:opacity-40"
+                            >
+                              ✉ Send
+                            </button>
+                          )}
                           <select
                             value={inv.payment_status || ''}
                             disabled={statusEditing === inv.id}
@@ -1528,6 +1702,19 @@ function InvoiceDashboardInner() {
           allStudents={allStudents}
           onClose={() => setTopUpModal(null)}
           onCreated={() => { setTopUpModal(null); loadInvoices() }}
+        />
+      )}
+      {sendModalInv && (
+        <SendEmailModal
+          inv={sendModalInv}
+          term={term}
+          emailTemplate={emailTemplate}
+          emailSubjectTemplate={emailSubjectTmpl}
+          onClose={() => setSendModalInv(null)}
+          onSent={(id) => {
+            setSendModalInv(null)
+            setInvoices(prev => prev.map(i => i.id === id ? { ...i, delivery_status: 'sent' } : i))
+          }}
         />
       )}
     </div>
