@@ -1008,7 +1008,8 @@ function InvoiceDashboardInner() {
   const [referralModal, setReferralModal] = useState(false)
   const [topUpModal,    setTopUpModal]    = useState(null)  // invoice object
   const [allStudents,   setAllStudents]   = useState([])
-  const [statusEditing, setStatusEditing] = useState(null) // invoice id being status-edited
+  const [statusEditing,   setStatusEditing]   = useState(null)
+  const [confirmUnsentId, setConfirmUnsentId] = useState(null) // invoice id pending unsent confirmation
   const [sendModalInv,      setSendModalInv]      = useState(null)
   const [emailTemplate,     setEmailTemplate]     = useState('')
   const [emailSubjectTmpl,  setEmailSubjectTmpl]  = useState('')
@@ -1635,13 +1636,27 @@ function InvoiceDashboardInner() {
                             <option value="voided">Voided</option>
                           </select>
                           {inv.delivery_status === 'sent' ? (
-                            <span
-                              title="Click to mark as unsent"
-                              onClick={() => handleStatusChange(inv.id, 'delivery_status', 'unsent')}
-                              className="cursor-pointer text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7] hover:opacity-70"
-                            >
-                              ✉ Sent
-                            </span>
+                            confirmUnsentId === inv.id ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-[#325099]/60">Mark unsent?</span>
+                                <button
+                                  onClick={() => { handleStatusChange(inv.id, 'delivery_status', 'unsent'); setConfirmUnsentId(null) }}
+                                  className="text-[11px] font-semibold bg-red-500 text-white px-2.5 py-1 rounded-full hover:bg-red-600 transition"
+                                >Yes</button>
+                                <button
+                                  onClick={() => setConfirmUnsentId(null)}
+                                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] px-1.5 py-1"
+                                >Cancel</button>
+                              </div>
+                            ) : (
+                              <span
+                                title="Click to mark as unsent"
+                                onClick={() => setConfirmUnsentId(inv.id)}
+                                className="cursor-pointer text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7] hover:opacity-70"
+                              >
+                                ✉ Sent
+                              </span>
+                            )
                           ) : (
                             <button
                               onClick={() => setSendModalInv(inv)}

@@ -166,6 +166,7 @@ export default function TutorClassesPage() {
   const [makeupSessions, setMakeupSessions] = useState([]) // [{ dateISO, lesson }] — 1:1 makeup lessons for this tutor
   const [dropinSessions, setDropinSessions] = useState([]) // [dropin_sessions row] — drop-in sessions for this tutor
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
+  const [weekLessons, setWeekLessons] = useState([])  // actual lesson rows for the current week
   const [search, setSearch] = useState('')
   const [authErr, setAuthErr] = useState(null)
   const [expandedCourse, setExpandedCourse] = useState(null)   // course key (lowercased name)
@@ -306,6 +307,20 @@ export default function TutorClassesPage() {
       })
   }, [weekStart, classes, staff])
 
+  // ── Actual lessons for the current week (to override schedule-derived dates) ──
+  useEffect(() => {
+    if (classes.length === 0) return
+    const weekMin = isoDate(weekStart)
+    const weekMax = isoDate(addDays(weekStart, 6))
+    supabase
+      .from(T_LESSONS)
+      .select('id, lesson_date, start_time, end_time, class_id')
+      .gte('lesson_date', weekMin)
+      .lte('lesson_date', weekMax)
+      .is('makeup_student_id', null)
+      .then(({ data }) => setWeekLessons(data || []))
+  }, [weekStart, classes])
+
   // ── Drop-in sessions: re-fetch whenever week or staff changes ────────────
   useEffect(() => {
     if (!staff) return
@@ -425,26 +440,46 @@ export default function TutorClassesPage() {
 
   const upcomingSessions = useMemo(() => {
     const out = []
+
+    // Classes that have actual lesson rows in the DB this week — use those exact dates/times
+    const classIdsWithLessons = new Set(weekLessons.map(l => l.class_id))
+    for (const lesson of weekLessons) {
+      const cls = classes.find(c => c.id === lesson.class_id)
+      if (!cls) continue
+      const d = new Date(lesson.lesson_date + 'T00:00:00')
+      out.push({
+        key:     `lesson-${lesson.id}`,
+        date:    d,
+        dateISO: lesson.lesson_date,
+        dayName: dayNameOf(d),
+        cls:     { ...cls, start_time: lesson.start_time || cls.start_time, end_time: lesson.end_time || cls.end_time },
+        lessonId: lesson.id,
+      })
+    }
+
+    // Classes with no DB lessons this week — fall back to schedule-derived dates
     for (const d of weekDays) {
       const dn = dayNameOf(d)
       for (const c of classes) {
+        if (classIdsWithLessons.has(c.id)) continue // already handled above
         const days = normalizeDays(c.day_of_week)
         if (!days.includes(dn)) continue
         out.push({
-          key: `${c.id}-${isoDate(d)}`,
-          date: d,
+          key:     `${c.id}-${isoDate(d)}`,
+          date:    d,
           dateISO: isoDate(d),
           dayName: dn,
-          cls: c,
+          cls:     c,
         })
       }
     }
+
     out.sort((a, b) => {
       if (a.date.getTime() !== b.date.getTime()) return a.date - b.date
       return startMinutes(a.cls.start_time) - startMinutes(b.cls.start_time)
     })
     return out
-  }, [classes, weekDays])
+  }, [classes, weekDays, weekLessons])
 
   const sessionsByDate = useMemo(() => {
     const map = new Map()
