@@ -1013,6 +1013,11 @@ function InvoiceDashboardInner() {
   const [sendModalInv,      setSendModalInv]      = useState(null)
   const [emailTemplate,     setEmailTemplate]     = useState('')
   const [emailSubjectTmpl,  setEmailSubjectTmpl]  = useState('')
+  const [mainTab,           setMainTab]           = useState('invoices') // 'invoices' | 'credits' | 'template'
+  const [heldCredits,       setHeldCredits]       = useState([])
+  const [creditsLoading,    setCreditsLoading]    = useState(false)
+  const [tmplSaving,        setTmplSaving]        = useState(false)
+  const [tmplSaved,         setTmplSaved]         = useState(false)
 
   // Xero
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
@@ -1199,6 +1204,20 @@ function InvoiceDashboardInner() {
   }, [termId])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
+
+  useEffect(() => {
+    if (mainTab !== 'credits') return
+    setCreditsLoading(true)
+    supabase
+      .from('student_credits')
+      .select('id, student_id, amount, reason, notes, created_at, students(full_name, year, school, family_id)')
+      .is('invoice_id', null)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setHeldCredits(data || [])
+        setCreditsLoading(false)
+      })
+  }, [mainTab])
 
   // Load all students for referral modal
   useEffect(() => {
@@ -1388,6 +1407,7 @@ function InvoiceDashboardInner() {
             <h1 className="text-2xl font-bold text-[#062E63]">Invoices</h1>
             <p className="text-sm text-[#325099]/60 mt-1">Generate, approve, and manage term invoices.</p>
           </div>
+          {mainTab === 'invoices' && (
           <div className="flex items-center gap-2">
             {termId && (
               <button
@@ -1415,8 +1435,20 @@ function InvoiceDashboardInner() {
               {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
+          )}
         </div>
 
+        {/* Main tabs */}
+        <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 mb-6 w-fit">
+          {[{ id: 'invoices', label: 'Invoices' }, { id: 'credits', label: '💳 Credit Balances' }, { id: 'template', label: '✉ Email Template' }].map(t => (
+            <button key={t.id} onClick={() => setMainTab(t.id)}
+              className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition ${mainTab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {mainTab === 'invoices' && <>
         {error   && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">{error}</div>}
         {successMsg && <div className="bg-[#D1FAE5] border border-[#34D399] text-[#065F46] text-sm rounded-xl px-4 py-3 mb-5">{successMsg}</div>}
 
@@ -1691,6 +1723,130 @@ function InvoiceDashboardInner() {
         {!termId && (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-16 text-center text-[#325099]/40 text-sm">
             Select a term to view invoices.
+          </div>
+        )}
+        </>}
+
+        {/* Credit balances tab */}
+        {mainTab === 'credits' && (
+          <div className="max-w-3xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-[#062E63]">Held credit balances</h2>
+                <p className="text-xs text-[#325099]/60 mt-0.5">Credits awaiting application to the next invoice. These are applied automatically when the next term's invoices are generated.</p>
+              </div>
+            </div>
+
+            {creditsLoading ? (
+              <div className="flex justify-center py-12"><div className="w-5 h-5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /></div>
+            ) : heldCredits.length === 0 ? (
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-12 text-center text-[#325099]/40 text-sm">No held credits.</div>
+            ) : (() => {
+              // Group by student
+              const byStudent = {}
+              for (const c of heldCredits) {
+                const sid = c.student_id
+                if (!byStudent[sid]) byStudent[sid] = { student: c.students, credits: [] }
+                byStudent[sid].credits.push(c)
+              }
+              return (
+                <div className="space-y-3">
+                  {Object.entries(byStudent).map(([sid, { student, credits }]) => {
+                    const total = credits.reduce((s, c) => s + Number(c.amount), 0)
+                    return (
+                      <div key={sid} className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
+                        <div className="px-5 py-3 flex items-center justify-between border-b border-[#DEE7FF]">
+                          <div>
+                            <p className="font-semibold text-sm text-[#062E63]">{student?.full_name || '—'}</p>
+                            <p className="text-[11px] text-[#325099]/50">Year {student?.year || '?'} · {student?.school || '—'}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-emerald-700">${total.toFixed(2)}</p>
+                            <p className="text-[10px] text-[#325099]/40">{credits.length} credit{credits.length > 1 ? 's' : ''} held</p>
+                          </div>
+                        </div>
+                        <div className="divide-y divide-[#F0F4FF]">
+                          {credits.map(c => (
+                            <div key={c.id} className="px-5 py-2.5 flex items-center justify-between gap-4">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-[#325099]/80 truncate">{c.reason}</p>
+                                {c.notes && <p className="text-[11px] text-[#325099]/50 truncate">{c.notes}</p>}
+                              </div>
+                              <div className="flex items-center gap-3 flex-shrink-0">
+                                <span className="text-xs font-semibold text-emerald-700">${Number(c.amount).toFixed(2)}</span>
+                                <span className="text-[10px] text-[#325099]/40">{new Date(c.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* Email template tab */}
+        {mainTab === 'template' && (
+          <div className="bg-white border border-[#DEE7FF] rounded-2xl p-6 max-w-3xl space-y-5">
+            <div>
+              <h2 className="text-sm font-bold text-[#062E63] mb-4">Invoice email template</h2>
+              <div className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-4 py-3 mb-4">
+                <p className="text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-2">
+                  Available placeholders · use <code className="font-mono">**text**</code> for bold
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    { tag: '{{guardian}}',     desc: "Guardian's first name" },
+                    { tag: '{{studentNames}}', desc: 'Student name(s)' },
+                    { tag: '{{term}}',         desc: 'Term name' },
+                    { tag: '{{invNo}}',        desc: 'Invoice number' },
+                    { tag: '{{amount}}',       desc: 'Amount due' },
+                    { tag: '{{dueDate}}',      desc: 'Due date' },
+                  ].map(p => (
+                    <div key={p.tag} className="flex items-center gap-1.5">
+                      <code className="text-[11px] font-mono bg-white border border-[#DEE7FF] rounded px-1.5 py-0.5 text-[#325099]">{p.tag}</code>
+                      <span className="text-[11px] text-[#325099]/50">{p.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Subject line</label>
+                <input
+                  value={emailSubjectTmpl}
+                  onChange={e => setEmailSubjectTmpl(e.target.value)}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] focus:outline-none focus:border-[#325099]"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Email body</label>
+                <textarea
+                  value={emailTemplate}
+                  onChange={e => setEmailTemplate(e.target.value)}
+                  rows={22}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#062E63] font-mono resize-y focus:outline-none focus:border-[#325099]"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={async () => {
+                  setTmplSaving(true)
+                  await supabase.from('portal_settings').upsert({ key: 'invoice_email_template', value: emailTemplate, updated_at: new Date().toISOString() })
+                  await supabase.from('portal_settings').upsert({ key: 'invoice_email_subject',  value: emailSubjectTmpl,  updated_at: new Date().toISOString() })
+                  setTmplSaving(false); setTmplSaved(true)
+                  setTimeout(() => setTmplSaved(false), 3000)
+                }}
+                disabled={tmplSaving}
+                className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40"
+              >
+                {tmplSaving ? 'Saving…' : 'Save changes'}
+              </button>
+              {tmplSaved && <span className="text-xs text-emerald-600 font-semibold">✓ Saved</span>}
+            </div>
           </div>
         )}
 

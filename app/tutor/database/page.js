@@ -755,6 +755,146 @@ function AddSigninModal({ sessionId, existingSignins, allStudents, onClose, onAd
   )
 }
 
+// ── Cancel Lesson Modal ───────────────────────────────────────────────────────
+function CancelLessonModal({ row, onClose, onCancelled }) {
+  const [students,     setStudents]     = useState([])
+  const [studentId,    setStudentId]    = useState('')
+  const [type,         setType]         = useState('credit')
+  const [reason,       setReason]       = useState('')
+  const [preview,      setPreview]      = useState(null) // { credit_amount, enrolment_price }
+  const [submitting,   setSubmitting]   = useState(false)
+  const [error,        setError]        = useState(null)
+
+  // Load enrolled students for this class
+  useEffect(() => {
+    if (!row?.class_id) return
+    supabase
+      .from('enrolments')
+      .select('student_id, price, students(id, full_name)')
+      .eq('class_id', row.class_id)
+      .in('status', ['active', 'trial'])
+      .then(({ data }) => {
+        const list = (data || []).map(e => ({ id: e.students?.id, full_name: e.students?.full_name, price: e.price })).filter(s => s.id)
+        setStudents(list)
+        // Auto-select if 1-on-1
+        if (list.length === 1) {
+          setStudentId(list[0].id)
+          setPreview({ credit_amount: Math.round((Number(list[0].price) / 10) * 100) / 100, enrolment_price: list[0].price })
+        }
+      })
+  }, [row?.class_id])
+
+  const handleStudentChange = (id) => {
+    setStudentId(id)
+    const s = students.find(s => s.id === id)
+    if (s?.price) setPreview({ credit_amount: Math.round((Number(s.price) / 10) * 100) / 100, enrolment_price: s.price })
+    else setPreview(null)
+  }
+
+  const handleSubmit = async () => {
+    if (!studentId) { setError('Please select a student.'); return }
+    setSubmitting(true); setError(null)
+    try {
+      const res = await fetch('/api/cancel-lesson', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lesson_id: row.id, student_id: studentId, type, reason }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed')
+      onCancelled(row.id, studentId, json)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const studentName = students.find(s => s.id === studentId)?.full_name
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#DEE7FF]">
+          <div>
+            <h3 className="font-bold text-[#062E63] text-sm">Cancel Lesson</h3>
+            <p className="text-[11px] text-[#325099]/50 mt-0.5">
+              {row.class_label || `Class ${row.class_id}`} · {row.lesson_date}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-[#325099]/40 hover:text-[#325099] text-lg">✕</button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {/* Student */}
+          <div>
+            <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Student</label>
+            <select
+              value={studentId}
+              onChange={e => handleStudentChange(e.target.value)}
+              className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+            >
+              <option value="">— select student —</option>
+              {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+            </select>
+          </div>
+
+          {/* Type */}
+          <div>
+            <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-2">Cancellation type</label>
+            <div className="flex gap-2">
+              {[
+                { id: 'credit',     label: 'Credit',     desc: 'Student notified us beforehand' },
+                { id: 'non_credit', label: 'Non-credit',  desc: 'No-show without notice' },
+              ].map(t => (
+                <button key={t.id} onClick={() => setType(t.id)}
+                  className={`flex-1 text-left px-3 py-2.5 rounded-xl border transition text-xs ${type === t.id ? 'border-[#325099] bg-[#F0F4FF]' : 'border-[#DEE7FF] hover:border-[#325099]/40'}`}>
+                  <p className={`font-semibold ${type === t.id ? 'text-[#062E63]' : 'text-[#325099]/70'}`}>{t.label}</p>
+                  <p className="text-[10px] text-[#325099]/40 mt-0.5">{t.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Credit preview */}
+          {type === 'credit' && preview && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-xs">
+              <p className="font-semibold text-emerald-800">
+                Credit: ${preview.credit_amount.toFixed(2)}
+                <span className="font-normal text-emerald-600 ml-1">(${preview.enrolment_price} ÷ 10 weeks)</span>
+              </p>
+              <p className="text-emerald-600 mt-0.5">Will be applied to the current or next invoice depending on delivery status.</p>
+            </div>
+          )}
+
+          {/* Reason */}
+          <div>
+            <label className="block text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Reason <span className="font-normal normal-case">(optional)</span></label>
+            <input
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="e.g. Sick, family holiday…"
+              className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] focus:outline-none focus:border-[#325099]"
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+
+        <div className="px-6 pb-5 flex justify-end gap-2">
+          <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2 rounded-full hover:border-[#325099] transition">
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={submitting || !studentId}
+            className="text-xs font-semibold bg-red-600 text-white px-5 py-2 rounded-full hover:bg-red-700 transition disabled:opacity-40">
+            {submitting ? 'Cancelling…' : `Cancel${studentName ? ` ${studentName.split(' ')[0]}'s` : ''} lesson`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function DatabasePage() {
   const router = useRouter()
@@ -911,6 +1051,10 @@ export default function DatabasePage() {
   const [newRowData, setNewRowData]     = useState({})
   const [addingSaving, setAddingSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+
+  // Lesson cancellation
+  const [cancelModal,       setCancelModal]       = useState(null) // { row } | null
+  const [lessonCancellations, setLessonCancellations] = useState({}) // { lessonId: [cancellation] }
 
   // Add Enrolment modal (enrolments table only)
   const [showAddEnrolmentModal, setShowAddEnrolmentModal] = useState(false)
@@ -1271,6 +1415,24 @@ export default function DatabasePage() {
       }
 
       setColumns(cols); setRows(enrichedRows); setLoading(false)
+
+      // Load cancellations for lessons table
+      if (selectedTable === T_LESSONS && enrichedRows.length > 0) {
+        const lessonIds = enrichedRows.map(r => r.id)
+        supabase
+          .from('lesson_cancellations')
+          .select('id, lesson_id, student_id, type, reason, credit_amount, held_for_next_term, cancelled_at, undone_at, students(full_name)')
+          .in('lesson_id', lessonIds)
+          .is('undone_at', null)
+          .then(({ data: cancRows }) => {
+            const map = {}
+            for (const c of cancRows || []) {
+              if (!map[c.lesson_id]) map[c.lesson_id] = []
+              map[c.lesson_id].push(c)
+            }
+            setLessonCancellations(map)
+          })
+      }
     })
     })()  // close async IIFE
   }, [selectedTable, staff, reloadKey, lessonClassFilter, dbTermFilter])
@@ -3750,6 +3912,41 @@ export default function DatabasePage() {
                           </td>
                         )}
 
+                        {/* Cancel button — lessons only */}
+                        {selectedTable === T_LESSONS && (
+                          <td className="border-b border-r border-[#E8EDF8] px-1 py-1" style={{ width: 70 }}>
+                            {(lessonCancellations[rowId] || []).length > 0 ? (
+                              <div className="flex flex-col gap-0.5">
+                                {(lessonCancellations[rowId] || []).map(c => (
+                                  <div key={c.id} className="flex items-center gap-1">
+                                    <span className="text-[9px] font-semibold bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                      ✕ {c.students?.full_name?.split(' ')[0]}
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        if (!confirm('Undo this cancellation?')) return
+                                        fetch('/api/undo-cancellation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cancellation_id: c.id }) })
+                                          .then(() => setLessonCancellations(prev => {
+                                            const updated = (prev[rowId] || []).filter(x => x.id !== c.id)
+                                            return { ...prev, [rowId]: updated }
+                                          }))
+                                      }}
+                                      className="text-[9px] text-gray-400 hover:text-red-500 transition"
+                                      title="Undo cancellation"
+                                    >↩</button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={e => { e.stopPropagation(); setCancelModal({ row }) }}
+                                className="opacity-0 group-hover:opacity-100 text-[9px] font-semibold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-1.5 py-0.5 rounded transition whitespace-nowrap"
+                                title="Cancel lesson for a student"
+                              >Cancel</button>
+                            )}
+                          </td>
+                        )}
+
                         <td className="border-b border-[#E8EDF8] px-1.5 py-1" style={{ width:56 }}>
                           {isConfirm ? (
                             <div className="flex items-center gap-1">
@@ -4084,6 +4281,31 @@ export default function DatabasePage() {
           allTerms={allTerms}
           onClose={() => setShowAddEnrolmentModal(false)}
           onCreated={() => { setShowAddEnrolmentModal(false); setReloadKey(k => k + 1) }}
+        />
+      )}
+
+      {cancelModal && (
+        <CancelLessonModal
+          row={cancelModal.row}
+          onClose={() => setCancelModal(null)}
+          onCancelled={(lessonId, studentId, result) => {
+            setCancelModal(null)
+            setLessonCancellations(prev => ({
+              ...prev,
+              [lessonId]: [
+                ...(prev[lessonId] || []),
+                {
+                  id: result.cancellation_id,
+                  lesson_id: lessonId,
+                  student_id: studentId,
+                  type: result.type,
+                  held_for_next_term: result.held_for_next_term,
+                  credit_amount: result.credit_amount,
+                  students: { full_name: cancelModal.row._studentName || '' },
+                },
+              ],
+            }))
+          }}
         />
       )}
     </div>

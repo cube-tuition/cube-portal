@@ -38,7 +38,6 @@ const ADMIN_GROUPS = [
       { label: 'Emails',     href: '/tutor/emails',     icon: '✉️'  },
       { label: 'Reports',    href: '/tutor/reports',    icon: '📊' },
       { label: 'Transition', href: '/tutor/transition', icon: '🔄' },
-      { label: 'Settings',   href: '/tutor/settings',   icon: '⚙️'  },
     ],
   },
   {

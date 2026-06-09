@@ -176,7 +176,15 @@ export async function POST(req) {
       const invoiceNumber = `${year2d}T${term.term_number}-${String(seqNum).padStart(4, '0')}`  // e.g. '26T2-0001'
       const referenceCode = `INV${String(seqNum).padStart(4, '0')}`                             // e.g. 'INV0001'
 
-      const { error: insErr } = await sb.from('invoices').insert({
+      // IDs of held credits being applied to this invoice
+      const appliedCreditIds = []
+      for (const sid of creditStudents) {
+        for (const c of creditsByStudent[sid] || []) {
+          if (c.id) appliedCreditIds.push(c.id)
+        }
+      }
+
+      const { error: insErr, data: newInvoice } = await sb.from('invoices').insert({
         term_id:              term_id,
         family_id:            family.family_id,
         student_id:           family.student_id,
@@ -191,9 +199,17 @@ export async function POST(req) {
         line_items:           lineItems,
         payment_instructions: PAYMENT_INSTRUCTIONS,
         email_sent:           false,
-      })
+      }).select('id').single()
 
       if (insErr) { errors.push({ key, error: insErr.message }); continue }
+
+      // Link held credits to the new invoice
+      if (newInvoice?.id && appliedCreditIds.length > 0) {
+        await sb.from('student_credits')
+          .update({ invoice_id: newInvoice.id })
+          .in('id', appliedCreditIds)
+      }
+
       created++
     }
 
