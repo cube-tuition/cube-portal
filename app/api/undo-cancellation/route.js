@@ -48,6 +48,9 @@ export async function POST(req) {
     // 3. Mark as undone
     await sb.from('lesson_cancellations').update({ undone_at: new Date().toISOString() }).eq('id', cancellation_id)
 
+    // 4. Restore lesson status to 'scheduled' if it was fully cancelled
+    await sb.from('lessons').update({ status: 'scheduled' }).eq('id', canc.lesson_id).eq('status', 'cancelled')
+
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error('[undo-cancellation]', err)

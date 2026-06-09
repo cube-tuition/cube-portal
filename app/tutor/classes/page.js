@@ -314,7 +314,7 @@ export default function TutorClassesPage() {
     const weekMax = isoDate(addDays(weekStart, 6))
     supabase
       .from(T_LESSONS)
-      .select('id, lesson_date, start_time, end_time, class_id')
+      .select('id, lesson_date, start_time, end_time, class_id, status')
       .gte('lesson_date', weekMin)
       .lte('lesson_date', weekMax)
       .is('makeup_student_id', null)
@@ -442,8 +442,10 @@ export default function TutorClassesPage() {
     const out = []
 
     // Classes that have actual lesson rows in the DB this week — use those exact dates/times
-    const classIdsWithLessons = new Set(weekLessons.map(l => l.class_id))
-    for (const lesson of weekLessons) {
+    // Exclude fully cancelled lessons from the calendar
+    const activeLessons = weekLessons.filter(l => l.status !== 'cancelled')
+    const classIdsWithLessons = new Set(weekLessons.map(l => l.class_id)) // still use all for fallback logic
+    for (const lesson of activeLessons) {
       const cls = classes.find(c => c.id === lesson.class_id)
       if (!cls) continue
       const d = new Date(lesson.lesson_date + 'T00:00:00')

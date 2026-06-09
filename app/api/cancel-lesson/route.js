@@ -185,6 +185,29 @@ export async function POST(req) {
       held_for_next_term: heldForNextTerm,
     }).select('id').single()
 
+    // ── 7. Mark lesson as cancelled if ALL enrolled students are now cancelled ─
+    const { data: enrolledStudents } = await sb
+      .from('enrolments')
+      .select('student_id')
+      .eq('class_id', lesson.class_id)
+      .in('status', ['active', 'trial'])
+
+    if (enrolledStudents?.length) {
+      const enrolledIds = enrolledStudents.map(e => e.student_id)
+      const { data: activeCancellations } = await sb
+        .from('lesson_cancellations')
+        .select('student_id')
+        .eq('lesson_id', lesson_id)
+        .is('undone_at', null)
+
+      const cancelledIds = new Set((activeCancellations || []).map(c => c.student_id))
+      const allCancelled = enrolledIds.every(id => cancelledIds.has(id))
+
+      if (allCancelled) {
+        await sb.from('lessons').update({ status: 'cancelled' }).eq('id', lesson_id)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       cancellation_id: cancellation?.id,

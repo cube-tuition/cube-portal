@@ -110,6 +110,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       const m = marks[s.id] || {}
       const att = m.attendance || ''
       const isAbsent = att === 'absent' || att === 'excused' || att === 'makeup'
+      if (att === 'cancelled') continue // cancelled students are fully exempt
       if (!att) {
         missing.push(`${s.full_name} (attendance)`)
         continue
@@ -600,18 +601,20 @@ const HW_COLOR = {
   E: { bg:'#FEE2E2', fg:'#991B1B' },
 }
 const ATTEND_COLOR = {
-  present: { bg:'#D1FAE5', fg:'#065F46', label:'Present' },
-  late:    { bg:'#FEF3C7', fg:'#92400E', label:'Late'    },
-  absent:  { bg:'#FEE2E2', fg:'#991B1B', label:'Absent'  },
-  excused: { bg:'#E0E7FF', fg:'#3730A3', label:'Excused' },
-  makeup:  { bg:'#EDE9FE', fg:'#5B21B6', label:'Makeup'  },
+  present:   { bg:'#D1FAE5', fg:'#065F46', label:'Present'   },
+  late:      { bg:'#FEF3C7', fg:'#92400E', label:'Late'      },
+  absent:    { bg:'#FEE2E2', fg:'#991B1B', label:'Absent'    },
+  excused:   { bg:'#E0E7FF', fg:'#3730A3', label:'Excused'   },
+  makeup:    { bg:'#EDE9FE', fg:'#5B21B6', label:'Makeup'    },
+  cancelled: { bg:'#F3F4F6', fg:'#6B7280', label:'Cancelled' },
 }
 
 function rowTint(att) {
-  if (att === 'present') return '#F0FDF4'
-  if (att === 'late')    return '#FFFBEB'
-  if (att === 'absent')  return '#FEF2F2'
-  if (att === 'makeup')  return '#F5F3FF'
+  if (att === 'present')   return '#F0FDF4'
+  if (att === 'late')      return '#FFFBEB'
+  if (att === 'absent')    return '#FEF2F2'
+  if (att === 'makeup')    return '#F5F3FF'
+  if (att === 'cancelled') return '#F3F4F6'
   return ''
 }
 function numberTier(n) {
@@ -703,6 +706,7 @@ function MarkTable({
             {roster.map(s => {
               const m = marks[s.id] || {}
               const att = m.attendance || ''
+              const isCancelled = att === 'cancelled'
               const isAbsent = att === 'absent' || att === 'excused' || att === 'makeup'
               const tint = rowTint(att)
               const isOpen = expanded?.has(s.id)
@@ -711,10 +715,29 @@ function MarkTable({
               const isTrial = s.enrolmentStatus === 'trial'
 
               // Validation highlights — only shown after a failed save attempt
-              const attInvalid          = showValidation && !att
-              const hwInvalid           = showValidation && !isAbsent && att && !m.hw
-              const rqInvalid           = showValidation && !isAbsent && att && (m.rq === '' || m.rq == null)
-              const trialFeedbackInvalid = showValidation && isTrial && !isAbsent && !(m.trialFeedback || '').trim()
+              const attInvalid          = showValidation && !att && !isCancelled
+              const hwInvalid           = showValidation && !isAbsent && !isCancelled && att && !m.hw
+              const rqInvalid           = showValidation && !isAbsent && !isCancelled && att && (m.rq === '' || m.rq == null)
+              const trialFeedbackInvalid = showValidation && isTrial && !isAbsent && !isCancelled && !(m.trialFeedback || '').trim()
+
+              if (isCancelled) return (
+                <Fragment key={s.id}>
+                  <tr className="border-b last:border-0 border-[#DEE7FF]" style={{ background: '#F3F4F6', opacity: 0.85 }}>
+                    <td className="pl-5 pr-3 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-semibold text-gray-400 text-sm line-through">{s.full_name}</span>
+                        {isTrial && <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-semibold">trial</span>}
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{s.school}{s.year ? ` · Yr ${s.year}` : ''}</p>
+                    </td>
+                    <td colSpan={99} className="px-5 py-3">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-gray-200 text-gray-600 border border-gray-300 px-3 py-1 rounded-full">
+                        ✕ Lesson cancelled
+                      </span>
+                    </td>
+                  </tr>
+                </Fragment>
+              )
 
               return (
                 <Fragment key={s.id}>
