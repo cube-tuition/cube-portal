@@ -1027,6 +1027,7 @@ function InvoiceDashboardInner() {
   const [addCreditLessons,       setAddCreditLessons]       = useState([])
   const [addCreditLessonsLoading,setAddCreditLessonsLoading]= useState(false)
   const [addCreditSelectedLesson,setAddCreditSelectedLesson]= useState(null)
+  const [filterTab,             setFilterTab]             = useState('all')
 
   // Xero
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
@@ -1541,21 +1542,27 @@ function InvoiceDashboardInner() {
 
         {termId && (
           <>
-            {/* Stats */}
+            {/* Stats / filter tabs */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
               {[
-                { label: 'Total',    value: stats.total,                            cls: 'text-[#062E63]' },
-                { label: 'Draft',    value: stats.draft,                            cls: 'text-[#325099]' },
-                { label: 'Approved', value: stats.approved,                         cls: 'text-[#5B21B6]' },
-                { label: 'Paid',     value: stats.paid,                             cls: 'text-[#065F46]' },
-                { label: 'Overdue',  value: stats.overdue,                          cls: stats.overdue > 0 ? 'text-red-600' : 'text-[#325099]' },
-                { label: 'Warnings', value: stats.warnings,                         cls: stats.warnings > 0 ? 'text-[#92400E]' : 'text-[#325099]' },
-                { label: 'Revenue',  value: `$${stats.revenue.toLocaleString('en-AU', { minimumFractionDigits: 0 })}`, cls: 'text-[#062E63]' },
+                { id: 'all',      label: 'Total',    value: stats.total,    cls: 'text-[#062E63]' },
+                { id: 'draft',    label: 'Draft',    value: stats.draft,    cls: 'text-[#325099]' },
+                { id: 'approved', label: 'Approved', value: stats.approved, cls: 'text-[#5B21B6]' },
+                { id: 'paid',     label: 'Paid',     value: stats.paid,     cls: 'text-[#065F46]' },
+                { id: 'overdue',  label: 'Overdue',  value: stats.overdue,  cls: stats.overdue > 0 ? 'text-red-600' : 'text-[#325099]' },
+                { id: 'warnings', label: 'Warnings', value: stats.warnings, cls: stats.warnings > 0 ? 'text-[#92400E]' : 'text-[#325099]' },
+                { id: 'revenue',  label: 'Revenue',  value: `$${stats.revenue.toLocaleString('en-AU', { minimumFractionDigits: 0 })}`, cls: 'text-[#062E63]', noFilter: true },
               ].map(s => (
-                <div key={s.label} className="bg-white border border-[#DEE7FF] rounded-xl px-3 py-3 text-center">
+                <button
+                  key={s.id}
+                  onClick={() => !s.noFilter && setFilterTab(f => f === s.id ? 'all' : s.id)}
+                  className={`bg-white border rounded-xl px-3 py-3 text-center transition ${
+                    !s.noFilter ? 'hover:border-[#325099]/40 cursor-pointer' : 'cursor-default'
+                  } ${filterTab === s.id ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}
+                >
                   <div className={`text-lg font-bold ${s.cls}`}>{s.value}</div>
                   <div className="text-[10px] text-[#325099]/60 font-semibold mt-0.5 uppercase tracking-wider">{s.label}</div>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -1575,9 +1582,26 @@ function InvoiceDashboardInner() {
               </div>
             )}
 
-            {invoices.length > 0 && (
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm text-[#325099]/60">{invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</span>
+            {invoices.length > 0 && (() => {
+              const filteredInvoices = filterTab === 'all'      ? invoices
+                : filterTab === 'draft'    ? invoices.filter(i => i.status === 'draft')
+                : filterTab === 'approved' ? invoices.filter(i => ['approved', 'synced_to_xero'].includes(i.status))
+                : filterTab === 'paid'     ? invoices.filter(i => i.payment_status === 'paid')
+                : filterTab === 'overdue'  ? invoices.filter(i => i.payment_status === 'overdue')
+                : filterTab === 'warnings' ? invoices.filter(i => getWarnings(i, i.prev_unpaid).length > 0)
+                : invoices
+              return <>
+            {/* eslint-disable-next-line no-unused-vars */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[#325099]/60">
+                    {filteredInvoices.length}{filteredInvoices.length !== invoices.length ? ` of ${invoices.length}` : ''} invoice{invoices.length !== 1 ? 's' : ''}
+                    {filterTab !== 'all' && <span className="ml-1.5 text-xs font-semibold text-[#325099] bg-[#EEF4FF] px-2 py-0.5 rounded-full capitalize">{filterTab}</span>}
+                  </span>
+                  {filterTab !== 'all' && (
+                    <button onClick={() => setFilterTab('all')} className="text-[10px] text-[#325099]/50 hover:text-[#325099] transition">✕ Clear filter</button>
+                  )}
+                </div>
                 <button
                   onClick={handleGenerate}
                   disabled={generating}
@@ -1586,14 +1610,15 @@ function InvoiceDashboardInner() {
                   {generating ? 'Generating…' : '+ Generate new drafts'}
                 </button>
               </div>
-            )}
 
             {/* Invoice table */}
             {loading ? (
               <div className="text-center py-16 text-[#325099]/40 text-sm">Loading invoices…</div>
+            ) : filteredInvoices.length === 0 ? (
+              <div className="text-center py-12 text-[#325099]/40 text-sm">No invoices match this filter.</div>
             ) : (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start">
-                {invoices.map(inv => {
+                {filteredInvoices.map(inv => {
                   const warnings    = getWarnings(inv, inv.prev_unpaid)
                   const statusStyle = STATUS_LABELS[inv.status] || STATUS_LABELS.draft
                   const isApproving = approvingId === inv.id
@@ -1812,6 +1837,8 @@ function InvoiceDashboardInner() {
                 })}
               </div>
             )}
+            </>
+          })()}
           </>
         )}
 

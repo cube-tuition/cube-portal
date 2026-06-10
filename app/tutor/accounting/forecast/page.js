@@ -354,20 +354,20 @@ export default function ForecastPage() {
     }
   }, [classMetrics, fixedCosts, invoices])
 
-  // ── Initialise play-around from live data ────────────────────────────────────
+  // ── Initialise play-around — only when Play tab opens, so all data is loaded ──
   useEffect(() => {
-    if (!playInit && classMetrics.length > 0) {
+    if (tab === 'play' && !playInit && classMetrics.length > 0 && tutors.length > 0) {
       setPlayClasses(classMetrics.map(c => ({
         id: c.id, class_name: c.class_name, teacher: c.teacher,
         studentCount: c.studentCount, termFee: c.termFee,
         lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
         teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
-        is1on1: c.is1on1,
+        is1on1: c.is1on1, studentName: c.studentName,
       })))
       setPlayFixedCosts(fixedCosts.map(fc => ({ ...fc })))
       setPlayInit(true)
     }
-  }, [classMetrics, fixedCosts, playInit])
+  }, [tab, classMetrics, fixedCosts, tutors, playInit])
 
   // ── Play-around metrics ──────────────────────────────────────────────────────
   const playMetrics = useMemo(() => {
@@ -395,11 +395,21 @@ export default function ForecastPage() {
       const amt = Number(fc.amount || 0)
       return s + (fc.frequency === 'monthly' ? amt * 3 : amt / 4)
     }, 0)
-    const totalExpenses  = classTeacherCost + oneOnOneTeacherCost + fixedTermly
-    const totalProfit    = afterGst - totalExpenses
-    const afterTax       = totalProfit * (1 - TAX_RATE)
-    return { classIncome, oneOnOneIncome, totalIncome, afterGst, classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses, totalProfit, afterTax }
-  }, [playMetrics, playFixedCosts])
+    const totalExpenses      = classTeacherCost + oneOnOneTeacherCost + fixedTermly
+    // Carry actual discounts from invoices (same as live)
+    const siblingDiscount    = invoices.reduce((s, i) => s + Number(i.sibling_discount || 0), 0)
+    const multiCourseDiscount= invoices.reduce((s, i) => s + Number(i.multi_course_discount || 0), 0)
+    const totalDiscount      = siblingDiscount + multiCourseDiscount
+    const totalProfit        = afterGst - totalExpenses - totalDiscount
+    // Match live tax formula: no cash distinction in play, so taxableProfit = afterGst - expenses - discounts
+    const afterTax           = totalProfit * (1 - TAX_RATE)
+    return {
+      classIncome, oneOnOneIncome, totalIncome, afterGst,
+      classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
+      siblingDiscount, multiCourseDiscount, totalDiscount,
+      totalProfit, afterTax,
+    }
+  }, [playMetrics, playFixedCosts, invoices])
 
   // ── Fixed cost handlers ──────────────────────────────────────────────────────
   const handleAddCost = async () => {
@@ -420,6 +430,18 @@ export default function ForecastPage() {
   const handleUpdateCost = async (id, field, value) => {
     setFixedCosts(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
     await supabase.from('fixed_costs').update({ [field]: field === 'amount' ? Number(value) : value }).eq('id', id)
+  }
+
+  // ── Play-around reset ────────────────────────────────────────────────────────
+  const handleResetPlay = () => {
+    setPlayClasses(classMetrics.map(c => ({
+      id: c.id, class_name: c.class_name, teacher: c.teacher,
+      studentCount: c.studentCount, termFee: c.termFee,
+      lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
+      teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
+      is1on1: c.is1on1, studentName: c.studentName,
+    })))
+    setPlayFixedCosts(fixedCosts.map(fc => ({ ...fc })))
   }
 
   // ── Tutor pay method handler ─────────────────────────────────────────────────
@@ -528,13 +550,14 @@ export default function ForecastPage() {
   }
 
   // ── Class table (shared between live and play) ───────────────────────────────
-  function ClassTable({ rows, editable = false, onChange }) {
+  function ClassTable({ rows, editable = false, onChange, hideStudents = false }) {
+    const headers = ['Class', ...(!hideStudents ? ['Students'] : []), 'Term Fee', 'Term Income', 'Teacher', 'Rate ($/hr)', 'Hours', 'Super?', 'Weekly Pay', 'Termly Cost (inc. Super)', 'Profit']
     return (
       <div className="overflow-x-auto rounded-2xl border border-[#DEE7FF]">
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-              {['Class', 'Students', 'Term Fee', 'Term Income', 'Teacher', 'Rate ($/hr)', 'Hours', 'Super?', 'Weekly Pay', 'Termly Cost (inc. Super)', 'Profit'].map(h => (
+              {headers.map(h => (
                 <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -548,13 +571,13 @@ export default function ForecastPage() {
                     {c.class_name}
                     {c.studentName && <span className="ml-1.5 text-[#325099]/50 font-normal">· {c.studentName}</span>}
                   </td>
-                  <td className="px-3 py-2 text-center">
+                  {!hideStudents && <td className="px-3 py-2 text-center">
                     {editable ? (
                       <input type="number" min="0" value={c.studentCount}
                         onChange={e => onChange(i, 'studentCount', parseInt(e.target.value) || 0)}
                         className="w-12 border border-[#DEE7FF] rounded px-1 py-0.5 text-center text-xs" />
                     ) : c.studentCount}
-                  </td>
+                  </td>}
                   <td className="px-3 py-2">
                     {editable ? (
                       <input type="number" min="0" value={c.termFee}
@@ -641,10 +664,24 @@ export default function ForecastPage() {
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
           <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Profit</p>
           <div className="space-y-1">
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class Profit</span><span className="font-semibold">{fmt(s.classProfit != null ? s.classProfit * m : (s.classIncome - s.classTeacherCost) * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 Profit</span><span className="font-semibold">{fmt(s.oneOnOneProfit != null ? s.oneOnOneProfit * m : (s.oneOnOneIncome - s.oneOnOneTeacherCost) * m)}</span></div>
-            <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total Profit</span><span className={s.totalProfit * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.totalProfit * m)}</span></div>
-            <div className="flex justify-between text-xs font-bold"><span className="text-[#325099]/70">After Tax (25%)</span><span className={s.afterTax * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.afterTax * m)}</span></div>
+            {(() => {
+              // Split after-GST income proportionally between class and 1-on-1
+              const total     = s.totalIncome || 1
+              const classShare   = s.classIncome    / total
+              const oneOnOneShare= s.oneOnOneIncome / total
+              const classP    = (s.afterGst * classShare    - s.classTeacherCost)    * m
+              const oneOnOneP = (s.afterGst * oneOnOneShare - s.oneOnOneTeacherCost) * m
+              const fixedCost = (s.fixedTermly ?? 0) * m
+              const discount  = (s.totalDiscount  ?? 0) * m
+              return (<>
+                <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class (after GST − teacher)</span><span className="font-semibold">{fmt(classP)}</span></div>
+                <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 (after GST − teacher)</span><span className="font-semibold">{fmt(oneOnOneP)}</span></div>
+                {fixedCost > 0 && <div className="flex justify-between text-xs text-red-500"><span>Fixed Costs</span><span>−{fmt(fixedCost)}</span></div>}
+                {discount  > 0 && <div className="flex justify-between text-xs text-red-500"><span>Discounts</span><span>−{fmt(discount)}</span></div>}
+                <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total Profit</span><span className={s.totalProfit * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.totalProfit * m)}</span></div>
+                <div className="flex justify-between text-xs font-bold"><span className="text-[#325099]/70">After Tax (25%)</span><span className={s.afterTax * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.afterTax * m)}</span></div>
+              </>)
+            })()}
           </div>
         </div>
       </div>
@@ -729,7 +766,7 @@ export default function ForecastPage() {
                       {classMetrics.filter(c => c.is1on1).length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs font-semibold text-[#325099]/60 uppercase tracking-wider">1-on-1 Sessions</p>
-                          <ClassTable rows={sortByYear(classMetrics.filter(c => c.is1on1))} />
+                          <ClassTable rows={sortByYear(classMetrics.filter(c => c.is1on1))} hideStudents />
                         </div>
                       )}
                     </>
@@ -877,7 +914,7 @@ export default function ForecastPage() {
                 <h2 className="text-sm font-bold text-[#062E63]">Play Around</h2>
                 <p className="text-xs text-[#325099]/60 mt-0.5">Edit any value freely — nothing is saved. Reset to reload from live data.</p>
               </div>
-              <button onClick={() => setPlayInit(false)}
+              <button type="button" onClick={handleResetPlay}
                 className="text-xs px-3 py-1.5 border border-[#DEE7FF] rounded-lg text-[#325099] hover:bg-[#F0F4FF] transition">
                 ↺ Reset to live
               </button>
@@ -894,13 +931,35 @@ export default function ForecastPage() {
             </div>
 
             {/* Play class table */}
-            <div className="space-y-3">
+            <div className="space-y-6">
               <h2 className="text-sm font-bold text-[#062E63]">Class-by-Class</h2>
-              <ClassTable
-                rows={playMetrics}
-                editable
-                onChange={(i, field, value) => setPlayClasses(prev => prev.map((c, idx) => idx === i ? { ...c, [field]: value } : c))}
-              />
+              {playMetrics.filter(c => !c.is1on1).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#325099]/60 uppercase tracking-wider">Group Classes</p>
+                  <ClassTable
+                    rows={sortByYear(playMetrics.filter(c => !c.is1on1))}
+                    editable
+                    onChange={(i, field, value) => {
+                      const id = sortByYear(playMetrics.filter(x => !x.is1on1))[i]?.id
+                      if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
+                    }}
+                  />
+                </div>
+              )}
+              {playMetrics.filter(c => c.is1on1).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#325099]/60 uppercase tracking-wider">1-on-1 Sessions</p>
+                  <ClassTable
+                    rows={sortByYear(playMetrics.filter(c => c.is1on1))}
+                    editable
+                    hideStudents
+                    onChange={(i, field, value) => {
+                      const id = sortByYear(playMetrics.filter(x => x.is1on1))[i]?.id
+                      if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Play fixed costs */}
