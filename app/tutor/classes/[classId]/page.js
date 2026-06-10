@@ -11,6 +11,7 @@ import { normalizeDays } from '../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { inferSubject, subjectColor, subjectsMatch } from '../../../../components/CourseDetail'
 import PrePostSection from '../../../../components/PrePostSection'
+import ExamSection    from '../../../../components/ExamSection'
 import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TUTORS } from '../../../../lib/tables'
 
 /*
@@ -81,6 +82,7 @@ export default function ClassOverviewPage() {
   const weekParam = parseInt(searchParams?.get('week') || '', 10)
   const initialTab = weekParam >= 1 && weekParam <= 10 ? weekParam
     : searchParams?.get('tab') === 'prepost' ? 'prepost'
+    : searchParams?.get('tab') === 'exams'   ? 'exams'
     : 1
 
   const [staff, setStaff] = useState(null)
@@ -386,6 +388,19 @@ export default function ClassOverviewPage() {
               >
                 📊 Pre/Post
               </button>
+              {/* Exams tab — group classes only */}
+              {!/1.?:?.?1/i.test(cls?.class_name || '') && (
+                <button
+                  onClick={() => setTab('exams')}
+                  className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition ml-1 ${
+                    tab === 'exams'
+                      ? 'bg-[#062E63] text-white border-[#062E63]'
+                      : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'
+                  }`}
+                >
+                  🎯 Exams
+                </button>
+              )}
             </>
           )}
         </div>
@@ -407,8 +422,26 @@ export default function ClassOverviewPage() {
           </div>
         )}
 
+        {/* EXAMS TAB */}
+        {tab === 'exams' && term && (
+          <ExamSection
+            classId={cls.id}
+            termId={term.id}
+            termNumber={term.term_number}
+            roster={roster}
+            canEdit={isAdmin || (cls.teacher || '').split(' ')[0].toLowerCase() === (staff?.full_name || '').split(' ')[0].toLowerCase()}
+          />
+        )}
+        {tab === 'exams' && !term && (
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
+            <div className="text-4xl mb-2">📅</div>
+            <p className="text-sm font-semibold text-[#2A2035]">No active term found.</p>
+            <p className="text-xs text-[#2A2035]/60 mt-1">Exam data is linked to a term.</p>
+          </div>
+        )}
+
         {/* TAB CONTENT — teacher/sub section first, then booklet, then SessionMarker(s) */}
-        {tab !== 'prepost' && weekDates.length > 0 && (
+        {tab !== 'prepost' && tab !== 'exams' && weekDates.length > 0 && (
           <div className="space-y-8">
             {currentWeek.dates.length === 0 ? (
               <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">

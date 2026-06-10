@@ -110,18 +110,25 @@ export async function POST(req) {
       if (openInvoice) {
         // Apply credit to current open invoice
         appliedInvoiceId = openInvoice.id
+        const creditReason = `Lesson cancellation – ${lesson.classes?.class_name || 'class'} on ${lesson.lesson_date}`
         const { data: credit } = await sb.from('student_credits').insert({
           student_id,
           amount: creditAmount,
-          reason: `Lesson cancellation – ${lesson.classes?.class_name || 'class'} on ${lesson.lesson_date}`,
+          reason: creditReason,
           notes: reason || null,
           invoice_id: openInvoice.id,
         }).select('id').single()
         studentCreditId = credit?.id
 
-        // Deduct from invoice total
-        const newTotal = Math.max(0, Number(openInvoice.total) - creditAmount)
-        await sb.from('invoices').update({ total: newTotal }).eq('id', openInvoice.id)
+        // Deduct from invoice total AND add credit line item so it shows on the invoice
+        const { data: invRow } = await sb.from('invoices').select('total, line_items').eq('id', openInvoice.id).single()
+        const existingItems = Array.isArray(invRow?.line_items) ? invRow.line_items : []
+        const creditLineItem = { type: 'credit', reason: creditReason, amount: -creditAmount, student_id }
+        const newTotal = Math.max(0, Number(invRow?.total ?? openInvoice.total) - creditAmount)
+        await sb.from('invoices').update({
+          total: newTotal,
+          line_items: [...existingItems, creditLineItem],
+        }).eq('id', openInvoice.id)
       } else {
         // Hold credit for next term
         heldForNextTerm = true
@@ -135,41 +142,6 @@ export async function POST(req) {
         studentCreditId = credit?.id
       }
 
-      // ── 5. Email guardian ──────────────────────────────────────────────────
-      if (process.env.RESEND_API_KEY) {
-        const { data: guardian } = await sb
-          .from('guardians')
-          .select('full_name, email')
-          .eq('student_id', student_id)
-          .maybeSingle()
-
-        const { data: studentRow } = await sb
-          .from('students')
-          .select('full_name')
-          .eq('id', student_id)
-          .single()
-
-        if (guardian?.email) {
-          const firstName = guardian.full_name?.split(' ')[0] || 'there'
-          const creditNote = heldForNextTerm
-            ? `A credit of $${creditAmount.toFixed(2)} has been added to your account and will be applied to your next term's invoice.`
-            : `A credit of $${creditAmount.toFixed(2)} has been applied to your current invoice.`
-
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              from: 'CUBE Tuition <admin@cubetuition.com.au>',
-              to: [guardian.email],
-              subject: `Lesson cancellation – ${studentRow?.full_name || 'your child'}`,
-              text: `Dear ${firstName},\n\nWe have recorded a lesson cancellation for ${studentRow?.full_name || 'your child'} on ${lesson.lesson_date}.\n\n${creditNote}\n\n${reason ? `Reason noted: ${reason}\n\n` : ''}If you have any questions, please don't hesitate to contact us.\n\nKind regards,\nCUBE Tuition`,
-            }),
-          }).catch(() => {}) // non-fatal
-        }
-      }
     }
 
     // ── 6. Create lesson_cancellations record ────────────────────────────────

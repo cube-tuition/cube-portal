@@ -1740,14 +1740,12 @@ function InvoiceDashboardInner() {
             {creditsLoading ? (
               <div className="flex justify-center py-12"><div className="w-5 h-5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /></div>
             ) : heldCredits.length === 0 ? (
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-12 text-center text-[#325099]/40 text-sm">No held credits.</div>
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-12 text-center text-[#325099]/40 text-sm">No pending credits.</div>
             ) : (() => {
-              // Group by student
               const byStudent = {}
               for (const c of heldCredits) {
-                const sid = c.student_id
-                if (!byStudent[sid]) byStudent[sid] = { student: c.students, credits: [] }
-                byStudent[sid].credits.push(c)
+                if (!byStudent[c.student_id]) byStudent[c.student_id] = { student: c.students, credits: [] }
+                byStudent[c.student_id].credits.push(c)
               }
               return (
                 <div className="space-y-3">
