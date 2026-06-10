@@ -117,10 +117,52 @@ function NavDropdown({ group, pathname }) {
   )
 }
 
+// ── Mobile group section (collapsible) ───────────────────────────────────────
+function MobileGroup({ group, pathname, onClose }) {
+  const [open, setOpen] = useState(false)
+  const groupActive = group.links.some(l => pathname?.startsWith(l.href))
+
+  return (
+    <div>
+      <button onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition ${
+          groupActive ? 'text-[#062E63]' : 'text-[#2A2035]/70'
+        }`}>
+        {group.label}
+        <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="bg-[#F8FAFF] border-t border-[#DEE7FF]">
+          {group.links.map(link => {
+            const active = pathname?.startsWith(link.href)
+            return (
+              <Link key={link.href} href={link.href} onClick={onClose}
+                className={`flex items-center gap-3 px-7 py-3 text-sm transition ${
+                  active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'
+                }`}>
+                <span className="text-base leading-none">{link.icon}</span>
+                {link.label}
+                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099]" />}
+              </Link>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main nav ──────────────────────────────────────────────────────────────────
 export default function TutorNav({ staffName, isAdmin = false }) {
-  const router   = useRouter()
-  const pathname = usePathname()
+  const router        = useRouter()
+  const pathname      = usePathname()
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Close mobile menu on route change
+  useEffect(() => { setMobileOpen(false) }, [pathname])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -128,8 +170,8 @@ export default function TutorNav({ staffName, isAdmin = false }) {
   }
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/85 backdrop-blur-md border-b border-[#DEE7FF]">
-      <div className="max-w-7xl mx-auto px-6 md:px-10 py-4 flex items-center justify-between">
+    <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-[#DEE7FF]">
+      <div className="max-w-7xl mx-auto px-5 md:px-10 py-4 flex items-center justify-between">
 
         {/* Logo */}
         <Link href="/tutor" className="flex items-center gap-2.5">
@@ -141,71 +183,41 @@ export default function TutorNav({ staffName, isAdmin = false }) {
           </span>
         </Link>
 
-        {/* Links */}
+        {/* Desktop links */}
         <div className="hidden md:flex items-center gap-1">
-          {/* Base links — always flat */}
           {BASE_LINKS.map(link => {
-            const active = link.href === '/tutor'
-              ? pathname === '/tutor'
-              : pathname?.startsWith(link.href)
+            const active = link.href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(link.href)
             return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`text-sm px-3.5 py-2 rounded-full transition ${
-                  active
-                    ? 'bg-[#DEE7FF] text-[#062E63] font-semibold'
-                    : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'
-                }`}
-              >
+              <Link key={link.href} href={link.href}
+                className={`text-sm px-3.5 py-2 rounded-full transition ${active ? 'bg-[#DEE7FF] text-[#062E63] font-semibold' : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'}`}>
                 {link.label}
               </Link>
             )
           })}
-
-          {/* Admin: grouped dropdowns */}
           {isAdmin && ADMIN_GROUPS.map(group => (
             <NavDropdown key={group.label} group={group} pathname={pathname} />
           ))}
-
-          {/* Admin: Database — standalone, highlighted */}
           {isAdmin && ADMIN_FLAT_LINKS.map(link => {
             const active = pathname?.startsWith(link.href)
             return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`text-sm px-3.5 py-2 rounded-full transition ${
-                  active
-                    ? 'bg-[#DEE7FF] text-[#062E63] font-semibold'
-                    : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'
-                }`}
-              >
+              <Link key={link.href} href={link.href}
+                className={`text-sm px-3.5 py-2 rounded-full transition ${active ? 'bg-[#DEE7FF] text-[#062E63] font-semibold' : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'}`}>
                 {link.label}
               </Link>
             )
           })}
-
-          {/* Tutor: flat "My pay" */}
           {!isAdmin && TUTOR_LINKS.map(link => {
             const active = pathname?.startsWith(link.href)
             return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`text-sm px-3.5 py-2 rounded-full transition ${
-                  active
-                    ? 'bg-[#DEE7FF] text-[#062E63] font-semibold'
-                    : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'
-                }`}
-              >
+              <Link key={link.href} href={link.href}
+                className={`text-sm px-3.5 py-2 rounded-full transition ${active ? 'bg-[#DEE7FF] text-[#062E63] font-semibold' : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'}`}>
                 {link.label}
               </Link>
             )
           })}
         </div>
 
-        {/* Right side: name badge + logout */}
+        {/* Right side */}
         <div className="flex items-center gap-2">
           {staffName && (
             <span className="hidden sm:inline-flex items-center gap-2 text-xs font-semibold text-[#062E63] bg-[#F8FAFF] border border-[#DEE7FF] px-3 py-1.5 rounded-full">
@@ -213,15 +225,74 @@ export default function TutorNav({ staffName, isAdmin = false }) {
               {staffName.split(' ')[0]}{isAdmin ? ' (admin)' : ''}
             </span>
           )}
-          <button
-            onClick={handleLogout}
-            className="text-xs md:text-sm font-semibold text-[#062E63] hover:text-[#325099] px-3 py-2 rounded-full transition"
-          >
+          <button onClick={handleLogout}
+            className="hidden md:block text-sm font-semibold text-[#062E63] hover:text-[#325099] px-3 py-2 rounded-full transition">
             Logout
           </button>
+          {/* Hamburger — mobile only */}
+          <button onClick={() => setMobileOpen(o => !o)}
+            className="md:hidden flex flex-col justify-center items-center w-9 h-9 gap-1.5 rounded-xl hover:bg-[#F8FAFF] transition"
+            aria-label="Menu">
+            <span className={`block w-5 h-0.5 bg-[#062E63] rounded transition-all duration-200 ${mobileOpen ? 'rotate-45 translate-y-2' : ''}`} />
+            <span className={`block w-5 h-0.5 bg-[#062E63] rounded transition-all duration-200 ${mobileOpen ? 'opacity-0' : ''}`} />
+            <span className={`block w-5 h-0.5 bg-[#062E63] rounded transition-all duration-200 ${mobileOpen ? '-rotate-45 -translate-y-2' : ''}`} />
+          </button>
         </div>
-
       </div>
+
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div className="md:hidden border-t border-[#DEE7FF] bg-white divide-y divide-[#DEE7FF]">
+          {/* Base links */}
+          {BASE_LINKS.map(link => {
+            const active = link.href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(link.href)
+            return (
+              <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-5 py-3.5 text-sm font-medium transition ${active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'}`}>
+                {link.label}
+                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099]" />}
+              </Link>
+            )
+          })}
+          {/* Admin groups */}
+          {isAdmin && ADMIN_GROUPS.map(group => (
+            <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
+          ))}
+          {/* Admin flat */}
+          {isAdmin && ADMIN_FLAT_LINKS.map(link => {
+            const active = pathname?.startsWith(link.href)
+            return (
+              <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-5 py-3.5 text-sm font-medium transition ${active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'}`}>
+                {link.label}
+                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099]" />}
+              </Link>
+            )
+          })}
+          {/* Tutor links */}
+          {!isAdmin && TUTOR_LINKS.map(link => {
+            const active = pathname?.startsWith(link.href)
+            return (
+              <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-5 py-3.5 text-sm font-medium transition ${active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'}`}>
+                {link.label}
+              </Link>
+            )
+          })}
+          {/* Footer row */}
+          <div className="px-5 py-3.5 flex items-center justify-between">
+            {staffName && (
+              <span className="flex items-center gap-2 text-xs font-semibold text-[#062E63]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                {staffName}{isAdmin ? ' (admin)' : ''}
+              </span>
+            )}
+            <button onClick={handleLogout} className="text-sm font-semibold text-red-500 hover:text-red-700 transition ml-auto">
+              Logout
+            </button>
+          </div>
+        </div>
+      )}
     </nav>
   )
 }

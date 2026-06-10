@@ -154,7 +154,7 @@ function SummaryCard({ label, value, sub, color = '#062E63' }) {
 export default function ForecastPage() {
   const router = useRouter()
   const [profile,  setProfile]  = useState(null)
-  const [tab,      setTab]      = useState('live')   // 'live' | 'costs' | 'play'
+  const [tab,      setTab]      = useState('live')   // 'live' | 'costs' | 'play' | 'cashlog'
   const [terms,    setTerms]    = useState([])
   const [termId,   setTermId]   = useState('')
   const [loading,  setLoading]  = useState(false)
@@ -183,6 +183,22 @@ export default function ForecastPage() {
   const [playClasses,    setPlayClasses]    = useState([])
   const [playFixedCosts, setPlayFixedCosts] = useState([])
   const [playInit,       setPlayInit]       = useState(false)
+
+  // Cash log state
+  const [cashLog,          setCashLog]          = useState([])
+  const [cashLogLoading,   setCashLogLoading]   = useState(false)
+  const [clDateFrom,       setClDateFrom]       = useState('')
+  const [clDateTo,         setClDateTo]         = useState('')
+  const [clShowAll,        setClShowAll]        = useState(false)
+  const [addEntryModal,    setAddEntryModal]     = useState(false)
+  const [entryForm,        setEntryForm]         = useState({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
+  const [entrySaving,      setEntrySaving]       = useState(false)
+  const [wagesModal,       setWagesModal]        = useState(false)
+  const [wagesWeekFrom,    setWagesWeekFrom]     = useState('1')
+  const [wagesWeekTo,      setWagesWeekTo]       = useState('2')
+  const [wagesPulling,     setWagesPulling]      = useState(false)
+  const [wagesPreview,     setWagesPreview]      = useState([])
+  const [wagesPreviewLoading, setWagesPreviewLoading] = useState(false)
 
   // ── Load terms ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -325,7 +341,10 @@ export default function ForecastPage() {
     const classProfit    = classIncome - classTeacherCost
     const oneOnOneProfit = oneOnOneIncome - oneOnOneTeacherCost
     const totalProfit    = afterGst - totalExpenses - totalDiscount
-    const afterTax       = totalProfit * (1 - TAX_RATE)
+    // Cash income is tax-exempt — only tax the bank-derived profit
+    const bankAfterGst      = bankEnrolIncome / 1.1
+    const taxableProfit     = bankAfterGst - totalExpenses - totalDiscount
+    const afterTax          = cashEnrolIncome + taxableProfit * (1 - TAX_RATE)
 
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
@@ -407,6 +426,105 @@ export default function ForecastPage() {
   const handleTutorPayMethod = async (tutorId, value) => {
     setTutors(prev => prev.map(t => t.id === tutorId ? { ...t, pay_method: value } : t))
     await supabase.from('tutors').update({ pay_method: value }).eq('id', tutorId)
+  }
+
+  // ── Cash log helpers ─────────────────────────────────────────────────────────
+  const loadCashLog = useCallback(async () => {
+    setCashLogLoading(true)
+    const term = terms.find(t => t.id === termId)
+    let query = supabase.from('cash_log').select('*').order('date', { ascending: true }).order('id', { ascending: true })
+    if (!clShowAll) {
+      const from = clDateFrom || term?.start_date
+      const to   = clDateTo   || term?.end_date
+      if (from) query = query.gte('date', from)
+      if (to)   query = query.lte('date', to)
+    }
+    const { data } = await query
+    setCashLog(data || [])
+    setCashLogLoading(false)
+  }, [termId, terms, clDateFrom, clDateTo, clShowAll])
+
+  useEffect(() => { if (tab === 'cashlog') loadCashLog() }, [tab, loadCashLog])
+
+  const handleAddEntry = async () => {
+    if (!entryForm.date || !entryForm.amount || !entryForm.type) return
+    setEntrySaving(true)
+    const term = terms.find(t => t.id === termId)
+    const signed = entryForm.direction === 'outflow' ? -Math.abs(Number(entryForm.amount)) : Math.abs(Number(entryForm.amount))
+    const { error: err } = await supabase.from('cash_log').insert({
+      date: entryForm.date, direction: entryForm.direction, type: entryForm.type,
+      description: entryForm.description.trim() || null, amount: signed,
+      term_id: term?.id || null,
+    })
+    setEntrySaving(false)
+    if (err) { setError(err.message); return }
+    setAddEntryModal(false)
+    setEntryForm({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
+    loadCashLog()
+  }
+
+  const handleDeleteEntry = async (id) => {
+    if (!confirm('Delete this entry?')) return
+    await supabase.from('cash_log').delete().eq('id', id)
+    setCashLog(prev => prev.filter(e => e.id !== id))
+  }
+
+  // Load wages preview when wages modal opens / week range changes
+  useEffect(() => {
+    if (!wagesModal || !termId) return
+    const term = terms.find(t => t.id === termId)
+    if (!term?.start_date) return
+    setWagesPreviewLoading(true)
+    ;(async () => {
+      const wFrom = parseInt(wagesWeekFrom) || 1
+      const wTo   = parseInt(wagesWeekTo)   || wFrom
+      const termStart = new Date(term.start_date + 'T00:00:00')
+      const dateFrom  = new Date(termStart); dateFrom.setDate(termStart.getDate() + (wFrom - 1) * 7)
+      const dateTo    = new Date(termStart); dateTo.setDate(termStart.getDate() + wTo * 7 - 1)
+      const fromIso = dateFrom.toISOString().slice(0, 10)
+      const toIso   = dateTo.toISOString().slice(0, 10)
+
+      const cashTutorIds = tutors.filter(t => t.pay_method === 'cash').map(t => t.id)
+      if (!cashTutorIds.length) { setWagesPreview([]); setWagesPreviewLoading(false); return }
+
+      const { data: shifts } = await supabase.from('shifts')
+        .select('tutor_id, hours, rate_snapshot')
+        .in('tutor_id', cashTutorIds)
+        .gte('work_date', fromIso)
+        .lte('work_date', toIso)
+
+      const totals = {}
+      for (const s of shifts || []) {
+        const pay = Number(s.hours || 0) * Number(s.rate_snapshot || 0)
+        totals[s.tutor_id] = (totals[s.tutor_id] || 0) + pay
+      }
+      const preview = Object.entries(totals).map(([tid, pay]) => {
+        const tutor = tutors.find(t => t.id === tid)
+        const firstName = tutor?.full_name?.split(' ')[0] || 'Unknown'
+        const termLabel = term.name || `Term ${term.term_number} ${term.year}`
+        const weekLabel = wFrom === wTo ? `W${wFrom}` : `W${wFrom}–W${wTo}`
+        return { tutor_id: tid, name: firstName, pay: Math.round(pay * 100) / 100,
+          description: `${firstName} - ${termLabel} ${weekLabel}` }
+      }).filter(p => p.pay > 0)
+      setWagesPreview(preview)
+      setWagesPreviewLoading(false)
+    })()
+  }, [wagesModal, wagesWeekFrom, wagesWeekTo, termId, terms, tutors])
+
+  const handlePullWages = async () => {
+    if (!wagesPreview.length) return
+    setWagesPulling(true)
+    const term = terms.find(t => t.id === termId)
+    const today = new Date().toISOString().slice(0, 10)
+    const rows = wagesPreview.map(p => ({
+      date: today, direction: 'outflow', type: 'wages',
+      description: p.description, amount: -p.pay, term_id: term?.id || null,
+    }))
+    const { error: err } = await supabase.from('cash_log').insert(rows)
+    setWagesPulling(false)
+    if (err) { setError(err.message); return }
+    setWagesModal(false)
+    loadCashLog()
   }
 
   // ── Class table (shared between live and play) ───────────────────────────────
@@ -552,7 +670,7 @@ export default function ForecastPage() {
 
         {/* Tab bar */}
         <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
-          {[{ id: 'live', label: '📈 Live Forecast' }, { id: 'costs', label: '⚙️ Fixed Costs' }, { id: 'play', label: '🎮 Play Around' }].map(t => (
+          {[{ id: 'live', label: '📈 Live Forecast' }, { id: 'costs', label: '⚙️ Fixed Costs' }, { id: 'play', label: '🎮 Play Around' }, { id: 'cashlog', label: '💵 Cash Log' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
               {t.label}
@@ -576,12 +694,7 @@ export default function ForecastPage() {
                 </div>
 
                 {/* Charts */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-                    <h3 className="text-xs font-bold text-[#062E63] mb-1">Income Waterfall</h3>
-                    <p className="text-[11px] text-[#325099]/50 mb-4">How gross income flows to net profit</p>
-                    <WaterfallChart s={summary} />
-                  </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
                     <h3 className="text-xs font-bold text-[#062E63] mb-1">Profit by Class — Group</h3>
                     <p className="text-[11px] text-[#325099]/50 mb-4">Term profit per group class after teacher costs</p>
@@ -826,6 +939,236 @@ export default function ForecastPage() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ── CASH LOG TAB ──────────────────────────────────────────────────── */}
+        {tab === 'cashlog' && (() => {
+          const INFLOW_TYPES  = ['invoice', 'gift', 'withdrawal']
+          const OUTFLOW_TYPES = ['wages', 'return']
+          const types = entryForm.direction === 'inflow' ? INFLOW_TYPES : OUTFLOW_TYPES
+
+          // Running balance
+          let running = 0
+          const rows = cashLog.map(e => {
+            running += Number(e.amount)
+            return { ...e, running }
+          })
+          const net = running
+
+          return (
+            <div className="space-y-5">
+              {/* Header */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-bold text-[#062E63]">Cash Log</h2>
+                  <p className="text-xs text-[#325099]/60 mt-0.5">Track all cash inflows and outflows</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setWagesModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">
+                    ⚙ Pull Teacher Wages
+                  </button>
+                  <button onClick={() => { setAddEntryModal(true); setEntryForm({ date: new Date().toISOString().slice(0,10), direction: 'inflow', type: 'invoice', description: '', amount: '' }) }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
+                    + Add Entry
+                  </button>
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={clShowAll} onChange={e => setClShowAll(e.target.checked)} className="accent-[#325099] w-3.5 h-3.5" />
+                  <span className="text-xs font-semibold text-[#325099]">Show all time</span>
+                </label>
+                {!clShowAll && (
+                  <div className="flex items-center gap-1.5 text-xs text-[#325099]/60">
+                    <span className="font-semibold">From</span>
+                    <input type="date" value={clDateFrom} onChange={e => setClDateFrom(e.target.value)}
+                      className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] focus:outline-none" />
+                    <span className="font-semibold">To</span>
+                    <input type="date" value={clDateTo} onChange={e => setClDateTo(e.target.value)}
+                      className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] focus:outline-none" />
+                    {(clDateFrom || clDateTo) && (
+                      <button onClick={() => { setClDateFrom(''); setClDateTo('') }}
+                        className="text-[#325099]/50 hover:text-[#325099] underline ml-1">Reset</button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Table */}
+              {cashLogLoading ? (
+                <div className="flex justify-center py-12"><div className="w-5 h-5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /></div>
+              ) : (
+                <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
+                        {['Date', 'Flow', 'Type', 'Description', 'Amount', 'Balance', ''].map(h => (
+                          <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F0F4FF]">
+                      {rows.length === 0 && (
+                        <tr><td colSpan={7} className="px-4 py-10 text-center text-[#325099]/40">No entries yet.</td></tr>
+                      )}
+                      {rows.map(e => (
+                        <tr key={e.id} className="hover:bg-[#F8FAFF] transition">
+                          <td className="px-4 py-2.5 text-[#325099]/70 whitespace-nowrap">
+                            {new Date(e.date + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${e.direction === 'inflow' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
+                              {e.direction === 'inflow' ? '↑ In' : '↓ Out'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-[#325099]/70 capitalize">{e.type}</td>
+                          <td className="px-4 py-2.5 text-[#062E63] max-w-xs truncate">{e.description || '—'}</td>
+                          <td className={`px-4 py-2.5 font-semibold tabular-nums ${Number(e.amount) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                            {Number(e.amount) >= 0 ? '+' : ''}{fmt(Number(e.amount))}
+                          </td>
+                          <td className={`px-4 py-2.5 font-semibold tabular-nums ${e.running >= 0 ? 'text-[#062E63]' : 'text-red-600'}`}>
+                            {fmt(e.running)}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <button onClick={() => handleDeleteEntry(e.id)} className="text-red-400 hover:text-red-600 transition">✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {rows.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-[#F8FAFF] border-t-2 border-[#DEE7FF]">
+                          <td colSpan={4} className="px-4 py-3 text-xs font-bold text-[#062E63]">Net Total</td>
+                          <td colSpan={2} className={`px-4 py-3 text-sm font-bold tabular-nums ${net >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                            {net >= 0 ? '+' : ''}{fmt(net)}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
+        {/* Add Entry Modal */}
+        {addEntryModal && (() => {
+          const types = entryForm.direction === 'inflow' ? ['invoice', 'gift', 'withdrawal'] : ['wages', 'return']
+          const canSave = entryForm.date && entryForm.amount && entryForm.type
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-bold text-[#062E63]">Add Cash Entry</h2>
+                  <button onClick={() => setAddEntryModal(false)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-[#325099]">Date</label>
+                    <input type="date" value={entryForm.date} onChange={e => setEntryForm(f => ({ ...f, date: e.target.value }))}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#325099]/30" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-[#325099]">Cash Flow</label>
+                    <select value={entryForm.direction} onChange={e => setEntryForm(f => ({ ...f, direction: e.target.value, type: e.target.value === 'inflow' ? 'invoice' : 'wages' }))}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30">
+                      <option value="inflow">↑ Inflow</option>
+                      <option value="outflow">↓ Outflow</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#325099]">Type</label>
+                  <select value={entryForm.type} onChange={e => setEntryForm(f => ({ ...f, type: e.target.value }))}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30">
+                    {types.map(t => <option key={t} value={t} className="capitalize">{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#325099]">Description</label>
+                  <input type="text" placeholder="Optional details…" value={entryForm.description} onChange={e => setEntryForm(f => ({ ...f, description: e.target.value }))}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#325099]/30" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#325099]">Amount ($)</label>
+                  <input type="number" min="0" step="0.01" placeholder="0.00" value={entryForm.amount} onChange={e => setEntryForm(f => ({ ...f, amount: e.target.value }))}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#325099]/30" />
+                  <p className="text-[10px] text-[#325099]/40">Enter as a positive number — direction is set above</p>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => setAddEntryModal(false)} className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+                  <button onClick={handleAddEntry} disabled={entrySaving || !canSave}
+                    className="flex-1 px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                    {entrySaving ? 'Saving…' : 'Add Entry'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Pull Teacher Wages Modal */}
+        {wagesModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-[#062E63]">Pull Teacher Wages</h2>
+                <button onClick={() => setWagesModal(false)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
+              </div>
+              <p className="text-xs text-[#325099]/60">Generates cash outflow entries for all cash-paid teachers based on their approved shifts in the selected week range.</p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs font-semibold text-[#325099]">From Week</label>
+                  <select value={wagesWeekFrom} onChange={e => setWagesWeekFrom(e.target.value)}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map(w => <option key={w} value={w}>W{w}</option>)}
+                  </select>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs font-semibold text-[#325099]">To Week</label>
+                  <select value={wagesWeekTo} onChange={e => setWagesWeekTo(e.target.value)}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map(w => <option key={w} value={w}>W{w}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl p-3">
+                <p className="text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-2">Preview</p>
+                {wagesPreviewLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-[#325099]/50"><div className="w-3.5 h-3.5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /> Calculating…</div>
+                ) : wagesPreview.length === 0 ? (
+                  <p className="text-xs text-[#325099]/40">No cash-paid teachers with shifts in this period.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {wagesPreview.map(p => (
+                      <div key={p.tutor_id} className="flex justify-between text-xs">
+                        <span className="text-[#062E63]">{p.description}</span>
+                        <span className="font-semibold text-red-600">−{fmt(p.pay)}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1.5 mt-1.5">
+                      <span>Total</span>
+                      <span className="text-red-600">−{fmt(wagesPreview.reduce((s, p) => s + p.pay, 0))}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={() => setWagesModal(false)} className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+                <button onClick={handlePullWages} disabled={wagesPulling || wagesPreview.length === 0}
+                  className="flex-1 px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                  {wagesPulling ? 'Adding…' : `Add ${wagesPreview.length} Entr${wagesPreview.length === 1 ? 'y' : 'ies'}`}
+                </button>
               </div>
             </div>
           </div>
