@@ -53,8 +53,9 @@ function fmtTime(t) {
   let h = parseInt(hRaw, 10)
   const m = (mRaw || '00').padStart(2, '0')
   if (Number.isNaN(h)) return t
-  const ampm = (h >= 1 && h <= 7) ? 'pm' : (h >= 8 && h <= 11) ? 'am' : (h === 12 ? 'pm' : 'am')
-  return `${h}:${m}${ampm}`
+  const ampm = h >= 12 ? 'pm' : 'am'
+  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
+  return `${hr}:${m}${ampm}`
 }
 function isoToDate(iso) {
   const [y, m, d] = (iso || '').split('-').map(Number)

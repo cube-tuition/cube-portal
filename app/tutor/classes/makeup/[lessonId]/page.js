@@ -46,28 +46,28 @@ const UNDERSTANDING_OPTIONS = [
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+// start_time / end_time are stored as PostgreSQL time (HH:MM:SS), 24-hour.
 function fmtTime(t) {
   if (!t) return ''
   const [hRaw, mRaw] = String(t).split(':')
   let h = parseInt(hRaw, 10)
   const m = (mRaw || '00').padStart(2, '0')
   if (Number.isNaN(h)) return t
-  const ampm = (h >= 1 && h <= 7) ? 'pm' : (h >= 8 && h <= 11) ? 'am' : (h === 12 ? 'pm' : 'am')
-  return `${h}:${m}${ampm}`
+  const ampm = h >= 12 ? 'pm' : 'am'
+  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
+  return `${hr}:${m}${ampm}`
 }
 function fmtTimeRange(start, end) {
   const parse = (t) => {
     if (!t) return null
     const [hRaw, mRaw] = String(t).split(':')
-    let h = parseInt(hRaw, 10)
+    const h = parseInt(hRaw, 10)
     const m = parseInt(mRaw || '0', 10) || 0
     if (Number.isNaN(h)) return null
-    if (h >= 1 && h <= 7) h += 12
     return { h, m }
   }
   const s = parse(start); let e = parse(end)
   if (!s || !e) return [fmtTime(start), fmtTime(end)].filter(Boolean).join('–')
-  if (e.h < s.h || (e.h === s.h && e.m < s.m)) e = { ...e, h: e.h + 12 }
   const piece = ({ h, m }, withAmPm) => {
     const ampm = h >= 12 && h !== 24 ? 'pm' : 'am'
     const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
@@ -86,9 +86,8 @@ function fmtDateLong(iso) {
 function parseTimeMins(t) {
   if (!t) return null
   const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10); const m = parseInt(mRaw || '0', 10) || 0
+  const h = parseInt(hRaw, 10); const m = parseInt(mRaw || '0', 10) || 0
   if (Number.isNaN(h)) return null
-  if (h >= 1 && h <= 7) h += 12
   return h * 60 + m
 }
 

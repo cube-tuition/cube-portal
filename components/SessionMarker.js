@@ -807,13 +807,17 @@ function MarkTable({
                       </td>
                     )}
                     <td className="px-5 py-3 bg-[#F5F8FF]/60">
-                      <input
-                        type="text"
+                      <textarea
                         value={m.comment || ''}
-                        onChange={e => onChange(s.id, 'comment', e.target.value)}
+                        onChange={e => {
+                          onChange(s.id, 'comment', e.target.value)
+                          e.target.style.height = 'auto'
+                          e.target.style.height = e.target.scrollHeight + 'px'
+                        }}
                         placeholder="Notes about this lesson…"
                         disabled={isLocked}
-                        className="w-full bg-white border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition disabled:bg-[#F8FAFF] disabled:text-[#2A2035]/70 disabled:cursor-not-allowed"
+                        rows={1}
+                        className="w-full bg-white border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition disabled:bg-[#F8FAFF] disabled:text-[#2A2035]/70 disabled:cursor-not-allowed resize-none overflow-hidden"
                       />
                     </td>
                   </tr>

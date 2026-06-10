@@ -40,13 +40,30 @@ const pickField = (fields, candidates) => {
   return null
 }
 
+// Convert an Airtable time string like "4:30" or "6:00" to 24-hour "HH:MM".
+// Centre hours are 9am–9pm. Hours 1–8 (single/double digit) are treated as PM.
+const normalizeTo24h = (t) => {
+  if (!t) return null
+  const [hRaw, mRaw] = String(t).trim().split(':')
+  let h = parseInt(hRaw, 10)
+  if (Number.isNaN(h)) return t
+  const m = (mRaw || '00').padStart(2, '0')
+  if (h >= 1 && h <= 8) h += 12
+  return `${String(h).padStart(2, '0')}:${m}`
+}
+
 const parseTimeRange = (raw) => {
   if (!raw) return { start: null, end: null }
   const parts = String(raw).split(/\s*[-–—]\s*/)
-  return {
-    start: parts[0]?.trim() || null,
-    end:   parts[1]?.trim() || null,
+  const start = normalizeTo24h(parts[0]?.trim() || null)
+  let end     = normalizeTo24h(parts[1]?.trim() || null)
+  // If end still appears before start after normalization, add 12h (edge case)
+  if (start && end) {
+    const [sh] = start.split(':').map(Number)
+    const [eh] = end.split(':').map(Number)
+    if (eh < sh) end = `${String(eh + 12).padStart(2, '0')}:${end.split(':')[1]}`
   }
+  return { start, end }
 }
 
 const parseStudentList = (raw) => {

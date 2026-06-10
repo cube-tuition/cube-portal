@@ -104,6 +104,17 @@ export async function POST(req) {
     let skipped = 0
     const errors = []
 
+    // Base sequence on MAX existing invoice number, not COUNT (gaps in numbering cause collisions)
+    const { data: maxInvRow } = await sb
+      .from('invoices').select('invoice_number')
+      .not('invoice_number', 'is', null)
+      .order('invoice_number', { ascending: false })
+      .limit(1)
+      .single()
+    const maxSeq = maxInvRow?.invoice_number
+      ? parseInt(maxInvRow.invoice_number.split('-')[1], 10) || 0
+      : 0
+
     for (const [key, family] of Object.entries(familyMap)) {
       if (existingFamilies.has(key)) { skipped++; continue }
 
@@ -166,11 +177,7 @@ export async function POST(req) {
       // All amounts are inc-GST; GST is a component of the total (total ÷ 11), not added on top
       const total = Math.max(0, subtotalIncGst - siblingDiscount - multiCourseDiscount - totalCredits)
 
-      // Global sequence: count all non-voided invoices that have an invoice_number
-      const { count: invCount } = await sb
-        .from('invoices').select('id', { count: 'exact', head: true })
-        .not('invoice_number', 'is', null)
-      const seqNum = (invCount || 0) + created + 1
+      const seqNum = maxSeq + created + 1
 
       const year2d        = String(term.year).slice(-2)  // e.g. '26'
       const invoiceNumber = `${year2d}T${term.term_number}-${String(seqNum).padStart(4, '0')}`  // e.g. '26T2-0001'

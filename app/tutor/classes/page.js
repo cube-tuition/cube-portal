@@ -70,15 +70,13 @@ const pickSubjectColor = (name = '') => {
   return { bg: '#DEE7FF', fg: '#062E63' }
 }
 
-// classes.start_time is TEXT like "4:00", "11:30", "6:30". Centre runs
-// 9am–9pm so single-digit hours (1–7) are PM.
+// start_time / end_time are stored as PostgreSQL time (HH:MM:SS), 24-hour.
 function startMinutes(t) {
   if (!t) return 99999
   const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10)
+  const h = parseInt(hRaw, 10)
   const m = parseInt(mRaw || '0', 10) || 0
   if (Number.isNaN(h)) return 99999
-  if (h >= 1 && h <= 7) h += 12
   return h * 60 + m
 }
 function fmtTime(t) {
@@ -87,8 +85,9 @@ function fmtTime(t) {
   let h = parseInt(hRaw, 10)
   const m = (mRaw || '00').padStart(2, '0')
   if (Number.isNaN(h)) return t
-  const ampm = (h >= 1 && h <= 7) ? 'pm' : (h >= 8 && h <= 11) ? 'am' : (h === 12 ? 'pm' : 'am')
-  return `${h}:${m}${ampm}`
+  const ampm = h >= 12 ? 'pm' : 'am'
+  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
+  return `${hr}:${m}${ampm}`
 }
 
 // "4:30–6pm" / "10–11:30am" — compact form for the weekly cards. Drops
@@ -101,7 +100,7 @@ function fmtTimeRange(start, end) {
     let h = parseInt(hRaw, 10)
     const m = parseInt(mRaw || '0', 10) || 0
     if (Number.isNaN(h)) return null
-    if (h >= 1 && h <= 7) h += 12        // legacy "1-7 = PM" rule
+    // times are stored as 24-hour; no AM/PM disambiguation needed
     return { h, m }
   }
   const s = parse(start)

@@ -149,7 +149,7 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
             <p className="text-xs text-[#2A2035]/60">
               {[
                 normalizeDay(course.day_of_week),
-                course.start_time && `${course.start_time}–${course.end_time}`,
+                course.start_time && `${String(course.start_time).slice(0, 5)}–${String(course.end_time).slice(0, 5)}`,
                 course.teacher && `with ${course.teacher}`,
                 course.room && `📍 ${course.room}`,
               ].filter(Boolean).join(' · ') || 'Class details coming soon'}

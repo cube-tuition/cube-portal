@@ -54,14 +54,13 @@ function isoDate(d) {
   return `${y}-${m}-${day}`
 }
 
-// Treat 1–7 as PM (centre runs 9am–9pm; AM lessons start at 9, 10, 11).
+// start_time / end_time are stored as PostgreSQL time (HH:MM:SS), 24-hour.
 function startMinutes(t) {
   if (!t) return 99999
   const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10)
+  const h = parseInt(hRaw, 10)
   const m = parseInt(mRaw || '0', 10) || 0
   if (Number.isNaN(h)) return 99999
-  if (h >= 1 && h <= 7) h += 12
   return h * 60 + m
 }
 function fmtTime(t) {
@@ -70,8 +69,9 @@ function fmtTime(t) {
   let h = parseInt(hRaw, 10)
   const m = (mRaw || '00').padStart(2, '0')
   if (Number.isNaN(h)) return t
-  const ampm = (h >= 1 && h <= 7) ? 'pm' : (h >= 8 && h <= 11) ? 'am' : (h === 12 ? 'pm' : 'am')
-  return `${h}:${m}${ampm}`
+  const ampm = h >= 12 ? 'pm' : 'am'
+  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
+  return `${hr}:${m}${ampm}`
 }
 export default function TutorHome() {
   const [staff, setStaff] = useState(null)

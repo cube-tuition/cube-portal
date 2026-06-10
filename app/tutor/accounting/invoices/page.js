@@ -1018,6 +1018,15 @@ function InvoiceDashboardInner() {
   const [creditsLoading,    setCreditsLoading]    = useState(false)
   const [tmplSaving,        setTmplSaving]        = useState(false)
   const [tmplSaved,         setTmplSaved]         = useState(false)
+  const [addCreditModal,    setAddCreditModal]    = useState(false)
+  const [addCreditForm,     setAddCreditForm]     = useState({ studentId: '', amount: '', reason: '' })
+  const [addCreditSearch,   setAddCreditSearch]   = useState('')
+  const [addCreditSaving,   setAddCreditSaving]   = useState(false)
+  const [addCreditReasonType,    setAddCreditReasonType]    = useState('')   // 'absence' | 'other' | ''
+  const [addCreditOtherReason,   setAddCreditOtherReason]   = useState('')
+  const [addCreditLessons,       setAddCreditLessons]       = useState([])
+  const [addCreditLessonsLoading,setAddCreditLessonsLoading]= useState(false)
+  const [addCreditSelectedLesson,setAddCreditSelectedLesson]= useState(null)
 
   // Xero
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
@@ -1224,6 +1233,49 @@ function InvoiceDashboardInner() {
     supabase.from('students').select('id, full_name').order('full_name').then(({ data }) => setAllStudents(data || []))
   }, [])
 
+  // Load lessons for absence credit picker: student's classes in current term
+  useEffect(() => {
+    if (!addCreditModal || addCreditReasonType !== 'absence' || !addCreditForm.studentId || !termId) {
+      setAddCreditLessons([]); setAddCreditSelectedLesson(null); return
+    }
+    setAddCreditLessonsLoading(true)
+    ;(async () => {
+      // Get student's enrolments in current term
+      const { data: enrols } = await supabase
+        .from('enrolments')
+        .select('class_id, price, classes(id, class_name, day_of_week, term_id)')
+        .eq('student_id', addCreditForm.studentId)
+        .eq('status', 'active')
+      const termEnrols = (enrols || []).filter(e => e.classes?.term_id === termId)
+      const classIds = termEnrols.map(e => e.class_id)
+      if (!classIds.length) { setAddCreditLessons([]); setAddCreditLessonsLoading(false); return }
+
+      // Get lessons for those classes (current term), excluding makeups
+      const { data: lessons } = await supabase
+        .from('lessons')
+        .select('id, lesson_date, class_id, classes(class_name)')
+        .in('class_id', classIds)
+        .eq('is_makeup', false)
+        .order('lesson_date', { ascending: false })
+
+      // Count lessons per class for per-lesson price calculation
+      const lessonCountByClass = {}
+      for (const l of lessons || []) {
+        lessonCountByClass[l.class_id] = (lessonCountByClass[l.class_id] || 0) + 1
+      }
+      const enrolByClass = Object.fromEntries(termEnrols.map(e => [e.class_id, e]))
+
+      const enriched = (lessons || []).map(l => {
+        const enrol = enrolByClass[l.class_id]
+        const lessonCount = lessonCountByClass[l.class_id] || 1
+        const perLesson = enrol ? Math.round((parseFloat(enrol.price) / lessonCount) * 100) / 100 : null
+        return { ...l, perLesson }
+      })
+      setAddCreditLessons(enriched)
+      setAddCreditLessonsLoading(false)
+    })()
+  }, [addCreditModal, addCreditReasonType, addCreditForm.studentId, termId])
+
   // ── Credit handler ────────────────────────────────────────────────────────
   const handleAddCredit = async ({ invoiceId, studentId, amount, reason, notes }) => {
     const { error: err } = await supabase.from('student_credits').insert({
@@ -1235,6 +1287,30 @@ function InvoiceDashboardInner() {
     if (inv) await supabase.from('invoices').update({ total: Math.max(0, Number(inv.total) - Number(amount)) }).eq('id', invoiceId)
     setCreditModal(null)
     await loadInvoices()
+  }
+
+  // ── Manual credit balance handler ─────────────────────────────────────────
+  const handleSaveManualCredit = async () => {
+    const { studentId, amount } = addCreditForm
+    const finalReason = addCreditReasonType === 'absence'
+      ? addCreditForm.reason   // auto-generated when lesson was selected
+      : addCreditOtherReason.trim()
+    if (!studentId || !amount || !finalReason) return
+    setAddCreditSaving(true)
+    const { error: err } = await supabase.from('student_credits').insert({
+      student_id: studentId, amount: Number(amount), reason: finalReason, invoice_id: null,
+    })
+    setAddCreditSaving(false)
+    if (err) { setError('Failed to add credit: ' + err.message); return }
+    setAddCreditModal(false)
+    setAddCreditForm({ studentId: '', amount: '', reason: '' })
+    setAddCreditSearch(''); setAddCreditReasonType(''); setAddCreditOtherReason('')
+    setAddCreditSelectedLesson(null); setAddCreditLessons([])
+    // Refresh credits list
+    supabase.from('student_credits')
+      .select('id, student_id, amount, reason, notes, created_at, students(full_name, year, school, family_id)')
+      .is('invoice_id', null).order('created_at', { ascending: false })
+      .then(({ data }) => setHeldCredits(data || []))
   }
 
   // ── Referral handler ──────────────────────────────────────────────────────
@@ -1290,7 +1366,9 @@ function InvoiceDashboardInner() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setSuccessMsg(`Created ${data.created} draft invoice${data.created !== 1 ? 's' : ''}. ${data.skipped ? `${data.skipped} already existed.` : ''}`)
+      const errMsg = data.errors?.length ? ` Errors: ${data.errors.map(e => `${e.key}: ${e.error}`).join('; ')}` : ''
+      setSuccessMsg(`Created ${data.created} draft invoice${data.created !== 1 ? 's' : ''}. ${data.skipped ? `${data.skipped} already existed.` : ''}${errMsg}`)
+      if (errMsg) setError(errMsg)
       await loadInvoices()
     } catch (e) { setError(e.message) } finally { setGenerating(false) }
   }
@@ -1564,9 +1642,26 @@ function InvoiceDashboardInner() {
                             <p className="text-xs text-[#325099]/70 mt-0.5">{inv.student_names.join(', ')}</p>
                           )}
                         </div>
-                        <div className="shrink-0 text-right">
+                        <div className="shrink-0 text-right space-y-1.5">
                           <p className="text-lg font-bold text-[#062E63]">{fmtMoney(total)}</p>
                           <p className="text-[10px] text-[#325099]/50">inc GST · due {fmtDate(inv.due_date)}</p>
+                          {/* Cash / Bank toggle — affects GST calculation in forecast */}
+                          <div className="flex items-center justify-end gap-1">
+                            {['bank', 'cash'].map(method => (
+                              <button key={method}
+                                onClick={async () => {
+                                  setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, payment_method: method } : i))
+                                  await supabase.from('invoices').update({ payment_method: method }).eq('id', inv.id)
+                                }}
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition ${
+                                  (inv.payment_method || 'bank') === method
+                                    ? 'bg-[#EEF4FF] border-[#325099]/30 text-[#325099]'
+                                    : 'bg-transparent border-[#DEE7FF] text-[#325099]/30 hover:text-[#325099]/60'
+                                }`}>
+                                {method === 'cash' ? '💵 Cash' : '🏦 Bank'}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
 
@@ -1735,6 +1830,10 @@ function InvoiceDashboardInner() {
                 <h2 className="text-sm font-bold text-[#062E63]">Held credit balances</h2>
                 <p className="text-xs text-[#325099]/60 mt-0.5">Credits awaiting application to the next invoice. These are applied automatically when the next term's invoices are generated.</p>
               </div>
+              <button onClick={() => { setAddCreditModal(true); setAddCreditForm({ studentId: '', amount: '', reason: '' }); setAddCreditSearch('') }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
+                + Add Credit Balance
+              </button>
             </div>
 
             {creditsLoading ? (
@@ -1773,6 +1872,15 @@ function InvoiceDashboardInner() {
                               <div className="flex items-center gap-3 flex-shrink-0">
                                 <span className="text-xs font-semibold text-emerald-700">${Number(c.amount).toFixed(2)}</span>
                                 <span className="text-[10px] text-[#325099]/40">{new Date(c.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</span>
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm('Delete this credit?')) return
+                                    await supabase.from('student_credits').delete().eq('id', c.id)
+                                    setHeldCredits(prev => prev.filter(x => x.id !== c.id))
+                                  }}
+                                  className="text-red-400 hover:text-red-600 transition text-xs leading-none"
+                                  title="Delete credit"
+                                >✕</button>
                               </div>
                             </div>
                           ))}
@@ -1785,6 +1893,136 @@ function InvoiceDashboardInner() {
             })()}
           </div>
         )}
+
+        {/* Add Credit Balance modal */}
+        {addCreditModal && (() => {
+          const canSave = addCreditForm.studentId && addCreditForm.amount &&
+            (addCreditReasonType === 'absence' ? !!addCreditForm.reason : !!addCreditOtherReason.trim())
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-bold text-[#062E63]">Add Credit Balance</h2>
+                  <button onClick={() => setAddCreditModal(false)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
+                </div>
+
+                {/* Student picker */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#325099]">Student</label>
+                  <input
+                    type="text" placeholder="Search student…" value={addCreditSearch}
+                    onChange={e => {
+                      setAddCreditSearch(e.target.value)
+                      setAddCreditForm(f => ({ ...f, studentId: '', reason: '' }))
+                      setAddCreditReasonType(''); setAddCreditSelectedLesson(null)
+                    }}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] placeholder:text-[#325099]/40 focus:outline-none focus:ring-2 focus:ring-[#325099]/30"
+                  />
+                  {addCreditSearch && !addCreditForm.studentId && (
+                    <div className="border border-[#DEE7FF] rounded-lg overflow-hidden max-h-40 overflow-y-auto">
+                      {allStudents.filter(s => s.full_name.toLowerCase().includes(addCreditSearch.toLowerCase())).slice(0, 8).map(s => (
+                        <button key={s.id} onClick={() => { setAddCreditForm(f => ({ ...f, studentId: s.id, reason: '' })); setAddCreditSearch(s.full_name); setAddCreditReasonType(''); setAddCreditSelectedLesson(null) }}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-[#EEF4FF] text-[#062E63] border-b border-[#F0F4FF] last:border-0">
+                          {s.full_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Reason type */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#325099]">Reason</label>
+                  <select
+                    value={addCreditReasonType}
+                    onChange={e => { setAddCreditReasonType(e.target.value); setAddCreditForm(f => ({ ...f, reason: '', amount: '' })); setAddCreditSelectedLesson(null); setAddCreditOtherReason('') }}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/30 bg-white"
+                  >
+                    <option value="">Select…</option>
+                    <option value="absence">Absence</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                {/* Absence: lesson picker */}
+                {addCreditReasonType === 'absence' && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#325099]">Lesson</label>
+                    {addCreditLessonsLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-[#325099]/50 py-2"><div className="w-3.5 h-3.5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /> Loading lessons…</div>
+                    ) : (
+                      <select
+                        value={addCreditSelectedLesson?.id || ''}
+                        onChange={e => {
+                          const lesson = addCreditLessons.find(l => String(l.id) === e.target.value)
+                          setAddCreditSelectedLesson(lesson || null)
+                          if (lesson) {
+                            const d = new Date(lesson.lesson_date + 'T00:00:00')
+                            const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()]
+                            const dateStr = `${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getFullYear()}`
+                            setAddCreditForm(f => ({
+                              ...f,
+                              reason: `Credit - Absence for ${lesson.classes?.class_name || 'class'} on ${dayName} ${dateStr}`,
+                              amount: lesson.perLesson != null ? String(lesson.perLesson) : f.amount,
+                            }))
+                          }
+                        }}
+                        className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/30 bg-white"
+                      >
+                        <option value="">Select lesson…</option>
+                        {addCreditLessons.map(l => {
+                          const d = new Date(l.lesson_date + 'T00:00:00')
+                          const label = `${l.classes?.class_name} – ${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getFullYear()}`
+                          return <option key={l.id} value={l.id}>{label}</option>
+                        })}
+                      </select>
+                    )}
+                    {addCreditForm.reason ? (
+                      <p className="text-[11px] text-[#325099]/60 bg-[#F8FAFF] border border-[#DEE7FF] rounded px-2 py-1 break-words">{addCreditForm.reason}</p>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Other: free text */}
+                {addCreditReasonType === 'other' && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#325099]">Description</label>
+                    <input
+                      type="text" placeholder="e.g. Referral reward, goodwill credit…"
+                      value={addCreditOtherReason}
+                      onChange={e => setAddCreditOtherReason(e.target.value)}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] placeholder:text-[#325099]/40 focus:outline-none focus:ring-2 focus:ring-[#325099]/30"
+                    />
+                  </div>
+                )}
+
+                {/* Amount */}
+                {addCreditReasonType && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#325099]">Amount ($)</label>
+                    <input
+                      type="number" min="0" step="0.01" placeholder="e.g. 50"
+                      value={addCreditForm.amount}
+                      onChange={e => setAddCreditForm(f => ({ ...f, amount: e.target.value }))}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#062E63] placeholder:text-[#325099]/40 focus:outline-none focus:ring-2 focus:ring-[#325099]/30"
+                    />
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => setAddCreditModal(false)}
+                    className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">
+                    Cancel
+                  </button>
+                  <button onClick={handleSaveManualCredit} disabled={addCreditSaving || !canSave}
+                    className="flex-1 px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    {addCreditSaving ? 'Saving…' : 'Add Credit'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Email template tab */}
         {mainTab === 'template' && (

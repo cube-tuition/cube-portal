@@ -932,8 +932,12 @@ export default function DatabasePage() {
   const [sidebarData, setSidebarData]       = useState(null)   // { roster, attendance, tutors, classes }
   const [sidebarLoading, setSidebarLoading] = useState(false)
   const [makeupStudent, setMakeupStudent]   = useState(null)   // student object | null
-  const [makeupMode, setMakeupMode]         = useState(null)   // 'move' | 'onetoone' | null
+  const [makeupMode, setMakeupMode]         = useState(null)   // 'move' | 'onetoone' | 'cancel' | null
   const [makeupSaving, setMakeupSaving]     = useState(false)
+  // cancel flow state
+  const [cancelType,   setCancelType]       = useState('credit')
+  const [cancelReason, setCancelReason]     = useState('')
+  const [cancelCredit, setCancelCredit]     = useState(null)   // { amount, enrolment_price } | null
   // move-to-session picker state
   const [moveOptions, setMoveOptions]       = useState([])     // upcoming lessons for same course
   const [moveLoadingOpts, setMoveLoadingOpts] = useState(false)
@@ -2056,7 +2060,54 @@ export default function DatabasePage() {
   const closeLessonSidebar = useCallback(() => {
     setLessonSidebar(null); setSidebarData(null)
     setMakeupStudent(null); setMakeupMode(null)
+    setCancelType('credit'); setCancelReason(''); setCancelCredit(null)
   }, [])
+
+  const openCancelFlow = useCallback(async (student, lesson) => {
+    setMakeupMode('cancel')
+    setCancelType('credit'); setCancelReason(''); setCancelCredit(null)
+    // Fetch enrolment price for credit preview
+    const { data: e } = await supabase
+      .from('enrolments')
+      .select('price')
+      .eq('student_id', student.id)
+      .eq('class_id', lesson.class_id)
+      .maybeSingle()
+    if (e?.price) {
+      const amt = Math.round((Number(e.price) / 10) * 100) / 100
+      setCancelCredit({ amount: amt, enrolment_price: e.price })
+    }
+  }, [])
+
+  const handleCancelLesson = useCallback(async () => {
+    if (!makeupStudent || !lessonSidebar) return
+    setMakeupSaving(true)
+    try {
+      const res = await fetch('/api/cancel-lesson', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lesson_id:  lessonSidebar.id,
+          student_id: makeupStudent.id,
+          type:       cancelType,
+          reason:     cancelReason || null,
+        }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      // Refresh sidebar data
+      setSidebarData(prev => prev ? {
+        ...prev,
+        attMap: { ...prev.attMap, [makeupStudent.id]: { status: 'cancelled' } },
+      } : prev)
+      setMakeupStudent(null); setMakeupMode(null)
+      setCancelReason(''); setCancelCredit(null)
+      setReloadKey(k => k + 1)
+    } catch (e) {
+      alert('Cancel failed: ' + e.message)
+    } finally {
+      setMakeupSaving(false)
+    }
+  }, [makeupStudent, lessonSidebar, cancelType, cancelReason])
 
   const openMakeupMove = useCallback(async (lesson) => {
     setMakeupMode('move'); setMoveLoadingOpts(true); setMoveOptions([]); setMoveTargetId(null)
@@ -4032,7 +4083,7 @@ export default function DatabasePage() {
 
                   {!makeupMode ? (
                     <div className="space-y-2">
-                      <p className="text-xs font-semibold text-[#2A2035]/60 mb-3">Choose makeup type:</p>
+                      <p className="text-xs font-semibold text-[#2A2035]/60 mb-3">Choose action:</p>
                       <button onClick={() => openMakeupMove(lessonSidebar)}
                         className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
                         <p className="text-sm font-bold text-[#062E63]">📅 Move to another session</p>
@@ -4042,6 +4093,43 @@ export default function DatabasePage() {
                         className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
                         <p className="text-sm font-bold text-[#062E63]">👤 Create 1:1 makeup lesson</p>
                         <p className="text-xs text-[#2A2035]/50 mt-0.5">Schedule a private session just for this student with a chosen tutor</p>
+                      </button>
+                      <button onClick={() => openCancelFlow(makeupStudent, lessonSidebar)}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-red-100 hover:border-red-300 hover:bg-red-50 transition">
+                        <p className="text-sm font-bold text-red-700">✕ Cancel this lesson</p>
+                        <p className="text-xs text-red-500/70 mt-0.5">Mark as cancelled with or without a credit applied to their invoice</p>
+                      </button>
+                    </div>
+                  ) : makeupMode === 'cancel' ? (
+                    <div className="space-y-4">
+                      <p className="text-xs font-semibold text-[#2A2035]/60 uppercase tracking-wide">Cancellation type</p>
+                      <div className="flex gap-2">
+                        {[
+                          { id: 'credit',     label: 'Credit',      desc: 'Student notified us beforehand' },
+                          { id: 'non_credit', label: 'Non-credit',   desc: 'No-show without notice' },
+                        ].map(t => (
+                          <button key={t.id} onClick={() => setCancelType(t.id)}
+                            className={`flex-1 text-left px-3 py-2.5 rounded-xl border transition text-xs ${cancelType === t.id ? 'border-[#325099] bg-[#F0F4FF]' : 'border-[#DEE7FF] hover:border-[#325099]/40'}`}>
+                            <p className={`font-semibold ${cancelType === t.id ? 'text-[#062E63]' : 'text-[#325099]/70'}`}>{t.label}</p>
+                            <p className="text-[10px] text-[#325099]/40 mt-0.5">{t.desc}</p>
+                          </button>
+                        ))}
+                      </div>
+                      {cancelType === 'credit' && cancelCredit && (
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 text-xs">
+                          <p className="font-semibold text-emerald-800">Credit: ${cancelCredit.amount.toFixed(2)}</p>
+                          <p className="text-emerald-600 text-[11px] mt-0.5">${cancelCredit.enrolment_price} ÷ 10 weeks · applied to current or next invoice</p>
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#325099] uppercase tracking-widest mb-1">Reason <span className="font-normal normal-case text-[#325099]/40">(optional)</span></label>
+                        <input type="text" value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                          placeholder="e.g. Sick, family holiday…"
+                          className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white" />
+                      </div>
+                      <button onClick={handleCancelLesson} disabled={makeupSaving}
+                        className="w-full py-2.5 bg-red-600 text-white text-sm font-semibold rounded-xl hover:bg-red-700 transition disabled:opacity-50">
+                        {makeupSaving ? 'Cancelling…' : 'Confirm cancellation'}
                       </button>
                     </div>
                   ) : makeupMode === 'move' ? (
@@ -4147,11 +4235,14 @@ export default function DatabasePage() {
                                 {att.status[0].toUpperCase() + att.status.slice(1)}
                               </span>
                             )}
-                            {!s.isMakeupGuest && (
+                            {!s.isMakeupGuest && att?.status !== 'cancelled' && (
                               <button
                                 onClick={() => setMakeupStudent(s)}
                                 className="text-[10px] font-semibold text-[#325099] border border-[#DEE7FF] px-2.5 py-1 rounded-full hover:bg-[#EEF4FF] hover:border-[#325099] transition shrink-0"
-                              >Makeup</button>
+                              >Actions</button>
+                            )}
+                            {att?.status === 'cancelled' && (
+                              <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-full shrink-0">✕ Cancelled</span>
                             )}
                           </div>
                         )
@@ -4528,8 +4619,9 @@ function AddEnrolmentModal({ allTerms, onClose, onCreated }) {
     if (!t) return ''
     const [h, m] = t.split(':')
     let hr = parseInt(h); const mn = (m||'00').padStart(2,'0')
-    const ap = (hr >= 1 && hr <= 7) ? 'pm' : (hr >= 8 && hr <= 11) ? 'am' : 'pm'
-    return `${hr}:${mn}${ap}`
+    const ap = hr >= 12 ? 'pm' : 'am'
+    const display = hr === 0 ? 12 : (hr > 12 ? hr - 12 : hr)
+    return `${display}:${mn}${ap}`
   }
 
   const selectedStudent = students.find(s => s.id === studentId)

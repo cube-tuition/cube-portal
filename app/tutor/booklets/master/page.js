@@ -15,7 +15,7 @@ const SUBJECTS_BY_YEAR = {
 const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
 
 const SUBJECT_CODE = {
-  'Maths': 'M', 'English': 'E',
+  'Maths': 'M', 'English': 'ET',
   'Standard Maths': 'MS', 'Adv Maths': 'MA',
   'Ext 1 Maths': 'M1', 'Ext 2 Maths': 'M2',
   'Chemistry': 'C', 'Physics': 'P',
