@@ -18,18 +18,12 @@ import { supabase } from '../lib/supabase'
  */
 
 const BASE_LINKS = [
-  { label: 'Home',    href: '/tutor' },
-  { label: 'Info',    href: '/tutor/hub' },
-  { label: 'Classes', href: '/tutor/classes' },
+  { label: 'Home',       href: '/tutor' },
+  { label: 'Info',       href: '/tutor/hub' },
+  { label: 'Classes',    href: '/tutor/classes' },
+  { label: 'Curriculum', href: '/tutor/booklets' },
 ]
-const SHARED_GROUPS = [
-  {
-    label: 'Resources',
-    links: [
-      { label: 'Booklets', href: '/tutor/booklets', icon: '📖' },
-    ],
-  },
-]
+const SHARED_GROUPS = []
 const TUTOR_LINKS = [
   { label: 'My pay',      href: '/tutor/pay' },
   { label: 'Availability', href: '/tutor/availability' },
