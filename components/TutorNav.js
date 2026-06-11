@@ -26,8 +26,7 @@ const SHARED_GROUPS = [
   {
     label: 'Resources',
     links: [
-      { label: 'Booklets',  href: '/tutor/booklets', icon: '📖' },
-      { label: 'Questions', href: '/tutor/qbank',    icon: '❓' },
+      { label: 'Booklets', href: '/tutor/booklets', icon: '📖' },
     ],
   },
 ]
