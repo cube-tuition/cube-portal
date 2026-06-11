@@ -9,9 +9,10 @@ import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS } from '../../../../lib/tables'
 import {
   fetchTaxonomy, yearsFromSubjects, qbankImageUrl,
-  DIFFICULTY_LABELS, DIFFICULTY_COLORS,
+  DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage,
 } from '../../../../lib/qbank'
 import { exportWorksheet } from '../../../../lib/qbankWorksheet'
+import UsageBadge from '../../../../components/qbank/UsageBadge'
 
 export default function GeneratePage() {
   const router = useRouter()
@@ -35,12 +36,15 @@ export default function GeneratePage() {
   const [subtitle, setSubtitle] = useState('')
   const [includeMarks, setIncludeMarks] = useState(true)
   const [busy, setBusy] = useState('')
+  const [mode, setMode] = useState(null)            // null | 'additional' | 'exam'
+  const [usageMap, setUsageMap] = useState({})
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
       if (!profile || !['tutor', 'admin', 'director'].includes(role)) { router.replace('/tutor'); return }
       setProfile(profile); setReady(true)
       fetchTaxonomy().then(setTax)
+      fetchQuestionUsage().then(setUsageMap)
       supabase.from(T_QBANK_QUESTIONS)
         .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order)')
         .order('created_at', { ascending: false })
@@ -116,6 +120,10 @@ export default function GeneratePage() {
     setBusy(answers ? 'answers' : 'worksheet')
     try {
       await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers })
+      if (!answers) {
+        await logWorksheetUsage(tray, title || 'Worksheet', profile?.full_name)
+        fetchQuestionUsage().then(setUsageMap)
+      }
     } catch (e) {
       alert('Could not generate the PDF: ' + (e.message || e))
     } finally {
@@ -132,8 +140,39 @@ export default function GeneratePage() {
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-7xl mx-auto px-6 pt-8 pb-16">
         <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
-        <h1 className="text-2xl font-bold text-[#062E63] mt-1 mb-5">Generate worksheet</h1>
+        <div className="flex items-center gap-3 mt-1 mb-5">
+          <h1 className="text-2xl font-bold text-[#062E63]">
+            {mode === 'additional' ? 'Additional questions' : mode === 'exam' ? 'Exam' : 'Generate'}
+          </h1>
+          {mode && (
+            <button onClick={() => setMode(null)}
+              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3 py-1 hover:bg-white transition">
+              ← Change type
+            </button>
+          )}
+        </div>
 
+        {/* Step 1 — choose what you're making */}
+        {!mode && (
+          <div className="grid sm:grid-cols-2 gap-4 max-w-2xl">
+            <button onClick={() => setMode('additional')}
+              className="text-left bg-white rounded-2xl border border-[#DEE7FF] p-5 hover:border-[#325099] hover:shadow-sm transition">
+              <div className="text-2xl mb-2">📝</div>
+              <div className="text-base font-bold text-[#062E63]">Additional questions</div>
+              <p className="text-xs text-[#2A2035]/60 mt-1">Pick questions from the bank and export a practice worksheet with a matching answer key.</p>
+              <span className="inline-block mt-3 text-[11px] font-semibold text-[#325099]">Start →</span>
+            </button>
+            <button onClick={() => router.push('/tutor/qbank/exams')}
+              className="text-left bg-white rounded-2xl border border-[#DEE7FF] p-5 hover:border-[#325099] hover:shadow-sm transition">
+              <div className="text-2xl mb-2">🧪</div>
+              <div className="text-base font-bold text-[#062E63]">Exam</div>
+              <p className="text-xs text-[#2A2035]/60 mt-1">Plan a formatted exam — topic scope, sections, marks — then fill each question slot from the bank and export the paper + solutions.</p>
+              <span className="inline-block mt-3 text-[11px] font-semibold text-[#325099]">Go to exams →</span>
+            </button>
+          </div>
+        )}
+
+        {mode === 'additional' && (
         <div className="grid lg:grid-cols-2 gap-5">
           {/* ── Left: pick from bank ─────────────────────────────────────── */}
           <div>
@@ -178,10 +217,13 @@ export default function GeneratePage() {
                         <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: DIFFICULTY_COLORS[q.difficulty] }}>{q.difficulty}</span>
                         {l?.subject && <span className="text-[10px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
                         {l?.topic && <span className="text-[10px] text-[#2A2035]/40">› {l.topic.name}</span>}
-                        <button onClick={() => (inTray ? removeFromTray(q.id) : add(q))}
-                          className={`ml-auto text-[11px] font-semibold ${inTray ? 'text-[#2A2035]/40 hover:text-[#DC2626]' : 'text-[#325099] hover:text-[#062E63]'}`}>
-                          {inTray ? 'Added ✓' : '+ Add'}
-                        </button>
+                        <div className="ml-auto flex items-center gap-2">
+                          <UsageBadge usage={usageMap[q.id]} />
+                          <button onClick={() => (inTray ? removeFromTray(q.id) : add(q))}
+                            className={`text-[11px] font-semibold ${inTray ? 'text-[#2A2035]/40 hover:text-[#DC2626]' : 'text-[#325099] hover:text-[#062E63]'}`}>
+                            {inTray ? 'Added ✓' : '+ Add'}
+                          </button>
+                        </div>
                       </div>
                       <div className="text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={q.stem_latex || '(no stem)'} /></div>
                     </div>
@@ -253,6 +295,7 @@ export default function GeneratePage() {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   )

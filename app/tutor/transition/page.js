@@ -6,6 +6,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS } from '../../../lib/tables'
+import { fmtDate } from '../../../lib/format'
 
 /*
  * Term Transition Wizard — /tutor/transition
@@ -47,13 +48,6 @@ const END_REASONS = [
 ]
 
 // ── Utility helpers ────────────────────────────────────────────────────────
-const fmtDate = (iso) => {
-  if (!iso) return '—'
-  return new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', {
-    day: 'numeric', month: 'short', year: 'numeric',
-  })
-}
-
 const isoToday = () => new Date().toISOString().slice(0, 10)
 
 

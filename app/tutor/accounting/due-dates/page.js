@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import { fmtDateLong as fmtDate } from '../../../../lib/format'
 
 /*
  * Accounting Due Dates — /tutor/accounting/due-dates
@@ -19,11 +20,6 @@ TODAY.setHours(0, 0, 0, 0)
 function daysUntil(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
   return Math.round((d - TODAY) / (1000 * 60 * 60 * 24))
-}
-
-function fmtDate(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 // ── Due dates data ────────────────────────────────────────────────────────────

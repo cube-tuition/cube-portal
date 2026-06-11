@@ -18,13 +18,13 @@ import { supabase } from '../lib/supabase'
  */
 
 const BASE_LINKS = [
-  { label: 'Home',       href: '/tutor' },
-  { label: 'Info',       href: '/tutor/hub' },
-  { label: 'Classes',    href: '/tutor/classes' },
-  { label: 'Curriculum', href: '/tutor/booklets' },
+  { label: 'Home',    href: '/tutor' },
+  { label: 'Info',    href: '/tutor/hub' },
+  { label: 'Classes', href: '/tutor/classes' },
 ]
 const SHARED_GROUPS = []
 const TUTOR_LINKS = [
+  { label: 'Curriculum',  href: '/tutor/booklets' },
   { label: 'My pay',      href: '/tutor/pay' },
   { label: 'Availability', href: '/tutor/availability' },
 ]
@@ -32,6 +32,13 @@ const ADMIN_FLAT_LINKS = [
   { label: 'Database', href: '/tutor/database' },
 ]
 const ADMIN_GROUPS = [
+  {
+    label: 'Resources',
+    links: [
+      { label: 'Curriculum', href: '/tutor/booklets', icon: '📖' },
+      { label: 'Questions',  href: '/tutor/qbank',    icon: '❓' },
+    ],
+  },
   {
     label: 'Admin',
     links: [

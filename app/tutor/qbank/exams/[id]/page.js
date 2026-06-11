@@ -1,0 +1,398 @@
+'use client'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
+import { supabase } from '../../../../../lib/supabase'
+import { getAuthProfile } from '../../../../../lib/getProfile'
+import TutorNav from '../../../../../components/TutorNav'
+import LatexContent from '../../../../../components/qbank/LatexContent'
+import { T_QBANK_QUESTIONS } from '../../../../../lib/tables'
+import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage } from '../../../../../lib/qbank'
+import UsageBadge from '../../../../../components/qbank/UsageBadge'
+import { loadExam, saveExam, blankSlot } from '../../../../../lib/qbankExams'
+import { exportExamPdf } from '../../../../../lib/qbankExam'
+
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII']
+const qMarks = (q) => {
+  if (!q) return 0
+  if (q.qtype === 'mcq') return q.marks ?? 1
+  const parts = q.qbank_question_parts || []
+  if (parts.length) return parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
+  return Number(q.marks) || 0
+}
+
+export default function ExamBuilderPage() {
+  const router = useRouter()
+  const { id } = useParams()
+  const [profile, setProfile] = useState(null)
+  const [ready, setReady] = useState(false)
+
+  const [exam, setExam] = useState(null)        // { ...meta, sections:[...] }
+  const [tax, setTax] = useState(null)
+  const [questions, setQuestions] = useState([])
+  const [usageMap, setUsageMap] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState('plan')
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [busy, setBusy] = useState('')
+
+  const loadQuestions = useCallback(() => supabase.from(T_QBANK_QUESTIONS)
+    .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order)')
+    .then(({ data }) => setQuestions(data || [])), [])
+
+  useEffect(() => {
+    getAuthProfile().then(async ({ profile, role }) => {
+      if (!profile || !['tutor', 'admin', 'director'].includes(role)) { router.replace('/tutor'); return }
+      setProfile(profile); setReady(true)
+      const [e, t] = await Promise.all([loadExam(id), fetchTaxonomy()])
+      setExam(e); setTax(t); await loadQuestions()
+      fetchQuestionUsage().then(setUsageMap)
+      setLoading(false)
+    })
+  }, [router, id, loadQuestions])
+
+  // ── taxonomy maps ───────────────────────────────────────────────────────────
+  const maps = useMemo(() => {
+    if (!tax) return null
+    return {
+      skill: Object.fromEntries(tax.skills.map((s) => [s.id, s])),
+      topic: Object.fromEntries(tax.topics.map((t) => [t.id, t])),
+      subject: Object.fromEntries(tax.subjects.map((s) => [s.id, s])),
+    }
+  }, [tax])
+  const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
+  const qTopicId = useCallback((q) => maps?.skill[q.skill_id]?.topic_id, [maps])
+
+  const yearLabel = exam?.year_label
+  const subjectId = exam?.subject_id
+  const years = useMemo(() => (tax ? [...new Set(tax.subjects.map((s) => s.year_level))].sort((a, b) => a - b) : []), [tax])
+  const subjectsForYear = useMemo(() => (tax && yearLabel ? tax.subjects.filter((s) => String(s.year_level) === String(yearLabel)) : []), [tax, yearLabel])
+  const scopeTopics = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
+
+  // ── mutators ──────────────────────────────────────────────────────────────
+  const patch = (fields) => { setExam((e) => ({ ...e, ...fields })); setDirty(true) }
+  const setSections = (fn) => { setExam((e) => ({ ...e, sections: fn(e.sections) })); setDirty(true) }
+  const updateSection = (key, fields) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, ...fields } : s)))
+  const addSlot = (key) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, slots: [...s.slots, blankSlot()] } : s)))
+  const removeSlot = (secKey, slotKey) => setSections((ss) => ss.map((s) => (s._key !== secKey ? s : { ...s, slots: s.slots.filter((sl) => sl._key !== slotKey) })))
+  const addSection = (type) => setSections((ss) => [...ss, { _key: Math.random().toString(36).slice(2, 9), type, marks_limit: type === 'mcq' ? 10 : 20, allow_time: type === 'mcq' ? '15 minutes' : '45 minutes', slots: [] }])
+  const removeSection = (key) => setSections((ss) => ss.filter((s) => s._key !== key))
+  const moveSection = (key, dir) => setSections((ss) => {
+    const i = ss.findIndex((s) => s._key === key); const j = i + dir
+    if (i < 0 || j < 0 || j >= ss.length) return ss
+    const next = [...ss];[next[i], next[j]] = [next[j], next[i]]; return next
+  })
+  const updateSlot = (secKey, slotKey, fields) => setSections((ss) => ss.map((s) => (s._key !== secKey ? s
+    : { ...s, slots: s.slots.map((sl) => (sl._key === slotKey ? { ...sl, ...fields } : sl)) })))
+
+  const toggleTopic = (topicId) => {
+    const set = new Set(exam.topic_ids || [])
+    set.has(topicId) ? set.delete(topicId) : set.add(topicId)
+    patch({ topic_ids: [...set] })
+  }
+
+  // ── used question ids (for dup-block) ───────────────────────────────────────
+  const usedIds = useMemo(() => {
+    const m = new Map()  // questionId -> slotKey
+    exam?.sections?.forEach((s) => s.slots.forEach((sl) => { if (sl.question_id) m.set(sl.question_id, sl._key) }))
+    return m
+  }, [exam])
+
+  const matchesFor = useCallback((section, slot) => {
+    if (!maps) return []
+    const scope = exam.topic_ids || []
+    return questions.filter((q) => {
+      if (q.qtype !== section.type) return false
+      const usedBy = usedIds.get(q.id)
+      if (usedBy && usedBy !== slot._key) return false
+      const tId = qTopicId(q)
+      if (scope.length && !scope.includes(tId)) return false
+      if (slot.topic_id && tId !== slot.topic_id) return false
+      if (slot.skill_id && q.skill_id !== slot.skill_id) return false
+      if (slot.difficulty && q.difficulty !== Number(slot.difficulty)) return false
+      return true
+    })
+  }, [questions, maps, exam, usedIds, qTopicId])
+
+  // ── persistence ─────────────────────────────────────────────────────────────
+  const save = useCallback(async () => {
+    if (!exam) return
+    setSaving(true)
+    try { await saveExam(exam); setDirty(false) }
+    catch (e) { alert('Could not save: ' + (e.message || e)) }
+    finally { setSaving(false) }
+  }, [exam])
+
+  const sectionMarks = (s) => s.slots.reduce((sum, sl) => sum + qMarks(qById[sl.question_id]), 0)
+  const totalMarks = exam?.sections?.reduce((a, s) => a + sectionMarks(s), 0) || 0
+  // Marks per topic within a section → [[topicName, marks], …] sorted desc.
+  const sectionTopicMarks = (s) => {
+    const m = {}
+    s.slots.forEach((sl) => {
+      const q = qById[sl.question_id]; if (!q) return
+      const tId = maps?.skill[q.skill_id]?.topic_id
+      const name = (tId && maps?.topic[tId]?.name) || 'Untagged'
+      m[name] = (m[name] || 0) + qMarks(q)
+    })
+    return Object.entries(m).sort((a, b) => b[1] - a[1])
+  }
+
+  const doExport = async (solutions) => {
+    await save()
+    setBusy(solutions ? 'sol' : 'paper')
+    try {
+      const payload = exam.sections.map((s, i) => ({
+        roman: ROMAN[i] || String(i + 1), type: s.type, allow: s.allow_time,
+        questions: s.slots.map((sl) => qById[sl.question_id]).filter(Boolean),
+      }))
+      if (!payload.some((s) => s.questions.length)) { alert('Fill at least one question first.'); return }
+      await exportExamPdf({
+        meta: {
+          yearLabel: exam.year_label, term: exam.term,
+          readingTime: exam.reading_time, workingTime: exam.working_time, calculators: exam.calculators,
+        },
+        sections: payload, solutions,
+      })
+    } catch (e) { alert('Could not generate PDF: ' + (e.message || e)) }
+    finally { setBusy('') }
+  }
+
+  const newQuestion = async () => { await save(); window.open('/tutor/qbank/new', '_blank') }
+
+  if (!ready || loading) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
+  if (!exam) return (
+    <div className="min-h-screen bg-[#F8FAFF]"><TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
+      <div className="max-w-3xl mx-auto px-6 pt-16 text-center"><p className="text-sm text-[#2A2035]/50">Exam not found.</p>
+        <Link href="/tutor/qbank/exams" className="text-xs text-[#325099] hover:underline">← Back to exams</Link></div>
+    </div>
+  )
+
+  const inCls = 'w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099]'
+  const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+  const sectionStart = (si) => exam.sections.slice(0, si).reduce((a, sec) => a + sec.slots.length, 0)
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFF]">
+      <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
+      <div className="max-w-5xl mx-auto px-6 pt-8 pb-16">
+        <Link href="/tutor/qbank/exams" className="text-xs text-[#325099] hover:underline">← Exams</Link>
+
+        {/* Header */}
+        <div className="flex items-center gap-3 mt-1 mb-4 flex-wrap">
+          <input value={exam.title} onChange={(e) => patch({ title: e.target.value })}
+            className="text-2xl font-bold text-[#062E63] bg-transparent border-b border-transparent hover:border-[#DEE7FF] focus:border-[#325099] focus:outline-none flex-1 min-w-[200px]" />
+          <span className="text-xs text-[#2A2035]/50">{totalMarks} marks</span>
+          <button onClick={save} disabled={saving || !dirty}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${dirty ? 'bg-[#325099] text-white hover:bg-[#062E63]' : 'bg-[#EEF2FF] text-[#2A2035]/40'}`}>
+            {saving ? 'Saving…' : dirty ? 'Save' : 'Saved ✓'}
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mb-5 border-b border-[#DEE7FF]">
+          {[['plan', '1 · Plan'], ['build', '2 · Questions']].map(([v, lbl]) => (
+            <button key={v} onClick={() => setTab(v)}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${tab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'plan' ? (
+          <div className="space-y-5">
+            {/* Details */}
+            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+              <h2 className="text-sm font-bold text-[#062E63] mb-3">Exam details</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
+                  <select value={exam.year_label || ''} className={inCls}
+                    onChange={(e) => patch({ year_label: e.target.value, subject_id: null, topic_ids: [] })}>
+                    <option value="">—</option>{years.map((y) => <option key={y} value={String(y)}>Year {y}</option>)}
+                  </select></div>
+                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Subject</label>
+                  <select value={exam.subject_id || ''} disabled={!exam.year_label} className={inCls}
+                    onChange={(e) => patch({ subject_id: e.target.value || null, topic_ids: [] })}>
+                    <option value="">—</option>{subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select></div>
+                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Term</label>
+                  <input value={exam.term || ''} onChange={(e) => patch({ term: e.target.value })} placeholder="e.g. 2" className={inCls} /></div>
+                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Reading time</label>
+                  <input value={exam.reading_time || ''} onChange={(e) => patch({ reading_time: e.target.value })} className={inCls} /></div>
+                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Working time</label>
+                  <input value={exam.working_time || ''} onChange={(e) => patch({ working_time: e.target.value })} className={inCls} /></div>
+                <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] self-end pb-2 cursor-pointer">
+                  <input type="checkbox" checked={exam.calculators} onChange={(e) => patch({ calculators: e.target.checked })} /> Calculators (NESA)
+                </label>
+              </div>
+            </section>
+
+            {/* Topic scope */}
+            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+              <h2 className="text-sm font-bold text-[#062E63] mb-1">Topic scope</h2>
+              <p className="text-[11px] text-[#2A2035]/50 mb-3">The topics this exam covers. Question slots can only pull from these.</p>
+              {!exam.subject_id ? <p className="text-xs text-[#2A2035]/40 italic">Pick a year and subject first.</p>
+                : scopeTopics.length === 0 ? <p className="text-xs text-[#EA580C]">No topics for this subject — add some in <Link href="/tutor/qbank/categories" className="underline">Categories</Link>.</p>
+                  : <div className="flex flex-wrap gap-2">
+                    {scopeTopics.map((t) => {
+                      const on = (exam.topic_ids || []).includes(t.id)
+                      return <button key={t.id} onClick={() => toggleTopic(t.id)}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${on ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/60 border-[#DEE7FF] hover:border-[#325099]'}`}>{t.name}</button>
+                    })}
+                  </div>}
+            </section>
+
+            {/* Sections */}
+            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold text-[#062E63]">Sections</h2>
+                <div className="flex gap-2">
+                  <button onClick={() => addSection('mcq')} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F8FAFF]">+ MCQ</button>
+                  <button onClick={() => addSection('extended')} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F8FAFF]">+ Extended</button>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {exam.sections.map((s, i) => (
+                  <div key={s._key} className="rounded-xl border border-[#DEE7FF] p-4 bg-[#FBFCFF]">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-sm font-bold text-[#062E63]">Section {ROMAN[i]}</span>
+                      <select value={s.type} onChange={(e) => updateSection(s._key, { type: e.target.value })} className={selCls}>
+                        <option value="mcq">Multiple choice</option><option value="extended">Extended response</option>
+                      </select>
+                      <span className="text-[11px] text-[#2A2035]/40 ml-auto">{sectionMarks(s)}/{s.marks_limit ?? '—'} marks</span>
+                      <button onClick={() => moveSection(s._key, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
+                      <button onClick={() => moveSection(s._key, 1)} disabled={i === exam.sections.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
+                      {exam.sections.length > 1 && <button onClick={() => removeSection(s._key)} className="text-[11px] text-[#DC2626] hover:underline">✕</button>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Marks limit</label>
+                        <input type="number" min="0" value={s.marks_limit ?? ''} onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" /></div>
+                      <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Allow about</label>
+                        <input value={s.allow_time || ''} onChange={(e) => updateSection(s._key, { allow_time: e.target.value })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" /></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setTab('build')} className="mt-4 px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">Fill questions →</button>
+            </section>
+          </div>
+        ) : (
+          /* ── BUILD / FILL TAB ─────────────────────────────────────────────── */
+          <div className="space-y-5">
+            {exam.sections.length === 0 && (
+              <p className="text-sm text-[#2A2035]/50 bg-white rounded-2xl border border-dashed border-[#DEE7FF] p-6 text-center">
+                Add a section in the <button onClick={() => setTab('plan')} className="text-[#325099] font-semibold hover:underline">Plan</button> tab first.
+              </p>
+            )}
+            {exam.sections.map((s, si) => (
+              <section key={s._key} className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-sm font-bold text-[#062E63]">Section {ROMAN[si]}</h2>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">{s.type === 'mcq' ? 'Multiple choice' : 'Extended'}</span>
+                  <span className={`text-[11px] ml-auto ${s.marks_limit != null && sectionMarks(s) > s.marks_limit ? 'text-[#DC2626] font-semibold' : 'text-[#2A2035]/40'}`}>{sectionMarks(s)}{s.marks_limit != null ? ` / ${s.marks_limit}` : ''} marks · {s.slots.length} Q</span>
+                </div>
+                {sectionTopicMarks(s).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    <span className="text-[10px] font-semibold text-[#2A2035]/40 self-center">By topic:</span>
+                    {sectionTopicMarks(s).map(([name, marks]) => (
+                      <span key={name} className="text-[10px] text-[#325099] bg-[#F0F4FF] rounded-full px-2 py-0.5">{name}: {marks}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {s.slots.map((slot, sli) => {
+                    const n = sectionStart(si) + sli + 1
+                    return <SlotRow key={slot._key} n={n} section={s} slot={slot}
+                      scopeTopics={scopeTopics} tax={tax} maps={maps} qById={qById} usageMap={usageMap}
+                      matches={matchesFor(s, slot)}
+                      onCriteria={(f) => updateSlot(s._key, slot._key, f)}
+                      onPick={(qid) => updateSlot(s._key, slot._key, { question_id: qid })}
+                      onRemove={() => removeSlot(s._key, slot._key)}
+                      onNew={newQuestion} onRefresh={loadQuestions} />
+                  })}
+                </div>
+                <button onClick={() => addSlot(s._key)}
+                  className="mt-3 text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-1.5 hover:bg-[#F8FAFF]">
+                  + Add question
+                </button>
+              </section>
+            ))}
+
+            <div className="flex gap-2 sticky bottom-3">
+              <button onClick={() => doExport(false)} disabled={busy}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40 shadow-sm">
+                {busy === 'paper' ? 'Building…' : 'Exam paper PDF'}
+              </button>
+              <button onClick={() => doExport(true)} disabled={busy}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-[#325099] bg-white text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40 shadow-sm">
+                {busy === 'sol' ? 'Building…' : 'Solutions PDF'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Slot row ──────────────────────────────────────────────────────────────────
+function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, matches, onCriteria, onPick, onRemove, onNew, onRefresh }) {
+  const [open, setOpen] = useState(false)
+  const chosen = slot.question_id ? qById[slot.question_id] : null
+  const skillsForTopic = (tax && slot.topic_id) ? (tax.skillsByTopic[slot.topic_id] || []) : []
+  const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+
+  return (
+    <div className="rounded-xl border border-[#F0F4FF] bg-[#FBFCFF] p-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-bold text-[#062E63]">Q{n}</span>
+        <select value={slot.topic_id || ''} onChange={(e) => onCriteria({ topic_id: e.target.value || null, skill_id: null })} className={selCls}>
+          <option value="">Any topic (in scope)</option>
+          {scopeTopics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <select value={slot.skill_id || ''} disabled={!slot.topic_id} onChange={(e) => onCriteria({ skill_id: e.target.value || null })} className={selCls}>
+          <option value="">Any skill</option>
+          {skillsForTopic.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}
+        </select>
+        <select value={slot.difficulty || ''} onChange={(e) => onCriteria({ difficulty: e.target.value ? Number(e.target.value) : null })} className={selCls}>
+          <option value="">Any difficulty</option>
+          {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+        </select>
+        <span className="text-[11px] text-[#2A2035]/40 ml-auto">{matches.length} match{matches.length === 1 ? '' : 'es'}</span>
+        <button onClick={onRemove} title="Remove this question" className="text-[12px] text-[#2A2035]/30 hover:text-[#DC2626]">✕</button>
+      </div>
+
+      {chosen ? (
+        <div className="mt-2 flex items-start gap-2 bg-white rounded-lg border border-[#BACBFF] p-2.5">
+          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white mt-0.5" style={{ background: DIFFICULTY_COLORS[chosen.difficulty] }}>{chosen.difficulty}</span>
+          <div className="flex-1 min-w-0 text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={chosen.stem_latex || '(no stem)'} /></div>
+          <UsageBadge usage={usageMap[chosen.id]} />
+          <span className="text-[10px] text-[#2A2035]/40 whitespace-nowrap">{qMarks(chosen)}m</span>
+          <button onClick={() => onPick(null)} className="text-[11px] text-[#DC2626] hover:underline">Clear</button>
+        </div>
+      ) : (
+        <div className="mt-2">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setOpen((o) => !o)} className="text-[11px] font-semibold text-[#325099] hover:underline">{open ? 'Hide' : 'Choose'} matching question{matches.length ? ` (${matches.length})` : ''}</button>
+            <button onClick={onRefresh} title="Refresh bank" className="text-[11px] text-[#2A2035]/40 hover:text-[#325099]">↻</button>
+            {matches.length === 0 && <button onClick={onNew} className="text-[11px] font-semibold text-[#16A34A] hover:underline ml-auto">+ Create new</button>}
+          </div>
+          {open && (
+            <div className="mt-2 space-y-1.5 max-h-60 overflow-y-auto">
+              {matches.length === 0 ? <p className="text-[11px] text-[#2A2035]/40 italic">No bank questions match — adjust the criteria or create one.</p>
+                : matches.map((q) => (
+                  <button key={q.id} onClick={() => { onPick(q.id); setOpen(false) }}
+                    className="w-full text-left flex items-start gap-2 bg-white rounded-lg border border-[#F0F4FF] hover:border-[#325099] p-2.5 transition">
+                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white mt-0.5" style={{ background: DIFFICULTY_COLORS[q.difficulty] }}>{q.difficulty}</span>
+                    <div className="flex-1 min-w-0 text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={q.stem_latex || '(no stem)'} /></div>
+                    <UsageBadge usage={usageMap[q.id]} />
+                    <span className="text-[10px] text-[#2A2035]/40 whitespace-nowrap">{qMarks(q)}m</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

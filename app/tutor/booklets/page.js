@@ -6,17 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
-
-function fmtTime(t) {
-  if (!t) return ''
-  const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10)
-  const m = (mRaw || '00').padStart(2, '0')
-  if (Number.isNaN(h)) return t
-  const ampm = h >= 12 ? 'pm' : 'am'
-  const hr = h === 0 ? 12 : h > 12 ? h - 12 : h
-  return `${hr}:${m}${ampm}`
-}
+import { fmtTime } from '../../../lib/format'
 
 const SUBJECTS_BY_YEAR = {
   11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],

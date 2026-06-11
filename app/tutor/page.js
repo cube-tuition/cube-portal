@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
 import { getAuthProfile } from '../../lib/getProfile'
 import TutorNav from '../../components/TutorNav'
-import { normalizeDays } from '../../lib/format'
+import { normalizeDays, fmtTime, fmtMoney, isoDate } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SHIFTS } from '../../lib/tables'
 import { buildClassLabelMap } from '../../lib/classLabels'
@@ -36,8 +36,6 @@ const fmtPeriodLabel = (p) => {
   const d = (s) => new Date(s + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
   return `${d(p.start)} – ${d(p.end)}`
 }
-const fmtMoney = (n) => '$' + (Number(n) || 0).toFixed(2)
-
 function greeting() {
   const h = new Date().getHours()
   if (h < 5)  return 'Burning the midnight oil'
@@ -45,13 +43,6 @@ function greeting() {
   if (h < 17) return 'Good afternoon'
   if (h < 22) return 'Good evening'
   return 'Late one tonight'
-}
-
-function isoDate(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
 }
 
 // start_time / end_time are stored as PostgreSQL time (HH:MM:SS), 24-hour.
@@ -62,16 +53,6 @@ function startMinutes(t) {
   const m = parseInt(mRaw || '0', 10) || 0
   if (Number.isNaN(h)) return 99999
   return h * 60 + m
-}
-function fmtTime(t) {
-  if (!t) return ''
-  const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10)
-  const m = (mRaw || '00').padStart(2, '0')
-  if (Number.isNaN(h)) return t
-  const ampm = h >= 12 ? 'pm' : 'am'
-  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
-  return `${hr}:${m}${ampm}`
 }
 export default function TutorHome() {
   const [staff, setStaff] = useState(null)
@@ -240,29 +221,43 @@ export default function TutorHome() {
           .not('trial_start_date', 'is', null)
         if (trialEnrolments && trialEnrolments.length > 0) {
           const todayIso = isoDate(new Date())
+          const studentIds = trialEnrolments.map(e => e.students?.id).filter(Boolean)
+          const classIds   = trialEnrolments.map(e => e.class_id).filter(Boolean)
+          const earliestStart = trialEnrolments
+            .map(e => e.trial_start_date)
+            .filter(Boolean)
+            .sort()[0]
+
+          // Single query for all attendance across all trial enrolments
+          const { data: allAtt } = await supabase
+            .from(T_ATTENDANCE)
+            .select('class_id, student_id, session_date')
+            .in('student_id', studentIds)
+            .in('class_id', classIds)
+            .in('status', ['present', 'late'])
+            .gte('session_date', earliestStart)
+            .lte('session_date', todayIso)
+            .order('session_date')
+
           const finished = []
           for (const enr of trialEnrolments) {
             const studentId = enr.students?.id
             if (!studentId) continue
-            const { data: attRows } = await supabase
-              .from(T_ATTENDANCE)
-              .select('session_date')
-              .eq('class_id', enr.class_id)
-              .eq('student_id', studentId)
-              .in('status', ['present', 'late'])
-              .gte('session_date', enr.trial_start_date)
-              .lte('session_date', todayIso)
-              .order('session_date')
-            if ((attRows || []).length >= 2) {
+            const attRows = (allAtt || []).filter(
+              a => a.class_id === enr.class_id &&
+                   a.student_id === studentId &&
+                   a.session_date >= enr.trial_start_date
+            )
+            if (attRows.length >= 2) {
               finished.push({
-                enrolmentId: enr.id,
-                classId: enr.class_id,
-                studentId: enr.students?.id,
-                className: enr.classes?.class_name || 'Class',
-                studentName: enr.students?.full_name || 'Student',
+                enrolmentId:    enr.id,
+                classId:        enr.class_id,
+                studentId,
+                className:      enr.classes?.class_name || 'Class',
+                studentName:    enr.students?.full_name || 'Student',
                 trialStartDate: enr.trial_start_date,
-                lessonDates: attRows.slice(0, 2).map(r => r.session_date),
-                parentEmail: enr.students?.email || '',
+                lessonDates:    attRows.slice(0, 2).map(r => r.session_date),
+                parentEmail:    enr.students?.email || '',
               })
             }
           }

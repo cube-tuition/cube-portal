@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
+import { fmtDate } from '../../../../lib/format'
 
 /*
  * Term Start Emails — /tutor/emails/term-start
@@ -44,10 +45,6 @@ function followupDate() {
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  return new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
-}
 
 function buildTermDates(term) {
   if (!term) return ''

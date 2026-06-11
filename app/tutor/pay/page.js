@@ -6,6 +6,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms } from '../../../lib/terms'
 import { T_SHIFTS } from '../../../lib/tables'
+import { fmtTime, fmtMoney, isoDate } from '../../../lib/format'
 
 /*
  * Tutor "My pay" — read-only personal view of shifts + earnings.
@@ -16,12 +17,6 @@ import { T_SHIFTS } from '../../../lib/tables'
  * and admin views always agree.
  */
 
-const isoDate = (d) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
 const fmtDate = (s) => {
   if (!s) return ''
   return new Date(s + 'T00:00:00').toLocaleDateString('en-AU',
@@ -32,8 +27,6 @@ const fmtDateLong = (s) => {
   return new Date(s + 'T00:00:00').toLocaleDateString('en-AU',
     { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 }
-const fmtTime = (t) => t ? t.slice(0, 5) : ''
-const fmtMoney = (n) => '$' + (Number(n) || 0).toFixed(2)
 
 // Compute term-aligned fortnight for a date, given the terms list.
 // Returns { start, end, fortnight (1..5), weekStart, weekEnd, term } or null.

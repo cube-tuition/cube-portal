@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import SessionMarker from '../../../../../components/SessionMarker'
 import WeekBooklet from '../../../../../components/WeekBooklet'
-import { normalizeDays } from '../../../../../lib/format'
+import { normalizeDays, fmtTime, isoDate } from '../../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm } from '../../../../../lib/terms'
 import { T_CLASSES, T_SUB_ASSIGNMENTS, T_TUTORS } from '../../../../../lib/tables'
 
@@ -47,23 +47,10 @@ const pickSubjectColor = (name = '') => {
   return { bg: '#DEE7FF', fg: '#062E63' }
 }
 
-function fmtTime(t) {
-  if (!t) return ''
-  const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10)
-  const m = (mRaw || '00').padStart(2, '0')
-  if (Number.isNaN(h)) return t
-  const ampm = h >= 12 ? 'pm' : 'am'
-  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
-  return `${hr}:${m}${ampm}`
-}
 function isoToDate(iso) {
   const [y, m, d] = (iso || '').split('-').map(Number)
   if (!y || !m || !d) return null
   return new Date(y, m - 1, d, 0, 0, 0, 0)
-}
-function isoDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 function dayNameOf(d) { return DAY_ORDER[(d.getDay() + 6) % 7] }
 function fmtDateFull(d) {

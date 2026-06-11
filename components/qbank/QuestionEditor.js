@@ -7,10 +7,11 @@ import {
 } from '../../lib/tables'
 import {
   fetchTaxonomy, yearsFromSubjects, uploadQbankImage, deleteQbankImage,
-  DIFFICULTY_LABELS, DIFFICULTY_COLORS,
+  DIFFICULTY_LABELS, DIFFICULTY_COLORS, MCQ_LABELS, fetchQuestionUsage,
 } from '../../lib/qbank'
 import LatexField from './LatexField'
 import ImageManager from './ImageManager'
+import UsageBadge from './UsageBadge'
 
 const blankPart = (i) => ({
   _key: Math.random().toString(36).slice(2),
@@ -36,14 +37,18 @@ export default function QuestionEditor({ questionId = null, staffName }) {
   const [skillId, setSkillId] = useState('')
 
   // Question fields
+  const [qtype, setQtype] = useState('extended')   // 'extended' | 'mcq'
   const [stem, setStem] = useState('')
   const [solution, setSolution] = useState('')
   const [difficulty, setDifficulty] = useState(3)
   const [marks, setMarks] = useState('')
   const [isMulti, setIsMulti] = useState(false)
   const [parts, setParts] = useState([blankPart(0)])
+  const [options, setOptions] = useState(MCQ_LABELS.map((label) => ({ label, latex: '' })))
+  const [correctOption, setCorrectOption] = useState('A')
   const [images, setImages] = useState([])
   const [removedImageIds, setRemovedImageIds] = useState([])
+  const [usage, setUsage] = useState(null)
 
   // ── Load taxonomy (+ existing question when editing) ────────────────────────
   useEffect(() => {
@@ -57,11 +62,18 @@ export default function QuestionEditor({ questionId = null, staffName }) {
         const { data: q } = await supabase.from(T_QBANK_QUESTIONS)
           .select('*').eq('id', questionId).maybeSingle()
         if (q) {
+          setQtype(q.qtype || 'extended')
           setStem(q.stem_latex || '')
           setSolution(q.solution_latex || '')
           setDifficulty(q.difficulty || 3)
           setMarks(q.marks ?? '')
           setIsMulti(q.is_multipart)
+          if (Array.isArray(q.options) && q.options.length) {
+            setOptions(MCQ_LABELS.map((label, i) => ({
+              label, latex: q.options[i]?.latex ?? q.options[i]?.text ?? '',
+            })))
+          }
+          if (q.correct_option) setCorrectOption(q.correct_option)
 
           // Prefill cascade from skill → topic → subject
           const skill = t.skills.find((s) => s.id === q.skill_id)
@@ -83,6 +95,9 @@ export default function QuestionEditor({ questionId = null, staffName }) {
           const { data: im } = await supabase.from(T_QBANK_QUESTION_IMAGES)
             .select('*').eq('question_id', questionId).order('sort_order')
           if (im?.length) setImages(im.map((x) => ({ id: x.id, storage_path: x.storage_path, alt: x.alt || '' })))
+
+          const um = await fetchQuestionUsage([questionId])
+          if (alive) setUsage(um[questionId] || null)
         }
       }
       setLoading(false)
@@ -106,19 +121,27 @@ export default function QuestionEditor({ questionId = null, staffName }) {
   )
 
   // ── Save ────────────────────────────────────────────────────────────────────
+  const isMcq = qtype === 'mcq'
+
   const handleSave = async () => {
     setError('')
     if (!skillId) { setError('Pick a Year → Subject → Topic → Skill for this question.'); return }
-    if (!stem.trim() && !isMulti) { setError('Enter the question text.'); return }
+    if (!stem.trim()) { setError('Enter the question text.'); return }
+    if (isMcq && options.filter((o) => o.latex.trim()).length < 2) {
+      setError('Add at least two options for a multiple-choice question.'); return
+    }
     setSaving(true)
     try {
       const payload = {
         skill_id: skillId,
+        qtype,
         stem_latex: stem,
-        solution_latex: isMulti ? '' : solution,
+        solution_latex: (isMulti && !isMcq) ? '' : solution,   // mcq: explanation; extended single: worked solution
         difficulty: Number(difficulty),
-        marks: marks === '' ? null : Number(marks),
-        is_multipart: isMulti,
+        marks: marks === '' ? (isMcq ? 1 : null) : Number(marks),
+        is_multipart: isMcq ? false : isMulti,
+        options: isMcq ? options.filter((o) => o.latex.trim()).map((o) => ({ label: o.label, latex: o.latex })) : [],
+        correct_option: isMcq ? correctOption : null,
       }
 
       let qid = questionId
@@ -134,7 +157,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
 
       // Parts: replace wholesale (lightweight rows)
       await supabase.from(T_QBANK_QUESTION_PARTS).delete().eq('question_id', qid)
-      if (isMulti) {
+      if (isMulti && !isMcq) {
         const rows = parts
           .filter((p) => p.prompt_latex.trim() || p.solution_latex.trim())
           .map((p, i) => ({
@@ -192,9 +215,26 @@ export default function QuestionEditor({ questionId = null, staffName }) {
 
   return (
     <div className="space-y-6">
+      {editing && (
+        <section className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
+          <h2 className="text-sm font-bold text-[#062E63] mb-2">Usage</h2>
+          <UsageBadge usage={usage} details />
+        </section>
+      )}
+
       {/* Classification */}
       <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
-        <h2 className="text-sm font-bold text-[#062E63] mb-3">Classification</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-[#062E63]">Classification</h2>
+          <div className="inline-flex rounded-xl border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
+            {[['extended', 'Extended response'], ['mcq', 'Multiple choice']].map(([v, lbl]) => (
+              <button key={v} type="button" onClick={() => setQtype(v)}
+                className={`px-3 py-1.5 transition ${qtype === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
@@ -251,41 +291,68 @@ export default function QuestionEditor({ questionId = null, staffName }) {
               ))}
             </div>
           </div>
-          {!isMulti && (
+          {(!isMulti || isMcq) && (
             <div>
               <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Marks</label>
               <input type="number" min="0" value={marks} onChange={(e) => setMarks(e.target.value)}
+                placeholder={isMcq ? '1' : ''}
                 className="w-24 border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
             </div>
           )}
-          <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] ml-auto cursor-pointer">
-            <input type="checkbox" checked={isMulti} onChange={(e) => setIsMulti(e.target.checked)} />
-            Multi-part question (a, b, c…)
-          </label>
+          {!isMcq && (
+            <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] ml-auto cursor-pointer">
+              <input type="checkbox" checked={isMulti} onChange={(e) => setIsMulti(e.target.checked)} />
+              Multi-part question (a, b, c…)
+            </label>
+          )}
         </div>
       </section>
 
       {/* Question body */}
       <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5 space-y-4">
         <h2 className="text-sm font-bold text-[#062E63]">
-          {isMulti ? 'Stem / intro (shown above the parts)' : 'Question'}
+          {isMcq ? 'Multiple-choice question' : isMulti ? 'Stem / intro (shown above the parts)' : 'Question'}
         </h2>
         <LatexField
-          label={isMulti ? 'Stem (optional)' : 'Question text'}
+          label={isMulti && !isMcq ? 'Stem (optional)' : 'Question text'}
           value={stem} onChange={setStem} rows={4}
           hint="Use $…$ for inline math, $$…$$ for display"
           placeholder={'e.g. Solve for $x$:  $$x^2 - 5x + 6 = 0$$'}
         />
         <ImageManager images={images} onChange={onImagesChange} />
 
-        {!isMulti && (
-          <LatexField label="Worked solution (answer key)" value={solution} onChange={setSolution} rows={4}
+        {/* MCQ options */}
+        {isMcq && (
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-[#062E63]">Options — select the correct one</label>
+            {options.map((opt, i) => (
+              <div key={opt.label} className="flex items-start gap-2">
+                <button type="button" onClick={() => setCorrectOption(opt.label)}
+                  title="Mark correct"
+                  className={`mt-1 w-7 h-7 shrink-0 rounded-full text-xs font-bold border transition ${correctOption === opt.label ? 'bg-[#16A34A] text-white border-[#16A34A]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#16A34A]'}`}>
+                  {opt.label}
+                </button>
+                <div className="flex-1">
+                  <LatexField value={opt.latex} rows={1}
+                    onChange={(v) => setOptions((os) => os.map((o, j) => (j === i ? { ...o, latex: v } : o)))}
+                    placeholder={`Option ${opt.label}…`} />
+                </div>
+              </div>
+            ))}
+            <p className="text-[11px] text-[#2A2035]/40">Correct answer: <span className="font-bold text-[#16A34A]">{correctOption}</span></p>
+          </div>
+        )}
+
+        {(isMcq || !isMulti) && (
+          <LatexField
+            label={isMcq ? 'Explanation (shown in the solutions)' : 'Worked solution (answer key)'}
+            value={solution} onChange={setSolution} rows={isMcq ? 2 : 4}
             placeholder={'e.g. Factorising: $$(x-2)(x-3)=0 \\Rightarrow x=2,3$$'} />
         )}
       </section>
 
       {/* Parts */}
-      {isMulti && (
+      {isMulti && !isMcq && (
         <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-[#062E63]">Parts</h2>

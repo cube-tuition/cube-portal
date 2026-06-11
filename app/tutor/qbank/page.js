@@ -11,8 +11,9 @@ import {
 } from '../../../lib/tables'
 import {
   fetchTaxonomy, yearsFromSubjects, deleteQbankImage, qbankImageUrl,
-  DIFFICULTY_LABELS, DIFFICULTY_COLORS,
+  DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
 } from '../../../lib/qbank'
+import UsageBadge from '../../../components/qbank/UsageBadge'
 
 export default function QuestionBankPage() {
   const router = useRouter()
@@ -21,6 +22,7 @@ export default function QuestionBankPage() {
   const [tax, setTax] = useState(null)
   const [questions, setQuestions] = useState([])
   const [loadingQ, setLoadingQ] = useState(true)
+  const [usageMap, setUsageMap] = useState({})
 
   // filters
   const [year, setYear] = useState('')
@@ -29,6 +31,7 @@ export default function QuestionBankPage() {
   const [skillId, setSkillId] = useState('')
   const [difficulty, setDifficulty] = useState('')
   const [search, setSearch] = useState('')
+  const [usageTab, setUsageTab] = useState('all')   // all | used | unused
 
   const loadQuestions = useCallback(async () => {
     const { data } = await supabase
@@ -45,6 +48,7 @@ export default function QuestionBankPage() {
       setProfile(profile); setReady(true)
       fetchTaxonomy().then(setTax)
       loadQuestions()
+      fetchQuestionUsage().then(setUsageMap)
     })
   }, [router, loadQuestions])
 
@@ -82,13 +86,18 @@ export default function QuestionBankPage() {
       if (subjectId && l.subject?.id !== subjectId) return false
       if (year && String(l.subject?.year_level) !== String(year)) return false
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
+      if (usageTab !== 'all') {
+        const used = (usageMap[q.id]?.count || 0) > 0
+        if (usageTab === 'used' && !used) return false
+        if (usageTab === 'unused' && used) return false
+      }
       if (search.trim()) {
         const hay = `${q.stem_latex} ${q.solution_latex}`.toLowerCase()
         if (!hay.includes(search.toLowerCase())) return false
       }
       return true
     })
-  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, search])
+  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, search, usageTab, usageMap])
 
   const handleDelete = async (q) => {
     if (!confirm('Delete this question permanently?')) return
@@ -116,6 +125,7 @@ export default function QuestionBankPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/tutor/qbank/categories" className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
+            <Link href="/tutor/qbank/exams" className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Exams</Link>
             <Link href="/tutor/qbank/generate" className="px-3.5 py-2 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition">Generate worksheet</Link>
             <Link href="/tutor/qbank/new" className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
           </div>
@@ -148,8 +158,22 @@ export default function QuestionBankPage() {
           {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline">Clear</button> : null}
         </div>
 
+        {/* Used / Unused tabs */}
+        <div className="flex gap-1 mt-5 border-b border-[#DEE7FF]">
+          {(() => {
+            const usedCount = questions.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
+            const tabs = [['all', 'All', questions.length], ['used', 'Used', usedCount], ['unused', 'Unused', questions.length - usedCount]]
+            return tabs.map(([v, lbl, n]) => (
+              <button key={v} onClick={() => setUsageTab(v)}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${usageTab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+                {lbl} <span className="text-[11px] font-normal">({n})</span>
+              </button>
+            ))
+          })()}
+        </div>
+
         {/* List */}
-        <div className="mt-5 space-y-3">
+        <div className="mt-4 space-y-3">
           {loadingQ ? (
             <p className="text-center text-sm text-[#2A2035]/40 py-12 animate-pulse">Loading questions…</p>
           ) : filtered.length === 0 ? (
@@ -169,6 +193,8 @@ export default function QuestionBankPage() {
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ background: DIFFICULTY_COLORS[q.difficulty] }}>
                     {DIFFICULTY_LABELS[q.difficulty]}
                   </span>
+                  {q.qtype === 'mcq' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">MCQ</span>}
+                  <UsageBadge usage={usageMap[q.id]} />
                   {l?.subject && <span className="text-[11px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
                   {l?.topic && <span className="text-[11px] text-[#2A2035]/40">› {l.topic.name}</span>}
                   {l?.skill && <span className="text-[11px] text-[#2A2035]/40">› {l.skill.name}</span>}

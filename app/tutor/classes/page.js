@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { normalizeDays } from '../../../lib/format'
+import { normalizeDays, fmtTime, fmtTimeRange, isoDate } from '../../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { inferSubject } from '../../../components/CourseDetail'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
@@ -79,45 +79,6 @@ function startMinutes(t) {
   if (Number.isNaN(h)) return 99999
   return h * 60 + m
 }
-function fmtTime(t) {
-  if (!t) return ''
-  const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10)
-  const m = (mRaw || '00').padStart(2, '0')
-  if (Number.isNaN(h)) return t
-  const ampm = h >= 12 ? 'pm' : 'am'
-  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
-  return `${hr}:${m}${ampm}`
-}
-
-// "4:30–6pm" / "10–11:30am" — compact form for the weekly cards. Drops
-// trailing ":00" minutes, and drops the start's am/pm when it matches the
-// end's. Falls back to fmtTime if parsing fails.
-function fmtTimeRange(start, end) {
-  const parse = (t) => {
-    if (!t) return null
-    const [hRaw, mRaw] = String(t).split(':')
-    let h = parseInt(hRaw, 10)
-    const m = parseInt(mRaw || '0', 10) || 0
-    if (Number.isNaN(h)) return null
-    // times are stored as 24-hour; no AM/PM disambiguation needed
-    return { h, m }
-  }
-  const s = parse(start)
-  let e = parse(end)
-  if (!s || !e) return [fmtTime(start), fmtTime(end)].filter(Boolean).join('–')
-  if (e.h < s.h || (e.h === s.h && e.m < s.m)) e = { ...e, h: e.h + 12 }   // PM crossover
-
-  const piece = ({ h, m }, withAmPm) => {
-    const ampm = h >= 12 && h !== 24 ? 'pm' : 'am'
-    const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
-    const mm = m === 0 ? '' : `:${String(m).padStart(2, '0')}`
-    return `${hr}${mm}${withAmPm ? ampm : ''}`
-  }
-  const sameAmPm = (s.h >= 12) === (e.h >= 12)
-  return `${piece(s, !sameAmPm)}–${piece(e, true)}`
-}
-
 // Monday of the week containing d.
 function mondayOf(d) {
   const x = new Date(d); x.setHours(0, 0, 0, 0)
@@ -135,9 +96,6 @@ function addDays(d, n) {
 }
 function dayNameOf(d) {
   return DAY_ORDER[(d.getDay() + 6) % 7] // Monday-indexed
-}
-function isoDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 function fmtDateLabel(d) {
   return `${DAY_SHORT[dayNameOf(d)]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`

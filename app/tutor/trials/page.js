@@ -1,8 +1,11 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
+import { fmtDate } from '../../../lib/format'
 
 // ── Status pipeline ───────────────────────────────────────────────────────────
 const STAGES = [
@@ -19,11 +22,6 @@ const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.id, s]))
 function daysSince(iso) {
   if (!iso) return null
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
-}
-
-function fmtDate(iso) {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 // ── Stats bar ─────────────────────────────────────────────────────────────────
@@ -276,7 +274,9 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function TrialsPage() {
+  const router = useRouter()
   const [profile,     setProfile]     = useState(null)
+  const [isAdmin,     setIsAdmin]     = useState(false)
   const [submissions, setSubmissions] = useState([])
   const [classes,     setClasses]     = useState([])
   const [loading,     setLoading]     = useState(true)
@@ -285,12 +285,15 @@ export default function TrialsPage() {
   const [showArchive, setShowArchive] = useState(false)
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return
-      supabase.from('directors').select('full_name').eq('user_id', user.id).maybeSingle()
-        .then(({ data }) => setProfile(data))
+    getAuthProfile().then(({ profile, role }) => {
+      if (!profile || (role !== 'admin' && role !== 'director')) {
+        router.replace('/tutor')
+        return
+      }
+      setProfile(profile)
+      setIsAdmin(true)
     })
-  }, [])
+  }, [router])
 
   const loadData = useCallback(async () => {
     setLoading(true)

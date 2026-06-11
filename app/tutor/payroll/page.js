@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { formatTermLabel } from '../../../lib/terms'
 import { T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS } from '../../../lib/tables'
+import { fmtTime, fmtMoney, isoDate } from '../../../lib/format'
 
 // Xero Bills CSV defaults — edit here if your chart of accounts differs.
 const XERO_ACCOUNT_CODE = '477'         // 477 = Wages & Salaries (AU default)
@@ -23,12 +24,6 @@ const DUE_DAYS_AFTER    = 3              // bill DueDate = period_end + N days
 
 const FORTNIGHT_LABELS = ['W1 & 2', 'W3 & 4', 'W5 & 6', 'W7 & 8', 'W9 & 10']
 
-const isoDate = (d) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
 const fmtDate = (s) => {
   if (!s) return ''
   const d = new Date(s + 'T00:00:00')
@@ -39,8 +34,6 @@ const fmtDateLong = (s) => {
   const d = new Date(s + 'T00:00:00')
   return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 }
-const fmtTime = (t) => t ? t.slice(0, 5) : ''
-const fmtMoney = (n) => '$' + (Number(n) || 0).toFixed(2)
 
 // Compute (start, end) ISO dates for fortnight n (1..5) of a term.
 function fortnightDates(term, idx) {

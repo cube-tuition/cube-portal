@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_ATTENDANCE, T_CURRENT_TUTOR_RATES, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS } from '../../../../../lib/tables'
 import { inferSubject } from '../../../../../components/CourseDetail'
+import { fmtTime, fmtTimeRange } from '../../../../../lib/format'
 
 /*
  * Makeup lesson session page — /tutor/classes/makeup/[lessonId]
@@ -46,38 +47,10 @@ const UNDERSTANDING_OPTIONS = [
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-// start_time / end_time are stored as PostgreSQL time (HH:MM:SS), 24-hour.
-function fmtTime(t) {
-  if (!t) return ''
-  const [hRaw, mRaw] = String(t).split(':')
-  let h = parseInt(hRaw, 10)
-  const m = (mRaw || '00').padStart(2, '0')
-  if (Number.isNaN(h)) return t
-  const ampm = h >= 12 ? 'pm' : 'am'
-  const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
-  return `${hr}:${m}${ampm}`
-}
-function fmtTimeRange(start, end) {
-  const parse = (t) => {
-    if (!t) return null
-    const [hRaw, mRaw] = String(t).split(':')
-    const h = parseInt(hRaw, 10)
-    const m = parseInt(mRaw || '0', 10) || 0
-    if (Number.isNaN(h)) return null
-    return { h, m }
-  }
-  const s = parse(start); let e = parse(end)
-  if (!s || !e) return [fmtTime(start), fmtTime(end)].filter(Boolean).join('–')
-  const piece = ({ h, m }, withAmPm) => {
-    const ampm = h >= 12 && h !== 24 ? 'pm' : 'am'
-    const hr = h === 0 ? 12 : (h > 12 ? h - 12 : h)
-    const mm = m === 0 ? '' : `:${String(m).padStart(2, '0')}`
-    return `${hr}${mm}${withAmPm ? ampm : ''}`
-  }
-  const sameAmPm = (s.h >= 12) === (e.h >= 12)
-  return `${piece(s, !sameAmPm)}–${piece(e, true)}`
-}
-function fmtDateLong(iso) {
+// fmtTime and fmtTimeRange imported from lib/format.
+
+// Includes weekday: "Wednesday 4 June 2025"
+function fmtDateWithDay(iso) {
   if (!iso) return ''
   const d = new Date(`${iso}T00:00:00`)
   const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
@@ -352,7 +325,7 @@ export default function MakeupLessonPage() {
 
         {/* Session meta */}
         <div className="rounded-2xl border border-[#DDD6FE] bg-[#FAF5FF] px-6 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <MetaItem label="Date"   value={fmtDateLong(lesson.lesson_date)} span={2} />
+          <MetaItem label="Date"   value={fmtDateWithDay(lesson.lesson_date)} span={2} />
           <MetaItem label="Time"   value={timeRange} />
           {room           && <MetaItem label="Room"   value={room} />}
           {studentYear    && <MetaItem label="Year"   value={studentYear} />}
