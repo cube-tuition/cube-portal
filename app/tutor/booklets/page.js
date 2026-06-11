@@ -1,10 +1,22 @@
 'use client'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
+import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
+
+function fmtTime(t) {
+  if (!t) return ''
+  const [hRaw, mRaw] = String(t).split(':')
+  let h = parseInt(hRaw, 10)
+  const m = (mRaw || '00').padStart(2, '0')
+  if (Number.isNaN(h)) return t
+  const ampm = h >= 12 ? 'pm' : 'am'
+  const hr = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${hr}:${m}${ampm}`
+}
 
 const SUBJECTS_BY_YEAR = {
   11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
@@ -519,7 +531,7 @@ export default function BookletsPage() {
   useEffect(() => {
     getAuthProfile().then(({ user, profile }) => {
       if (!user) { router.push('/'); return }
-      if (!profile || profile.role !== 'admin') { router.push('/tutor'); return }
+      if (!profile || (profile.role !== 'admin' && profile.role !== 'director' && profile.role !== 'tutor')) { router.push('/tutor'); return }
       setStaff(profile)
     })
   }, [router])
@@ -607,6 +619,9 @@ export default function BookletsPage() {
   })
 
   if (!staff) return null
+
+  // Tutors get a read-only curriculum view of their own classes
+  if (staff.role === 'tutor') return <TutorCurriculumPage staff={staff} />
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
@@ -874,6 +889,379 @@ export default function BookletsPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tutor-facing curriculum view — read-only, scoped to their own classes
+// ─────────────────────────────────────────────────────────────────────────────
+function TutorCurriculumPage({ staff }) {
+  const [classes,       setClasses]       = useState([])  // classes this tutor teaches this term
+  const [activeClassId, setActiveClassId] = useState(null)
+  const [assignments,   setAssignments]   = useState([])  // class_booklet_assignments rows
+  const [currentTerm,   setCurrentTerm]   = useState(null)
+  const [loadingCls,    setLoadingCls]    = useState(true)
+  const [loadingAsgn,   setLoadingAsgn]   = useState(false)
+
+  // ── Load current term + tutor's classes ────────────────────────────────────
+  useEffect(() => {
+    const init = async () => {
+      const terms = await fetchAllTerms()
+      const term  = getCurrentTerm(terms)
+      setCurrentTerm(term)
+
+      const firstName = (staff.full_name || '').split(' ')[0]
+
+      // Classes for this term where teacher name starts with tutor's first name
+      const { data: rows } = await supabase
+        .from('classes')
+        .select('id, class_name, teacher, day_of_week, start_time, end_time, courses(course_code)')
+        .ilike('teacher', firstName + '%')
+        .eq('term_id', term?.id ?? '')
+        .order('day_of_week')
+        .order('start_time')
+
+      const cls = rows || []
+
+      // If no classes found in current term, fall back to all terms (tutor may
+      // be viewing between terms)
+      if (cls.length === 0) {
+        const { data: fallback } = await supabase
+          .from('classes')
+          .select('id, class_name, teacher, day_of_week, start_time, end_time, courses(course_code)')
+          .ilike('teacher', firstName + '%')
+          .order('day_of_week')
+          .order('start_time')
+        const all = fallback || []
+        setClasses(all)
+        if (all.length) setActiveClassId(all[0].id)
+      } else {
+        setClasses(cls)
+        setActiveClassId(cls[0].id)
+      }
+
+      setLoadingCls(false)
+    }
+    init()
+  }, [staff])
+
+  // ── Load assignments for selected class ────────────────────────────────────
+  useEffect(() => {
+    if (!activeClassId) return
+    setLoadingAsgn(true)
+    supabase
+      .from('class_booklet_assignments')
+      .select('term_number, week, booklets(id, booklet_name, topic, file_paths, file_path, year, subject)')
+      .eq('class_id', activeClassId)
+      .then(({ data }) => {
+        setAssignments(data || [])
+        setLoadingAsgn(false)
+      })
+  }, [activeClassId])
+
+  // Build slot lookup: "termNum-week" → booklet object
+  const slotMap = useMemo(() => {
+    const m = {}
+    for (const a of assignments) m[`${a.term_number}-${a.week}`] = a.booklets
+    return m
+  }, [assignments])
+
+  // Current week within the current term
+  const currentWeek = useMemo(() => {
+    if (!currentTerm) return null
+    const today = new Date()
+    const start = new Date(currentTerm.start_date + 'T00:00:00')
+    const diff  = today - start
+    if (diff < 0) return null
+    const w = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1
+    return w >= 1 && w <= 10 ? w : null
+  }, [currentTerm])
+
+  const curTermNum = currentTerm?.term_number
+
+  // Infer subject accent from course_code (mirrors admin logic)
+  const inferSubject = (cls) => {
+    const code   = cls?.courses?.course_code || ''
+    const parts  = code.split('.')
+    const yr     = parseInt(parts[0])
+    const suffix = (parts[1] || '').toUpperCase()
+    if (yr >= 11) {
+      if (suffix.startsWith('M1')) return 'Standard Maths'
+      if (suffix.startsWith('M2')) return 'Adv Maths'
+      if (suffix.startsWith('M3')) return 'Ext 1 Maths'
+      if (suffix.startsWith('M4')) return 'Ext 2 Maths'
+      if (suffix.startsWith('E'))  return 'English'
+      if (suffix.startsWith('C'))  return 'Chemistry'
+    }
+    if (suffix.startsWith('M')) return 'Maths'
+    if (suffix.startsWith('E')) return 'English'
+    if (suffix.startsWith('C')) return 'Chemistry'
+    return 'Maths'
+  }
+
+  const getPdfUrl = (path) => {
+    if (!path) return null
+    const { data } = supabase.storage.from('booklets').getPublicUrl(path)
+    return data?.publicUrl ?? null
+  }
+
+  const activeClass = classes.find(c => c.id === activeClassId) ?? null
+  const subject     = inferSubject(activeClass)
+  const accent      = getAccentColor(subject)
+  const accentBg    = getAccentBg(subject)
+
+  const totalAssigned = assignments.length
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFF]">
+      <TutorNav staffName={staff.full_name} isAdmin={false} />
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="bg-white border-b border-[#DEE7FF]">
+        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-[#062E63]">My Curriculum</h1>
+            <p className="text-sm text-[#2A2035]/50 mt-0.5">
+              {classes.length === 0
+                ? 'Booklet schedule across your classes'
+                : `${classes.length} class${classes.length !== 1 ? 'es' : ''} this term`}
+              {currentTerm && (
+                <span className="ml-2 text-[#325099]/60">· {currentTerm.name}</span>
+              )}
+            </p>
+          </div>
+          {currentTerm && curTermNum && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-[#EEF4FF] text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#325099]" />
+              Term {curTermNum}{currentWeek ? `, Week ${currentWeek}` : ''}
+            </span>
+          )}
+        </div>
+
+        {/* Class tabs */}
+        {classes.length > 0 && (
+          <div className="max-w-7xl mx-auto px-6 md:px-10 flex gap-0 overflow-x-auto">
+            {classes.map(cls => {
+              const sub = inferSubject(cls)
+              const col = getAccentColor(sub)
+              const isActive = cls.id === activeClassId
+              return (
+                <button
+                  key={cls.id}
+                  onClick={() => setActiveClassId(cls.id)}
+                  className={`px-4 py-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap flex flex-col items-start ${
+                    isActive
+                      ? 'border-[#325099] text-[#062E63]'
+                      : 'border-transparent text-[#2A2035]/50 hover:text-[#325099] hover:border-[#DEE7FF]'
+                  }`}
+                >
+                  <span>{cls.class_name || 'Untitled'}</span>
+                  {(cls.day_of_week || cls.start_time) && (
+                    <span className="text-[10px] font-normal mt-0.5" style={{ color: isActive ? col : undefined }}>
+                      {cls.day_of_week?.slice(0, 3)}{cls.start_time ? ` · ${fmtTime(cls.start_time)}` : ''}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Body ───────────────────────────────────────────────────────────── */}
+      <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6 pb-20">
+
+        {/* Loading / empty states */}
+        {loadingCls ? (
+          <div className="flex justify-center py-20">
+            <div className="w-5 h-5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : classes.length === 0 ? (
+          <div className="text-center py-20 bg-white rounded-2xl border border-[#DEE7FF]">
+            <p className="text-3xl mb-3">📚</p>
+            <p className="text-sm font-semibold text-[#2A2035]">No classes found for this term.</p>
+            <p className="text-xs text-[#2A2035]/50 mt-1 max-w-xs mx-auto">
+              Classes are matched to your name. If something looks wrong, let a director know.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Class info strip */}
+            {activeClass && (
+              <div className="flex items-center gap-3 mb-6 flex-wrap">
+                <div
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border"
+                  style={{ background: accentBg, color: accent, borderColor: accent + '33' }}
+                >
+                  <span>{activeClass.class_name}</span>
+                  {activeClass.day_of_week && (
+                    <span className="opacity-60 font-normal">
+                      {activeClass.day_of_week} · {fmtTime(activeClass.start_time)}–{fmtTime(activeClass.end_time)}
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-[#325099]/50">
+                  {totalAssigned} booklet{totalAssigned !== 1 ? 's' : ''} scheduled across all terms
+                </span>
+              </div>
+            )}
+
+            {/* No assignments yet */}
+            {!loadingAsgn && totalAssigned === 0 && (
+              <div className="text-center py-16 bg-white rounded-2xl border border-[#DEE7FF]">
+                <p className="text-3xl mb-3">📋</p>
+                <p className="text-sm font-semibold text-[#2A2035]">No curriculum set for this class yet.</p>
+                <p className="text-xs text-[#2A2035]/50 mt-1">A director will assign booklets to each week shortly.</p>
+              </div>
+            )}
+
+            {/* Loading assignments */}
+            {loadingAsgn && (
+              <div className="flex justify-center py-16">
+                <div className="w-5 h-5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+
+            {/* ── 4-term curriculum grid ──────────────────────────────────── */}
+            {!loadingAsgn && totalAssigned > 0 && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[1, 2, 3, 4].map(termNum => {
+                  const isCurTerm  = termNum === curTermNum
+                  const termColor  = isCurTerm ? accent    : '#64748B'
+                  const termBgCol  = isCurTerm ? accentBg  : '#F1F5F9'
+                  const scheduled  = Array.from({ length: 10 }, (_, i) => i + 1)
+                    .filter(w => slotMap[`${termNum}-${w}`]).length
+
+                  return (
+                    <div key={termNum}>
+                      {/* Term header */}
+                      <div
+                        className="flex items-center justify-between px-3 py-2 rounded-xl mb-2"
+                        style={{ background: termBgCol }}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold tracking-wide" style={{ color: termColor }}>
+                            Term {termNum}
+                          </span>
+                          {isCurTerm && (
+                            <span
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white"
+                              style={{ background: termColor }}
+                            >
+                              current
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                          style={{ background: termColor, color: 'white' }}
+                        >
+                          {scheduled}/10
+                        </span>
+                      </div>
+
+                      {/* Week rows */}
+                      <div className="flex flex-col gap-1.5">
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map(week => {
+                          const b            = slotMap[`${termNum}-${week}`]
+                          const isCurWeek    = isCurTerm && week === currentWeek
+                          const pdfPaths     = b
+                            ? (b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : []))
+                            : []
+
+                          if (b) {
+                            return (
+                              <div
+                                key={week}
+                                className={`bg-white rounded-xl overflow-hidden transition-all ${
+                                  isCurWeek
+                                    ? 'border-2 shadow-md ring-2 ring-offset-1'
+                                    : 'border border-[#E8EDF8] shadow-sm hover:shadow-md hover:border-[#C7D7FF]'
+                                }`}
+                                style={isCurWeek ? { borderColor: accent, ringColor: accent + '30' } : {}}
+                              >
+                                {/* Colour bar */}
+                                <div className="h-[3px] w-full" style={{ background: isCurWeek ? accent : accent + '80' }} />
+                                <div className="px-3 pt-2 pb-2">
+                                  {/* Week label + PDF links */}
+                                  <div className="flex items-start justify-between gap-1 mb-0.5">
+                                    <span
+                                      className="text-[9px] font-bold uppercase tracking-widest leading-none"
+                                      style={{ color: isCurWeek ? accent : accent + 'AA' }}
+                                    >
+                                      Wk {week}{isCurWeek ? ' ●' : ''}
+                                    </span>
+                                    {pdfPaths.length > 0 && (
+                                      <div className="flex gap-1 flex-wrap justify-end">
+                                        {pdfPaths.slice(0, 3).map((path, pi) => {
+                                          const url = getPdfUrl(path)
+                                          return url ? (
+                                            <a
+                                              key={pi}
+                                              href={url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-[9px] font-bold px-1.5 py-0.5 rounded-md hover:opacity-75 transition"
+                                              style={{ background: accentBg, color: accent }}
+                                            >
+                                              {pdfPaths.length > 1 ? `PDF ${pi + 1}` : '📄 PDF'}
+                                            </a>
+                                          ) : null
+                                        })}
+                                        {pdfPaths.length > 3 && (
+                                          <span className="text-[9px] text-[#2A2035]/30">+{pdfPaths.length - 3}</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Booklet name */}
+                                  <p className="text-[11px] font-bold text-[#062E63] leading-snug">
+                                    {bookletLabel(b)}
+                                  </p>
+                                  {/* Topic */}
+                                  {b.topic && (
+                                    <p
+                                      className="text-[9px] font-medium mt-0.5 truncate"
+                                      style={{ color: accent }}
+                                    >
+                                      {b.topic}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          }
+
+                          // Unscheduled slot
+                          return (
+                            <div
+                              key={week}
+                              className={`rounded-xl overflow-hidden ${
+                                isCurWeek
+                                  ? 'border border-[#CBD5E1] bg-[#F8FAFF]'
+                                  : 'border border-dashed border-[#E2E8F0]'
+                              }`}
+                            >
+                              <div className="h-[3px] w-full" />
+                              <div className="px-3 pt-2 pb-2">
+                                <span className={`text-[9px] font-bold uppercase tracking-widest ${isCurWeek ? 'text-[#94A3B8]' : 'text-[#CBD5E1]'}`}>
+                                  Wk {week}{isCurWeek ? ' ●' : ''}
+                                </span>
+                                <p className="text-[10px] text-[#CBD5E1] mt-0.5">Not scheduled</p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

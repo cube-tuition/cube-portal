@@ -1,0 +1,333 @@
+'use client'
+import { useEffect, useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
+import { supabase } from '../../lib/supabase'
+import {
+  T_QBANK_QUESTIONS, T_QBANK_QUESTION_PARTS, T_QBANK_QUESTION_IMAGES,
+} from '../../lib/tables'
+import {
+  fetchTaxonomy, yearsFromSubjects, uploadQbankImage, deleteQbankImage,
+  DIFFICULTY_LABELS, DIFFICULTY_COLORS,
+} from '../../lib/qbank'
+import LatexField from './LatexField'
+import ImageManager from './ImageManager'
+
+const blankPart = (i) => ({
+  _key: Math.random().toString(36).slice(2),
+  part_label: 'abcdefgh'[i] || String(i + 1),
+  prompt_latex: '',
+  solution_latex: '',
+  marks: '',
+})
+
+export default function QuestionEditor({ questionId = null, staffName }) {
+  const router = useRouter()
+  const editing = !!questionId
+
+  const [tax, setTax] = useState(null)          // { subjects, topicsBySubject, skillsByTopic }
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  // Cascade selection
+  const [year, setYear] = useState('')
+  const [subjectId, setSubjectId] = useState('')
+  const [topicId, setTopicId] = useState('')
+  const [skillId, setSkillId] = useState('')
+
+  // Question fields
+  const [stem, setStem] = useState('')
+  const [solution, setSolution] = useState('')
+  const [difficulty, setDifficulty] = useState(3)
+  const [marks, setMarks] = useState('')
+  const [isMulti, setIsMulti] = useState(false)
+  const [parts, setParts] = useState([blankPart(0)])
+  const [images, setImages] = useState([])
+  const [removedImageIds, setRemovedImageIds] = useState([])
+
+  // ── Load taxonomy (+ existing question when editing) ────────────────────────
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const t = await fetchTaxonomy()
+      if (!alive) return
+      setTax(t)
+
+      if (editing) {
+        const { data: q } = await supabase.from(T_QBANK_QUESTIONS)
+          .select('*').eq('id', questionId).maybeSingle()
+        if (q) {
+          setStem(q.stem_latex || '')
+          setSolution(q.solution_latex || '')
+          setDifficulty(q.difficulty || 3)
+          setMarks(q.marks ?? '')
+          setIsMulti(q.is_multipart)
+
+          // Prefill cascade from skill → topic → subject
+          const skill = t.skills.find((s) => s.id === q.skill_id)
+          const topic = skill && t.topics.find((tp) => tp.id === skill.topic_id)
+          const subject = topic && t.subjects.find((su) => su.id === topic.subject_id)
+          if (subject) { setYear(String(subject.year_level)); setSubjectId(subject.id) }
+          if (topic) setTopicId(topic.id)
+          if (skill) setSkillId(skill.id)
+
+          const { data: pr } = await supabase.from(T_QBANK_QUESTION_PARTS)
+            .select('*').eq('question_id', questionId).order('sort_order')
+          if (pr?.length) {
+            setParts(pr.map((p) => ({
+              _key: p.id, part_label: p.part_label || '',
+              prompt_latex: p.prompt_latex || '', solution_latex: p.solution_latex || '',
+              marks: p.marks ?? '',
+            })))
+          }
+          const { data: im } = await supabase.from(T_QBANK_QUESTION_IMAGES)
+            .select('*').eq('question_id', questionId).order('sort_order')
+          if (im?.length) setImages(im.map((x) => ({ id: x.id, storage_path: x.storage_path, alt: x.alt || '' })))
+        }
+      }
+      setLoading(false)
+    })()
+    return () => { alive = false }
+  }, [editing, questionId])
+
+  // ── Derived dropdown lists ──────────────────────────────────────────────────
+  const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects) : []), [tax])
+  const subjectsForYear = useMemo(
+    () => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []),
+    [tax, year],
+  )
+  const topicsForSubject = useMemo(
+    () => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []),
+    [tax, subjectId],
+  )
+  const skillsForTopic = useMemo(
+    () => (tax && topicId ? (tax.skillsByTopic[topicId] || []) : []),
+    [tax, topicId],
+  )
+
+  // ── Save ────────────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    setError('')
+    if (!skillId) { setError('Pick a Year → Subject → Topic → Skill for this question.'); return }
+    if (!stem.trim() && !isMulti) { setError('Enter the question text.'); return }
+    setSaving(true)
+    try {
+      const payload = {
+        skill_id: skillId,
+        stem_latex: stem,
+        solution_latex: isMulti ? '' : solution,
+        difficulty: Number(difficulty),
+        marks: marks === '' ? null : Number(marks),
+        is_multipart: isMulti,
+      }
+
+      let qid = questionId
+      if (editing) {
+        const { error: e } = await supabase.from(T_QBANK_QUESTIONS).update(payload).eq('id', questionId)
+        if (e) throw e
+      } else {
+        const { data, error: e } = await supabase.from(T_QBANK_QUESTIONS)
+          .insert({ ...payload, created_by: staffName || null }).select('id').single()
+        if (e) throw e
+        qid = data.id
+      }
+
+      // Parts: replace wholesale (lightweight rows)
+      await supabase.from(T_QBANK_QUESTION_PARTS).delete().eq('question_id', qid)
+      if (isMulti) {
+        const rows = parts
+          .filter((p) => p.prompt_latex.trim() || p.solution_latex.trim())
+          .map((p, i) => ({
+            question_id: qid,
+            part_label: p.part_label || 'abcdefgh'[i] || String(i + 1),
+            prompt_latex: p.prompt_latex,
+            solution_latex: p.solution_latex,
+            marks: p.marks === '' ? null : Number(p.marks),
+            sort_order: i,
+          }))
+        if (rows.length) {
+          const { error: e } = await supabase.from(T_QBANK_QUESTION_PARTS).insert(rows)
+          if (e) throw e
+        }
+      }
+
+      // Images: delete removed, upload new
+      if (removedImageIds.length) {
+        const { data: removedRows } = await supabase.from(T_QBANK_QUESTION_IMAGES)
+          .select('storage_path').in('id', removedImageIds)
+        await supabase.from(T_QBANK_QUESTION_IMAGES).delete().in('id', removedImageIds)
+        for (const r of removedRows || []) await deleteQbankImage(r.storage_path)
+      }
+      const newOnes = images.filter((x) => x._new)
+      for (let i = 0; i < newOnes.length; i++) {
+        const img = newOnes[i]
+        const path = await uploadQbankImage(img.file)
+        await supabase.from(T_QBANK_QUESTION_IMAGES)
+          .insert({ question_id: qid, storage_path: path, alt: img.alt || null, sort_order: i })
+      }
+
+      router.push('/tutor/qbank')
+    } catch (e) {
+      setError(e.message || 'Could not save the question.')
+      setSaving(false)
+    }
+  }
+
+  // Track removed existing images for deletion on save.
+  const onImagesChange = (next) => {
+    const stillThere = new Set(next.filter((x) => x.id).map((x) => x.id))
+    const newlyRemoved = images.filter((x) => x.id && !stillThere.has(x.id)).map((x) => x.id)
+    if (newlyRemoved.length) setRemovedImageIds((r) => [...r, ...newlyRemoved])
+    setImages(next)
+  }
+
+  const updatePart = (key, field, val) =>
+    setParts((ps) => ps.map((p) => (p._key === key ? { ...p, [field]: val } : p)))
+
+  if (loading) return (
+    <div className="py-20 text-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
+  )
+
+  const inputCls = 'w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+
+  return (
+    <div className="space-y-6">
+      {/* Classification */}
+      <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+        <h2 className="text-sm font-bold text-[#062E63] mb-3">Classification</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
+            <select value={year} className={inputCls}
+              onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSkillId('') }}>
+              <option value="">—</option>
+              {years.map((y) => <option key={y} value={y}>Year {y}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">Subject</label>
+            <select value={subjectId} disabled={!year} className={inputCls}
+              onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSkillId('') }}>
+              <option value="">—</option>
+              {subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">Topic</label>
+            <select value={topicId} disabled={!subjectId} className={inputCls}
+              onChange={(e) => { setTopicId(e.target.value); setSkillId('') }}>
+              <option value="">—</option>
+              {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">Skill</label>
+            <select value={skillId} disabled={!topicId} className={inputCls}
+              onChange={(e) => setSkillId(e.target.value)}>
+              <option value="">—</option>
+              {skillsForTopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+        </div>
+        {topicId && skillsForTopic.length === 0 && (
+          <p className="text-[11px] text-[#EA580C] mt-2">
+            No skills under this topic yet — add some in <a className="underline" href="/tutor/qbank/categories">Categories</a>.
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-end gap-4 mt-4">
+          <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Difficulty</label>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map((d) => (
+                <button key={d} type="button" onClick={() => setDifficulty(d)}
+                  title={DIFFICULTY_LABELS[d]}
+                  className="w-8 h-8 rounded-lg text-xs font-bold border transition"
+                  style={difficulty === d
+                    ? { background: DIFFICULTY_COLORS[d], color: '#fff', borderColor: DIFFICULTY_COLORS[d] }
+                    : { background: '#fff', color: '#94a3b8', borderColor: '#DEE7FF' }}>
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+          {!isMulti && (
+            <div>
+              <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Marks</label>
+              <input type="number" min="0" value={marks} onChange={(e) => setMarks(e.target.value)}
+                className="w-24 border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] ml-auto cursor-pointer">
+            <input type="checkbox" checked={isMulti} onChange={(e) => setIsMulti(e.target.checked)} />
+            Multi-part question (a, b, c…)
+          </label>
+        </div>
+      </section>
+
+      {/* Question body */}
+      <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5 space-y-4">
+        <h2 className="text-sm font-bold text-[#062E63]">
+          {isMulti ? 'Stem / intro (shown above the parts)' : 'Question'}
+        </h2>
+        <LatexField
+          label={isMulti ? 'Stem (optional)' : 'Question text'}
+          value={stem} onChange={setStem} rows={4}
+          hint="Use $…$ for inline math, $$…$$ for display"
+          placeholder={'e.g. Solve for $x$:  $$x^2 - 5x + 6 = 0$$'}
+        />
+        <ImageManager images={images} onChange={onImagesChange} />
+
+        {!isMulti && (
+          <LatexField label="Worked solution (answer key)" value={solution} onChange={setSolution} rows={4}
+            placeholder={'e.g. Factorising: $$(x-2)(x-3)=0 \\Rightarrow x=2,3$$'} />
+        )}
+      </section>
+
+      {/* Parts */}
+      {isMulti && (
+        <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-[#062E63]">Parts</h2>
+            <button type="button"
+              onClick={() => setParts((ps) => [...ps, blankPart(ps.length)])}
+              className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">+ Add part</button>
+          </div>
+          {parts.map((p) => (
+            <div key={p._key} className="rounded-xl border border-[#DEE7FF] p-4 bg-[#FBFCFF] space-y-3">
+              <div className="flex items-center gap-2">
+                <input value={p.part_label} onChange={(e) => updatePart(p._key, 'part_label', e.target.value)}
+                  className="w-12 border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none focus:border-[#325099]" />
+                <span className="text-[11px] text-[#2A2035]/40">part label</span>
+                <input type="number" min="0" value={p.marks} placeholder="marks"
+                  onChange={(e) => updatePart(p._key, 'marks', e.target.value)}
+                  className="w-20 ml-auto border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#325099]" />
+                {parts.length > 1 && (
+                  <button type="button" onClick={() => setParts((ps) => ps.filter((x) => x._key !== p._key))}
+                    className="text-[11px] text-[#DC2626] hover:underline">Remove</button>
+                )}
+              </div>
+              <LatexField value={p.prompt_latex} onChange={(v) => updatePart(p._key, 'prompt_latex', v)}
+                rows={2} placeholder="Part prompt…" />
+              <LatexField value={p.solution_latex} onChange={(v) => updatePart(p._key, 'solution_latex', v)}
+                rows={2} placeholder="Part solution…" />
+            </div>
+          ))}
+        </section>
+      )}
+
+      {error && <p className="text-sm text-[#DC2626]">{error}</p>}
+
+      <div className="flex items-center gap-3">
+        <button onClick={handleSave} disabled={saving}
+          className="px-5 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
+          {saving ? 'Saving…' : editing ? 'Save changes' : 'Add to bank'}
+        </button>
+        <button onClick={() => router.push('/tutor/qbank')}
+          className="px-5 py-2.5 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/60 hover:bg-[#F8FAFF] transition">
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}

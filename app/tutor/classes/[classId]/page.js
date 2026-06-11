@@ -412,7 +412,7 @@ export default function ClassOverviewPage() {
             classId={cls.id}
             termId={term.id}
             roster={roster}
-            canEdit={isAdmin || (cls.teacher || '').split(' ')[0].toLowerCase() === (staff?.full_name || '').split(' ')[0].toLowerCase()}
+            canEdit={isAdmin}
           />
         )}
         {tab === 'prepost' && !term && (
@@ -430,7 +430,7 @@ export default function ClassOverviewPage() {
             termId={term.id}
             termNumber={term.term_number}
             roster={roster}
-            canEdit={isAdmin || (cls.teacher || '').split(' ')[0].toLowerCase() === (staff?.full_name || '').split(' ')[0].toLowerCase()}
+            canEdit={isAdmin}
           />
         )}
         {tab === 'exams' && !term && (

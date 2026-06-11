@@ -18,13 +18,22 @@ import { supabase } from '../lib/supabase'
  */
 
 const BASE_LINKS = [
-  { label: 'Home',     href: '/tutor' },
-  { label: 'Info',     href: '/tutor/hub' },
-  { label: 'Classes',  href: '/tutor/classes' },
-  { label: 'Booklets', href: '/tutor/booklets' },
+  { label: 'Home',    href: '/tutor' },
+  { label: 'Info',    href: '/tutor/hub' },
+  { label: 'Classes', href: '/tutor/classes' },
+]
+const SHARED_GROUPS = [
+  {
+    label: 'Resources',
+    links: [
+      { label: 'Booklets',  href: '/tutor/booklets', icon: '📖' },
+      { label: 'Questions', href: '/tutor/qbank',    icon: '❓' },
+    ],
+  },
 ]
 const TUTOR_LINKS = [
-  { label: 'My pay', href: '/tutor/pay' },
+  { label: 'My pay',      href: '/tutor/pay' },
+  { label: 'Availability', href: '/tutor/availability' },
 ]
 const ADMIN_FLAT_LINKS = [
   { label: 'Database', href: '/tutor/database' },
@@ -33,11 +42,12 @@ const ADMIN_GROUPS = [
   {
     label: 'Admin',
     links: [
-      { label: 'Trials',     href: '/tutor/trials',     icon: '🧪' },
-      { label: 'Drop-ins',   href: '/tutor/dropin',     icon: '☕' },
-      { label: 'Emails',     href: '/tutor/emails',     icon: '✉️'  },
-      { label: 'Reports',    href: '/tutor/reports',    icon: '📊' },
-      { label: 'Transition', href: '/tutor/transition', icon: '🔄' },
+      { label: 'Availabilities', href: '/tutor/admin/availabilities', icon: '📅' },
+      { label: 'Drop-ins',      href: '/tutor/dropin',               icon: '☕' },
+      { label: 'Emails',        href: '/tutor/emails',               icon: '✉️'  },
+      { label: 'Reports',       href: '/tutor/reports',              icon: '📊' },
+      { label: 'Transition',    href: '/tutor/transition',           icon: '🔄' },
+      { label: 'Trials',        href: '/tutor/trials',               icon: '🧪' },
     ],
   },
   {
@@ -179,7 +189,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
             CUBE
           </span>
           <span className="hidden sm:inline-block text-[10px] tracking-[0.3em] uppercase text-[#325099]/70 font-semibold pt-0.5">
-            Tutor Portal{isAdmin ? ' · Admin' : ''}
+            {isAdmin ? 'Director Portal' : 'Tutor Portal'}
           </span>
         </Link>
 
@@ -194,6 +204,9 @@ export default function TutorNav({ staffName, isAdmin = false }) {
               </Link>
             )
           })}
+          {SHARED_GROUPS.map(group => (
+            <NavDropdown key={group.label} group={group} pathname={pathname} />
+          ))}
           {isAdmin && ADMIN_GROUPS.map(group => (
             <NavDropdown key={group.label} group={group} pathname={pathname} />
           ))}
@@ -222,7 +235,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
           {staffName && (
             <span className="hidden sm:inline-flex items-center gap-2 text-xs font-semibold text-[#062E63] bg-[#F8FAFF] border border-[#DEE7FF] px-3 py-1.5 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-              {staffName.split(' ')[0]}{isAdmin ? ' (admin)' : ''}
+              {staffName.split(' ')[0]}{isAdmin ? ' (director)' : ''}
             </span>
           )}
           <button onClick={handleLogout}
@@ -254,6 +267,10 @@ export default function TutorNav({ staffName, isAdmin = false }) {
               </Link>
             )
           })}
+          {/* Shared groups (all users) */}
+          {SHARED_GROUPS.map(group => (
+            <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
+          ))}
           {/* Admin groups */}
           {isAdmin && ADMIN_GROUPS.map(group => (
             <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
@@ -284,7 +301,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
             {staffName && (
               <span className="flex items-center gap-2 text-xs font-semibold text-[#062E63]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                {staffName}{isAdmin ? ' (admin)' : ''}
+                {staffName}{isAdmin ? ' (director)' : ''}
               </span>
             )}
             <button onClick={handleLogout} className="text-sm font-semibold text-red-500 hover:text-red-700 transition ml-auto">

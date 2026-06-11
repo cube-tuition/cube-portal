@@ -277,7 +277,7 @@ export default function TutorClassesPage() {
         .eq('is_makeup', true)
         .gte('lesson_date', behind)
         .lte('lesson_date', ahead)
-      if (!isAdmin) makeupQuery.eq('scheduled_teacher_id', staff.id)
+      if (!isAdmin || classView === 'mine') makeupQuery.eq('scheduled_teacher_id', staff.id)
       const { data: makeupRows } = await makeupQuery
       setMakeupSessions((makeupRows || []).map(r => ({ dateISO: r.lesson_date, lesson: r })))
 

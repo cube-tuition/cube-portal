@@ -198,6 +198,7 @@ export async function POST(req) {
         invoice_number:       invoiceNumber,
         reference_code:       referenceCode,
         status:               'draft',
+        payment_status:       'unpaid',
         subtotal:             total,
         sibling_discount:     siblingDiscount,
         multi_course_discount: multiCourseDiscount,

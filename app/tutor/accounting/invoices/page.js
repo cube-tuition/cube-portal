@@ -783,7 +783,7 @@ function TopUpInvoiceModal({ inv, allStudents, onClose, onCreated }) {
     const { error: err } = await supabase.from('invoices').insert({
       term_id: inv.term_id, family_id: inv.family_id ?? null, student_id: inv.student_id ?? null,
       subtotal, sibling_discount: 0, multi_course_discount: 0, total,
-      status: 'draft', is_topup: true,
+      status: 'draft', payment_status: 'unpaid', is_topup: true,
     })
     if (err) { setError(err.message); setSaving(false); return }
     onCreated()
@@ -1009,7 +1009,8 @@ function InvoiceDashboardInner() {
   const [topUpModal,    setTopUpModal]    = useState(null)  // invoice object
   const [allStudents,   setAllStudents]   = useState([])
   const [statusEditing,   setStatusEditing]   = useState(null)
-  const [confirmUnsentId, setConfirmUnsentId] = useState(null) // invoice id pending unsent confirmation
+  const [confirmUnsentId,   setConfirmUnsentId]   = useState(null) // invoice id pending unsent confirmation
+  const [confirmPaidInv,    setConfirmPaidInv]    = useState(null) // invoice object pending paid confirmation
   const [sendModalInv,      setSendModalInv]      = useState(null)
   const [emailTemplate,     setEmailTemplate]     = useState('')
   const [emailSubjectTmpl,  setEmailSubjectTmpl]  = useState('')
@@ -1353,8 +1354,43 @@ function InvoiceDashboardInner() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, [field]: value } : i))
+
+      // Auto-send payment confirmation when marked paid
+      if (field === 'payment_status' && value === 'paid') {
+        try {
+          const cfRes = await fetch('/api/send-payment-confirmation', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invoice_id: invoiceId }),
+          })
+          const cfData = await cfRes.json()
+          if (cfRes.ok) {
+            setSuccessMsg(`Payment confirmation sent to ${cfData.sent_to}`)
+          } else {
+            // Non-fatal — invoice is marked paid, email just failed
+            setError(`Invoice marked paid but confirmation email failed: ${cfData.error}`)
+          }
+        } catch (emailErr) {
+          setError(`Invoice marked paid but confirmation email failed: ${emailErr.message}`)
+        }
+      }
     } catch (e) { setError('Status update failed: ' + e.message) }
     setStatusEditing(null)
+  }
+
+  // ── Resend payment confirmation ───────────────────────────────────────────
+  const [resendingId, setResendingId] = useState(null)
+  const handleResendConfirmation = async (invoiceId) => {
+    setResendingId(invoiceId)
+    try {
+      const res = await fetch('/api/send-payment-confirmation', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: invoiceId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setSuccessMsg(`Payment confirmation resent to ${data.sent_to}`)
+    } catch (e) { setError('Resend failed: ' + e.message) }
+    setResendingId(null)
   }
 
   const handleGenerate = async () => {
@@ -1732,7 +1768,7 @@ function InvoiceDashboardInner() {
                           <>
                             <button onClick={() => handleRefresh(inv)} disabled={refreshingId === inv.id}
                               className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
-                              {refreshingId === inv.id ? 'Refreshing…' : '↻ Refresh prices'}
+                              {refreshingId === inv.id ? 'Refreshing…' : '↻ Refresh'}
                             </button>
                             <button onClick={() => handleApprove(inv)} disabled={isApproving || warnings.length > 0}
                               title={warnings.length > 0 ? `Resolve ${warnings.length} warning${warnings.length > 1 ? 's' : ''} before approving` : ''}
@@ -1822,7 +1858,11 @@ function InvoiceDashboardInner() {
                           <select
                             value={inv.payment_status || ''}
                             disabled={statusEditing === inv.id}
-                            onChange={e => handleStatusChange(inv.id, 'payment_status', e.target.value || null)}
+                            onChange={e => {
+                              const val = e.target.value || null
+                              if (val === 'paid') { setConfirmPaidInv(inv); return }
+                              handleStatusChange(inv.id, 'payment_status', val)
+                            }}
                             className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${PAYMENT_SELECT_CLS[inv.payment_status || ''] || PAYMENT_SELECT_CLS['']}`}
                           >
                             <option value="">— Payment</option>
@@ -2150,6 +2190,62 @@ function InvoiceDashboardInner() {
             setInvoices(prev => prev.map(i => i.id === id ? { ...i, delivery_status: 'sent' } : i))
           }}
         />
+      )}
+
+      {/* ── Confirm mark as paid ─────────────────────────────────────────── */}
+      {confirmPaidInv && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4 border-b border-[#DEE7FF]">
+              <div className="flex items-center gap-3">
+                <span className="flex items-center justify-center w-9 h-9 rounded-full bg-[#ECFDF5] text-xl">✅</span>
+                <div>
+                  <h3 className="font-bold text-[#062E63] text-sm">Mark as paid?</h3>
+                  <p className="text-[11px] text-[#325099]/60 mt-0.5">{confirmPaidInv.invoice_number || 'Invoice'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-4 space-y-3">
+              <p className="text-sm text-[#2A2035]">
+                You're marking this invoice as <strong>paid</strong> ({fmtMoney(confirmPaidInv.total)}).
+              </p>
+              {/* Email warning */}
+              <div className="flex items-start gap-2.5 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-4 py-3">
+                <span className="text-base mt-0.5">📧</span>
+                <div>
+                  <p className="text-[11px] font-semibold text-[#92400E]">Payment confirmation email will be sent</p>
+                  <p className="text-[11px] text-[#92400E]/80 mt-0.5">
+                    {confirmPaidInv.parent_email
+                      ? <>A receipt will be emailed to <strong>{confirmPaidInv.parent_email}</strong> automatically.</>
+                      : 'No email address on file — confirmation will not be sent.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 pb-5 flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmPaidInv(null)}
+                className="text-sm font-semibold text-[#325099]/60 hover:text-[#325099] px-4 py-2 rounded-full border border-[#DEE7FF] hover:bg-[#F8FAFF] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleStatusChange(confirmPaidInv.id, 'payment_status', 'paid')
+                  setConfirmPaidInv(null)
+                }}
+                className="text-sm font-semibold text-white bg-[#065F46] hover:bg-[#047857] px-4 py-2 rounded-full transition"
+              >
+                Confirm payment
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

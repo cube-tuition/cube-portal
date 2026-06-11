@@ -385,11 +385,11 @@ export default function TutorHome() {
               </span>
             )}
             <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-white bg-[#062E63] px-2.5 py-1 rounded-full uppercase tracking-widest">
-              {isAdmin ? 'Admin' : 'Tutor'}
+              {isAdmin ? 'Director' : 'Tutor'}
             </span>
           </div>
           <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
-            Tutor portal
+            {isAdmin ? 'Director Portal' : 'Tutor portal'}
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
             Your home for class queues, attendance, and pay.

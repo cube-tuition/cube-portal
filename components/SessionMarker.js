@@ -903,14 +903,14 @@ function NumberPill({ value, min = 1, max = 100, onChange, disabled = false }) {
     )
   }
   return (
-    <input type="number" inputMode="numeric" min={min} max={max}
+    <input type="text" inputMode="numeric" pattern="[0-9]*"
       value={isEmpty ? '' : String(value)} placeholder="—"
       onChange={e => {
-        const raw = e.target.value
+        const raw = e.target.value.replace(/[^0-9]/g, '')
         if (raw === '') { onChange(''); return }
-        const num = Number(raw)
+        const num = parseInt(raw, 10)
         if (Number.isNaN(num)) return
-        onChange(String(Math.max(min, Math.min(max, Math.floor(num)))))
+        onChange(String(Math.max(min, Math.min(max, num))))
       }}
       className="w-full text-xs font-semibold rounded-full border px-2 py-1.5 text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-[#325099]/30 transition"
       style={{ background: tier.bg, color: tier.fg, borderColor: valid ? tier.fg + '40' : '#DEE7FF' }} />
