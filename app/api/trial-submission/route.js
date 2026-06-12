@@ -35,7 +35,7 @@ export async function POST(req) {
       // Student
       year, subjects, availability,
       studentFirstName, studentLastName, studentEmail, studentPhone,
-      school, referredBy,
+      school, referredBy, howHeard,
       // Parent
       parentFirstName, parentLastName, relationship,
       parentEmail, parentPhone,
@@ -115,7 +115,8 @@ export async function POST(req) {
           parent_email:         parentEmail  || null,
           parent_phone:         parentPhone  || null,
           relationship:         relationship || null,
-          how_heard:            referredBy   || null,
+          how_heard:            howHeard     || null,  // acquisition channel
+          referred_by:          referredBy   || null,  // referrer's name (referral program)
           notes:                notes        || null,
           source,
           converted_student_id: student.id,
@@ -156,6 +157,7 @@ export async function POST(req) {
       `Email:        ${parentEmail || '—'}`,
       `Phone:        ${parentPhone || '—'}`,
       '',
+      `How heard:    ${howHeard || '—'}`,
       `Referred by:  ${referredBy || '—'}`,
       notes ? `Notes: ${notes}` : '',
       '',

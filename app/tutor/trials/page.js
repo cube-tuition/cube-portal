@@ -7,6 +7,62 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fmtDate } from '../../../lib/format'
 import { registerUndoAction } from '../../../lib/undo'
+import { HOW_HEARD_CHANNELS, HOW_HEARD_COLORS, HOW_HEARD_UNKNOWN_COLOR, channelStats } from '../../../lib/howHeard'
+
+// ── Channel insights — where enquiries come from & what converts ──────────────
+function ChannelInsights({ submissions }) {
+  const [range, setRange] = useState('all')   // 'all' | '90' | '365'
+  const [open, setOpen] = useState(true)
+  const cutoff = range === 'all' ? null : Date.now() - Number(range) * 86400000
+  const inRange = cutoff ? submissions.filter(s => s.submitted_at && new Date(s.submitted_at).getTime() >= cutoff) : submissions
+  const stats = channelStats(inRange)
+  const totals = stats.reduce((a, r) => ({ enquiries: a.enquiries + r.enquiries, converted: a.converted + r.converted }), { enquiries: 0, converted: 0 })
+  const maxEnq = Math.max(1, ...stats.map(r => r.enquiries))
+
+  return (
+    <div className="bg-white border border-[#DEE7FF] rounded-2xl mb-6 overflow-hidden">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-[#F8FAFF] transition">
+        <span className="text-sm font-bold text-[#062E63]">📊 Where enquiries come from
+          <span className="font-normal text-[#2A2035]/40 ml-2 text-xs">
+            {totals.enquiries} enquir{totals.enquiries === 1 ? 'y' : 'ies'} · {totals.converted} enrolled
+            {totals.enquiries > 0 && ` · ${Math.round((totals.converted / totals.enquiries) * 100)}% conversion`}
+          </span>
+        </span>
+        <span className="text-[#325099] text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-[#DEE7FF] px-5 py-4">
+          <div className="flex items-center gap-1.5 mb-4">
+            {[['all', 'All time'], ['365', 'Last 12 months'], ['90', 'Last 90 days']].map(([v, l]) => (
+              <button key={v} onClick={() => setRange(v)}
+                className={`px-2.5 py-1 text-[11px] font-semibold rounded-full border transition ${range === v ? 'bg-[#325099] text-white border-[#325099]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {stats.length === 0 ? (
+            <p className="text-xs text-[#2A2035]/40 py-2">No enquiries in this period yet. Channels are recorded automatically from the website form, or set them on each card below.</p>
+          ) : (
+            <div className="space-y-2">
+              {stats.map(r => (
+                <div key={r.channel} className="flex items-center gap-3">
+                  <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full w-44 shrink-0 text-center truncate ${HOW_HEARD_COLORS[r.channel] ?? HOW_HEARD_UNKNOWN_COLOR}`}>{r.channel}</span>
+                  <div className="flex-1 h-4 bg-[#F0F4FF] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#325099] rounded-full transition-all" style={{ width: `${(r.enquiries / maxEnq) * 100}%`, minWidth: 6 }} />
+                  </div>
+                  <span className="text-[11px] text-[#2A2035]/70 w-40 shrink-0 tabular-nums">
+                    {r.enquiries} enquir{r.enquiries === 1 ? 'y' : 'ies'} · <strong className="text-emerald-700">{r.converted} enrolled</strong> ({r.rate}%)
+                  </span>
+                </div>
+              ))}
+              <p className="text-[10px] text-[#2A2035]/35 pt-2">Conversion = enquiries that became enrolled students. &ldquo;Not recorded&rdquo; rows can be fixed by setting the channel on each card.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Status pipeline ───────────────────────────────────────────────────────────
 const STAGES = [
@@ -102,6 +158,11 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {sub.how_heard && (
+            <span className={`hidden sm:inline text-[10px] font-semibold border px-2 py-0.5 rounded-full ${HOW_HEARD_COLORS[sub.how_heard] ?? HOW_HEARD_UNKNOWN_COLOR}`} title="How they heard about CUBE">
+              {sub.how_heard}
+            </span>
+          )}
           <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full ${stage.color}`}>{stage.label}</span>
           <button onClick={() => setExpanded(e => !e)} className="text-[#325099]/40 hover:text-[#325099] text-sm">
             {expanded ? '▲' : '▼'}
@@ -119,7 +180,27 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
             <div><span className="font-semibold">Submitted:</span> {fmtDate(sub.submitted_at)} ({age}d ago)</div>
             <div><span className="font-semibold">Trial date:</span> {fmtDate(sub.trial_date)}</div>
             <div><span className="font-semibold">Source:</span> {sub.source || '—'}</div>
-            {sub.how_heard && <div className="col-span-full"><span className="font-semibold">How heard:</span> {sub.how_heard}</div>}
+            <div className="col-span-full flex items-center gap-2 flex-wrap">
+              <span className="font-semibold">How heard:</span>
+              <select
+                value={HOW_HEARD_CHANNELS.includes(sub.how_heard) ? sub.how_heard : (sub.how_heard ? 'Other' : '')}
+                onChange={async e => {
+                  const v = e.target.value || null
+                  const prev = sub.how_heard ?? null
+                  await supabase.from('trial_submissions').update({ how_heard: v }).eq('id', sub.id)
+                  onUpdate(sub.id, { how_heard: v })
+                  registerUndoAction('how-heard channel', async () => {
+                    await supabase.from('trial_submissions').update({ how_heard: prev }).eq('id', sub.id)
+                    onUpdate(sub.id, { how_heard: prev })
+                  })
+                }}
+                className="text-[11px] border border-[#DEE7FF] rounded-full px-2 py-1 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
+              >
+                <option value="">— not recorded —</option>
+                {HOW_HEARD_CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              {sub.referred_by && <span className="text-[11px]">· Referred by <strong>{sub.referred_by}</strong> <span className="text-emerald-700">($50 referral credit applies)</span></span>}
+            </div>
           </div>
 
           {/* Admin notes */}
@@ -404,6 +485,9 @@ export default function TrialsPage() {
         ) : (
           <>
             <StatsBar submissions={submissions} />
+
+            {/* Acquisition channels report */}
+            <ChannelInsights submissions={submissions} />
 
             {/* Filters */}
             <div className="flex items-center gap-2 flex-wrap mb-4">
