@@ -88,6 +88,160 @@ function cellDropdown(table, col) {
   return dropdownOptions(table, col) ?? CELL_DROPDOWNS[`${table}:${col}`] ?? null
 }
 
+// ── Sort & Filter (Airtable-style) ────────────────────────────────────────────
+const FILTER_OPS = [
+  ['contains', 'contains'],
+  ['not_contains', "doesn't contain"],
+  ['is', 'is'],
+  ['is_not', 'is not'],
+  ['gt', '>'],
+  ['gte', '≥'],
+  ['lt', '<'],
+  ['lte', '≤'],
+  ['empty', 'is empty'],
+  ['not_empty', 'is not empty'],
+]
+const NO_VALUE_OPS = new Set(['empty', 'not_empty'])
+
+function applyFilterCondition(cellVal, op, value) {
+  const s = cellVal === null || cellVal === undefined ? '' : String(cellVal)
+  const q = String(value ?? '').trim()
+  switch (op) {
+    case 'contains':     return s.toLowerCase().includes(q.toLowerCase())
+    case 'not_contains': return !s.toLowerCase().includes(q.toLowerCase())
+    case 'is':           return s.toLowerCase() === q.toLowerCase()
+    case 'is_not':       return s.toLowerCase() !== q.toLowerCase()
+    case 'empty':        return s.trim() === ''
+    case 'not_empty':    return s.trim() !== ''
+    case 'gt': case 'gte': case 'lt': case 'lte': {
+      if (s.trim() === '') return false
+      const a = Number(s), b = Number(q)
+      const cmp = (!Number.isNaN(a) && !Number.isNaN(b)) ? (a - b) : s.localeCompare(q, undefined, { numeric: true })
+      return op === 'gt' ? cmp > 0 : op === 'gte' ? cmp >= 0 : op === 'lt' ? cmp < 0 : cmp <= 0
+    }
+    default: return true
+  }
+}
+
+// Compare two NON-empty cell values (numeric-aware, then natural string order).
+function cmpCells(a, b) {
+  const na = Number(a), nb = Number(b)
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' })
+}
+// Direction-aware compare; empty values always sort last regardless of direction.
+function cmpCellsDir(a, b, dir) {
+  const ae = a === null || a === undefined || String(a).trim() === ''
+  const be = b === null || b === undefined || String(b).trim() === ''
+  if (ae && be) return 0
+  if (ae) return 1
+  if (be) return -1
+  const c = cmpCells(a, b)
+  return dir === 'desc' ? -c : c
+}
+
+const SF_SEL = 'border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]'
+
+// Shared dropdown shell anchored under a toolbar button (closes on outside click / Esc)
+function ToolbarPopover({ anchorRef, onClose, width = 380, children }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const down = (e) => {
+      if (ref.current && !ref.current.contains(e.target) && !anchorRef?.current?.contains(e.target)) onClose()
+    }
+    const key = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('mousedown', down)
+    document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key) }
+  }, [onClose, anchorRef])
+  return (
+    <div ref={ref} className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-[#DEE7FF] rounded-xl shadow-xl p-3" style={{ width }}>
+      {children}
+    </div>
+  )
+}
+
+function SortPanel({ anchorRef, onClose, columns, labelOf, rules, onChange }) {
+  const usedCols = new Set(rules.map(r => r.col))
+  const firstUnused = columns.find(c => !usedCols.has(c))
+  return (
+    <ToolbarPopover anchorRef={anchorRef} onClose={onClose} width={360}>
+      <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-2">Sort rows</p>
+      {rules.length === 0 && <p className="text-[11px] text-[#2A2035]/40 mb-2">No sort applied — rows show in load order.</p>}
+      <div className="space-y-1.5">
+        {rules.map((rule, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <span className="text-[10px] text-[#2A2035]/40 w-9 shrink-0">{i === 0 ? 'by' : 'then'}</span>
+            <select value={rule.col} onChange={e => onChange(rules.map((r, j) => j === i ? { ...r, col: e.target.value } : r))} className={`${SF_SEL} flex-1 min-w-0`}>
+              {columns.map(c => <option key={c} value={c} disabled={c !== rule.col && usedCols.has(c)}>{labelOf(c)}</option>)}
+            </select>
+            <button onClick={() => onChange(rules.map((r, j) => j === i ? { ...r, dir: r.dir === 'asc' ? 'desc' : 'asc' } : r))}
+              className="px-2 py-1.5 text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition w-16 shrink-0"
+              title="Toggle direction">
+              {rule.dir === 'desc' ? '9 → 1' : '1 → 9'}
+            </button>
+            <button onClick={() => onChange(rules.filter((_, j) => j !== i))} className="w-6 h-6 flex items-center justify-center text-[#2A2035]/30 hover:text-red-500 transition shrink-0" title="Remove">✕</button>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between mt-2.5">
+        <button disabled={!firstUnused} onClick={() => onChange([...rules, { col: firstUnused, dir: 'asc' }])}
+          className="text-[11px] font-semibold text-[#325099] hover:underline disabled:opacity-30">+ Add sort</button>
+        {rules.length > 0 && <button onClick={() => onChange([])} className="text-[11px] text-[#2A2035]/40 hover:text-red-500">Clear all</button>}
+      </div>
+    </ToolbarPopover>
+  )
+}
+
+function FilterPanel({ anchorRef, onClose, columns, labelOf, optionsFor, cfg, onChange }) {
+  const setCond = (i, patch) => onChange({ ...cfg, conds: cfg.conds.map((c, j) => j === i ? { ...c, ...patch } : c) })
+  return (
+    <ToolbarPopover anchorRef={anchorRef} onClose={onClose} width={460}>
+      <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-2">Filter rows</p>
+      {cfg.conds.length === 0 && <p className="text-[11px] text-[#2A2035]/40 mb-2">No filters — all rows shown.</p>}
+      <div className="space-y-1.5">
+        {cfg.conds.map((cond, i) => {
+          const opts = optionsFor(cond.col)
+          const noValue = NO_VALUE_OPS.has(cond.op)
+          return (
+            <div key={i} className="flex items-center gap-1.5">
+              <span className="w-14 shrink-0">
+                {i === 0
+                  ? <span className="text-[10px] text-[#2A2035]/40 pl-1">Where</span>
+                  : i === 1
+                    ? <select value={cfg.conj} onChange={e => onChange({ ...cfg, conj: e.target.value })} className={`${SF_SEL} w-full`}>
+                        <option value="and">and</option><option value="or">or</option>
+                      </select>
+                    : <span className="text-[10px] text-[#2A2035]/40 pl-1">{cfg.conj}</span>}
+              </span>
+              <select value={cond.col} onChange={e => setCond(i, { col: e.target.value })} className={`${SF_SEL} w-32 shrink-0`}>
+                {columns.map(c => <option key={c} value={c}>{labelOf(c)}</option>)}
+              </select>
+              <select value={cond.op} onChange={e => setCond(i, { op: e.target.value })} className={`${SF_SEL} w-28 shrink-0`}>
+                {FILTER_OPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              {noValue ? <span className="flex-1" /> : opts && (cond.op === 'is' || cond.op === 'is_not') ? (
+                <select value={cond.value ?? ''} onChange={e => setCond(i, { value: e.target.value })} className={`${SF_SEL} flex-1 min-w-0`}>
+                  <option value="">—</option>
+                  {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input type="text" value={cond.value ?? ''} onChange={e => setCond(i, { value: e.target.value })} placeholder="value…" className={`${SF_SEL} flex-1 min-w-0`} />
+              )}
+              <button onClick={() => onChange({ ...cfg, conds: cfg.conds.filter((_, j) => j !== i) })} className="w-6 h-6 flex items-center justify-center text-[#2A2035]/30 hover:text-red-500 transition shrink-0" title="Remove">✕</button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex items-center justify-between mt-2.5">
+        <button onClick={() => onChange({ ...cfg, conds: [...cfg.conds, { col: columns[0], op: 'contains', value: '' }] })}
+          className="text-[11px] font-semibold text-[#325099] hover:underline">+ Add condition</button>
+        {cfg.conds.length > 0 && <button onClick={() => onChange({ conj: 'and', conds: [] })} className="text-[11px] text-[#2A2035]/40 hover:text-red-500">Clear all</button>}
+      </div>
+    </ToolbarPopover>
+  )
+}
+
 // Coloured pill badges for specific table:column values
 const CELL_BADGE_COLORS = {
   [`${T_STUDENTS}:status`]: {
@@ -1302,7 +1456,6 @@ export default function DatabasePage() {
 
   // Add Class modal (classes table only)
   const [showAddClassModal, setShowAddClassModal] = useState(false)
-  const [showRolloverModal, setShowRolloverModal] = useState(false)
   const [newClassForm, setNewClassForm] = useState({ course_id: '', day_of_week: '', start_time: '', end_time: '' })
   const [coursesList, setCoursesList]   = useState([])
   const [addClassSaving, setAddClassSaving] = useState(false)
@@ -1365,6 +1518,18 @@ export default function DatabasePage() {
   const saveOrder       = useCallback((table, order)  => { try { localStorage.setItem(`cube_db_order_${tableOids[table] ?? table}`,  JSON.stringify(order))  } catch {} }, [tableOids])
   const saveWidths      = useCallback((table, widths) => { try { localStorage.setItem(`cube_db_widths_${tableOids[table] ?? table}`, JSON.stringify(widths)) } catch {} }, [tableOids])
   const saveHidden      = useCallback((table, hidden) => { try { localStorage.setItem(`cube_db_hidden_${tableOids[table] ?? table}`, JSON.stringify([...hidden])) } catch {} }, [tableOids])
+
+  // ── Sort & filter state (persisted per table, like column layout) ───────────
+  const [sortRules, setSortRules]   = useState([])                       // [{ col, dir }]
+  const [filterCfg, setFilterCfg]   = useState({ conj: 'and', conds: [] }) // { conj, conds: [{ col, op, value }] }
+  const [sortOpen, setSortOpen]     = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const sortBtnRef   = useRef(null)
+  const filterBtnRef = useRef(null)
+  const saveSort   = useCallback((table, rules) => { try { localStorage.setItem(`cube_db_sort_${tableOids[table] ?? table}`,   JSON.stringify(rules)) } catch {} }, [tableOids])
+  const saveFilter = useCallback((table, cfg)   => { try { localStorage.setItem(`cube_db_filter_${tableOids[table] ?? table}`, JSON.stringify(cfg))   } catch {} }, [tableOids])
+  const updateSortRules = (next) => { setSortRules(next); saveSort(selectedTable, next) }
+  const updateFilterCfg = (next) => { setFilterCfg(next); saveFilter(selectedTable, next) }
   const saveTableGroups = useCallback((groups) => { try { localStorage.setItem('cube_db_table_groups', JSON.stringify({ version: 'v6', groups })) } catch {} }, [])
 
   const pushUndo = useCallback((action) => {
@@ -1735,11 +1900,21 @@ export default function DatabasePage() {
       // Users can unhide as before; once they save a layout it always wins.
       const metaTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
       setHiddenCols(new Set(savedHidden ?? defaultHiddenCols(metaTable, columns)))
+      // Restore saved sort/filter (drop rules whose column no longer exists)
+      const savedSort   = JSON.parse(localStorage.getItem(`cube_db_sort_${stableKey}`)   ?? '[]')
+      const savedFilter = JSON.parse(localStorage.getItem(`cube_db_filter_${stableKey}`) ?? 'null')
+      setSortRules(Array.isArray(savedSort) ? savedSort.filter(r => r?.col && columns.includes(r.col)) : [])
+      setFilterCfg(savedFilter && Array.isArray(savedFilter.conds)
+        ? { conj: savedFilter.conj === 'or' ? 'or' : 'and', conds: savedFilter.conds.filter(c => c?.col && columns.includes(c.col)) }
+        : { conj: 'and', conds: [] })
     } catch {
       setColumnOrder(columns)
       setColumnWidths(Object.fromEntries(columns.map(c => [c, defaultWidth(c)])))
       setHiddenCols(new Set())
+      setSortRules([])
+      setFilterCfg({ conj: 'and', conds: [] })
     }
+    setSortOpen(false); setFilterOpen(false)
   }, [columns, selectedTable])
 
   // ── Focus effects ───────────────────────────────────────────────────────────
@@ -2932,12 +3107,32 @@ export default function DatabasePage() {
     setShowCreateModal(false); setSelectedTable(name)
   }
 
-  // ── Filtered rows ─────────────────────────────────────────────────────────
-  const filteredRows = rows.filter(r => {
-    if (!search.trim()) return true
-    const q = search.trim().toLowerCase()
-    return Object.values(r).some(v => v !== null && String(v).toLowerCase().includes(q))
-  })
+  // ── Filtered + sorted rows (search → filter conditions → sort rules) ───────
+  const filteredRows = useMemo(() => {
+    let out = rows
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      out = out.filter(r => Object.values(r).some(v => v !== null && String(v).toLowerCase().includes(q)))
+    }
+    // Conditions missing a value (where one is needed) are ignored, like Airtable
+    const conds = filterCfg.conds.filter(c => c.col && (NO_VALUE_OPS.has(c.op) || String(c.value ?? '').trim() !== ''))
+    if (conds.length) {
+      out = out.filter(r => {
+        const results = conds.map(c => applyFilterCondition(r[c.col], c.op, c.value))
+        return filterCfg.conj === 'or' ? results.some(Boolean) : results.every(Boolean)
+      })
+    }
+    if (sortRules.length) {
+      out = [...out].sort((ra, rb) => {
+        for (const rule of sortRules) {
+          const c = cmpCellsDir(ra[rule.col], rb[rule.col], rule.dir)
+          if (c !== 0) return c
+        }
+        return 0
+      })
+    }
+    return out
+  }, [rows, search, filterCfg, sortRules])
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -3284,6 +3479,45 @@ export default function DatabasePage() {
                 ✓ Data Quality
               </button>
 
+              {/* Sort */}
+              <div className="relative">
+                <button ref={sortBtnRef} onClick={() => { setSortOpen(o => !o); setFilterOpen(false) }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${sortRules.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
+                  title="Sort rows by one or more columns">
+                  ⇅ Sort{sortRules.length > 0 && <span className="text-[10px] font-bold bg-[#325099] text-white rounded-full px-1.5">{sortRules.length}</span>}
+                </button>
+                {sortOpen && (
+                  <SortPanel
+                    anchorRef={sortBtnRef}
+                    onClose={() => setSortOpen(false)}
+                    columns={columnOrder}
+                    labelOf={(c) => columnLabel(VIRTUAL[selectedTable]?.realTable ?? selectedTable, c)}
+                    rules={sortRules}
+                    onChange={updateSortRules}
+                  />
+                )}
+              </div>
+
+              {/* Filter */}
+              <div className="relative">
+                <button ref={filterBtnRef} onClick={() => { setFilterOpen(o => !o); setSortOpen(false) }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${filterCfg.conds.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
+                  title="Filter rows by conditions">
+                  ≋ Filter{filterCfg.conds.length > 0 && <span className="text-[10px] font-bold bg-[#325099] text-white rounded-full px-1.5">{filterCfg.conds.length}</span>}
+                </button>
+                {filterOpen && (
+                  <FilterPanel
+                    anchorRef={filterBtnRef}
+                    onClose={() => setFilterOpen(false)}
+                    columns={columnOrder}
+                    labelOf={(c) => columnLabel(VIRTUAL[selectedTable]?.realTable ?? selectedTable, c)}
+                    optionsFor={(c) => cellDropdown(selectedTable, c)}
+                    cfg={filterCfg}
+                    onChange={updateFilterCfg}
+                  />
+                )}
+              </div>
+
               {/* Search */}
               <div className="relative">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#325099]/40 text-xs pointer-events-none">🔍</span>
@@ -3366,14 +3600,10 @@ export default function DatabasePage() {
                   )}
                 </>
               ) : selectedTable === 'classes' ? (
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setShowRolloverModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-[#325099] border border-[#DEE7FF] text-xs font-semibold rounded-lg hover:bg-[#F0F4FF] transition disabled:opacity-40 disabled:cursor-not-allowed">
-                    📋 Roll over term
-                  </button>
-                  <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
-                    <span className="text-sm leading-none">+</span> Add Class
-                  </button>
-                </div>
+                /* Term rollovers live on the dedicated /tutor/transition page */
+                <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  <span className="text-sm leading-none">+</span> Add Class
+                </button>
               ) : selectedTable === T_ENROLMENTS ? (
                 <button onClick={() => setShowAddEnrolmentModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Enrolment
@@ -4671,16 +4901,6 @@ export default function DatabasePage() {
         </div>
       )}
 
-      {/* ── Roll Over Term Modal ────────────────────────────────────────────── */}
-      {showRolloverModal && (
-        <RolloverTermModal
-          currentTermId={currentTermId}
-          currentTermName={currentTermName}
-          allTerms={allTerms}
-          onClose={() => setShowRolloverModal(false)}
-          onDone={() => { setShowRolloverModal(false); setReloadKey(k => k + 1) }}
-        />
-      )}
 
       {/* ── Top-up Invoice Modal ─────────────────────────────────────────────── */}
       {topUpModal && (
@@ -5276,236 +5496,3 @@ function TopUpInvoiceModal({ inv, onClose, onCreated }) {
   )
 }
 
-// ── Roll Over Term Modal ───────────────────────────────────────────────────────
-function RolloverTermModal({ currentTermId, currentTermName, allTerms, onClose, onDone }) {
-  const [classes,        setClasses]        = useState([])
-  const [checked,        setChecked]        = useState({})   // class id → bool
-  const [targetTermId,   setTargetTermId]   = useState('')
-  const [copyEnrolments, setCopyEnrolments] = useState(true)
-  const [loading,        setLoading]        = useState(true)
-  const [saving,         setSaving]         = useState(false)
-  const [done,           setDone]           = useState(null) // { created, skipped, enrolments }
-  const [err,            setErr]            = useState('')
-
-  // Future terms only
-  const futureTerms = allTerms.filter(t => t.id !== currentTermId)
-
-  useEffect(() => {
-    if (!currentTermId) return
-    supabase
-      .from('classes')
-      .select('id, class_name, day_of_week, start_time, end_time, teacher, room, course_id')
-      .eq('term_id', currentTermId)
-      .order('class_name')
-      .then(({ data }) => {
-        setClasses(data || [])
-        const init = {}
-        for (const c of data || []) init[c.id] = true
-        setChecked(init)
-        setLoading(false)
-      })
-    // Default to first future term
-    if (futureTerms.length > 0) setTargetTermId(futureTerms[0].id)
-  }, [currentTermId])
-
-  const toggleAll = (val) => {
-    const next = {}
-    for (const c of classes) next[c.id] = val
-    setChecked(next)
-  }
-
-  const selectedIds  = classes.filter(c => checked[c.id]).map(c => c.id)
-  const selectedClasses = classes.filter(c => checked[c.id])
-  const allChecked   = selectedIds.length === classes.length
-  const noneChecked  = selectedIds.length === 0
-
-  const handleRollover = async () => {
-    if (!targetTermId || noneChecked) return
-    setSaving(true); setErr('')
-    let created = 0, skipped = 0, enrolmentsCopied = 0
-
-    try {
-      // Check which class+term combos already exist (to avoid duplicates)
-      const { data: existing } = await supabase
-        .from('classes')
-        .select('course_id, day_of_week, start_time')
-        .eq('term_id', targetTermId)
-
-      const existingKeys = new Set(
-        (existing || []).map(c => `${c.course_id}|${c.day_of_week}|${c.start_time}`)
-      )
-
-      for (const cls of selectedClasses) {
-        const key = `${cls.course_id}|${cls.day_of_week}|${cls.start_time}`
-        if (existingKeys.has(key)) { skipped++; continue }
-
-        const { data: newCls, error } = await supabase
-          .from('classes')
-          .insert({
-            class_name:  cls.class_name,
-            course_id:   cls.course_id,
-            day_of_week: cls.day_of_week,
-            start_time:  cls.start_time,
-            end_time:    cls.end_time,
-            teacher:     cls.teacher,
-            room:        cls.room,
-            term_id:     targetTermId,
-          })
-          .select('id')
-          .single()
-
-        if (error) { setErr(`Failed to copy "${cls.class_name}": ${error.message}`); setSaving(false); return }
-        created++
-
-        if (copyEnrolments && newCls) {
-          const { data: enrs } = await supabase
-            .from('enrolments')
-            .select('student_id, price_per_lesson, status')
-            .eq('class_id', cls.id)
-            .eq('status', 'active')
-
-          if (enrs?.length) {
-            const payload = enrs.map(e => ({
-              class_id:         newCls.id,
-              student_id:       e.student_id,
-              price_per_lesson: e.price_per_lesson,
-              status:           'active',
-            }))
-            const { error: enrErr } = await supabase.from('enrolments').insert(payload)
-            if (!enrErr) enrolmentsCopied += enrs.length
-          }
-        }
-      }
-
-      setDone({ created, skipped, enrolmentsCopied })
-    } catch (e) {
-      setErr(e.message)
-    }
-    setSaving(false)
-  }
-
-  const targetName = allTerms.find(t => t.id === targetTermId)?.name ?? ''
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
-
-        {/* Header */}
-        <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF] shrink-0">
-          <h2 className="text-base font-bold text-[#2A2035]">Roll over term</h2>
-          <p className="text-xs text-[#2A2035]/50 mt-0.5">
-            Copy classes from <span className="font-semibold text-[#325099]">{currentTermName}</span> into a future term.
-          </p>
-        </div>
-
-        {done ? (
-          /* Success state */
-          <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center gap-3">
-            <div className="text-4xl">✅</div>
-            <p className="text-sm font-bold text-[#2A2035]">Done!</p>
-            <p className="text-xs text-[#2A2035]/60">
-              Created <span className="font-semibold text-[#325099]">{done.created}</span> class{done.created !== 1 ? 'es' : ''} in <span className="font-semibold text-[#325099]">{targetName}</span>.
-              {done.skipped > 0 && <> Skipped <span className="font-semibold">{done.skipped}</span> (already existed).</>}
-              {copyEnrolments && done.enrolmentsCopied > 0 && <> Copied <span className="font-semibold text-[#059669]">{done.enrolmentsCopied}</span> active enrolment{done.enrolmentsCopied !== 1 ? 's' : ''}.</>}
-            </p>
-            <button onClick={onDone} className="mt-2 px-5 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition">
-              Done
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-y-auto flex-1 px-6 py-5 flex flex-col gap-5">
-
-              {/* Target term */}
-              <div>
-                <label className="block text-xs font-bold text-[#325099] uppercase tracking-wider mb-1.5">Copy into</label>
-                {futureTerms.length === 0 ? (
-                  <p className="text-xs text-[#2A2035]/40 italic">No future terms found. Add one in the Terms table first.</p>
-                ) : (
-                  <select
-                    value={targetTermId}
-                    onChange={e => setTargetTermId(e.target.value)}
-                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]"
-                  >
-                    {futureTerms.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              {/* Copy enrolments toggle */}
-              <label className="flex items-center gap-3 cursor-pointer select-none">
-                <div
-                  onClick={() => setCopyEnrolments(v => !v)}
-                  className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${copyEnrolments ? 'bg-[#325099]' : 'bg-[#DEE7FF]'}`}
-                >
-                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${copyEnrolments ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-[#2A2035]">Copy active enrolments</p>
-                  <p className="text-[10px] text-[#2A2035]/40">Re-enrols currently active students into each copied class</p>
-                </div>
-              </label>
-
-              {/* Class list */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-[#325099] uppercase tracking-wider">
-                    Classes to copy <span className="font-normal text-[#2A2035]/40">({selectedIds.length}/{classes.length})</span>
-                  </label>
-                  <div className="flex gap-2">
-                    <button onClick={() => toggleAll(true)}  className="text-[10px] font-semibold text-[#325099] hover:underline">All</button>
-                    <button onClick={() => toggleAll(false)} className="text-[10px] font-semibold text-[#325099] hover:underline">None</button>
-                  </div>
-                </div>
-
-                {loading ? (
-                  <p className="text-xs text-[#2A2035]/30 animate-pulse py-4 text-center">Loading classes…</p>
-                ) : classes.length === 0 ? (
-                  <p className="text-xs text-[#2A2035]/40 italic text-center py-4">No classes found in the current term.</p>
-                ) : (
-                  <div className="border border-[#E8EDF8] rounded-xl overflow-hidden">
-                    {classes.map((cls, i) => (
-                      <label
-                        key={cls.id}
-                        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-[#F8FAFF] transition ${i > 0 ? 'border-t border-[#F0F4FF]' : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!checked[cls.id]}
-                          onChange={e => setChecked(prev => ({ ...prev, [cls.id]: e.target.checked }))}
-                          className="accent-[#325099] w-3.5 h-3.5 shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-[#2A2035] truncate">{cls.class_name}</p>
-                          <p className="text-[10px] text-[#2A2035]/40">{cls.day_of_week} · {cls.start_time?.slice(0,5)}–{cls.end_time?.slice(0,5)}{cls.teacher ? ` · ${cls.teacher}` : ''}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {err && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2 shrink-0">
-              <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">
-                Cancel
-              </button>
-              <button
-                onClick={handleRollover}
-                disabled={saving || noneChecked || !targetTermId || futureTerms.length === 0}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Copying…' : `Copy ${selectedIds.length} class${selectedIds.length !== 1 ? 'es' : ''} →`}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
