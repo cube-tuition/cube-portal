@@ -154,7 +154,7 @@ function SummaryCard({ label, value, sub, color = '#062E63' }) {
 export default function ForecastPage() {
   const router = useRouter()
   const [profile,  setProfile]  = useState(null)
-  const [tab,      setTab]      = useState('live')   // 'live' | 'costs' | 'play' | 'cashlog'
+  const [tab,      setTab]      = useState('overview')   // 'overview' | 'live' | 'costs' | 'play' | 'cashlog'
   const [terms,    setTerms]    = useState([])
   const [termId,   setTermId]   = useState('')
   const [loading,  setLoading]  = useState(false)
@@ -221,6 +221,15 @@ export default function ForecastPage() {
       .then(({ data }) => setRateMatrix(data || []))
     supabase.from('fixed_costs').select('*').order('frequency').order('name')
       .then(({ data }) => setFixedCosts(data || []))
+  }, [])
+
+  // ── Cross-term history (for the Overview trend + vs-last-term deltas) ───────
+  const [historyEnrols, setHistoryEnrols] = useState([])  // active enrolments with term + price
+  useEffect(() => {
+    supabase.from('enrolments')
+      .select('id, price, status, classes!inner(term_id)')
+      .eq('status', 'active')
+      .then(({ data }) => setHistoryEnrols(data || []))
   }, [])
 
   // ── Load term-specific data ──────────────────────────────────────────────────
@@ -353,6 +362,128 @@ export default function ForecastPage() {
       classProfit, oneOnOneProfit, totalProfit, afterTax,
     }
   }, [classMetrics, fixedCosts, invoices])
+
+  // ── Actual outflows for the term (cash log → expense analysis) ──────────────
+  const [termOutflows, setTermOutflows] = useState([])
+  useEffect(() => {
+    if (tab !== 'overview' || !termId) return
+    const term = terms.find(t => t.id === termId)
+    if (!term?.start_date) return
+    supabase.from('cash_log')
+      .select('date, type, amount, description')
+      .eq('direction', 'outflow')
+      .gte('date', term.start_date)
+      .lte('date', term.end_date)
+      .then(({ data }) => setTermOutflows(data || []))
+  }, [tab, termId, terms])
+
+  // ── Analyst insights (Overview tab) ──────────────────────────────────────────
+  const CLASS_CAP = 7
+  const trend = useMemo(() => {
+    const byTerm = {}
+    for (const e of historyEnrols) {
+      const tid = e.classes?.term_id
+      if (!tid) continue
+      if (!byTerm[tid]) byTerm[tid] = { revenue: 0, enrolments: 0 }
+      byTerm[tid].revenue += Number(e.price || 0)
+      byTerm[tid].enrolments++
+    }
+    const chronological = [...terms].sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
+      .filter(t => byTerm[t.id])
+      .map(t => ({
+        id: t.id,
+        name: t.name || `T${t.term_number} ${t.year}`,
+        revenue: Math.round(byTerm[t.id].revenue),
+        enrolments: byTerm[t.id].enrolments,
+        current: t.id === termId,
+      }))
+    const idx = chronological.findIndex(t => t.current)
+    const prev = idx > 0 ? chronological[idx - 1] : null
+    const cur  = idx >= 0 ? chronological[idx] : null
+    return { rows: chronological, prev, cur }
+  }, [historyEnrols, terms, termId])
+
+  const insights = useMemo(() => {
+    const out = []
+    const add = (severity, icon, title, detail) => out.push({ severity, icon, title, detail })
+    const groups = classMetrics.filter(c => !c.is1on1)
+    const ones   = classMetrics.filter(c => c.is1on1)
+
+    // 1. Loss-making group classes — break-even framing
+    for (const c of groups.filter(c => c.termProfit < 0)) {
+      const breakEven = c.termFee > 0 ? Math.ceil(c.totalTeacherCost / c.termFee) : null
+      add('red', '🔻', `${c.class_name} runs at ${fmt(c.termProfit)}/term`,
+        breakEven
+          ? `Break-even is ${breakEven} students; you have ${c.studentCount}. Fill ${Math.max(0, breakEven - c.studentCount)} seat${breakEven - c.studentCount === 1 ? '' : 's'} (+${fmt(c.termFee)} each) or consider merging.`
+          : 'No fee recorded for this class — set enrolment prices to assess it.')
+    }
+    // 2. Loss-making / thin 1:1s
+    for (const c of ones.filter(c => c.termProfit < 0)) {
+      add('red', '👤', `1:1 ${c.studentName || c.class_name} loses ${fmt(Math.abs(c.termProfit))}/term`,
+        `Fee ${fmt(c.termFee)} vs tutor cost ${fmt(c.totalTeacherCost)} — reprice or change tutor allocation.`)
+    }
+    // 3. Thin-margin groups (<25%)
+    for (const c of groups.filter(c => c.termProfit >= 0 && c.termIncome > 0 && c.termProfit / c.termIncome < 0.25)) {
+      add('amber', '⚖️', `${c.class_name} margin is ${Math.round((c.termProfit / c.termIncome) * 100)}%`,
+        `${fmt(c.termProfit)} profit on ${fmt(c.termIncome)} income — one more student adds ${fmt(c.termFee)} straight to margin.`)
+    }
+    // 4. Missing tutor rates — costs understated
+    const noRate = classMetrics.filter(c => c.teacherRate === null || c.teacherRate === undefined)
+    if (noRate.length) {
+      add('amber', '❓', `${noRate.length} class${noRate.length === 1 ? '' : 'es'} missing a tutor rate`,
+        `Teacher costs show as $0 for: ${noRate.slice(0, 4).map(c => c.class_name).join(', ')}${noRate.length > 4 ? '…' : ''} — profit is overstated until rates are set (Payroll → Rates).`)
+    }
+    // 5. Capacity upside vs the 7-cap
+    const emptySeats = groups.reduce((s, c) => s + Math.max(0, CLASS_CAP - c.studentCount), 0)
+    const avgFee = groups.length ? groups.reduce((s, c) => s + c.termFee, 0) / groups.length : 0
+    if (emptySeats > 0 && avgFee > 0) {
+      add('blue', '💺', `${emptySeats} empty seats across group classes`,
+        `At the average fee (${fmt(avgFee)}) filling them is worth ~${fmt(emptySeats * avgFee)}/term — near-pure margin since tutor costs are already paid.`)
+    }
+    // 6. Fee outliers within a year band (>15% from band average)
+    const bands = {}
+    for (const c of groups) {
+      const band = (c.class_name.match(/Y(\d+)/i)?.[1]) || '?'
+      ;(bands[band] ??= []).push(c)
+    }
+    for (const [band, list] of Object.entries(bands)) {
+      if (list.length < 2) continue
+      const avg = list.reduce((s, c) => s + c.termFee, 0) / list.length
+      for (const c of list) {
+        if (avg > 0 && Math.abs(c.termFee - avg) / avg > 0.15) {
+          add('amber', '🏷️', `${c.class_name} fee ${fmt(c.termFee)} is ${c.termFee > avg ? 'above' : 'below'} the Y${band} average (${fmt(avg)})`,
+            c.termFee < avg
+              ? 'Below-band pricing — check whether this is intentional (legacy pricing carries over each term).'
+              : 'Above-band pricing — fine if deliberate; worth confirming families were told.')
+        }
+      }
+    }
+    // 7. Cost structure
+    if (summary.afterGst > 0) {
+      const tutorRatio = (summary.classTeacherCost + summary.oneOnOneTeacherCost) / summary.afterGst
+      add(tutorRatio > 0.6 ? 'amber' : 'blue', '🧮',
+        `Tutor costs are ${Math.round(tutorRatio * 100)}% of net revenue`,
+        tutorRatio > 0.6
+          ? 'Above the ~60% healthy ceiling for tutoring businesses — bigger classes or fee review needed.'
+          : 'Within the healthy range (<60%) for a tutoring centre.')
+      const fixedRatio = summary.fixedTermly / summary.afterGst
+      if (fixedRatio > 0.25) {
+        add('amber', '🏢', `Fixed costs consume ${Math.round(fixedRatio * 100)}% of net revenue`,
+          `${fmt(summary.fixedTermly)}/term in overheads — every new enrolment dilutes this; review the Fixed Costs tab.`)
+      }
+    }
+    // 8. Term-over-term trend
+    if (trend.prev && trend.cur) {
+      const d = trend.cur.revenue - trend.prev.revenue
+      const pct = trend.prev.revenue ? Math.round((d / trend.prev.revenue) * 100) : 0
+      add(d < 0 ? 'amber' : 'blue', d < 0 ? '📉' : '📈',
+        `Revenue ${d >= 0 ? 'up' : 'down'} ${Math.abs(pct)}% vs ${trend.prev.name}`,
+        `${fmt(trend.cur.revenue)} vs ${fmt(trend.prev.revenue)} · enrolments ${trend.cur.enrolments} vs ${trend.prev.enrolments}.`)
+    }
+
+    const order = { red: 0, amber: 1, blue: 2 }
+    return out.sort((a, b) => order[a.severity] - order[b.severity])
+  }, [classMetrics, summary, trend])
 
   // ── Initialise play-around — only when Play tab opens, so all data is loaded ──
   useEffect(() => {
@@ -707,7 +838,7 @@ export default function ForecastPage() {
 
         {/* Tab bar */}
         <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
-          {[{ id: 'live', label: '📈 Live Forecast' }, { id: 'costs', label: '⚙️ Fixed Costs' }, { id: 'play', label: '🎮 Play Around' }, { id: 'cashlog', label: '💵 Cash Log' }].map(t => (
+          {[{ id: 'overview', label: '🧭 Overview' }, { id: 'live', label: '📈 Live Forecast' }, { id: 'costs', label: '⚙️ Fixed Costs' }, { id: 'play', label: '🎮 Play Around' }, { id: 'cashlog', label: '💵 Cash Log' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
               {t.label}
@@ -716,6 +847,249 @@ export default function ForecastPage() {
         </div>
 
         {error && <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{error}</div>}
+
+        {/* ── OVERVIEW (ANALYST) TAB ────────────────────────────────────────── */}
+        {tab === 'overview' && (
+          loading ? (
+            <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /></div>
+          ) : (
+          <div className="space-y-6">
+            {/* KPI strip */}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+              {(() => {
+                const margin = summary.afterGst > 0 ? Math.round((summary.totalProfit / summary.afterGst) * 100) : null
+                const emptySeats = classMetrics.filter(c => !c.is1on1).reduce((s, c) => s + Math.max(0, CLASS_CAP - c.studentCount), 0)
+                const delta = trend.prev && trend.cur ? trend.cur.revenue - trend.prev.revenue : null
+                const kpis = [
+                  ['Term revenue', fmt(summary.totalIncome), delta !== null ? `${delta >= 0 ? '▲' : '▼'} ${fmt(Math.abs(delta))} vs last term` : 'enrolment prices', delta !== null && delta < 0 ? '#B23A3A' : '#062E63'],
+                  ['Net of GST', fmt(summary.afterGst), 'cash exempt · bank ÷ 1.1', '#062E63'],
+                  ['Total expenses', fmt(summary.totalExpenses), `tutors + ${fmt(summary.fixedTermly)} fixed`, '#062E63'],
+                  ['Net profit', fmt(summary.totalProfit), margin !== null ? `${margin}% margin` : '—', summary.totalProfit >= 0 ? '#047857' : '#B23A3A'],
+                  ['After tax (25%)', fmt(summary.afterTax), 'cash profit exempt', summary.afterTax >= 0 ? '#047857' : '#B23A3A'],
+                  ['Empty seats', String(emptySeats), 'across group classes (cap 7)', emptySeats > 8 ? '#92400E' : '#062E63'],
+                ]
+                return kpis.map(([label, value, sub, color]) => (
+                  <div key={label} className="bg-white border border-[#DEE7FF] rounded-2xl px-4 py-3.5 shadow-sm">
+                    <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{label}</p>
+                    <p className="text-xl font-bold mt-1 leading-tight" style={{ color }}>{value}</p>
+                    <p className="text-[10px] text-[#2A2035]/45 mt-0.5">{sub}</p>
+                  </div>
+                ))
+              })()}
+            </div>
+
+            {/* Recommendations */}
+            <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-[#F0F4FF] bg-[#F8FAFF] flex items-center justify-between">
+                <p className="text-sm font-bold text-[#062E63]">💡 Recommendations</p>
+                <span className="text-[10px] text-[#2A2035]/40">{insights.length} insight{insights.length === 1 ? '' : 's'} · computed live from this term&rsquo;s data</span>
+              </div>
+              {insights.length === 0 ? (
+                <p className="px-5 py-6 text-xs text-[#2A2035]/40">Nothing to flag — every class is profitable with healthy margins.</p>
+              ) : (
+                <div className="divide-y divide-[#F0F4FF]">
+                  {insights.map((ins, i) => (
+                    <div key={i} className="flex items-start gap-3 px-5 py-3">
+                      <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${ins.severity === 'red' ? 'bg-rose-500' : ins.severity === 'amber' ? 'bg-amber-400' : 'bg-blue-400'}`} />
+                      <span className="text-base shrink-0">{ins.icon}</span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold text-[#2A2035]">{ins.title}</span>
+                        <span className="block text-[11px] text-[#2A2035]/55 leading-relaxed">{ins.detail}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Charts row: trend + waterfall */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+                <h3 className="text-xs font-bold text-[#062E63] mb-1">Revenue by term</h3>
+                <p className="text-[11px] text-[#325099]/50 mb-4">Active-enrolment income per term · current term highlighted</p>
+                {trend.rows.length === 0 ? (
+                  <p className="text-xs text-[#2A2035]/40 py-8 text-center">No historical terms yet.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={trend.rows}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#DEE7FF" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6B7280' }} stroke="#DEE7FF" />
+                      <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} stroke="#DEE7FF" tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip formatter={(v) => fmt(v)} contentStyle={{ borderRadius: 12, border: '1px solid #DEE7FF', background: '#fff', fontSize: 12 }} />
+                      <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
+                        {trend.rows.map((r, i) => <Cell key={i} fill={r.current ? '#062E63' : '#BACBFF'} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+                <h3 className="text-xs font-bold text-[#062E63] mb-1">Where the money goes</h3>
+                <p className="text-[11px] text-[#325099]/50 mb-4">Income → costs → profit waterfall for this term</p>
+                <WaterfallChart s={summary} />
+              </div>
+            </div>
+
+            {/* Expense analysis */}
+            {(() => {
+              const groups = classMetrics.filter(c => !c.is1on1)
+              const ones   = classMetrics.filter(c => c.is1on1)
+              const groupWages = groups.reduce((s, c) => s + c.termlyTeacherFee, 0)
+              const oneWages   = ones.reduce((s, c) => s + c.termlyTeacherFee, 0)
+              const superTotal = classMetrics.reduce((s, c) => s + c.superAmount, 0)
+              const total      = summary.totalExpenses || 1
+
+              // Category bars: wages + super + each fixed cost (termly)
+              const cats = [
+                { label: 'Tutor wages — group classes', amount: groupWages, color: '#062E63' },
+                { label: 'Tutor wages — 1:1', amount: oneWages, color: '#325099' },
+                { label: 'Superannuation (12%)', amount: superTotal, color: '#7C9AD6' },
+                ...fixedCosts.map(fc => ({
+                  label: `${fc.name} (${fc.frequency})`,
+                  amount: fc.frequency === 'monthly' ? Number(fc.amount || 0) * 3 : Number(fc.amount || 0) / 4,
+                  color: '#BACBFF',
+                })),
+              ].filter(c => c.amount > 0).sort((a, b) => b.amount - a.amount)
+              const maxCat = Math.max(1, ...cats.map(c => c.amount))
+
+              // Per-tutor wage bill
+              const byTutor = {}
+              for (const c of classMetrics) {
+                const name = (c.teacher || '—').split(' ')[0]
+                if (!byTutor[name]) byTutor[name] = { name, classes: 0, hours: 0, cost: 0 }
+                byTutor[name].classes++
+                byTutor[name].hours += c.lessonHrs * c.lessonCount
+                byTutor[name].cost  += c.totalTeacherCost
+              }
+              const tutorRows = Object.values(byTutor).filter(t => t.cost > 0).sort((a, b) => b.cost - a.cost)
+              const wageBill = tutorRows.reduce((s, t) => s + t.cost, 0) || 1
+
+              // Unit economics
+              const studentCount = classMetrics.reduce((s, c) => s + c.studentCount, 0)
+              const lessonHours  = classMetrics.reduce((s, c) => s + c.lessonHrs * c.lessonCount, 0)
+
+              // Actual vs forecast
+              const actualOut = termOutflows.reduce((s, r) => s + Math.abs(Number(r.amount || 0)), 0)
+              const actualByType = {}
+              for (const r of termOutflows) {
+                const t = r.type || 'other'
+                actualByType[t] = (actualByType[t] || 0) + Math.abs(Number(r.amount || 0))
+              }
+
+              return (
+                <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
+                  <div className="px-5 py-3.5 border-b border-[#F0F4FF] bg-[#F8FAFF] flex items-center justify-between">
+                    <p className="text-sm font-bold text-[#062E63]">🧾 Expense analysis</p>
+                    <span className="text-[10px] text-[#2A2035]/40">forecast {fmt(summary.totalExpenses)}/term</span>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-5">
+                    {/* Left: category breakdown */}
+                    <div>
+                      <p className="text-[10px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold mb-3">Where it goes</p>
+                      <div className="space-y-2">
+                        {cats.map(c => (
+                          <div key={c.label} className="flex items-center gap-2">
+                            <span className="text-[11px] text-[#2A2035]/70 w-44 shrink-0 truncate" title={c.label}>{c.label}</span>
+                            <div className="flex-1 h-3.5 bg-[#F0F4FF] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${(c.amount / maxCat) * 100}%`, background: c.color, minWidth: 4 }} />
+                            </div>
+                            <span className="text-[11px] font-semibold text-[#2A2035] tabular-nums w-20 text-right">{fmt(c.amount)}</span>
+                            <span className="text-[10px] text-[#2A2035]/40 w-9 text-right">{Math.round((c.amount / total) * 100)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Unit economics */}
+                      <div className="grid grid-cols-3 gap-2 mt-5">
+                        {[
+                          ['Cost / student', studentCount ? fmt(total / studentCount) : '—', `${studentCount} enrolled`],
+                          ['Wages / lesson-hr', lessonHours ? fmt((groupWages + oneWages + superTotal) / lessonHours) : '—', `${Math.round(lessonHours)} hrs/term`],
+                          ['Fixed / student', studentCount ? fmt(summary.fixedTermly / studentCount) : '—', 'overhead share'],
+                        ].map(([l, v, sub]) => (
+                          <div key={l} className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3 py-2">
+                            <p className="text-[8px] tracking-[0.14em] uppercase text-[#325099]/60 font-bold">{l}</p>
+                            <p className="text-sm font-bold text-[#062E63]">{v}</p>
+                            <p className="text-[9px] text-[#2A2035]/40">{sub}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Right: per-tutor wage bill + actual vs forecast */}
+                    <div>
+                      <p className="text-[10px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold mb-3">Wage bill by tutor <span className="normal-case font-normal">(incl. super)</span></p>
+                      <div className="border border-[#DEE7FF] rounded-xl overflow-hidden mb-5">
+                        <div className="grid grid-cols-[1fr_3rem_4.5rem_5rem_2.5rem] gap-2 bg-[#F8FAFF] border-b border-[#DEE7FF] px-3 py-1.5">
+                          {['Tutor', 'Classes', 'Hrs/term', 'Cost/term', '%'].map(h => (
+                            <span key={h} className="text-[8px] tracking-[0.12em] uppercase font-bold text-[#325099] last:text-right">{h}</span>
+                          ))}
+                        </div>
+                        {tutorRows.map(t => (
+                          <div key={t.name} className="grid grid-cols-[1fr_3rem_4.5rem_5rem_2.5rem] gap-2 items-center px-3 py-1.5 border-b last:border-0 border-[#F0F4FF]">
+                            <span className="text-[11px] font-semibold text-[#2A2035] truncate">{t.name}</span>
+                            <span className="text-[11px] text-[#2A2035]/60 tabular-nums">{t.classes}</span>
+                            <span className="text-[11px] text-[#2A2035]/60 tabular-nums">{Math.round(t.hours)}</span>
+                            <span className="text-[11px] font-semibold text-[#2A2035] tabular-nums">{fmt(t.cost)}</span>
+                            <span className="text-[10px] text-[#2A2035]/40 text-right">{Math.round((t.cost / wageBill) * 100)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold mb-2">Actual spend vs forecast</p>
+                      {actualOut === 0 ? (
+                        <p className="text-[11px] text-[#2A2035]/40">No outflows recorded in the cash log for this term yet — pull wages in via the Cash Log tab to track actuals against the {fmt(summary.totalExpenses)} forecast.</p>
+                      ) : (
+                        <div className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3.5 py-3">
+                          <div className="flex items-baseline justify-between mb-1.5">
+                            <span className="text-sm font-bold text-[#062E63]">{fmt(actualOut)} spent</span>
+                            <span className="text-[10px] text-[#2A2035]/45">{Math.round((actualOut / total) * 100)}% of {fmt(summary.totalExpenses)} forecast</span>
+                          </div>
+                          <div className="h-2 bg-[#DEE7FF] rounded-full overflow-hidden mb-2">
+                            <div className={`h-full rounded-full ${actualOut > total ? 'bg-rose-500' : 'bg-[#325099]'}`} style={{ width: `${Math.min(100, (actualOut / total) * 100)}%` }} />
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                            {Object.entries(actualByType).sort((a, b) => b[1] - a[1]).map(([type, amt]) => (
+                              <span key={type} className="text-[10px] text-[#2A2035]/55">{type}: <strong className="text-[#2A2035]">{fmt(amt)}</strong></span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Leaders & laggards */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {(() => {
+                const groups = classMetrics.filter(c => !c.is1on1 && c.termIncome > 0)
+                  .map(c => ({ ...c, marginPct: Math.round((c.termProfit / c.termIncome) * 100) }))
+                const top = [...groups].sort((a, b) => b.termProfit - a.termProfit).slice(0, 3)
+                const bottom = [...groups].sort((a, b) => a.termProfit - b.termProfit).slice(0, 3)
+                const Tbl = ({ title, rows, good }) => (
+                  <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
+                    <p className="px-5 py-3 text-xs font-bold text-[#062E63] bg-[#F8FAFF] border-b border-[#F0F4FF]">{title}</p>
+                    <div className="divide-y divide-[#F0F4FF]">
+                      {rows.map(c => (
+                        <div key={c.id} className="flex items-center gap-3 px-5 py-2.5">
+                          <span className="text-xs font-semibold text-[#2A2035] flex-1 truncate">{c.class_name}</span>
+                          <span className="text-[10px] text-[#2A2035]/45">{c.studentCount}/{CLASS_CAP} seats</span>
+                          <span className={`text-xs font-bold tabular-nums ${good ? 'text-emerald-700' : c.termProfit < 0 ? 'text-rose-600' : 'text-[#92400E]'}`}>{fmt(c.termProfit)}</span>
+                          <span className="text-[10px] text-[#2A2035]/45 w-10 text-right">{c.marginPct}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+                return (
+                  <>
+                    <Tbl title="🏆 Most profitable classes" rows={top} good />
+                    <Tbl title="🩹 Needs attention" rows={bottom} good={false} />
+                  </>
+                )
+              })()}
+            </div>
+          </div>
+          )
+        )}
 
         {/* ── LIVE FORECAST TAB ─────────────────────────────────────────────── */}
         {tab === 'live' && (
