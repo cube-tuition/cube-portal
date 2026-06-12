@@ -79,18 +79,31 @@ export async function POST(req) {
       .from('invoices').select('family_id, student_id')
       .eq('term_id', term_id)
       .not('status', 'eq', 'voided')
-    const existingFamilies = new Set(
-      (existing || []).map(i => i.family_id ?? `student:${i.student_id}`)
-    )
+    // IMPORTANT: keys must be STRINGS. familyMap keys go through Object.entries
+    // (always strings), but family_id comes back from the DB as a number —
+    // Set.has(1) vs has('1') never matched, which caused duplicate family
+    // invoices on every run. Coerce everything to string.
+    const existingFamilies = new Set()
+    for (const i of existing || []) {
+      if (i.family_id !== null && i.family_id !== undefined) {
+        existingFamilies.add(String(i.family_id))
+      } else if (i.student_id) {
+        existingFamilies.add(`student:${i.student_id}`)
+        // If that student has since been linked to a family, block the family
+        // too — otherwise the member would be billed twice (solo + family).
+        const fam = studMap[i.student_id]?.family_id
+        if (fam !== null && fam !== undefined) existingFamilies.add(String(fam))
+      }
+    }
 
     // ── Group enrolments by family ───────────────────────────────────────────
     const familyMap = {}
     for (const e of enrolments) {
       const s   = studMap[e.student_id]
-      const key = s?.family_id ?? `student:${e.student_id}`
+      const key = s?.family_id != null ? String(s.family_id) : `student:${e.student_id}`
       if (!familyMap[key]) familyMap[key] = {
         family_id:  s?.family_id ?? null,
-        student_id: s?.family_id ? null : e.student_id, // for solo students
+        student_id: s?.family_id != null ? null : e.student_id, // for solo students
         enrolments: [],
       }
       familyMap[key].enrolments.push(e)

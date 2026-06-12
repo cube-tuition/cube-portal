@@ -8,6 +8,7 @@ import TutorNav from '../../../components/TutorNav'
 import { buildClassLabelMap } from '../../../lib/classLabels'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
+import { dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue } from '../../../lib/tableMeta'
 
 /*
  * Admin-only: Database Explorer — /tutor/database
@@ -26,7 +27,9 @@ import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COUR
 
 // ── Table groups ──────────────────────────────────────────────────────────────
 const INITIAL_TABLE_GROUPS = [
-  { label: 'Core',                 tables: [T_STUDENTS,T_TUTORS,T_ADMINS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS] },
+  // T_PARENTS (guardians) listed directly so orphaned guardian rows (whose
+  // student was deleted) are visible — they never appear in the students join.
+  { label: 'Core',                 tables: [T_STUDENTS,T_PARENTS,T_TUTORS,T_ADMINS,T_COURSES,T_CLASSES,T_ENROLMENTS,T_TERMS] },
   { label: 'Scheduling',           tables: [T_LESSONS] },
   // Invoices moved to /tutor/accounting/invoices
 ]
@@ -71,11 +74,18 @@ const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relations
 function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
 
 // Columns that show a dropdown picker when edited, keyed as "table:col"
+// (legacy fallback — lib/tableMeta.js is now the primary source)
 const CELL_DROPDOWNS = {
   [`${T_STUDENTS}:year`]:        ['5','6','7','8','9','10','11','12'],
   [`${T_STUDENTS}:status`]:      ['active','trial','disenrol','quit trial'],
   [`${T_ATTENDANCE}:status`]:    ['present','late','absent','makeup'],
   [`${T_ENROLMENTS}:status`]:    ['active','trial','trial complete','disenrol'],
+}
+
+// Dropdown options for a table cell: metadata first, legacy map as fallback.
+// Virtual table names map to the same real table names used in tableMeta.
+function cellDropdown(table, col) {
+  return dropdownOptions(table, col) ?? CELL_DROPDOWNS[`${table}:${col}`] ?? null
 }
 
 // Coloured pill badges for specific table:column values
@@ -368,7 +378,7 @@ function SDDetailRow({ icon, label, value }) {
 }
 
 const SD_INPUT_CLS = 'w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] text-[#2A2035] placeholder-[#2A2035]/35 focus:outline-none focus:border-[#BACBFF] focus:ring-1 focus:ring-[#BACBFF] transition'
-const SD_BLANK = { studentName:'', gender:'', studentEmail:'', studentPhone:'', school:'', guardianName:'', relationship:'', parentEmail:'', parentPhone:'' }
+const SD_BLANK = { studentName:'', gender:'', year:'', studentEmail:'', studentPhone:'', school:'', guardianName:'', relationship:'', parentEmail:'', parentPhone:'' }
 
 function SDField({ label, required, children }) {
   return (
@@ -390,11 +400,22 @@ function AddStudentModal({ onClose, onAdded }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.studentName.trim()) { setError('Student full name is required.'); return }
+    // Soft validation — warn but allow saving (data can be fixed later)
+    const warnings = []
+    for (const [field, val] of [['Student email', form.studentEmail], ['Parent email', form.parentEmail]]) {
+      const w = val.trim() && validateValue(T_STUDENTS, 'email', val.trim())
+      if (w) warnings.push(`${field}: ${w}`)
+    }
+    for (const [field, val] of [['Student phone', form.studentPhone], ['Parent phone', form.parentPhone]]) {
+      const w = val.trim() && validateValue(T_STUDENTS, 'phone', val.trim())
+      if (w) warnings.push(`${field}: ${w}`)
+    }
+    if (warnings.length && !window.confirm(`⚠ ${warnings.join('\n')}\n\nSave anyway?`)) return
     setSaving(true); setError(null)
     try {
       const { data: newStudent, error: sErr } = await supabase
         .from(T_STUDENTS)
-        .insert({ full_name: form.studentName.trim(), gender: form.gender || null, email: form.studentEmail.trim() || null, phone: form.studentPhone.trim() || null, school: form.school.trim() || null })
+        .insert({ full_name: form.studentName.trim(), gender: form.gender || null, year: form.year || null, email: form.studentEmail.trim() || null, phone: form.studentPhone.trim() || null, school: form.school.trim() || null })
         .select('id, full_name, email, school, year, gender, phone').single()
       if (sErr) throw new Error(sErr.message)
       const hasGuardian = form.guardianName.trim() || form.parentEmail.trim() || form.parentPhone.trim()
@@ -431,12 +452,24 @@ function AddStudentModal({ onClose, onAdded }) {
                 <SDField label="Full Name" required>
                   <input type="text" placeholder="e.g. Sarah Johnson" value={form.studentName} onChange={set('studentName')} className={SD_INPUT_CLS} autoFocus />
                 </SDField>
-                <SDField label="Gender">
-                  <select value={form.gender} onChange={set('gender')} className={SD_INPUT_CLS}>
-                    <option value="">Select gender…</option>
-                    <option>Male</option><option>Female</option><option>Non-binary</option><option>Prefer not to say</option>
-                  </select>
-                </SDField>
+                <div className="grid grid-cols-2 gap-3">
+                  <SDField label="Gender">
+                    {/* values match existing student records (M / F / Other / Unknown) */}
+                    <select value={form.gender} onChange={set('gender')} className={SD_INPUT_CLS}>
+                      <option value="">Select gender…</option>
+                      <option value="M">Male</option>
+                      <option value="F">Female</option>
+                      <option value="Other">Other</option>
+                      <option value="Unknown">Prefer not to say</option>
+                    </select>
+                  </SDField>
+                  <SDField label="Year">
+                    <select value={form.year} onChange={set('year')} className={SD_INPUT_CLS}>
+                      <option value="">Select year…</option>
+                      {['K','1','2','3','4','5','6','7','8','9','10','11','12'].map(y => <option key={y} value={y}>{y === 'K' ? 'Kindergarten' : `Year ${y}`}</option>)}
+                    </select>
+                  </SDField>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <SDField label="Student Email"><input type="email" placeholder="student@example.com" value={form.studentEmail} onChange={set('studentEmail')} className={SD_INPUT_CLS} /></SDField>
                   <SDField label="Student Phone"><input type="tel" placeholder="04XX XXX XXX" value={form.studentPhone} onChange={set('studentPhone')} className={SD_INPUT_CLS} /></SDField>
@@ -551,6 +584,206 @@ function SiblingPopover({ studentId, x, y, allStudents, currentSiblings, onAdd, 
 }
 
 // ── Drop-in Session Modal (create + edit) ─────────────────────────────────────
+/* ── Families view (guardians table) ──────────────────────────────────────────
+ * Display-layer grouping only — guardian rows in the DB stay one-per-student.
+ * Groups by students.family_id; students without a family number appear as
+ * single-student "families" flagged as not linked.
+ */
+const FAM_INV_STATUS_CLS = {
+  draft:    'bg-gray-100 text-gray-600 border border-gray-200',
+  approved: 'bg-blue-100 text-blue-800 border border-blue-200',
+  voided:   'bg-gray-100 text-gray-400 border border-gray-200 line-through',
+}
+const FAM_PAY_STATUS_CLS = {
+  paid:    'bg-emerald-100 text-emerald-800 border border-emerald-200',
+  partial: 'bg-amber-100 text-amber-800 border border-amber-200',
+  unpaid:  'bg-rose-100 text-rose-700 border border-rose-200',
+  overdue: 'bg-rose-100 text-rose-700 border border-rose-300 font-bold',
+}
+const famNorm = s => (s ?? '').trim().toLowerCase()
+
+function FamiliesView() {
+  const [loading, setLoading]   = useState(true)
+  const [err, setErr]           = useState(null)
+  const [families, setFamilies] = useState([])
+  const [termById, setTermById] = useState({})
+  const [currentTermId, setCurrentTermId] = useState(null)
+  const [search, setSearch]     = useState('')
+  const [selectedKey, setSelectedKey] = useState(null)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const [stuRes, gRes, invRes, allTerms] = await Promise.all([
+          supabase.from(T_STUDENTS).select('id, full_name, year, status, family_id').order('full_name'),
+          supabase.from(T_PARENTS).select('id, full_name, relationship, email, phone, student_id'),
+          supabase.from(T_INVOICES).select('id, term_id, family_id, student_id, invoice_number, status, payment_status, delivery_status, total, due_date').order('created_at', { ascending: false }),
+          fetchAllTerms(),
+        ])
+        for (const r of [stuRes, gRes, invRes]) if (r.error) throw new Error(r.error.message)
+        const students = stuRes.data ?? [], guardians = gRes.data ?? [], invoices = invRes.data ?? []
+        setTermById(Object.fromEntries((allTerms ?? []).map(t => [t.id, t])))
+        setCurrentTermId(getCurrentTerm(allTerms ?? [])?.id ?? null)
+
+        const guardiansByStudent = {}
+        for (const g of guardians) (guardiansByStudent[String(g.student_id)] = guardiansByStudent[String(g.student_id)] ?? []).push(g)
+
+        const buildFamily = (key, familyId, members) => {
+          // Dedupe guardians across siblings by name+email; head = guardian linked to most members
+          const seen = {}
+          for (const s of members) for (const g of (guardiansByStudent[s.id] ?? [])) {
+            const gk = `${famNorm(g.full_name)}|${famNorm(g.email)}`
+            if (!seen[gk]) seen[gk] = { ...g, linkCount: 0 }
+            seen[gk].linkCount++
+          }
+          const gs = Object.values(seen).sort((a, b) => b.linkCount - a.linkCount || a.id - b.id)
+          const memberIds = new Set(members.map(s => s.id))
+          const famInvoices = invoices.filter(inv =>
+            (familyId !== null && inv.family_id === familyId) || (inv.family_id === null && memberIds.has(inv.student_id)))
+          return { key, familyId, students: members, head: gs[0] ?? null, otherGuardians: gs.slice(1), invoices: famInvoices }
+        }
+
+        const byFam = {}
+        const unlinked = []
+        for (const s of students) {
+          if (s.family_id === null || s.family_id === undefined) unlinked.push(s)
+          else (byFam[s.family_id] = byFam[s.family_id] ?? []).push(s)
+        }
+        const result = [
+          ...Object.entries(byFam).map(([fid, members]) => buildFamily(`f_${fid}`, Number(fid), members)),
+          ...unlinked.map(s => buildFamily(`s_${s.id}`, null, [s])),
+        ]
+        result.sort((a, b) => (a.familyId === null) - (b.familyId === null)
+          || (a.head?.full_name ?? a.students[0]?.full_name ?? '').localeCompare(b.head?.full_name ?? b.students[0]?.full_name ?? ''))
+        setFamilies(result)
+      } catch (e) { setErr(e.message || 'Failed to load families.') }
+      finally { setLoading(false) }
+    })()
+  }, [])
+
+  if (loading) return <div className="flex items-center justify-center h-full"><p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p></div>
+  if (err)     return <div className="flex items-center justify-center h-full"><p className="text-xs text-rose-600">{err}</p></div>
+
+  const q = search.trim().toLowerCase()
+  const filtered = q ? families.filter(f =>
+    (f.head?.full_name ?? '').toLowerCase().includes(q) ||
+    f.students.some(s => (s.full_name ?? '').toLowerCase().includes(q)) ||
+    (f.head?.email ?? '').toLowerCase().includes(q)
+  ) : families
+  const sel = filtered.find(f => f.key === selectedKey) ?? null
+  const currentInvoices = sel ? sel.invoices.filter(i => i.term_id === currentTermId && i.status !== 'voided') : []
+  const pastInvoices    = sel ? sel.invoices.filter(i => i.term_id !== currentTermId) : []
+  const fmtMoney = v => v === null || v === undefined ? '—' : `$${Number(v).toFixed(2)}`
+
+  const InvoiceRow = ({ inv, highlight }) => (
+    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-[11px] ${highlight ? 'border-[#BACBFF] bg-[#F0F4FF]' : 'border-[#E8EDF8] bg-white'}`}>
+      <span className="font-mono text-[#325099]/70 shrink-0">{inv.invoice_number ?? `#${inv.id}`}</span>
+      <span className="text-[#2A2035]/50 truncate flex-1">{termById[inv.term_id]?.name ?? ''}</span>
+      <span className="font-semibold text-[#2A2035] tabular-nums">{fmtMoney(inv.total)}</span>
+      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${FAM_INV_STATUS_CLS[inv.status] ?? 'bg-gray-100 text-gray-500'}`}>{inv.status}</span>
+      {inv.payment_status && <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${FAM_PAY_STATUS_CLS[inv.payment_status] ?? 'bg-gray-100 text-gray-500'}`}>{inv.payment_status}</span>}
+    </div>
+  )
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+        <div className="relative flex-1 max-w-sm">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#325099]/50 text-sm">🔍</span>
+          <input type="text" placeholder="Search by guardian or student name…" value={search} onChange={e => { setSearch(e.target.value); setSelectedKey(null) }} className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-[#DEE7FF] bg-white text-[#2A2035] placeholder-[#2A2035]/40 focus:outline-none focus:border-[#BACBFF] transition" />
+        </div>
+        <span className="text-[10px] text-[#325099]/50 font-semibold shrink-0">{filtered.length} {q ? 'found' : 'families'}</span>
+      </div>
+      <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-0 divide-x divide-[#DEE7FF]">
+        {/* Family list */}
+        <div className="overflow-y-auto p-4 space-y-2">
+          {filtered.map(f => (
+            <button key={f.key} onClick={() => setSelectedKey(f.key)} className={`w-full text-left bg-white rounded-xl border px-4 py-3 transition shadow-sm hover:shadow-md ${selectedKey === f.key ? 'border-[#325099] ring-1 ring-[#BACBFF]' : 'border-[#E8EDF8]'}`}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-[#2A2035] truncate">{f.head?.full_name ?? <span className="italic text-[#2A2035]/40">No guardian recorded</span>}</span>
+                {f.familyId !== null
+                  ? <span className="text-[9px] font-semibold bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full shrink-0">Family #{f.familyId}</span>
+                  : <span className="text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0" title="Student has no family number — link siblings via the Students table">not linked</span>}
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {f.students.map(s => (
+                  <span key={s.id} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${s.status === 'active' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>
+                    {s.full_name}{s.year ? ` · Yr ${s.year}` : ''}
+                  </span>
+                ))}
+              </div>
+            </button>
+          ))}
+          {filtered.length === 0 && <p className="text-xs text-[#2A2035]/40 text-center py-10">No families match &ldquo;{search}&rdquo;</p>}
+        </div>
+        {/* Detail panel */}
+        <div className="overflow-y-auto p-5 bg-[#FBFCFF]">
+          {!sel ? (
+            <div className="flex items-center justify-center h-full text-xs text-[#2A2035]/35">Select a family to see details</div>
+          ) : (
+            <div className="space-y-5">
+              {/* Head guardian */}
+              <section>
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Guardian{sel.otherGuardians.length ? 's' : ''}</p>
+                {sel.head ? (
+                  <div className="bg-white rounded-xl border border-[#E8EDF8] px-4 py-3">
+                    <p className="text-sm font-bold text-[#2A2035]">{sel.head.full_name} {sel.head.relationship && <span className="text-[10px] font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] px-1.5 py-0.5 rounded-full ml-1">{sel.head.relationship}</span>}</p>
+                    <div className="mt-1.5 flex flex-wrap gap-3 text-[11px]">
+                      {sel.head.email && <a href={`mailto:${sel.head.email}`} className="text-[#325099] hover:underline">✉ {sel.head.email}</a>}
+                      {sel.head.phone && <a href={`tel:${sel.head.phone}`} className="text-[#325099] hover:underline">☎ {sel.head.phone}</a>}
+                      {!sel.head.email && !sel.head.phone && <span className="text-[#2A2035]/35 italic">no contact details</span>}
+                    </div>
+                  </div>
+                ) : <p className="text-xs text-[#2A2035]/40 italic">No guardian recorded for this family.</p>}
+                {sel.otherGuardians.map(g => (
+                  <div key={g.id} className="mt-1.5 bg-white rounded-xl border border-[#E8EDF8] px-4 py-2.5 text-xs text-[#2A2035]">
+                    <span className="font-semibold">{g.full_name}</span>
+                    {g.relationship && <span className="text-[#2A2035]/50"> · {g.relationship}</span>}
+                    {g.email && <a href={`mailto:${g.email}`} className="text-[#325099] hover:underline ml-2">✉ {g.email}</a>}
+                  </div>
+                ))}
+              </section>
+              {/* Students */}
+              <section>
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Students</p>
+                <div className="space-y-1.5">
+                  {sel.students.map(s => (
+                    <div key={s.id} className="flex items-center gap-2 bg-white rounded-xl border border-[#E8EDF8] px-4 py-2.5">
+                      <span className="text-xs font-bold text-[#2A2035] flex-1 truncate">{s.full_name}</span>
+                      {s.year && <span className="text-[9px] font-semibold bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full">Yr {s.year}</span>}
+                      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${s.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>{s.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              {/* Last conversation — placeholder */}
+              <section>
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Last Conversation</p>
+                <div className="bg-white rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 text-[11px] text-[#2A2035]/40 italic">
+                  Coming soon — communication tracking hasn&rsquo;t been wired up yet. This panel will show the most recent email/call with this family.
+                </div>
+              </section>
+              {/* Invoices */}
+              <section>
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Invoices — Current Term</p>
+                {currentInvoices.length
+                  ? <div className="space-y-1.5">{currentInvoices.map(inv => <InvoiceRow key={inv.id} inv={inv} highlight />)}</div>
+                  : <p className="text-[11px] text-[#2A2035]/40 italic">No invoice for the current term.</p>}
+                {pastInvoices.length > 0 && (
+                  <details className="mt-3">
+                    <summary className="text-[10px] font-semibold text-[#325099]/60 cursor-pointer select-none hover:text-[#325099]">History ({pastInvoices.length})</summary>
+                    <div className="space-y-1.5 mt-2">{pastInvoices.map(inv => <InvoiceRow key={inv.id} inv={inv} />)}</div>
+                  </details>
+                )}
+              </section>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const DROPIN_SUBJECTS_LIST = ['Maths', 'English', 'Chemistry', 'Biology', 'Physics', 'Economics']
 
 function SessionModal({ session, onClose, onSaved }) {
@@ -950,6 +1183,9 @@ export default function DatabasePage() {
   const [oneToOneEnd, setOneToOneEnd]       = useState('')
   const [oneToOneRoom, setOneToOneRoom]     = useState('')
 
+  // Guardians table view ('families' groups rows by family_id — display only)
+  const [guardianViewMode, setGuardianViewMode] = useState('families')  // 'families' | 'data'
+
   // Student directory view (cards mode for students table)
   const [studentViewMode, setStudentViewMode]             = useState('data')  // 'data' | 'cards'
   const [studentCardsData, setStudentCardsData]           = useState([])
@@ -967,7 +1203,7 @@ export default function DatabasePage() {
     const HIDDEN = new Set([T_ATTENDANCE, T_QUIZ_RESULTS])
     // Bump this whenever INITIAL_TABLE_GROUPS order/membership changes intentionally.
     // A mismatch clears the cached layout so the new defaults take effect immediately.
-    const GROUPS_VERSION = 'v12'
+    const GROUPS_VERSION = 'v13' // v13: guardians added to Core
 
     try {
       const saved = typeof window !== 'undefined' && localStorage.getItem('cube_db_table_groups')
@@ -1495,7 +1731,10 @@ export default function DatabasePage() {
       setColumnOrder(order)
       const defaults = Object.fromEntries(columns.map(c => [c, defaultWidth(c)]))
       setColumnWidths({ ...defaults, ...(savedWidths ?? {}) })
-      setHiddenCols(new Set(savedHidden ?? []))
+      // No saved layout → start with system/internal columns hidden (from lib/tableMeta).
+      // Users can unhide as before; once they save a layout it always wins.
+      const metaTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
+      setHiddenCols(new Set(savedHidden ?? defaultHiddenCols(metaTable, columns)))
     } catch {
       setColumnOrder(columns)
       setColumnWidths(Object.fromEntries(columns.map(c => [c, defaultWidth(c)])))
@@ -1586,6 +1825,13 @@ export default function DatabasePage() {
       setEditingCell(null)
       setPriceConfirm({ rowId, col, oldVal, newVal })
       return
+    }
+    // Soft validation from lib/tableMeta — warns, never blocks silently or rewrites.
+    {
+      const metaTable = isGuardianCol(col) ? T_PARENTS : (VIRTUAL[selectedTable]?.realTable ?? selectedTable)
+      const metaCol   = isGuardianCol(col) ? PARENT_COL_MAP[col] : col
+      const warning   = validateValue(metaTable, metaCol, editValue === '' ? null : editValue)
+      if (warning && !window.confirm(`⚠ ${warning}\n\nSave anyway?`)) { setEditingCell(null); return }
     }
     setEditingCell(null); setSaving(true)
     const newVal = editValue === '' ? null : editValue
@@ -3033,6 +3279,11 @@ export default function DatabasePage() {
                 </>
               )}
 
+              {/* Data quality (read-only checks) */}
+              <button onClick={() => router.push('/tutor/database/quality')} className="flex items-center gap-1.5 px-3 py-1.5 text-[#065F46] border border-[#A7F3D0] text-xs font-semibold rounded-lg hover:bg-[#ECFDF5] transition" title="Read-only data quality checks — duplicates, orphans, invalid emails/phones, inconsistent values">
+                ✓ Data Quality
+              </button>
+
               {/* Search */}
               <div className="relative">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#325099]/40 text-xs pointer-events-none">🔍</span>
@@ -3127,6 +3378,19 @@ export default function DatabasePage() {
                 <button onClick={() => setShowAddEnrolmentModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Enrolment
                 </button>
+              ) : selectedTable === T_PARENTS ? (
+                <>
+                  {/* Families / Data toggle */}
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                    <button onClick={() => setGuardianViewMode('families')} className={`px-3 py-1.5 text-xs font-semibold transition ${guardianViewMode === 'families' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Families</button>
+                    <button onClick={() => setGuardianViewMode('data')} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${guardianViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                  </div>
+                  {guardianViewMode === 'data' && (
+                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                      <span className="text-sm leading-none">+</span> Add Row
+                    </button>
+                  )}
+                </>
               ) : (
                 <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Row
@@ -3164,8 +3428,13 @@ export default function DatabasePage() {
           {/* Grid */}
           <div className="flex-1 overflow-auto">
 
-            {/* ── Student Directory view ─────────────────────────────────────── */}
-            {selectedTable === T_STUDENTS && studentViewMode === 'cards' ? (
+            {/* ── Families view (guardians table) ────────────────────────────── */}
+            {selectedTable === T_PARENTS && guardianViewMode === 'families' ? (
+              <FamiliesView key={reloadKey} />
+            ) :
+
+            /* ── Student Directory view ─────────────────────────────────────── */
+            selectedTable === T_STUDENTS && studentViewMode === 'cards' ? (
               loadingStudentCards ? (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p>
@@ -3673,7 +3942,8 @@ export default function DatabasePage() {
                 </div>
                 </div>
               )
-            ) : (selectedTable === T_STUDENTS && studentViewMode === 'cards') ? null
+            ) : (selectedTable === T_PARENTS && guardianViewMode === 'families') ? null
+            : (selectedTable === T_STUDENTS && studentViewMode === 'cards') ? null
             : loading ? (
               <div className="flex items-center justify-center h-full">
                 <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p>
@@ -3753,11 +4023,14 @@ export default function DatabasePage() {
                               {renameColError && <p className="text-[8px] text-red-500 leading-tight px-0.5 truncate" title={renameColError}>{renameColError}</p>}
                             </div>
                           ) : (
-                            <div className="flex items-center px-3 py-2.5 overflow-hidden gap-1">
+                            <div className="flex items-center px-3 py-2.5 overflow-hidden gap-1" title={columnTooltip(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col)}>
                               {isPk       && <span className="text-[9px] text-amber-500 shrink-0">🔑</span>}
                               {isGuardian && <span className="text-[9px] text-amber-600/70 shrink-0">👤</span>}
                               {isName     && <span className="text-[9px] text-emerald-600/70 shrink-0">🔗</span>}
-                              <span className={`text-[10px] font-bold tracking-[0.06em] uppercase truncate flex-1 min-w-0 ${isName ? 'text-emerald-800' : 'text-[#062E63]'}`}>{col}</span>
+                              <span className={`text-[10px] font-bold tracking-[0.06em] uppercase truncate flex-1 min-w-0 ${isName ? 'text-emerald-800' : 'text-[#062E63]'}`}>
+                                {columnLabel(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col)}
+                                {isRequired(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col) && <span className="text-rose-400 ml-0.5">*</span>}
+                              </span>
                               {/* Resize handle */}
                               <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#325099]/30 active:bg-[#325099]/50 transition-colors" onMouseDown={e => handleResizeStart(e, col)} onDragStart={e => e.preventDefault()} />
                             </div>
@@ -3921,11 +4194,13 @@ export default function DatabasePage() {
                                   </div>
                                 )
                               ) : isEditing ? (
-                                CELL_DROPDOWNS[`${selectedTable}:${col}`]
+                                cellDropdown(selectedTable, col)
                                   ? (
                                     <select ref={editInputRef} value={editValue} onChange={e => handleDropdownSave(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null) }} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs cursor-pointer" style={{ width:w }}>
                                       <option value="">—</option>
-                                      {CELL_DROPDOWNS[`${selectedTable}:${col}`].map(o => <option key={o} value={o}>{o}</option>)}
+                                      {/* keep the current (possibly legacy) value selectable so old rows still save */}
+                                      {editValue && !cellDropdown(selectedTable, col).includes(editValue) && <option value={editValue}>{editValue} (legacy)</option>}
+                                      {cellDropdown(selectedTable, col).map(o => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : (
                                     <input ref={editInputRef} type="text" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />

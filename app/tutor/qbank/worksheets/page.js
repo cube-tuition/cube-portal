@@ -1,0 +1,375 @@
+'use client'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { supabase } from '../../../../lib/supabase'
+import { getAuthProfile } from '../../../../lib/getProfile'
+import TutorNav from '../../../../components/TutorNav'
+import LatexContent from '../../../../components/qbank/LatexContent'
+import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage } from '../../../../lib/qbank'
+import { exportWorksheet } from '../../../../lib/qbankWorksheet'
+import UsageBadge from '../../../../components/qbank/UsageBadge'
+
+/*
+ * Additional Questions — /tutor/qbank/worksheets
+ * Persistent, editable worksheets saved in qbank_worksheets. Unlike the ad-hoc
+ * Generate page, these keep their question list (ordered ids in question_ids)
+ * so they can be reopened, edited and re-exported any time.
+ */
+
+export default function AdditionalQuestionsPage() {
+  const router = useRouter()
+  const [profile, setProfile] = useState(null)
+  const [ready, setReady] = useState(false)
+
+  // worksheet list
+  const [worksheets, setWorksheets] = useState([])
+  const [loadingWs, setLoadingWs] = useState(true)
+  const [selectedId, setSelectedId] = useState(null)
+
+  // bank + taxonomy
+  const [tax, setTax] = useState(null)
+  const [questions, setQuestions] = useState([])
+  const [loadingQ, setLoadingQ] = useState(true)
+  const [usageMap, setUsageMap] = useState({})
+
+  // editor state
+  const [title, setTitle] = useState('')
+  const [subtitle, setSubtitle] = useState('')
+  const [tray, setTray] = useState([])
+  const [dirty, setDirty] = useState(false)
+  const [includeMarks, setIncludeMarks] = useState(true)
+  const [busy, setBusy] = useState('')
+
+  // filters
+  const [year, setYear] = useState('')
+  const [subjectId, setSubjectId] = useState('')
+  const [topicId, setTopicId] = useState('')
+  const [skillId, setSkillId] = useState('')
+  const [difficulty, setDifficulty] = useState('')
+  const [search, setSearch] = useState('')
+
+  const loadWorksheets = useCallback(async () => {
+    const { data } = await supabase.from(T_QBANK_WORKSHEETS)
+      .select('*').order('updated_at', { ascending: false })
+    setWorksheets(data || []); setLoadingWs(false)
+  }, [])
+
+  useEffect(() => {
+    getAuthProfile().then(({ profile, role }) => {
+      if (!profile || !['tutor', 'admin', 'director'].includes(role)) { router.replace('/tutor'); return }
+      setProfile(profile); setReady(true)
+      fetchTaxonomy().then(setTax)
+      fetchQuestionUsage().then(setUsageMap)
+      loadWorksheets()
+      supabase.from(T_QBANK_QUESTIONS)
+        .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order)')
+        .order('created_at', { ascending: false })
+        .then(({ data }) => { setQuestions(data || []); setLoadingQ(false) })
+    })
+  }, [router, loadWorksheets])
+
+  const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
+
+  // open a worksheet into the editor
+  const openWorksheet = (ws) => {
+    setSelectedId(ws.id)
+    setTitle(ws.title || '')
+    setSubtitle(ws.subtitle || '')
+    const ids = Array.isArray(ws.question_ids) ? ws.question_ids : []
+    setTray(ids.map((id) => qById[id]).filter(Boolean))
+    setDirty(false)
+  }
+
+  const createWorksheet = async () => {
+    const { data, error } = await supabase.from(T_QBANK_WORKSHEETS)
+      .insert({ title: 'Untitled worksheet', question_ids: [], created_by: profile?.full_name || null })
+      .select('*').single()
+    if (error) { alert('Could not create worksheet: ' + error.message); return }
+    await loadWorksheets()
+    openWorksheet(data)
+  }
+
+  const saveWorksheet = async () => {
+    if (!selectedId) return
+    setBusy('save')
+    const { error } = await supabase.from(T_QBANK_WORKSHEETS).update({
+      title: title.trim() || 'Untitled worksheet',
+      subtitle: subtitle.trim() || null,
+      question_ids: tray.map((q) => q.id),
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedId)
+    setBusy('')
+    if (error) { alert('Save failed: ' + error.message); return }
+    setDirty(false)
+    loadWorksheets()
+  }
+
+  const deleteWorksheet = async (ws) => {
+    if (!window.confirm(`Delete worksheet "${ws.title}"? The questions stay in the bank — only this saved list is removed.`)) return
+    const { error } = await supabase.from(T_QBANK_WORKSHEETS).delete().eq('id', ws.id)
+    if (error) { alert('Delete failed: ' + error.message); return }
+    if (selectedId === ws.id) setSelectedId(null)
+    loadWorksheets()
+  }
+
+  // taxonomy helpers (same pattern as Generate page)
+  const maps = useMemo(() => {
+    if (!tax) return null
+    return {
+      skill: Object.fromEntries(tax.skills.map((s) => [s.id, s])),
+      topic: Object.fromEntries(tax.topics.map((t) => [t.id, t])),
+      subject: Object.fromEntries(tax.subjects.map((s) => [s.id, s])),
+    }
+  }, [tax])
+  const labelFor = useCallback((q) => {
+    if (!maps) return null
+    const sk = maps.skill[q.skill_id]
+    const tp = sk && maps.topic[sk.topic_id]
+    const su = tp && maps.subject[tp.subject_id]
+    return { skill: sk, topic: tp, subject: su }
+  }, [maps])
+
+  const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects) : []), [tax])
+  const subjectsForYear = useMemo(() => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []), [tax, year])
+  const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
+  const skillsForTopic = useMemo(() => (tax && topicId ? (tax.skillsByTopic[topicId] || []) : []), [tax, topicId])
+  const trayIds = useMemo(() => new Set(tray.map((q) => q.id)), [tray])
+
+  const filtered = useMemo(() => {
+    if (!maps) return []
+    return questions.filter((q) => {
+      const l = labelFor(q)
+      if (skillId && q.skill_id !== skillId) return false
+      if (topicId && l?.topic?.id !== topicId) return false
+      if (subjectId && l?.subject?.id !== subjectId) return false
+      if (year && String(l?.subject?.year_level) !== String(year)) return false
+      if (difficulty && String(q.difficulty) !== String(difficulty)) return false
+      if (search.trim()) {
+        const hay = `${q.stem_latex} ${q.solution_latex}`.toLowerCase()
+        if (!hay.includes(search.toLowerCase())) return false
+      }
+      return true
+    })
+  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, search])
+
+  const add = (q) => { setTray((t) => (t.find((x) => x.id === q.id) ? t : [...t, q])); setDirty(true) }
+  const removeFromTray = (id) => { setTray((t) => t.filter((x) => x.id !== id)); setDirty(true) }
+  const moveTray = (id, dir) => {
+    setTray((t) => {
+      const i = t.findIndex((x) => x.id === id); const j = i + dir
+      if (i < 0 || j < 0 || j >= t.length) return t
+      const next = [...t]; [next[i], next[j]] = [next[j], next[i]]; return next
+    })
+    setDirty(true)
+  }
+
+  const totalMarks = useMemo(
+    () => tray.reduce((sum, q) => {
+      const parts = q.qbank_question_parts || []
+      if (parts.length) return sum + parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
+      return sum + (Number(q.marks) || 0)
+    }, 0),
+    [tray],
+  )
+
+  const doExport = async (answers) => {
+    if (!tray.length) return
+    setBusy(answers ? 'answers' : 'worksheet')
+    try {
+      await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers })
+      if (!answers) {
+        await logWorksheetUsage(tray, title || 'Worksheet', profile?.full_name)
+        fetchQuestionUsage().then(setUsageMap)
+      }
+    } catch (e) {
+      alert('Could not generate the PDF: ' + (e.message || e))
+    } finally { setBusy('') }
+  }
+
+  if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
+
+  const selCls = 'border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFF]">
+      <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
+      <div className="max-w-7xl mx-auto px-6 pt-8 pb-16">
+        <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
+        <div className="flex items-center gap-3 mt-1 mb-5">
+          <h1 className="text-2xl font-bold text-[#062E63]">Additional Questions</h1>
+          {selectedId && (
+            <button onClick={() => setSelectedId(null)}
+              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3 py-1 hover:bg-white transition">
+              ← All worksheets
+            </button>
+          )}
+        </div>
+
+        {/* ── Worksheet list ───────────────────────────────────────────────── */}
+        {!selectedId && (
+          <div className="max-w-3xl">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-[#2A2035]/50">Saved worksheets keep their question list so you can edit and re-export them any time.</p>
+              <button onClick={createWorksheet} className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition shrink-0">+ New worksheet</button>
+            </div>
+            {loadingWs ? <p className="text-center text-sm text-[#2A2035]/40 py-10 animate-pulse">Loading…</p>
+              : worksheets.length === 0 ? (
+                <div className="text-center py-14 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
+                  <p className="text-sm text-[#2A2035]/50">No saved worksheets yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {worksheets.map((ws) => (
+                    <div key={ws.id} className="bg-white rounded-2xl border border-[#F0F4FF] p-4 flex items-center gap-3 hover:border-[#BACBFF] transition">
+                      <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
+                        <p className="text-sm font-bold text-[#062E63] truncate">{ws.title}</p>
+                        {ws.subtitle && <p className="text-[11px] text-[#2A2035]/50 truncate mt-0.5">{ws.subtitle}</p>}
+                        <p className="text-[10px] text-[#2A2035]/40 mt-1">
+                          {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} questions · updated {new Date(ws.updated_at).toLocaleDateString()}
+                        </p>
+                      </button>
+                      <button onClick={() => openWorksheet(ws)} className="text-[11px] font-semibold text-[#325099] hover:underline shrink-0">Open →</button>
+                      <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#DC2626]/60 hover:text-[#DC2626] shrink-0" title="Delete worksheet">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </div>
+        )}
+
+        {/* ── Editor ───────────────────────────────────────────────────────── */}
+        {selectedId && (
+        <div className="grid lg:grid-cols-2 gap-5">
+          {/* Left: pick from bank */}
+          <div>
+            <div className="bg-white rounded-2xl border border-[#F0F4FF] p-3 flex flex-wrap items-center gap-2">
+              <select value={year} onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSkillId('') }} className={selCls}>
+                <option value="">All years</option>
+                {years.map((y) => <option key={y} value={y}>Year {y}</option>)}
+              </select>
+              <select value={subjectId} disabled={!year} onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSkillId('') }} className={selCls}>
+                <option value="">All subjects</option>
+                {subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select value={topicId} disabled={!subjectId} onChange={(e) => { setTopicId(e.target.value); setSkillId('') }} className={selCls}>
+                <option value="">All topics</option>
+                {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <select value={skillId} disabled={!topicId} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
+                <option value="">All skills</option>
+                {skillsForTopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
+                <option value="">Any difficulty</option>
+                {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+              </select>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
+                className="flex-1 min-w-[100px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
+            </div>
+
+            <div className="flex items-center justify-between mt-3 mb-2 px-1">
+              <span className="text-xs text-[#2A2035]/50">{filtered.length} available</span>
+            </div>
+
+            <div className="space-y-2 max-h-[64vh] overflow-y-auto pr-1">
+              {loadingQ ? <p className="text-center text-sm text-[#2A2035]/40 py-10 animate-pulse">Loading…</p>
+                : filtered.length === 0 ? <p className="text-center text-sm text-[#2A2035]/40 py-10">No questions match.</p>
+                : filtered.map((q) => {
+                  const l = labelFor(q); const inTray = trayIds.has(q.id)
+                  return (
+                    <div key={q.id} className={`rounded-xl border p-3 transition ${inTray ? 'border-[#BACBFF] bg-[#F8FAFF]' : 'border-[#F0F4FF] bg-white'}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: DIFFICULTY_COLORS[q.difficulty] }}>{q.difficulty}</span>
+                        {l?.subject && <span className="text-[10px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
+                        {l?.topic && <span className="text-[10px] text-[#2A2035]/40">› {l.topic.name}</span>}
+                        <div className="ml-auto flex items-center gap-2">
+                          <UsageBadge usage={usageMap[q.id]} />
+                          <button onClick={() => (inTray ? removeFromTray(q.id) : add(q))}
+                            className={`text-[11px] font-semibold ${inTray ? 'text-[#2A2035]/40 hover:text-[#DC2626]' : 'text-[#325099] hover:text-[#062E63]'}`}>
+                            {inTray ? 'Added ✓' : '+ Add'}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={q.stem_latex || '(no stem)'} /></div>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+
+          {/* Right: saved worksheet */}
+          <div>
+            <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 space-y-3">
+              <input value={title} onChange={(e) => { setTitle(e.target.value); setDirty(true) }} placeholder="Worksheet title"
+                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] focus:outline-none focus:border-[#325099]" />
+              <input value={subtitle} onChange={(e) => { setSubtitle(e.target.value); setDirty(true) }} placeholder="Subtitle / instructions (optional)"
+                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099]" />
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] cursor-pointer">
+                  <input type="checkbox" checked={includeMarks} onChange={(e) => setIncludeMarks(e.target.checked)} /> Show marks
+                </label>
+                <span className="text-xs text-[#2A2035]/50">{tray.length} question{tray.length === 1 ? '' : 's'}{includeMarks && totalMarks > 0 ? ` · ${totalMarks} marks` : ''}</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={saveWorksheet} disabled={!dirty || busy}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition disabled:opacity-40 ${dirty ? 'bg-[#065F46] text-white hover:bg-[#047857]' : 'border border-[#DEE7FF] text-[#2A2035]/40'}`}>
+                  {busy === 'save' ? 'Saving…' : dirty ? 'Save changes' : 'Saved ✓'}
+                </button>
+                <button onClick={() => doExport(false)} disabled={!tray.length || busy}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
+                  {busy === 'worksheet' ? 'Building…' : 'Worksheet PDF'}
+                </button>
+                <button onClick={() => doExport(true)} disabled={!tray.length || busy}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40">
+                  {busy === 'answers' ? 'Building…' : 'Answer key PDF'}
+                </button>
+              </div>
+              {dirty && <p className="text-[10px] text-amber-600">Unsaved changes — Save before leaving this page.</p>}
+            </div>
+
+            <div className="mt-3 space-y-2 max-h-[58vh] overflow-y-auto pr-1">
+              {tray.length === 0 ? (
+                <div className="text-center py-14 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
+                  <p className="text-sm text-[#2A2035]/50">Add questions from the left.</p>
+                </div>
+              ) : tray.map((q, i) => {
+                const l = labelFor(q); const imgs = q.qbank_question_images || []
+                return (
+                  <div key={q.id} className="rounded-xl border border-[#F0F4FF] bg-white p-3">
+                    <div className="flex items-start gap-2">
+                      <span className="text-sm font-bold text-[#062E63] mt-0.5">Q{i + 1}.</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] text-[#2A2035] line-clamp-3"><LatexContent text={q.stem_latex || '(no stem)'} /></div>
+                        {imgs.length > 0 && (
+                          <div className="flex gap-1.5 mt-1.5">
+                            {imgs.slice(0, 4).map((im) => (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img key={im.id} src={qbankImageUrl(im.storage_path)} alt="" className="h-10 w-10 object-contain rounded bg-[#F8FAFF] border border-[#F0F4FF]" />
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                          {l?.skill && <span className="text-[10px] text-[#2A2035]/40">{l.skill.name}</span>}
+                          <span className="text-[10px] text-[#2A2035]/40">· difficulty {q.difficulty}</span>
+                          {q.marks != null && <span className="text-[10px] text-[#2A2035]/40">· {q.marks} mark{q.marks === 1 ? '' : 's'}</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <button onClick={() => moveTray(q.id, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
+                        <button onClick={() => moveTray(q.id, 1)} disabled={i === tray.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
+                        <button onClick={() => removeFromTray(q.id)} className="text-[11px] text-[#DC2626] hover:underline mt-1">✕</button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        )}
+      </div>
+    </div>
+  )
+}
