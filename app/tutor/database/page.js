@@ -9,6 +9,7 @@ import { buildClassLabelMap } from '../../../lib/classLabels'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
 import { dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue } from '../../../lib/tableMeta'
+import { setUndoHandler, announceUndo } from '../../../lib/undo'
 
 /*
  * Admin-only: Database Explorer — /tutor/database
@@ -1477,8 +1478,6 @@ export default function DatabasePage() {
 
   // Create / drop / rename table
   const [showCreateModal, setShowCreateModal]     = useState(false)
-  const [dropConfirmTable, setDropConfirmTable]   = useState(null)
-  const [dropTableInput,   setDropTableInput]      = useState('')
   const [dropConfirmCol,   setDropConfirmCol]      = useState(null)   // { col, realTable, table }
   const [dropColInput,     setDropColInput]         = useState('')
   const [ddlWorking, setDdlWorking]               = useState(false)
@@ -1922,17 +1921,16 @@ export default function DatabasePage() {
   useEffect(() => { if (renamingTable && renameInputRef.current)  { renameInputRef.current.focus();  renameInputRef.current.select()  } }, [renamingTable])
   useEffect(() => { if (renamingCol   && renameColInputRef.current){ renameColInputRef.current.focus(); renameColInputRef.current.select() } }, [renamingCol])
 
-  // ── Keyboard shortcut: Ctrl/Cmd+Z → undo ────────────────────────────────────
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault()
-        handleUndo()
-      }
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [undoStack, selectedTable])   // re-bind when stack or table changes
+  // ── Ctrl/Cmd+Z → explorer undo stack ────────────────────────────────────────
+  // The shortcut itself is bound once by <GlobalUndo /> in TutorNav (which also
+  // ignores it while typing, so native text undo works in cell inputs). While
+  // this page is mounted it takes over the shortcut with its richer stack.
+  useEffect(() => setUndoHandler(async () => {
+    const last = undoStack[undoStack.length - 1]
+    if (!last) { announceUndo('Nothing to undo', false); return }
+    await handleUndo()
+    announceUndo(undoLabel(last).replace(/^Undo /, 'Undone: '), true)
+  }), [undoStack, selectedTable])
 
   const pkCol = getPkCol(columns)
 
@@ -3079,21 +3077,6 @@ export default function DatabasePage() {
     dragRef.current = null
   }
 
-  // ── Drop table ────────────────────────────────────────────────────────────
-  const handleDropTable = async (tableName) => {
-    setDdlWorking(true); setDdlError(null)
-    try {
-      const { data:{ session } } = await supabase.auth.getSession()
-      await execDDL(session.access_token, `DROP TABLE IF EXISTS public.${tableName} CASCADE;`)
-      setTableGroups(prev => { const next = prev.map(g => ({ ...g, tables: g.tables.filter(t => t !== tableName) })).filter(g => g.tables.length > 0); saveTableGroups(next); return next })
-      setRowCounts(prev => { const n = {...prev}; delete n[tableName]; return n })
-      if (selectedTable === tableName) setSelectedTable('students')
-      setDropConfirmTable(null)
-      setDropTableInput('')
-    } catch (err) { setDdlError(err.message) }
-    finally { setDdlWorking(false) }
-  }
-
   // ── Table created ─────────────────────────────────────────────────────────
   const handleTableCreated = (name) => {
     setTableGroups(prev => {
@@ -3141,7 +3124,6 @@ export default function DatabasePage() {
   )
 
   const vConfig  = VIRTUAL[selectedTable]
-  const lastUndo = undoStack[undoStack.length - 1] ?? null
 
   return (
     <div className="flex flex-col" style={{ height:'100dvh' }}>
@@ -3285,35 +3267,6 @@ export default function DatabasePage() {
         />
       )}
 
-      {dropConfirmTable && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0 text-xl">⚠️</div>
-              <div>
-                <h3 className="font-bold text-[#2A2035] text-sm">Drop table?</h3>
-                <p className="text-xs text-[#2A2035]/60 mt-1">This will permanently delete <code className="font-mono text-red-600">{dropConfirmTable}</code> and all its data. This cannot be undone.</p>
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-[#2A2035]/70">Type <span className="font-mono text-red-600">{dropConfirmTable}</span> to confirm</label>
-              <input
-                autoFocus
-                value={dropTableInput}
-                onChange={e => setDropTableInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && dropTableInput === dropConfirmTable) handleDropTable(dropConfirmTable) }}
-                className="w-full px-3 py-2 text-sm border border-[#DEE7FF] rounded-lg focus:outline-none focus:ring-2 focus:ring-red-300 font-mono"
-                placeholder={dropConfirmTable}
-              />
-            </div>
-            {ddlError && <p className="text-xs font-semibold text-red-600 bg-red-50 rounded-lg px-3 py-2">{ddlError}</p>}
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => { setDropConfirmTable(null); setDropTableInput(''); setDdlError(null) }} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-              <button onClick={() => handleDropTable(dropConfirmTable)} disabled={ddlWorking || dropTableInput !== dropConfirmTable} className="px-5 py-2 bg-red-500 text-white text-sm font-semibold rounded-lg hover:bg-red-600 transition disabled:opacity-40">{ddlWorking ? 'Dropping…' : 'Drop Table'}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {dropConfirmCol && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -3456,21 +3409,13 @@ export default function DatabasePage() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {/* Undo */}
-              <button
-                onClick={handleUndo}
-                disabled={undoStack.length === 0 || undoing}
-                title={lastUndo ? undoLabel(lastUndo) : 'Nothing to undo'}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[#325099] border border-[#DEE7FF] text-xs font-semibold rounded-lg hover:bg-[#F0F4FF] hover:border-[#BACBFF] transition disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                {undoing ? '…' : '↩'} Undo{lastUndo ? '' : ''}
-              </button>
+              {/* Undo button removed — Ctrl/Cmd+Z (via GlobalUndo) drives handleUndo */}
+              {undoing && <span className="text-[10px] font-semibold text-[#325099]/60 animate-pulse shrink-0">Undoing…</span>}
 
               {/* Rename + Drop (non-virtual tables only) */}
               {!vConfig && (
                 <>
                   <button onClick={() => startRename(selectedTable)} className="flex items-center gap-1.5 px-3 py-1.5 text-[#325099] border border-[#DEE7FF] text-xs font-semibold rounded-lg hover:bg-[#F0F4FF] hover:border-[#BACBFF] transition">✏️ Rename</button>
-                  <button onClick={() => { setDropConfirmTable(selectedTable); setDropTableInput(''); setDdlError(null) }} className="flex items-center gap-1.5 px-3 py-1.5 text-red-400 border border-red-200 text-xs font-semibold rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition">🗑 Drop</button>
                 </>
               )}
 
