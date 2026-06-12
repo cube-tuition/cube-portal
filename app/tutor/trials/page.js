@@ -6,6 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fmtDate } from '../../../lib/format'
+import { registerUndoAction } from '../../../lib/undo'
 
 // ── Status pipeline ───────────────────────────────────────────────────────────
 const STAGES = [
@@ -198,7 +199,11 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
                 }
 
                 // Student already exists — update the specific linked enrolment by enrolment_id
+                const prevTrialClassId = sub.trial_class_id ?? null
+                let prevEnrol = null
                 if (sub.enrolment_id) {
+                  const { data } = await supabase.from('enrolments').select('class_id, trial_start_date').eq('id', sub.enrolment_id).maybeSingle()
+                  prevEnrol = data
                   await supabase.from('enrolments')
                     .update({ class_id: val, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
                     .eq('id', sub.enrolment_id)
@@ -212,6 +217,15 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
                 }
                 await supabase.from('trial_submissions').update({ trial_class_id: val }).eq('id', sub.id)
                 onUpdate(sub.id, { trial_class_id: val })
+                registerUndoAction('trial class assignment', async () => {
+                  if (sub.enrolment_id && prevEnrol) {
+                    await supabase.from('enrolments')
+                      .update({ class_id: prevEnrol.class_id, trial_start_date: prevEnrol.trial_start_date })
+                      .eq('id', sub.enrolment_id)
+                  }
+                  await supabase.from('trial_submissions').update({ trial_class_id: prevTrialClassId }).eq('id', sub.id)
+                  onUpdate(sub.id, { trial_class_id: prevTrialClassId })
+                })
               }}
               className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
             >

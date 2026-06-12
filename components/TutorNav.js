@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
+import GlobalUndo from './GlobalUndo'
 
 /*
  * Nav for the tutor / admin portal.
@@ -181,6 +182,8 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
   return (
     <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-[#DEE7FF]">
+      {/* Portal-wide Ctrl/Cmd+Z undo + toast (TutorNav is on every tutor page) */}
+      <GlobalUndo />
       <div className="max-w-7xl mx-auto px-5 md:px-10 py-4 flex items-center justify-between">
 
         {/* Logo */}

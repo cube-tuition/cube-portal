@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { formatTermLabel } from '../../../lib/terms'
 import { T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS } from '../../../lib/tables'
+import { registerUndoAction } from '../../../lib/undo'
 import { fmtTime, fmtMoney, isoDate } from '../../../lib/format'
 
 // Xero Bills CSV defaults — edit here if your chart of accounts differs.
@@ -166,8 +167,17 @@ export default function PayrollPage() {
   const updateShift = async (id, patch) => {
     setSavingId(id)
     try {
+      // capture old values for undo before overwriting
+      const before = shifts.find(s => s.id === id)
+      const restore = before ? Object.fromEntries(Object.keys(patch).map(k => [k, before[k] ?? null])) : null
       const { error: e } = await supabase.from(T_SHIFTS).update(patch).eq('id', id)
       if (e) throw e
+      if (restore) {
+        registerUndoAction('shift edit', async () => {
+          await supabase.from(T_SHIFTS).update(restore).eq('id', id)
+          await reload()
+        })
+      }
       await reload()
     } catch (e) {
       alert('Save failed: ' + (e.message || String(e)))

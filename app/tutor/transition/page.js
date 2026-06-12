@@ -7,6 +7,7 @@ import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS } from '../../../lib/tables'
 import { fmtDate } from '../../../lib/format'
+import { registerUndoAction } from '../../../lib/undo'
 
 /*
  * Term Transition Wizard — /tutor/transition
@@ -239,6 +240,7 @@ export default function TransitionPage() {
 
   // ── Step 2: update per-enrolment confirmation status ─────────────────────
   const updateStatus = async (enrolmentId, status) => {
+    const prevStatus = nextTermStatus[enrolmentId] ?? 'pending'
     setNextTermStatus(prev => ({ ...prev, [enrolmentId]: status }))
     setEndings(prev => ({
       ...prev,
@@ -247,6 +249,11 @@ export default function TransitionPage() {
     await supabase.from(T_ENROLMENTS)
       .update({ next_term_status: status })
       .eq('id', enrolmentId)
+    registerUndoAction(`transition status → "${status}"`, async () => {
+      await supabase.from(T_ENROLMENTS).update({ next_term_status: prevStatus }).eq('id', enrolmentId)
+      setNextTermStatus(prev => ({ ...prev, [enrolmentId]: prevStatus }))
+      setEndings(prev => ({ ...prev, [enrolmentId]: { ...prev[enrolmentId], ending: prevStatus === 'not_continuing' } }))
+    })
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
