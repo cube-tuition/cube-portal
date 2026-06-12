@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { fetchAllTerms } from '../../../../lib/terms'
+import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
 import { fmtDate } from '../../../../lib/format'
 
@@ -154,7 +154,15 @@ function TermStartEmailPageInner() {
       if (!profile || (role !== 'admin' && role !== 'director')) router.replace('/tutor')
       else setProfile(profile)
     })
-    fetchAllTerms().then(setTerms)
+    fetchAllTerms().then(allTerms => {
+      setTerms(allTerms)
+      // Default to the current term (unless one was passed via ?termId=)
+      if (!searchParams.get('termId')) {
+        const cur = getCurrentTerm(allTerms)
+        if (cur) setTermId(prev => prev || cur.id)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router])
 
   // ── Persist + restore results per term ────────────────────────────────────

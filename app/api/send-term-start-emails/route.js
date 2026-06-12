@@ -59,30 +59,52 @@ function fillTemplate(template, vars) {
     .replace(/\{\{plural\}\}/g,         vars.plural        || '')
 }
 
-function toHtml(plainText) {
+function toHtml(plainText, { termName = '' } = {}) {
   const escaped = plainText
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-  const paragraphs = escaped
-    .split(/\n\n+/)
-    .map(p => `<p style="margin:0 0 16px 0;line-height:1.7;">${
-      p.replace(/\n/g, '<br/>')
-       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    }</p>`)
-    .join('')
-  return `
-    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;color:#2A2035;background:#ffffff;">
-      <div style="background:#062E63;border-radius:12px;padding:18px 24px;margin-bottom:32px;">
-        <span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.5px;">CUBE</span>
-        <span style="color:rgba(255,255,255,0.55);font-size:10px;letter-spacing:3px;text-transform:uppercase;margin-left:10px;vertical-align:middle;">Tuition</span>
-      </div>
-      <div style="font-size:15px;">${paragraphs}</div>
-      <div style="margin-top:32px;padding-top:16px;border-top:1px solid #DEE7FF;font-size:11px;color:#325099;opacity:0.6;">
-        CUBE Tuition · This email was sent from the CUBE staff portal.
-      </div>
-    </div>
-  `
+  const bold = (s) => s.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#062E63;">$1</strong>')
+
+  // Render blocks; consecutive "•" lines (the {{class_details}} list) become a
+  // highlighted schedule card instead of plain text.
+  const blocks = escaped.split(/\n\n+/).map(block => {
+    const lines = block.split('\n')
+    const isBullets = lines.length > 0 && lines.every(l => l.trim() === '' || l.trim().startsWith('•'))
+    if (isBullets && lines.some(l => l.trim().startsWith('•'))) {
+      const rows = lines.filter(l => l.trim()).map(l =>
+        `<p style="margin:5px 0;font-size:14px;line-height:1.6;color:#062E63;font-weight:600;">${bold(l.trim())}</p>`
+      ).join('')
+      return `<div style="background:#F0F4FF;border:1px solid #DEE7FF;border-radius:12px;padding:14px 20px;margin:0 0 18px;">${rows}</div>`
+    }
+    return `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#2A2035;">${bold(block).replace(/\n/g, '<br/>')}</p>`
+  }).join('')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:0;background:#EEF2FB;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF2FB;padding:24px 12px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <tr><td style="background:#062E63;border-radius:16px 16px 0 0;padding:26px 32px;">
+    <span style="color:#ffffff;font-size:24px;font-weight:800;letter-spacing:-0.5px;">CUBE</span>
+    <span style="color:rgba(255,255,255,0.55);font-size:11px;letter-spacing:3px;text-transform:uppercase;margin-left:10px;">Tuition</span>
+    ${termName ? `<span style="float:right;color:#9DB6E8;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding-top:8px;">${termName}</span>` : ''}
+  </td></tr>
+  <tr><td style="background:#ffffff;padding:34px 32px 24px;">
+    ${blocks}
+  </td></tr>
+  <tr><td style="background:#F0F4FF;border-radius:0 0 16px 16px;padding:16px 32px;">
+    <p style="margin:0;font-size:11px;line-height:1.7;color:#325099;opacity:0.75;">
+      CUBE Tuition · Chatswood<br/>
+      Questions? Just reply to this email — we read every one.
+    </p>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`
 }
 
 export async function POST(request) {
@@ -213,7 +235,7 @@ export async function POST(request) {
         from:        `CUBE Tuition <${fromEmail}>`,
         to:          [family.parent_email],
         subject,
-        html:        toHtml(bodyText),
+        html:        toHtml(bodyText, { termName: term_name }),
         attachments: attachments.length ? attachments : undefined,
       })
 
