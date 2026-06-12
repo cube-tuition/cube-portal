@@ -8,6 +8,7 @@ import {
 import {
   fetchTaxonomy, yearsFromSubjects, uploadQbankImage, deleteQbankImage,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, MCQ_LABELS, fetchQuestionUsage,
+  defaultCriterion, TOP_CRITERION,
 } from '../../lib/qbank'
 import LatexField from './LatexField'
 import ImageManager from './ImageManager'
@@ -19,7 +20,37 @@ const blankPart = (i) => ({
   prompt_latex: '',
   solution_latex: '',
   marks: '',
+  criteria: {},
 })
+
+// Editable banded marking criteria for the solutions PDF (shown when marks > 1).
+function CriteriaEditor({ marks, value, onChange }) {
+  const m = Number(marks) || 0
+  if (m <= 1) return null
+  const rows = []
+  for (let k = m; k >= 1; k--) rows.push(k)
+  return (
+    <div className="rounded-xl border border-[#DEE7FF] bg-[#FBFCFF] p-3">
+      <label className="text-xs font-semibold text-[#062E63]">Marking criteria (solutions)</label>
+      <p className="text-[10px] text-[#2A2035]/40 mb-2">Top band is fixed; edit the lower bands (defaults pre-filled). Use $…$ for maths.</p>
+      <div className="space-y-1.5">
+        {rows.map((k) => (
+          <div key={k} className="flex items-center gap-2">
+            <span className="w-6 text-xs font-bold text-[#062E63] text-center">{k}</span>
+            {k === m ? (
+              <div className="flex-1 text-sm text-[#2A2035] px-2 py-1.5 bg-white border border-[#F0F4FF] rounded-lg">{TOP_CRITERION}</div>
+            ) : (
+              <input
+                value={value?.[k] ?? defaultCriterion(k, m)}
+                onChange={(e) => onChange({ ...(value || {}), [k]: e.target.value })}
+                className="flex-1 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function QuestionEditor({ questionId = null, staffName }) {
   const router = useRouter()
@@ -46,6 +77,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
   const [parts, setParts] = useState([blankPart(0)])
   const [options, setOptions] = useState(MCQ_LABELS.map((label) => ({ label, latex: '' })))
   const [correctOption, setCorrectOption] = useState('A')
+  const [criteria, setCriteria] = useState({})
   const [images, setImages] = useState([])
   const [removedImageIds, setRemovedImageIds] = useState([])
   const [usage, setUsage] = useState(null)
@@ -74,6 +106,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
             })))
           }
           if (q.correct_option) setCorrectOption(q.correct_option)
+          if (q.criteria && typeof q.criteria === 'object') setCriteria(q.criteria)
 
           // Prefill cascade from skill → topic → subject
           const skill = t.skills.find((s) => s.id === q.skill_id)
@@ -90,6 +123,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
               _key: p.id, part_label: p.part_label || '',
               prompt_latex: p.prompt_latex || '', solution_latex: p.solution_latex || '',
               marks: p.marks ?? '',
+              criteria: (p.criteria && typeof p.criteria === 'object') ? p.criteria : {},
             })))
           }
           const { data: im } = await supabase.from(T_QBANK_QUESTION_IMAGES)
@@ -142,6 +176,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
         is_multipart: isMcq ? false : isMulti,
         options: isMcq ? options.filter((o) => o.latex.trim()).map((o) => ({ label: o.label, latex: o.latex })) : [],
         correct_option: isMcq ? correctOption : null,
+        criteria: (isMcq || isMulti) ? {} : (criteria || {}),
       }
 
       let qid = questionId
@@ -166,6 +201,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
             prompt_latex: p.prompt_latex,
             solution_latex: p.solution_latex,
             marks: p.marks === '' ? null : Number(p.marks),
+            criteria: p.criteria || {},
             sort_order: i,
           }))
         if (rows.length) {
@@ -349,6 +385,9 @@ export default function QuestionEditor({ questionId = null, staffName }) {
             value={solution} onChange={setSolution} rows={isMcq ? 2 : 4}
             placeholder={'e.g. Factorising: $$(x-2)(x-3)=0 \\Rightarrow x=2,3$$'} />
         )}
+        {!isMcq && !isMulti && Number(marks) > 1 && (
+          <CriteriaEditor marks={marks} value={criteria} onChange={setCriteria} />
+        )}
       </section>
 
       {/* Parts */}
@@ -378,6 +417,9 @@ export default function QuestionEditor({ questionId = null, staffName }) {
                 rows={2} placeholder="Part prompt…" />
               <LatexField value={p.solution_latex} onChange={(v) => updatePart(p._key, 'solution_latex', v)}
                 rows={2} placeholder="Part solution…" />
+              {Number(p.marks) > 1 && (
+                <CriteriaEditor marks={p.marks} value={p.criteria} onChange={(c) => updatePart(p._key, 'criteria', c)} />
+              )}
             </div>
           ))}
         </section>
