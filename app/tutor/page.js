@@ -9,6 +9,7 @@ import { normalizeDays, fmtTime, fmtMoney, isoDate } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SHIFTS } from '../../lib/tables'
 import { buildClassLabelMap } from '../../lib/classLabels'
+import ActionCentre from '../../components/ActionCentre'
 
 /*
  * Tutor portal — landing page
@@ -65,11 +66,7 @@ export default function TutorHome() {
   //   admin: all shifts in the period
   const [shifts, setShifts] = useState([])
   const [unsavedSessions, setUnsavedSessions] = useState([])
-  // Admin to-do: unsaved sessions grouped by tutor first name
-  const [adminUnsaved, setAdminUnsaved] = useState({}) // { 'Amber': [...], 'Daniel': [...] }
-  const [selectedTutor, setSelectedTutor] = useState('All')
-  const [completedTrials, setCompletedTrials] = useState([]) // [{ studentName, className, classId, enrolmentId, trialStartDate, lessonDates, parentEmail }]
-  const [emailModal, setEmailModal] = useState(null) // trial object when open
+  // (Admin unsaved-session tracking moved to /tutor/unsaved-sessions)
   const [authErr, setAuthErr] = useState(null)
   const router = useRouter()
 
@@ -149,121 +146,9 @@ export default function TutorHome() {
       const { data: sh } = await sq
       setShifts(sh || [])
 
-      // Admin to-do: unsaved sessions for all tutors (excluding Aiden & Ryan)
+      // Unsaved-session checks moved to /tutor/unsaved-sessions (linked from
+      // the Action Centre's attendance row).
       const term = getCurrentTerm(terms)
-      if (isAdmin && term && primaryClasses.length > 0) {
-        const EXCLUDED = ['aiden', 'ryan']
-        const now = new Date()
-        const todayIso = isoDate(now)
-        const nowMinutes = now.getHours() * 60 + now.getMinutes()
-
-        // Group classes by teacher first name (exclude Aiden/Ryan)
-        const byTeacher = {}
-        for (const c of primaryClasses) {
-          const teacher = (c.teacher || '').trim()
-          if (!teacher) continue
-          const first = teacher.split(' ')[0]
-          if (EXCLUDED.includes(first.toLowerCase())) continue
-          if (!byTeacher[first]) byTeacher[first] = []
-          byTeacher[first].push(c)
-        }
-
-        // Generate all expected past session dates per teacher
-        const candidates = [] // { teacher, classId, dateIso, class_name, start_time, end_time }
-        for (const [teacher, tClasses] of Object.entries(byTeacher)) {
-          for (const c of tClasses) {
-            const days = normalizeDays(c.day_of_week)
-            if (days.length === 0) continue
-            const cursor = new Date(term.start_date + 'T00:00:00')
-            const termEnd = new Date(term.end_date + 'T00:00:00')
-            while (cursor <= termEnd) {
-              const curIso = isoDate(cursor)
-              if (curIso > todayIso) break
-              const curDay = DAY_ORDER[(cursor.getDay() + 6) % 7]
-              if (days.includes(curDay)) {
-                if (curIso === todayIso) {
-                  const endMins = startMinutes(c.end_time)
-                  if (nowMinutes <= endMins) { cursor.setDate(cursor.getDate() + 1); continue }
-                }
-                candidates.push({ teacher, classId: c.id, dateIso: curIso, class_name: c.class_name, start_time: c.start_time, end_time: c.end_time })
-              }
-              cursor.setDate(cursor.getDate() + 1)
-            }
-          }
-        }
-
-        if (candidates.length > 0) {
-          const classIds = [...new Set(candidates.map(c => c.classId))]
-          const { data: attRows } = await supabase
-            .from(T_ATTENDANCE)
-            .select('class_id, session_date')
-            .in('class_id', classIds)
-            .gte('session_date', term.start_date)
-            .lte('session_date', todayIso)
-          const savedSet = new Set((attRows || []).map(r => `${r.class_id}|${r.session_date}`))
-          const missing = candidates.filter(c => !savedSet.has(`${c.classId}|${c.dateIso}`))
-
-          // Group by teacher
-          const grouped = {}
-          for (const s of missing) {
-            if (!grouped[s.teacher]) grouped[s.teacher] = []
-            grouped[s.teacher].push(s)
-          }
-          setAdminUnsaved(grouped)
-        }
-
-        // Completed trials — enrolments with status='trial', trial_start_date set,
-        // and 2+ attended (present/late) sessions since trial_start_date.
-        const { data: trialEnrolments } = await supabase
-          .from(T_ENROLMENTS)
-          .select('id, class_id, trial_start_date, students(id, full_name, email), classes(class_name)')
-          .eq('status', 'trial')
-          .not('trial_start_date', 'is', null)
-        if (trialEnrolments && trialEnrolments.length > 0) {
-          const todayIso = isoDate(new Date())
-          const studentIds = trialEnrolments.map(e => e.students?.id).filter(Boolean)
-          const classIds   = trialEnrolments.map(e => e.class_id).filter(Boolean)
-          const earliestStart = trialEnrolments
-            .map(e => e.trial_start_date)
-            .filter(Boolean)
-            .sort()[0]
-
-          // Single query for all attendance across all trial enrolments
-          const { data: allAtt } = await supabase
-            .from(T_ATTENDANCE)
-            .select('class_id, student_id, session_date')
-            .in('student_id', studentIds)
-            .in('class_id', classIds)
-            .in('status', ['present', 'late'])
-            .gte('session_date', earliestStart)
-            .lte('session_date', todayIso)
-            .order('session_date')
-
-          const finished = []
-          for (const enr of trialEnrolments) {
-            const studentId = enr.students?.id
-            if (!studentId) continue
-            const attRows = (allAtt || []).filter(
-              a => a.class_id === enr.class_id &&
-                   a.student_id === studentId &&
-                   a.session_date >= enr.trial_start_date
-            )
-            if (attRows.length >= 2) {
-              finished.push({
-                enrolmentId:    enr.id,
-                classId:        enr.class_id,
-                studentId,
-                className:      enr.classes?.class_name || 'Class',
-                studentName:    enr.students?.full_name || 'Student',
-                trialStartDate: enr.trial_start_date,
-                lessonDates:    attRows.slice(0, 2).map(r => r.session_date),
-                parentEmail:    enr.students?.email || '',
-              })
-            }
-          }
-          setCompletedTrials(finished)
-        }
-      }
 
       // Unsaved sessions — tutors only (not admin)
       if (!isAdmin && term && primaryClasses.length > 0) {
@@ -369,37 +254,86 @@ export default function TutorHome() {
       {/* HERO */}
       <section className="bg-gradient-to-r from-[#F8FAFF] via-[#EEF4FF] to-[#BFD1FF] border-b border-[#DEE7FF]">
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-12 md:py-16">
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display">
-              {greeting()}, {firstName}
-            </p>
-            {currentTerm && (
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#062E63] bg-white border border-[#DEE7FF] px-2.5 py-1 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#325099]" />
-                {formatTermLabel(currentTerm)}
-              </span>
-            )}
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-white bg-[#062E63] px-2.5 py-1 rounded-full uppercase tracking-widest">
-              {isAdmin ? 'Director' : 'Tutor'}
-            </span>
-          </div>
-          <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
-            {isAdmin ? 'Director Portal' : 'Tutor portal'}
-          </h1>
-          <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
-            Your home for class queues, attendance, and pay.
-          </p>
+          <div className="flex flex-col lg:flex-row lg:items-center gap-10">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display">
+                  {greeting()}, {firstName}
+                </p>
+                {currentTerm && (
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#062E63] bg-white border border-[#DEE7FF] px-2.5 py-1 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#325099]" />
+                    {formatTermLabel(currentTerm)}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-white bg-[#062E63] px-2.5 py-1 rounded-full uppercase tracking-widest">
+                  {isAdmin ? 'Director' : 'Tutor'}
+                </span>
+              </div>
+              <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
+                {isAdmin ? 'Director Portal' : 'Tutor portal'}
+              </h1>
+              <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
+                Your home for class queues, attendance, and pay.
+              </p>
 
-          {/* Stat strip */}
-          <div className="grid grid-cols-2 gap-3 mt-8 max-w-sm">
-            <StatTile label="Today" value={todayClasses.length} suffix={`class${todayClasses.length === 1 ? '' : 'es'}`} />
-            <StatTile label="This week" value={weekRows.length} suffix={`class${weekRows.length === 1 ? '' : 'es'}`} />
+              {/* Stat strip */}
+              <div className="grid grid-cols-2 gap-3 mt-8 max-w-sm">
+                <StatTile label="Today" value={todayClasses.length} suffix={`class${todayClasses.length === 1 ? '' : 'es'}`} />
+                <StatTile label="This week" value={weekRows.length} suffix={`class${weekRows.length === 1 ? '' : 'es'}`} />
+              </div>
+            </div>
+
+            {/* Today's classes — in-banner panel (directors) */}
+            {isAdmin && (
+              <div className="w-full lg:w-[400px] shrink-0">
+                <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#DEE7FF]/60">
+                    <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold font-display">
+                      Today · {todayName}
+                    </p>
+                    <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
+                      {todayClasses.length} class{todayClasses.length === 1 ? '' : 'es'}
+                    </span>
+                  </div>
+                  {todayClasses.length === 0 ? (
+                    <p className="px-5 py-6 text-xs text-[#2A2035]/50 text-center">🎉 No classes today.</p>
+                  ) : (
+                    <div className="divide-y divide-[#DEE7FF]/50 max-h-64 overflow-y-auto">
+                      {todayClasses.map((c, i) => (
+                        <Link key={`${c.id}-${i}`} href={`/tutor/classes/${c.id}`}
+                          className="flex items-center gap-3 px-5 py-2.5 hover:bg-white transition group">
+                          <span className="text-[11px] font-bold text-[#062E63] tabular-nums w-24 shrink-0">
+                            {fmtTime(c.start_time)}–{fmtTime(c.end_time)}
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-xs font-semibold text-[#2A2035] truncate">
+                              {(classLabelMap.get(c.id) || c.class_name || 'Untitled class')}
+                            </span>
+                            <span className="block text-[10px] text-[#2A2035]/50">
+                              {c.room ? `📍 ${c.room} · ` : ''}👥 {enrollmentCounts[c.id] || 0}
+                            </span>
+                          </span>
+                          <span className="text-[#325099] text-xs transition-transform group-hover:translate-x-0.5">→</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
 
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
-        {/* MAIN ROW — today's classes + to-do */}
+        {/* Action Centre — directors only (gated here too, so the tutor page
+            doesn't even mount it or run its checks) */}
+        {isAdmin && <ActionCentre />}
+
+        {/* MAIN ROW — tutors only: today's classes + to-do.
+            (Directors see today's classes in the banner and tasks in the Action Centre.) */}
+        {!isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
           {/* Today's classes */}
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
@@ -448,18 +382,11 @@ export default function TutorHome() {
             )}
           </div>
 
-          {/* To-do list */}
+          {/* To-do list — tutors only. Admin actionables live in the Action
+              Centre; unsaved sessions have their own page. */}
+          {!isAdmin && (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
-            {isAdmin ? (
-              <AdminTodoPanel
-                adminUnsaved={adminUnsaved}
-                selectedTutor={selectedTutor}
-                setSelectedTutor={setSelectedTutor}
-                fmtTime={fmtTime}
-                completedTrials={completedTrials}
-                onEmailClick={(trial) => setEmailModal(trial)}
-              />
-            ) : (
+            {(
               <>
                 <div className="flex items-center justify-between mb-4">
                   <div>
@@ -492,8 +419,10 @@ export default function TutorHome() {
               </>
             )}
           </div>
+          )}
 
         </div>
+        )}
       </section>
 
       <footer className="border-t border-[#DEE7FF] bg-white mt-10">
@@ -504,10 +433,6 @@ export default function TutorHome() {
         </div>
       </footer>
 
-      {/* Trial completion email modal */}
-      {emailModal && (
-        <TrialEmailModal trial={emailModal} onClose={() => setEmailModal(null)} />
-      )}
     </div>
   )
 }
@@ -555,199 +480,6 @@ function UnsavedSessionCard({ s, fmtTime }) {
       </div>
       <span className="text-[#B23A3A] transition-transform group-hover:translate-x-0.5 mt-0.5">→</span>
     </Link>
-  )
-}
-
-function AdminTodoPanel({ adminUnsaved, selectedTutor, setSelectedTutor, fmtTime, completedTrials = [], onEmailClick }) {
-  const tutors = Object.keys(adminUnsaved).sort()
-  const totalUnsaved = Object.values(adminUnsaved).reduce((a, b) => a + b.length, 0)
-
-  const visibleSessions = selectedTutor === 'All'
-    ? Object.entries(adminUnsaved).flatMap(([teacher, sessions]) => sessions.map(s => ({ ...s, teacher })))
-    : (adminUnsaved[selectedTutor] || []).map(s => ({ ...s, teacher: selectedTutor }))
-
-  visibleSessions.sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.class_name.localeCompare(b.class_name))
-
-  return (
-    <>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
-            Tutor tasks
-          </p>
-          <h2 className="text-lg font-semibold text-[#2A2035] font-display">Unsaved sessions</h2>
-        </div>
-        <div className="flex items-center gap-3">
-          {totalUnsaved > 0 && (
-            <span className="text-[10px] tracking-widest uppercase font-semibold text-[#B23A3A]">
-              {totalUnsaved} unsaved
-            </span>
-          )}
-          {tutors.length > 0 && (
-            <select
-              value={selectedTutor}
-              onChange={e => setSelectedTutor(e.target.value)}
-              className="text-xs font-semibold text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#325099]"
-            >
-              <option value="All">All tutors</option>
-              {tutors.map(t => (
-                <option key={t} value={t}>{t} ({(adminUnsaved[t] || []).length})</option>
-              ))}
-            </select>
-          )}
-        </div>
-      </div>
-      {completedTrials.length > 0 && (
-        <div className="mb-4">
-          <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold mb-2 font-display">
-            Trial completions — {completedTrials.length}
-          </p>
-          <div className="space-y-2">
-            {completedTrials.map((t, i) => {
-              const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
-              return (
-                <div key={`${t.enrolmentId}-${i}`} className="flex items-start gap-3 rounded-xl px-4 py-3 border border-[#BFDBFE] bg-[#EFF6FF]">
-                  <div className="w-1 h-10 rounded-full shrink-0 bg-[#2563EB] mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-sm text-[#2A2035]">{t.studentName}</p>
-                      <span className="text-[10px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#DBEAFE] text-[#1D4ED8]">trial complete</span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
-                      <span>{t.className}</span>
-                      <span>📅 {fmt(t.lessonDates[0])} &amp; {fmt(t.lessonDates[1])}</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onEmailClick(t)}
-                    className="shrink-0 text-[10px] font-bold tracking-wide uppercase px-2.5 py-1.5 rounded-lg bg-[#2563EB] text-white hover:bg-[#1D4ED8] transition"
-                  >
-                    Email ✉
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {visibleSessions.length === 0 && completedTrials.length === 0 ? (
-        <div className="text-center py-8">
-          <div className="text-4xl mb-2">✅</div>
-          <p className="text-sm font-semibold text-[#2A2035]">All caught up.</p>
-          <p className="text-xs text-[#2A2035]/50 mt-1">No unsaved sessions.</p>
-        </div>
-      ) : visibleSessions.length > 0 ? (
-        <div className="space-y-2 max-h-[32rem] overflow-y-auto pr-1">
-          {visibleSessions.map((s, i) => (
-            <div key={`${s.classId}-${s.dateIso}-${i}`} className="flex items-start gap-3 rounded-xl px-4 py-3 border border-[#FDE8E8] bg-[#FFF5F5]">
-              <div className="w-1 h-10 rounded-full shrink-0 bg-[#B23A3A] mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-semibold text-sm text-[#2A2035]">{s.teacher}</p>
-                  <span className="text-[10px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#FEE2E2] text-[#B23A3A]">unsaved</span>
-                </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
-                  <span>{s.class_name || 'Untitled class'}</span>
-                  <span>📅 {new Date(s.dateIso + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-                  <span>🕐 {fmtTime(s.start_time)}–{fmtTime(s.end_time)}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </>
-  )
-}
-
-function TrialEmailModal({ trial, onClose }) {
-  const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
-  const subject = `CUBE Tuition — ${trial.studentName}'s Trial Has Concluded`
-
-  const [rawFeedbacks, setRawFeedbacks] = useState([]) // [{ date, text }]
-  const [copied, setCopied] = useState(false)
-
-  // Fetch trial_feedback from attendance on mount
-  useEffect(() => {
-    if (!trial.classId || !trial.studentId || !trial.lessonDates?.length) return
-    supabase
-      .from('attendance')
-      .select('session_date, trial_feedback')
-      .eq('class_id', trial.classId)
-      .eq('student_id', trial.studentId)
-      .in('session_date', trial.lessonDates)
-      .then(({ data }) => {
-        if (!data) return
-        // Sort to match lessonDates order
-        const sorted = trial.lessonDates.map(d => {
-          const row = data.find(r => r.session_date === d)
-          return { date: d, text: row?.trial_feedback || '' }
-        })
-        setRawFeedbacks(sorted)
-      })
-  }, [trial.classId, trial.studentId, trial.lessonDates])
-
-  const hasFeedback = rawFeedbacks.some(f => f.text.trim())
-
-  const feedbackSection = hasFeedback
-    ? `\n\nHere is some feedback from your child's tutor:\n\n${rawFeedbacks.filter(f => f.text).map((f, i) => `Session ${i + 1} (${fmt(f.date)}): ${f.text}`).join('\n')}`
-    : ''
-
-  const body = `Dear Parent/Guardian,
-
-We hope this message finds you well.
-
-We're writing to let you know that ${trial.studentName}'s two-lesson trial for ${trial.className} at CUBE Tuition has now been completed (lessons on ${fmt(trial.lessonDates[0])} and ${fmt(trial.lessonDates[1])}).${feedbackSection}
-
-We hope ${trial.studentName} enjoyed the sessions and found them beneficial. We would love to have them continue as a regular student!
-
-If you'd like to officially enrol ${trial.studentName}, please don't hesitate to get in touch with us. We're happy to answer any questions about the program, schedule, or pricing.
-
-Warm regards,
-The CUBE Tuition Team
-📍 Chatswood
-📧 admin@cubetuition.com.au`
-
-  const copy = () => {
-    navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF]">
-          <div>
-            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold font-display">Trial complete</p>
-            <h2 className="text-base font-semibold text-[#2A2035] font-display">{trial.studentName} — {trial.className}</h2>
-          </div>
-          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-xl transition">✕</button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div>
-            <p className="text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">To</p>
-            <p className="text-sm text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-2">{trial.parentEmail || '— no email on file —'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</p>
-            <p className="text-sm text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-2">{subject}</p>
-          </div>
-
-          <div>
-            <p className="text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Body</p>
-            <pre className="text-sm text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-4 py-3 whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
-          </div>
-        </div>
-        <div className="px-6 py-4 border-t border-[#DEE7FF] flex justify-end gap-3">
-          <button onClick={onClose} className="text-xs font-semibold text-[#2A2035]/50 hover:text-[#2A2035] px-4 py-2 transition">Close</button>
-          <button onClick={copy} className="text-xs font-bold px-5 py-2 rounded-xl bg-[#062E63] text-white hover:bg-[#325099] transition">
-            {copied ? '✓ Copied!' : 'Copy to clipboard'}
-          </button>
-        </div>
-      </div>
-    </div>
   )
 }
 
