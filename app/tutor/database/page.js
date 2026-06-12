@@ -3412,12 +3412,7 @@ export default function DatabasePage() {
               {/* Undo button removed — Ctrl/Cmd+Z (via GlobalUndo) drives handleUndo */}
               {undoing && <span className="text-[10px] font-semibold text-[#325099]/60 animate-pulse shrink-0">Undoing…</span>}
 
-              {/* Rename + Drop (non-virtual tables only) */}
-              {!vConfig && (
-                <>
-                  <button onClick={() => startRename(selectedTable)} className="flex items-center gap-1.5 px-3 py-1.5 text-[#325099] border border-[#DEE7FF] text-xs font-semibold rounded-lg hover:bg-[#F0F4FF] hover:border-[#BACBFF] transition">✏️ Rename</button>
-                </>
-              )}
+              {/* Rename button removed — rename via the ✏️ that appears when hovering a table name in the sidebar */}
 
               {/* Data quality (read-only checks) */}
               <button onClick={() => router.push('/tutor/database/quality')} className="flex items-center gap-1.5 px-3 py-1.5 text-[#065F46] border border-[#A7F3D0] text-xs font-semibold rounded-lg hover:bg-[#ECFDF5] transition" title="Read-only data quality checks — duplicates, orphans, invalid emails/phones, inconsistent values">

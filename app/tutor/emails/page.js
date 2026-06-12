@@ -20,6 +20,13 @@ const CAMPAIGNS = [
     description: 'Upload individual student reports and send a thank-you email with PDFs attached to each family. Siblings are grouped into one email.',
     badge:       null,
   },
+  {
+    href:        '/tutor/emails/discount-program',
+    icon:        '🎁',
+    title:       'Discount Program',
+    description: 'Marketing email introducing the referral program ($50 for both families), multi-course and sibling discounts. Preview, test-send, then send to all active families.',
+    badge:       'Marketing',
+  },
 ]
 
 export default function EmailsHub() {
