@@ -5,31 +5,28 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
-import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS } from '../../../lib/tables'
+import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS, T_TERM_TRANSITIONS } from '../../../lib/tables'
 import { fmtDate } from '../../../lib/format'
 import { registerUndoAction } from '../../../lib/undo'
 
 /*
  * Term Transition Wizard — /tutor/transition
  * ─────────────────────────────────────────────────────────────────────────────
- * Admin-only. A 6-step checklist that walks through every action needed to
- * move from one term to the next:
+ * Admin-only. A 4-step checklist for moving from one term to the next:
  *
- *   1. Setup       — pick source + target terms; see snapshot stats
- *   2. Enrolments  — mark who isn't continuing and their reason
+ *   1. Setup       — pick source + target terms; reset confirmations to pending
+ *   2. Enrolments  — confirm who's continuing / mark who isn't (and why)
  *   3. Classes     — choose which classes to copy; execute rollover
- *   4. Comms       — generate re-enrolment email drafts per family (copy / CSV)
- *   5. Invoices    — bulk-create invoice records for the new term
- *   6. Done        — summary of everything created
+ *                    (prices carry over with optional % fee increase)
+ *   4. Done        — summary of everything created
  *
- * Designed to be re-runnable: the rollover step skips any class that already
- * exists in the target term (by name), and invoice generation can be skipped
- * entirely if invoices are managed in Xero.
+ * Re-runnable: the rollover skips classes already copied to the target term —
+ * matched by provenance (classes.source_class_id) with class-name fallback.
+ * Every run writes an audit row to term_transitions (who, when, what was
+ * created); resetting a rollover marks that row cancelled.
  *
- * DB prerequisites — run migrations/20260604_term_transition.sql once:
- *   ALTER TABLE enrolments ADD COLUMN IF NOT EXISTS ended_at date;
- *   ALTER TABLE enrolments ADD COLUMN IF NOT EXISTS end_reason text;
- *   (term_transitions + enquiries tables — see migration file)
+ * Re-enrolment emails: /tutor/emails/term-start.
+ * New-term invoices: /tutor/accounting/invoices → Generate Draft Invoices.
  */
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -86,6 +83,7 @@ export default function TransitionPage() {
   // Step 3
   const [selectedClasses, setSelectedClasses] = useState({})
   const [copyEnrolments, setCopyEnrolments]   = useState(true)
+  const [feeIncreasePct, setFeeIncreasePct]   = useState('0')  // % applied to copied enrolment prices
   const [rolloverDone, setRolloverDone]       = useState(false)
   const [rolloverResult, setRolloverResult]   = useState(null)
 
@@ -114,13 +112,9 @@ export default function TransitionPage() {
   // ── Step 1: term snapshot stats ───────────────────────────────────────────
   const loadTermStats = useCallback(async (termId) => {
     if (!termId) return
-    let { data: cls } = await supabase
+    // Strictly term-scoped — an empty term shows 0, never "all classes ever".
+    const { data: cls } = await supabase
       .from(T_CLASSES).select('id').eq('term_id', termId)
-    // Fallback: if no classes have this term_id, count all classes
-    if (!cls?.length) {
-      const all = await supabase.from(T_CLASSES).select('id')
-      cls = all.data || []
-    }
     const classIds = (cls || []).map(c => c.id)
     if (!classIds.length) { setTermStats({ classes: 0, enrolments: 0, students: 0 }); return }
 
@@ -143,9 +137,9 @@ export default function TransitionPage() {
     if (!fromTermId) return
     setLoading(true)
     try {
-      // Try to load classes scoped to this term first.
-      // Falls back to ALL classes if none have term_id set (common for pre-existing data
-      // where the term_id column exists but rows were created before it was populated).
+      // Strictly term-scoped. (The old "no matches → load ALL classes" fallback
+      // is gone — it predated term-scoped classes and could offer to roll over
+      // every class in history if an empty term was selected.)
       const clsQuery = await supabase
         .from(T_CLASSES)
         .select('*')
@@ -154,17 +148,7 @@ export default function TransitionPage() {
 
       if (clsQuery.error) throw new Error(`Classes query failed: ${clsQuery.error.message}`)
 
-      let cls = clsQuery.data || []
-
-      if (!cls.length) {
-        // Fallback: no classes have this term_id — load everything
-        const fallback = await supabase
-          .from(T_CLASSES)
-          .select('*')
-          .order('class_name')
-        if (fallback.error) throw new Error(`Classes fallback query failed: ${fallback.error.message}`)
-        cls = fallback.data || []
-      }
+      const cls = clsQuery.data || []
 
       const classMap = Object.fromEntries(cls.map(c => [c.id, c]))
       const classIds = cls.map(c => c.id)
@@ -205,6 +189,7 @@ export default function TransitionPage() {
           id:           e.id,
           student_id:   e.student_id,
           class_id:     e.class_id,
+          price:        e.price ?? null,
           student_name: s.full_name || '—',
           year:         s.year,
           class_name:   c.class_name || '—',
@@ -224,7 +209,7 @@ export default function TransitionPage() {
       const initEndings = {}
       const initStatuses = {}
       for (const r of rows) {
-        const s = r.next_term_status || 'confirmed'
+        const s = r.next_term_status || 'pending'  // confirmation is opt-in
         initStatuses[r.id] = s
         initEndings[r.id]  = { ending: s === 'not_continuing', reason: r.end_reason || '' }
       }
@@ -256,6 +241,38 @@ export default function TransitionPage() {
     })
   }
 
+  // ── Step 1: reset all confirmations to pending (confirmation is opt-in) ────
+  const [resettingPending, setResettingPending] = useState(false)
+  const resetAllToPending = async () => {
+    if (!fromTermId) return
+    if (!window.confirm('Reset every enrolment in this term to "pending"? Families will then need to be explicitly confirmed in Step 2 as they respond.')) return
+    setResettingPending(true); setError(null)
+    try {
+      const { data: cls } = await supabase.from(T_CLASSES).select('id').eq('term_id', fromTermId)
+      const classIds = (cls || []).map(c => c.id)
+      if (!classIds.length) throw new Error('No classes found for this term.')
+      // capture previous statuses for undo
+      const { data: before } = await supabase.from(T_ENROLMENTS)
+        .select('id, next_term_status').in('class_id', classIds).in('status', ['active', 'trial'])
+      const { error: updErr } = await supabase.from(T_ENROLMENTS)
+        .update({ next_term_status: 'pending' })
+        .in('class_id', classIds).in('status', ['active', 'trial'])
+      if (updErr) throw updErr
+      registerUndoAction('reset confirmations to pending', async () => {
+        // restore previous statuses, grouped to minimise requests
+        const byStatus = {}
+        for (const r of before || []) (byStatus[r.next_term_status || 'pending'] ??= []).push(r.id)
+        for (const [status, ids] of Object.entries(byStatus)) {
+          await supabase.from(T_ENROLMENTS).update({ next_term_status: status }).in('id', ids)
+        }
+        if (dataLoaded) await loadData()
+      })
+      if (dataLoaded) await loadData()
+      alert(`${(before || []).length} enrolments reset to pending.`)
+    } catch (e) { setError(e.message) }
+    finally { setResettingPending(false) }
+  }
+
   // ── Navigation ─────────────────────────────────────────────────────────────
   const goTo = async (nextStep) => {
     setError(null)
@@ -278,37 +295,51 @@ export default function TransitionPage() {
 
       const classesToRoll = classes.filter(c => selectedClasses[c.id])
 
-      // Check which class names already exist in target term
+      // Duplicate check: provenance first (source_class_id — rename-proof),
+      // class name as fallback for classes created before provenance existed.
       const { data: existing } = await supabase
-        .from(T_CLASSES).select('class_name').eq('term_id', toTermId)
-      const existingNames = new Set((existing || []).map(c => (c.class_name || '').toLowerCase()))
+        .from(T_CLASSES).select('class_name, source_class_id').eq('term_id', toTermId)
+      const existingNames   = new Set((existing || []).map(c => (c.class_name || '').toLowerCase()))
+      const existingSources = new Set((existing || []).map(c => c.source_class_id).filter(Boolean))
 
       const skipped   = []
       let createdEnrolments = 0
       const createdClassObjs = []
 
       for (const origCls of classesToRoll) {
-        if (existingNames.has((origCls.class_name || '').toLowerCase())) {
+        if (existingSources.has(origCls.id) || existingNames.has((origCls.class_name || '').toLowerCase())) {
           skipped.push(origCls.class_name); continue
         }
 
-        // Strip PK + auto columns before inserting
-        const { id: origId, created_at, ...clsFields } = origCls
+        // Strip PK + auto columns before inserting; record provenance
+        const { id: origId, created_at, source_class_id, ...clsFields } = origCls
         const { data: newCls, error: clsErr } = await supabase
           .from(T_CLASSES)
-          .insert({ ...clsFields, term_id: toTermId })
+          .insert({ ...clsFields, term_id: toTermId, source_class_id: origId })
           .select().single()
         if (clsErr) throw clsErr
         createdClassObjs.push(newCls)
 
         if (copyEnrolments) {
+          // endingIds holds STRING keys (Object.entries) — coerce e.id to match,
+          // otherwise not-continuing students get copied into the new term.
+          const pct = parseFloat(feeIncreasePct) || 0
+          const adjust = (p) => (p === null || p === undefined)
+            ? null
+            : Math.round(Number(p) * (1 + pct / 100) * 100) / 100
           const enrsForClass = enrolments.filter(
-            e => e.class_id === origId && !endingIds.has(e.id)
+            e => e.class_id === origId && !endingIds.has(String(e.id))
           )
           for (const e of enrsForClass) {
             const { error: enrErr } = await supabase
               .from(T_ENROLMENTS)
-              .insert({ student_id: e.student_id, class_id: newCls.id, status: 'active' })
+              .insert({
+                student_id: e.student_id,
+                class_id: newCls.id,
+                status: 'active',
+                price: adjust(e.price),          // carried over (+ optional % rise)
+                next_term_status: 'pending',     // confirmation is opt-in each term
+              })
             if (!enrErr) createdEnrolments++
           }
         }
@@ -326,12 +357,33 @@ export default function TransitionPage() {
         await supabase.from(T_ENROLMENTS).update(update).eq('id', id)
       }
 
+      // Audit record — who ran this rollover and what it created
+      let auditId = null
+      try {
+        const { data: audit } = await supabase.from(T_TERM_TRANSITIONS).insert({
+          from_term_id: fromTermId,
+          to_term_id:   toTermId,
+          run_by:       profile?.id ?? null,
+          run_by_name:  profile?.full_name ?? null,
+          meta: {
+            classes_created:    createdClassObjs.length,
+            enrolments_created: createdEnrolments,
+            disenrolled:        endingIds.size,
+            skipped,
+            copy_enrolments:    copyEnrolments,
+            fee_increase_pct:   parseFloat(feeIncreasePct) || 0,
+          },
+        }).select('id').single()
+        auditId = audit?.id ?? null
+      } catch { /* audit is best-effort — never block the rollover */ }
+
       setRolloverResult({
         createdClasses:    createdClassObjs.length,
         createdEnrolments,
         skipped,
         createdClassIds:   createdClassObjs.map(c => c.id),
         disenrolledIds:    [...endingIds],   // source enrolment IDs we flipped to disenrol
+        auditId,
       })
       setRolloverDone(true)
     } catch (e) {
@@ -361,13 +413,13 @@ export default function TransitionPage() {
       // 3. Restore source enrolments that were disenrolled during this rollover
       if (disenrolledIds.length) {
         await supabase.from(T_ENROLMENTS)
-          .update({ status: 'active', next_term_status: 'confirmed', ended_at: null, end_reason: null })
+          .update({ status: 'active', next_term_status: 'pending', ended_at: null, end_reason: null })
           .in('id', disenrolledIds)
 
-        // Sync local state so they show as confirmed again in Step 2
+        // Sync local state — restored rows go back to pending (not auto-confirmed)
         setNextTermStatus(prev => {
           const next = { ...prev }
-          disenrolledIds.forEach(id => { next[id] = 'confirmed' })
+          disenrolledIds.forEach(id => { next[id] = 'pending' })
           return next
         })
         setEndings(prev => {
@@ -375,6 +427,13 @@ export default function TransitionPage() {
           disenrolledIds.forEach(id => { next[id] = { ending: false, reason: '' } })
           return next
         })
+      }
+
+      // Mark the audit record cancelled
+      if (rolloverResult.auditId) {
+        await supabase.from(T_TERM_TRANSITIONS)
+          .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+          .eq('id', rolloverResult.auditId)
       }
 
       setRolloverDone(false)
@@ -386,25 +445,8 @@ export default function TransitionPage() {
     }
   }
 
-  // ── Step 5: generate invoices ──────────────────────────────────────────────
-  const generateInvoices = async () => {
-    setSaving(true); setError(null)
-    let count = 0
-    for (const row of invoiceRows.filter(r => r.checked && r.fee)) {
-      const { error: invErr } = await supabase.from(T_INVOICES).insert({
-        term_id:    toTermId,
-        family_id:  row.family_id,
-        total:      parseFloat(row.fee),
-        subtotal:   parseFloat(row.fee),
-        email_sent: false,
-        notes:      row.students.map(s => s.class_name).join(', '),
-      })
-      if (!invErr) count++
-    }
-    setInvoicesCreated(count)
-    setInvoicesDone(true)
-    setSaving(false)
-  }
+  // (The old Step 5 invoice generator was removed — invoices for the new term
+  // are created via /tutor/accounting/invoices → Generate Draft Invoices.)
 
 
   // ── Derived values ─────────────────────────────────────────────────────────
@@ -521,6 +563,27 @@ export default function TransitionPage() {
                     <div className="text-[10px] text-[#325099]/40 mt-0.5">in {fromTerm.name}</div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Start-of-transition hygiene: make confirmation opt-in */}
+            {fromTermId && (
+              <div className="flex items-start gap-3 mb-6 p-4 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl">
+                <span className="text-lg">🔁</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-[#92400E]">Starting the transition? Reset confirmations first.</p>
+                  <p className="text-xs text-[#92400E]/70 mt-0.5">
+                    Enrolments default to &ldquo;confirmed&rdquo;, so Step 2 starts with everyone pre-confirmed.
+                    Reset to pending, then confirm families in Step 2 as they actually respond. (Undo: Ctrl/Cmd+Z)
+                  </p>
+                </div>
+                <button
+                  onClick={resetAllToPending}
+                  disabled={resettingPending}
+                  className="shrink-0 text-xs font-semibold text-[#92400E] border border-[#FDE68A] bg-white px-3.5 py-2 rounded-lg hover:bg-[#FEF3C7] transition disabled:opacity-50"
+                >
+                  {resettingPending ? 'Resetting…' : 'Reset all to pending'}
+                </button>
               </div>
             )}
 
@@ -682,19 +745,40 @@ export default function TransitionPage() {
               Choose which classes to copy to {toTerm?.name}. Classes that already exist in the target term are automatically skipped.
             </p>
 
-            {/* Copy enrolments toggle */}
-            <label className="flex items-center gap-3 mb-6 p-4 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={copyEnrolments}
-                onChange={e => setCopyEnrolments(e.target.checked)}
-                className="accent-[#062E63] w-4 h-4"
-              />
-              <div>
-                <span className="text-sm font-semibold text-[#062E63]">Copy continuing enrolments to new classes</span>
-                <span className="text-xs text-[#325099]/50 ml-2">({endingCount} ending enrolments excluded)</span>
-              </div>
-            </label>
+            {/* Copy enrolments toggle + fee adjustment */}
+            <div className="flex flex-wrap items-center gap-3 mb-6 p-4 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl">
+              <label className="flex items-center gap-3 cursor-pointer select-none flex-1 min-w-[260px]">
+                <input
+                  type="checkbox"
+                  checked={copyEnrolments}
+                  onChange={e => setCopyEnrolments(e.target.checked)}
+                  className="accent-[#062E63] w-4 h-4"
+                />
+                <div>
+                  <span className="text-sm font-semibold text-[#062E63]">Copy continuing enrolments to new classes</span>
+                  <span className="text-xs text-[#325099]/50 ml-2">({endingCount} ending enrolments excluded)</span>
+                  <p className="text-[11px] text-[#325099]/50 mt-0.5">Prices carry over automatically; new enrolments start as &ldquo;pending&rdquo; confirmation.</p>
+                </div>
+              </label>
+              {copyEnrolments && (
+                <label className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-semibold text-[#062E63]">Fee increase</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="-50"
+                    max="100"
+                    value={feeIncreasePct}
+                    onChange={e => setFeeIncreasePct(e.target.value)}
+                    className="w-20 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm text-right text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+                  />
+                  <span className="text-xs font-semibold text-[#325099]/60">%</span>
+                  {parseFloat(feeIncreasePct) > 0 && (
+                    <span className="text-[10px] text-[#325099]/50">e.g. $650 → ${(650 * (1 + (parseFloat(feeIncreasePct) || 0) / 100)).toFixed(2)}</span>
+                  )}
+                </label>
+              )}
+            </div>
 
             {/* Class list */}
             <div className="border border-[#DEE7FF] rounded-xl overflow-hidden mb-6">
