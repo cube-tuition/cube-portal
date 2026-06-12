@@ -2007,7 +2007,7 @@ export default function DatabasePage() {
       if (warning && !window.confirm(`⚠ ${warning}\n\nSave anyway?`)) { setEditingCell(null); return }
     }
     setEditingCell(null); setSaving(true)
-    const newVal = editValue === '' ? null : editValue
+    const newVal = editValue.trim() === '' ? null : editValue.trim()  // whitespace never persists
     const prevRows = rows
     const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
     if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return } // no change
@@ -2043,7 +2043,7 @@ export default function DatabasePage() {
     if (!editingCell) return
     const { rowId, col } = editingCell
     setEditingCell(null); setSaving(true)
-    const newVal = value === '' ? null : value
+    const newVal = String(value ?? '').trim() === '' ? null : String(value).trim()
     const prevRows = rows
     const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
     if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return }

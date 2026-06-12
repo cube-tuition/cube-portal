@@ -43,8 +43,10 @@ export async function POST(req) {
       source = 'website_form',
     } = body
 
-    const studentName = [studentFirstName, studentLastName].filter(Boolean).join(' ') || null
-    const parentName  = [parentFirstName,  parentLastName ].filter(Boolean).join(' ') || null
+    // Whitespace never persists — trim every incoming text field.
+    const t = (v) => (typeof v === 'string' ? (v.trim() || null) : v ?? null)
+    const studentName = [t(studentFirstName), t(studentLastName)].filter(Boolean).join(' ') || null
+    const parentName  = [t(parentFirstName),  t(parentLastName) ].filter(Boolean).join(' ') || null
     const cleanYear   = year ? String(year).replace(/^year\s*/i, '').trim() : null
 
     if (!parentEmail && !parentPhone && !studentName) {
@@ -106,18 +108,18 @@ export async function POST(req) {
         .insert({
           student_name:         studentName,
           student_year:         cleanYear,
-          student_email:        studentEmail || null,
-          student_phone:        studentPhone || null,
-          school:               school       || null,
+          student_email:        t(studentEmail),
+          student_phone:        t(studentPhone),
+          school:               t(school),
           subjects:             subj ? [subj] : null,
           availability:         availability || null,
           parent_name:          parentName,
-          parent_email:         parentEmail  || null,
-          parent_phone:         parentPhone  || null,
-          relationship:         relationship || null,
-          how_heard:            howHeard     || null,  // acquisition channel
-          referred_by:          referredBy   || null,  // referrer's name (referral program)
-          notes:                notes        || null,
+          parent_email:         t(parentEmail),
+          parent_phone:         t(parentPhone),
+          relationship:         t(relationship),
+          how_heard:            t(howHeard),    // acquisition channel
+          referred_by:          t(referredBy),  // referrer's name (referral program)
+          notes:                t(notes),
           source,
           converted_student_id: student.id,
           enrolment_id:         newEnrol?.id || null,

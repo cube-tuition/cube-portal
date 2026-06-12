@@ -1,5 +1,5 @@
 import { Resend } from 'resend'
-import { buildDiscountEmailHtml } from '../../../lib/discountEmail'
+import { buildDiscountEmailHtml, mergeDiscountContent } from '../../../lib/discountEmail'
 
 /*
  * POST /api/send-discount-program-emails
@@ -17,11 +17,13 @@ import { buildDiscountEmailHtml } from '../../../lib/discountEmail'
 
 export async function POST(request) {
   try {
-    const { families, test, testEmail } = await request.json()
+    const { families, test, testEmail, intro, content } = await request.json()
+    // `content` = full editable-content overrides; `intro` kept for back-compat
+    const overrides = content || (intro ? { intro } : {})
 
     const resend    = new Resend(process.env.RESEND_API_KEY)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
-    const subject   = 'Save $50 every time you share CUBE 🎁 — plus sibling & multi-course discounts'
+    const subject   = mergeDiscountContent(overrides).subject
 
     // ── Test mode: one email to the requesting director ──────────────────────
     if (test) {
@@ -30,7 +32,7 @@ export async function POST(request) {
         from: `CUBE Tuition <${fromEmail}>`,
         to: [testEmail],
         subject: `[TEST] ${subject}`,
-        html: buildDiscountEmailHtml('there'),
+        html: buildDiscountEmailHtml('there', overrides),
       })
       if (error) return Response.json({ error: error.message }, { status: 500 })
       return Response.json({ test: true, sent: testEmail })
@@ -50,7 +52,7 @@ export async function POST(request) {
         from: `CUBE Tuition <${fromEmail}>`,
         to: [family.parent_email],
         subject,
-        html: buildDiscountEmailHtml(family.parent_name),
+        html: buildDiscountEmailHtml(family.parent_name, overrides),
       })
       results.push({
         family:  family.parent_name,

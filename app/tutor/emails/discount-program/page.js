@@ -5,7 +5,29 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { buildDiscountEmailHtml } from '../../../../lib/discountEmail'
+import { buildDiscountEmailHtml, DEFAULT_DISCOUNT_CONTENT } from '../../../../lib/discountEmail'
+
+const CONTENT_KEY = 'discount_email_content'
+
+// label, field, rows (0 = single-line input)
+const CONTENT_FIELDS = [
+  ['Subject line',               'subject',          0],
+  ['Headline',                   'heroTitle',        0],
+  ['Intro (after "Hi {name},")', 'intro',            3],
+  ['Referral card — headline',   'referralHeadline', 0],
+  ['Referral card — text',       'referralBody',     3],
+  ['How it works — step 1',      'step1',            2],
+  ['How it works — step 2',      'step2',            2],
+  ['How it works — step 3',      'step3',            2],
+  ['Card 1 — title',             'multiTitle',       0],
+  ['Card 1 — text',              'multiBody',        2],
+  ['Card 2 — title',             'siblingTitle',     0],
+  ['Card 2 — text',              'siblingBody',      2],
+  ['Forms note',                 'formsNote',        2],
+  ['Good to know (one bullet per line)', 'finePrint', 3],
+  ['Button label',               'ctaLabel',         0],
+  ['Button note',                'ctaNote',          0],
+]
 import { T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
 
 /*
@@ -32,12 +54,23 @@ export default function DiscountProgramEmailPage() {
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
   const [testSentTo, setTestSentTo] = useState(null)
+  const [content, setContent] = useState({ ...DEFAULT_DISCOUNT_CONTENT })
+  const [editOpen, setEditOpen] = useState(false)
+  const [savingContent, setSavingContent] = useState(false)
+  const [contentSavedAt, setContentSavedAt] = useState(null)
 
   useEffect(() => {
     ;(async () => {
       const { profile, role } = await getAuthProfile()
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
       setProfile(profile)
+
+      // Saved email content (shared between directors via portal_settings)
+      supabase.from('portal_settings').select('value').eq('key', CONTENT_KEY).maybeSingle()
+        .then(({ data }) => {
+          if (!data?.value) return
+          try { setContent({ ...DEFAULT_DISCOUNT_CONTENT, ...JSON.parse(data.value) }) } catch {}
+        })
 
       // Active students + their guardians → one row per family
       const [{ data: students }, { data: guardians }] = await Promise.all([
@@ -72,7 +105,17 @@ export default function DiscountProgramEmailPage() {
 
   const selected = useMemo(() => families.filter(f => checked[f.key] && f.parent_email), [families, checked])
   const noEmailCount = useMemo(() => families.filter(f => !f.parent_email).length, [families])
-  const previewHtml = useMemo(() => buildDiscountEmailHtml(selected[0]?.parent_name || 'there'), [selected])
+  const previewHtml = useMemo(() => buildDiscountEmailHtml(selected[0]?.parent_name || 'there', content), [selected, content])
+  const setField = (key) => (e) => { setContent(prev => ({ ...prev, [key]: e.target.value })); setContentSavedAt(null) }
+
+  const saveContent = async () => {
+    setSavingContent(true); setError(null)
+    const { error: err } = await supabase.from('portal_settings')
+      .upsert({ key: CONTENT_KEY, value: JSON.stringify(content), updated_at: new Date().toISOString() })
+    setSavingContent(false)
+    if (err) { setError('Could not save content: ' + err.message); return }
+    setContentSavedAt(new Date())
+  }
 
   const sendTest = async () => {
     setTesting(true); setError(null); setTestSentTo(null)
@@ -82,7 +125,7 @@ export default function DiscountProgramEmailPage() {
       if (!email) throw new Error('Could not determine your email address.')
       const res = await fetch('/api/send-discount-program-emails', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ test: true, testEmail: email }),
+        body: JSON.stringify({ test: true, testEmail: email, content }),
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || 'Test send failed')
@@ -96,7 +139,7 @@ export default function DiscountProgramEmailPage() {
     try {
       const res = await fetch('/api/send-discount-program-emails', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ families: selected.map(f => ({ parent_name: f.parent_name, parent_email: f.parent_email })) }),
+        body: JSON.stringify({ content, families: selected.map(f => ({ parent_name: f.parent_name, parent_email: f.parent_email })) }),
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || 'Send failed')
@@ -120,9 +163,42 @@ export default function DiscountProgramEmailPage() {
             </p>
           </div>
         </div>
-        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-4 py-2.5 mb-6 text-[11px] text-[#92400E] leading-relaxed">
-          <strong>Best time to send:</strong> week 2 of term (families settled, invoices done). Avoid invoice week.
-          Full cadence in <code className="font-mono">docs/EMAIL_MARKETING_PLAN.md</code>.
+        {/* Editable email content — every text block, persisted in portal_settings */}
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl mb-6 overflow-hidden">
+          <button onClick={() => setEditOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#F8FAFF] transition">
+            <span className="text-xs font-bold text-[#062E63]">✏️ Edit email content <span className="font-normal text-[#2A2035]/40">— **bold** supported · changes preview live</span></span>
+            <span className="text-[#325099] text-xs">{editOpen ? '▲ Collapse' : '▼ Expand'}</span>
+          </button>
+          {editOpen && (
+            <div className="border-t border-[#DEE7FF] p-4">
+              <div className="grid sm:grid-cols-2 gap-3">
+                {CONTENT_FIELDS.map(([label, key, rows]) => (
+                  <div key={key} className={rows >= 3 ? 'sm:col-span-2' : ''}>
+                    <label className="block text-[10px] font-bold text-[#325099] uppercase tracking-wide mb-1">{label}</label>
+                    {rows === 0 ? (
+                      <input type="text" value={content[key]} onChange={setField(key)}
+                        className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099]" />
+                    ) : (
+                      <textarea value={content[key]} onChange={setField(key)} rows={rows}
+                        className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#2A2035] leading-relaxed focus:outline-none focus:border-[#325099] resize-y" />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#F0F4FF]">
+                <button onClick={saveContent} disabled={savingContent}
+                  className="px-4 py-2 rounded-xl bg-[#325099] text-white text-xs font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
+                  {savingContent ? 'Saving…' : 'Save content'}
+                </button>
+                <button onClick={() => { setContent({ ...DEFAULT_DISCOUNT_CONTENT }); setContentSavedAt(null) }}
+                  className="px-3 py-2 text-xs font-semibold text-[#2A2035]/50 hover:text-[#325099]">
+                  Reset all to default
+                </button>
+                {contentSavedAt && <span className="text-[11px] font-semibold text-emerald-700">✓ Saved — used for all future sends</span>}
+                {!contentSavedAt && <span className="text-[10px] text-[#2A2035]/40">Unsaved edits still apply to this send; Save to keep them for next time.</span>}
+              </div>
+            </div>
+          )}
         </div>
 
         {error && <div className="mb-4 px-4 py-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-medium">{error}</div>}

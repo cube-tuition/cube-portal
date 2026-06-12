@@ -6,7 +6,20 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { formatTermLabel } from '../../../lib/terms'
-import { T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS } from '../../../lib/tables'
+import { T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
+
+// tutors.pay_method → payment group. Anything unrecognised lands in 'unset'.
+function payMethodGroup(pm) {
+  const v = String(pm ?? '').toLowerCase()
+  if (v.startsWith('bank')) return 'bank'
+  if (v === 'cash') return 'cash'
+  return 'unset'
+}
+const PM_GROUPS = [
+  { id: 'bank',  icon: '🏦', title: 'Bank transfer', note: 'these will be pushed to Xero' },
+  { id: 'cash',  icon: '💵', title: 'Cash',           note: 'paid in person — not pushed to Xero' },
+  { id: 'unset', icon: '❓', title: 'Pay method not set', note: 'set pay_method (bank/cash) on the tutor record in the database explorer' },
+]
 import { registerUndoAction } from '../../../lib/undo'
 import { fmtTime, fmtMoney, isoDate } from '../../../lib/format'
 
@@ -80,6 +93,8 @@ export default function PayrollPage() {
   const [fortnight, setFortnight] = useState(1)    // 1..5
   const [run, setRun] = useState(null)
   const [shifts, setShifts] = useState([])
+  const [payMethods, setPayMethods] = useState({})   // tutor_id → pay_method (bank/cash)
+  const [payTab, setPayTab] = useState('bank')       // active pay-method tab
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [savingId, setSavingId] = useState(null)
@@ -132,6 +147,10 @@ export default function PayrollPage() {
       const allTerms = termsData || []
       setTerms(allTerms)
 
+      // Pay method per tutor (bank vs cash split)
+      const { data: tutorRows } = await supabase.from(T_TUTORS).select('id, pay_method')
+      setPayMethods(Object.fromEntries((tutorRows || []).map(t => [t.id, t.pay_method])))
+
       const { term, fortnight: f } = pickInitialTermFortnight(allTerms, isoDate(new Date()))
       setActiveTerm(term)
       setFortnight(f)
@@ -143,15 +162,25 @@ export default function PayrollPage() {
 
   const editable = run && ['open'].includes(run.status)
 
-  // Group shifts by tutor for display
+  // Group shifts by tutor for display (tagged with bank/cash pay group)
   const byTutor = useMemo(() => {
     const map = new Map()
     for (const s of shifts) {
-      if (!map.has(s.tutor_id)) map.set(s.tutor_id, { name: s.tutor_name, shifts: [] })
+      if (!map.has(s.tutor_id)) map.set(s.tutor_id, { name: s.tutor_name, payGroup: payMethodGroup(payMethods[s.tutor_id]), shifts: [] })
       map.get(s.tutor_id).shifts.push(s)
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
-  }, [shifts])
+  }, [shifts, payMethods])
+
+  // Bank vs cash split (Xero push will use the bank group only)
+  const payGroups = useMemo(() => PM_GROUPS.map(g => {
+    const tutors = byTutor.filter(t => t.payGroup === g.id)
+    const sub = tutors.flatMap(t => t.shifts).reduce(
+      (acc, s) => ({ h: acc.h + Number(s.hours || 0), a: acc.a + Number(s.amount || 0), n: acc.n + 1 }),
+      { h: 0, a: 0, n: 0 }
+    )
+    return { ...g, tutors, sub }
+  }).filter(g => g.tutors.length > 0), [byTutor])
 
   const totals = useMemo(() => {
     let hours = 0, amount = 0, missingRate = 0
@@ -397,7 +426,45 @@ export default function PayrollPage() {
           </div>
         )}
 
-        {byTutor.map(({ name, shifts: rows }) => {
+        {/* Pay-method tabs — bank vs cash (vs not-set when present) */}
+        {!loading && payGroups.length > 0 && (
+          <div className="flex items-center gap-2 mb-6 flex-wrap">
+            {payGroups.map(g => (
+              <button
+                key={g.id}
+                onClick={() => setPayTab(g.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition ${
+                  (payGroups.find(x => x.id === payTab) ?? payGroups[0]).id === g.id
+                    ? 'bg-[#062E63] text-white border-[#062E63]'
+                    : g.id === 'unset'
+                      ? 'bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:border-[#F59E0B]'
+                      : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
+                }`}
+              >
+                {g.icon} {g.title}
+                <span className="text-[10px] font-bold opacity-70">{g.tutors.length} tutor{g.tutors.length === 1 ? '' : 's'} · {fmtMoney(g.sub.a)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {[payGroups.find(g => g.id === payTab) ?? payGroups[0]].filter(Boolean).map(group => (
+          <div key={group.id} className="mb-8">
+            {/* Pay-method group header */}
+            <div className={`flex items-center justify-between px-5 py-3 rounded-2xl mb-4 border ${group.id === 'unset' ? 'bg-[#FFFBEB] border-[#FDE68A]' : 'bg-[#062E63] border-[#062E63]'}`}>
+              <div>
+                <p className={`text-sm font-bold ${group.id === 'unset' ? 'text-[#92400E]' : 'text-white'}`}>{group.icon} {group.title}</p>
+                <p className={`text-[10px] ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-white/55'}`}>{group.note}</p>
+              </div>
+              <div className="text-right">
+                <p className={`text-[10px] tracking-[0.2em] uppercase font-semibold ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-white/55'}`}>
+                  {group.tutors.length} tutor{group.tutors.length === 1 ? '' : 's'} · {group.sub.n} shift{group.sub.n === 1 ? '' : 's'} · {group.sub.h.toFixed(2)}h
+                </p>
+                <p className={`text-lg font-bold font-display ${group.id === 'unset' ? 'text-[#92400E]' : 'text-white'}`}>{fmtMoney(group.sub.a)}</p>
+              </div>
+            </div>
+
+            {group.tutors.map(({ name, shifts: rows }) => {
           const sub = rows.reduce(
             (acc, s) => ({ h: acc.h + Number(s.hours || 0), a: acc.a + Number(s.amount || 0) }),
             { h: 0, a: 0 }
@@ -435,6 +502,8 @@ export default function PayrollPage() {
             </div>
           )
         })}
+          </div>
+        ))}
 
         {/* Footer actions */}
         {!loading && shifts.length > 0 && (
