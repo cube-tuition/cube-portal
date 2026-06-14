@@ -54,10 +54,10 @@ const ADMIN_GROUPS = [
   {
     label: 'Accounting',
     links: [
+      { label: 'Dashboard',  href: '/tutor/accounting',            icon: '🧮' },
       { label: 'Invoices',   href: '/tutor/accounting/invoices',   icon: '🧾' },
       { label: 'Forecast',   href: '/tutor/accounting/forecast',   icon: '📊' },
       { label: 'Payroll',    href: '/tutor/payroll',               icon: '💳' },
-      { label: 'Due dates',  href: '/tutor/accounting/due-dates',  icon: '📅' },
     ],
   },
 ]

@@ -435,7 +435,7 @@ export default function PayrollPage() {
                 onClick={() => setPayTab(g.id)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition ${
                   (payGroups.find(x => x.id === payTab) ?? payGroups[0]).id === g.id
-                    ? 'bg-[#062E63] text-white border-[#062E63]'
+                    ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
                     : g.id === 'unset'
                       ? 'bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:border-[#F59E0B]'
                       : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -451,16 +451,16 @@ export default function PayrollPage() {
         {[payGroups.find(g => g.id === payTab) ?? payGroups[0]].filter(Boolean).map(group => (
           <div key={group.id} className="mb-8">
             {/* Pay-method group header */}
-            <div className={`flex items-center justify-between px-5 py-3 rounded-2xl mb-4 border ${group.id === 'unset' ? 'bg-[#FFFBEB] border-[#FDE68A]' : 'bg-[#062E63] border-[#062E63]'}`}>
+            <div className={`flex items-center justify-between px-5 py-3 rounded-2xl mb-4 border ${group.id === 'unset' ? 'bg-[#FFFBEB] border-[#FDE68A]' : 'bg-[#EEF4FF] border-[#BACBFF]'}`}>
               <div>
-                <p className={`text-sm font-bold ${group.id === 'unset' ? 'text-[#92400E]' : 'text-white'}`}>{group.icon} {group.title}</p>
-                <p className={`text-[10px] ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-white/55'}`}>{group.note}</p>
+                <p className={`text-sm font-bold ${group.id === 'unset' ? 'text-[#92400E]' : 'text-[#062E63]'}`}>{group.icon} {group.title}</p>
+                <p className={`text-[10px] ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-[#325099]/60'}`}>{group.note}</p>
               </div>
               <div className="text-right">
-                <p className={`text-[10px] tracking-[0.2em] uppercase font-semibold ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-white/55'}`}>
+                <p className={`text-[10px] tracking-[0.2em] uppercase font-semibold ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-[#325099]/60'}`}>
                   {group.tutors.length} tutor{group.tutors.length === 1 ? '' : 's'} · {group.sub.n} shift{group.sub.n === 1 ? '' : 's'} · {group.sub.h.toFixed(2)}h
                 </p>
-                <p className={`text-lg font-bold font-display ${group.id === 'unset' ? 'text-[#92400E]' : 'text-white'}`}>{fmtMoney(group.sub.a)}</p>
+                <p className={`text-lg font-bold font-display ${group.id === 'unset' ? 'text-[#92400E]' : 'text-[#062E63]'}`}>{fmtMoney(group.sub.a)}</p>
               </div>
             </div>
 

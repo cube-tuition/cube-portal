@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../../lib/supabase'
@@ -9,6 +9,8 @@ import LatexContent from '../../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS } from '../../../../../lib/tables'
 import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage } from '../../../../../lib/qbank'
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
+import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
+import QuickEditModal from '../../../../../components/qbank/QuickEditModal'
 import { loadExam, saveExam, blankSlot } from '../../../../../lib/qbankExams'
 import { exportExamPdf } from '../../../../../lib/qbankExam'
 
@@ -36,6 +38,17 @@ export default function ExamBuilderPage() {
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState('')
+  const [dragSlot, setDragSlot] = useState(null)   // { secKey, slotKey } being dragged
+  const [preview, setPreview] = useState(null)     // { url, filename, title } for the PDF preview modal
+  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
+  const [editQ, setEditQ] = useState(null)         // bank question being quick-edited
+
+  // Autosave plumbing: refs keep the latest exam + in-flight state so debounced
+  // saves never race or persist a stale snapshot.
+  const examRef = useRef(null)
+  const savingRef = useRef(false)
+  const pendingRef = useRef(false)
+  const dirtyRef = useRef(false)
 
   const loadQuestions = useCallback(() => supabase.from(T_QBANK_QUESTIONS)
     .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order)')
@@ -76,6 +89,20 @@ export default function ExamBuilderPage() {
   const updateSection = (key, fields) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, ...fields } : s)))
   const addSlot = (key) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, slots: [...s.slots, blankSlot()] } : s)))
   const removeSlot = (secKey, slotKey) => setSections((ss) => ss.map((s) => (s._key !== secKey ? s : { ...s, slots: s.slots.filter((sl) => sl._key !== slotKey) })))
+  // Move slot `fromKey` to the position of `toKey` within the same section (drag-reorder).
+  const reorderSlot = (secKey, fromKey, toKey) => {
+    if (fromKey === toKey) return
+    setSections((ss) => ss.map((s) => {
+      if (s._key !== secKey) return s
+      const slots = [...s.slots]
+      const from = slots.findIndex((sl) => sl._key === fromKey)
+      const to = slots.findIndex((sl) => sl._key === toKey)
+      if (from < 0 || to < 0) return s
+      const [moved] = slots.splice(from, 1)
+      slots.splice(to, 0, moved)
+      return { ...s, slots }
+    }))
+  }
   const addSection = (type) => setSections((ss) => [...ss, { _key: Math.random().toString(36).slice(2, 9), type, marks_limit: type === 'mcq' ? 10 : 20, allow_time: type === 'mcq' ? '15 minutes' : '45 minutes', slots: [] }])
   const removeSection = (key) => setSections((ss) => ss.filter((s) => s._key !== key))
   const moveSection = (key, dir) => setSections((ss) => {
@@ -116,13 +143,39 @@ export default function ExamBuilderPage() {
   }, [questions, maps, exam, usedIds, qTopicId])
 
   // ── persistence ─────────────────────────────────────────────────────────────
+  // Keep refs current so the autosave loop always reads the latest values.
+  useEffect(() => { examRef.current = exam }, [exam])
+  useEffect(() => { dirtyRef.current = dirty }, [dirty])
+
+  // Persist the latest exam snapshot. Re-entrant-safe: if a save is already in
+  // flight, flag a follow-up instead of starting an overlapping save.
   const save = useCallback(async () => {
-    if (!exam) return
-    setSaving(true)
-    try { await saveExam(exam); setDirty(false) }
-    catch (e) { alert('Could not save: ' + (e.message || e)) }
-    finally { setSaving(false) }
-  }, [exam])
+    if (savingRef.current) { pendingRef.current = true; return }
+    if (!examRef.current) return
+    savingRef.current = true; setSaving(true)
+    try {
+      // Loop so edits made mid-save get persisted without overlapping writes.
+      do {
+        pendingRef.current = false
+        await saveExam(examRef.current)
+      } while (pendingRef.current)
+      setDirty(false)
+    } catch (e) {
+      console.error('Exam autosave failed:', e)
+    } finally {
+      savingRef.current = false; setSaving(false)
+    }
+  }, [])
+
+  // Debounced autosave — fires ~1s after the last edit.
+  useEffect(() => {
+    if (!ready || loading || !dirty) return
+    const t = setTimeout(() => { save() }, 1000)
+    return () => clearTimeout(t)
+  }, [dirty, exam, ready, loading, save])
+
+  // Best-effort flush of any unsaved edits when leaving the builder.
+  useEffect(() => () => { if (dirtyRef.current) save() }, [save])
 
   const sectionMarks = (s) => s.slots.reduce((sum, sl) => sum + qMarks(qById[sl.question_id]), 0)
   const totalMarks = exam?.sections?.reduce((a, s) => a + sectionMarks(s), 0) || 0
@@ -144,16 +197,19 @@ export default function ExamBuilderPage() {
     try {
       const payload = exam.sections.map((s, i) => ({
         roman: ROMAN[i] || String(i + 1), type: s.type, allow: s.allow_time,
-        questions: s.slots.map((sl) => qById[sl.question_id]).filter(Boolean),
+        questions: s.slots
+          .map((sl) => { const q = qById[sl.question_id]; return q ? { ...q, _workingLines: sl.working_lines || null } : null })
+          .filter(Boolean),
       }))
       if (!payload.some((s) => s.questions.length)) { alert('Fill at least one question first.'); return }
-      await exportExamPdf({
+      const res = await exportExamPdf({
         meta: {
           yearLabel: exam.year_label, term: exam.term,
           readingTime: exam.reading_time, workingTime: exam.working_time, calculators: exam.calculators,
         },
-        sections: payload, solutions,
+        sections: payload, solutions, preview: true,
       })
+      if (res?.url) setPreview({ url: res.url, filename: res.filename, title: solutions ? 'Solutions — preview' : 'Exam paper — preview' })
     } catch (e) { alert('Could not generate PDF: ' + (e.message || e)) }
     finally { setBusy('') }
   }
@@ -183,9 +239,9 @@ export default function ExamBuilderPage() {
           <input value={exam.title} onChange={(e) => patch({ title: e.target.value })}
             className="text-2xl font-bold text-[#062E63] bg-transparent border-b border-transparent hover:border-[#DEE7FF] focus:border-[#325099] focus:outline-none flex-1 min-w-[200px]" />
           <span className="text-xs text-[#2A2035]/50">{totalMarks} marks</span>
-          <button onClick={save} disabled={saving || !dirty}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${dirty ? 'bg-[#325099] text-white hover:bg-[#062E63]' : 'bg-[#EEF2FF] text-[#2A2035]/40'}`}>
-            {saving ? 'Saving…' : dirty ? 'Save' : 'Saved ✓'}
+          <button onClick={save} disabled={saving} title="Changes save automatically — click to save now"
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${saving ? 'bg-[#EEF2FF] text-[#2A2035]/40' : dirty ? 'bg-[#EEF2FF] text-[#325099]' : 'bg-[#EEF2FF] text-[#16A34A]'}`}>
+            {saving ? 'Saving…' : dirty ? 'Autosaving…' : 'Saved ✓'}
           </button>
         </div>
 
@@ -308,7 +364,11 @@ export default function ExamBuilderPage() {
                       onCriteria={(f) => updateSlot(s._key, slot._key, f)}
                       onPick={(qid) => updateSlot(s._key, slot._key, { question_id: qid })}
                       onRemove={() => removeSlot(s._key, slot._key)}
-                      onNew={newQuestion} onRefresh={loadQuestions} />
+                      onNew={newQuestion} onRefresh={loadQuestions} onEdit={setEditQ}
+                      dragging={dragSlot?.slotKey === slot._key}
+                      onDragStart={() => setDragSlot({ secKey: s._key, slotKey: slot._key })}
+                      onDragEnter={() => { if (dragSlot && dragSlot.secKey === s._key) reorderSlot(s._key, dragSlot.slotKey, slot._key) }}
+                      onDragEnd={() => setDragSlot(null)} />
                   })}
                 </div>
                 <button onClick={() => addSlot(s._key)}
@@ -331,20 +391,42 @@ export default function ExamBuilderPage() {
           </div>
         )}
       </div>
+      {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
+      {editQ && <QuickEditModal question={editQ} onClose={() => setEditQ(null)} onSaved={async () => { await loadQuestions(); setEditQ(null) }} />}
     </div>
   )
 }
 
 // ── Slot row ──────────────────────────────────────────────────────────────────
-function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, matches, onCriteria, onPick, onRemove, onNew, onRefresh }) {
+function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, matches, onCriteria, onPick, onRemove, onNew, onRefresh, onEdit, dragging, onDragStart, onDragEnter, onDragEnd }) {
   const [open, setOpen] = useState(false)
   const chosen = slot.question_id ? qById[slot.question_id] : null
   const skillsForTopic = (tax && slot.topic_id) ? (tax.skillsByTopic[slot.topic_id] || []) : []
   const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
+  // Per-paper working-line overrides for this slot. Map of part_label (or "_" for a
+  // single-part question) → line count; blank removes the override (auto from marks).
+  const chosenParts = (chosen?.qbank_question_parts || []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  const setLines = (key, val) => {
+    const next = { ...(slot.working_lines || {}) }
+    if (val === '' || val == null) delete next[key]
+    else next[key] = Math.max(0, parseInt(val, 10) || 0)
+    onCriteria({ working_lines: Object.keys(next).length ? next : null })
+  }
+  const lineInputCls = 'w-12 border border-[#DEE7FF] rounded px-1.5 py-0.5 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+
   return (
-    <div className="rounded-xl border border-[#F0F4FF] bg-[#FBFCFF] p-3">
+    <div
+      onDragOver={(e) => e.preventDefault()}
+      onDragEnter={onDragEnter}
+      className={`rounded-xl border bg-[#FBFCFF] p-3 transition ${dragging ? 'opacity-40 border-[#325099] border-dashed' : 'border-[#F0F4FF]'}`}>
       <div className="flex items-center gap-2 flex-wrap">
+        <span
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          title="Drag to reorder"
+          className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none -ml-0.5">⠿</span>
         <span className="text-sm font-bold text-[#062E63]">Q{n}</span>
         <select value={slot.topic_id || ''} onChange={(e) => onCriteria({ topic_id: e.target.value || null, skill_id: null })} className={selCls}>
           <option value="">Any topic (in scope)</option>
@@ -363,13 +445,35 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, ma
       </div>
 
       {chosen ? (
-        <div className="mt-2 flex items-start gap-2 bg-white rounded-lg border border-[#BACBFF] p-2.5">
-          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white mt-0.5" style={{ background: DIFFICULTY_COLORS[chosen.difficulty] }}>{chosen.difficulty}</span>
-          <div className="flex-1 min-w-0 text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={chosen.stem_latex || '(no stem)'} /></div>
-          <UsageBadge usage={usageMap[chosen.id]} />
-          <span className="text-[10px] text-[#2A2035]/40 whitespace-nowrap">{qMarks(chosen)}m</span>
-          <button onClick={() => onPick(null)} className="text-[11px] text-[#DC2626] hover:underline">Clear</button>
-        </div>
+        <>
+          <div className="mt-2 flex items-start gap-2 bg-white rounded-lg border border-[#BACBFF] p-2.5">
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white mt-0.5" style={{ background: DIFFICULTY_COLORS[chosen.difficulty] }}>{chosen.difficulty}</span>
+            <div className="flex-1 min-w-0 text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={chosen.stem_latex || '(no stem)'} /></div>
+            <UsageBadge usage={usageMap[chosen.id]} />
+            <span className="text-[10px] text-[#2A2035]/40 whitespace-nowrap">{qMarks(chosen)}m</span>
+            <button onClick={() => onEdit(chosen)} className="text-[11px] text-[#325099] hover:underline">Edit</button>
+            <button onClick={() => onPick(null)} className="text-[11px] text-[#DC2626] hover:underline">Clear</button>
+          </div>
+          {section.type !== 'mcq' && (
+            <div className="mt-2 flex items-center gap-2 flex-wrap pl-1">
+              <span className="text-[11px] font-semibold text-[#2A2035]/60">Working lines:</span>
+              {chosenParts.length ? chosenParts.map((p, i) => {
+                const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                return (
+                  <label key={p.id || lbl} className="flex items-center gap-1 text-[11px] text-[#2A2035]/55">
+                    <span className="font-semibold">{lbl})</span>
+                    <input type="number" min="0" placeholder="auto" value={slot.working_lines?.[lbl] ?? ''}
+                      onChange={(e) => setLines(lbl, e.target.value)} className={lineInputCls} />
+                  </label>
+                )
+              }) : (
+                <input type="number" min="0" placeholder="auto" value={slot.working_lines?.['_'] ?? ''}
+                  onChange={(e) => setLines('_', e.target.value)} className={lineInputCls} />
+              )}
+              <span className="text-[10px] text-[#2A2035]/35">blank = auto from marks</span>
+            </div>
+          )}
+        </>
       ) : (
         <div className="mt-2">
           <div className="flex items-center gap-2">

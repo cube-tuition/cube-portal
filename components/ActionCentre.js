@@ -31,7 +31,7 @@ function SectionCard({ section, items, loading, onDone }) {
   const reds = items.filter(i => i.severity === 'red').length
   const clear = !loading && items.length === 0
   return (
-    <div className={`bg-white rounded-2xl border overflow-hidden flex flex-col ${reds ? 'border-rose-200' : 'border-[#DEE7FF]'}`}>
+    <div className={`bg-white rounded-2xl border overflow-hidden flex flex-col h-72 ${reds ? 'border-rose-200' : 'border-[#DEE7FF]'}`}>
       <div className={`flex items-center justify-between px-4 py-3 ${reds ? 'bg-rose-50/60' : 'bg-[#F8FAFF]'} border-b border-[#F0F4FF]`}>
         <p className="text-xs font-bold text-[#062E63]">{section.icon} {section.title}</p>
         {reds > 0
@@ -43,11 +43,11 @@ function SectionCard({ section, items, loading, onDone }) {
               : null}
       </div>
       {loading && items.length === 0 ? (
-        <p className="px-4 py-4 text-xs text-[#2A2035]/40 animate-pulse">Checking…</p>
+        <p className="flex-1 flex items-center justify-center px-4 text-xs text-[#2A2035]/40 animate-pulse">Checking…</p>
       ) : clear ? (
-        <p className="px-4 py-4 text-xs text-[#2A2035]/40">{section.clearText || 'Nothing needs your attention here.'}</p>
+        <p className="flex-1 flex items-center justify-center px-6 text-center text-xs text-[#2A2035]/40">{section.clearText || 'Nothing needs your attention here.'}</p>
       ) : (
-        <div className="divide-y divide-[#F0F4FF]">
+        <div className="flex-1 overflow-y-auto divide-y divide-[#F0F4FF]">
           {items.map((item, i) => (
             <Link key={i} href={item.href} className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-[#F8FAFF] transition group">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SEV[item.severity].dot}`} />
@@ -119,7 +119,7 @@ export default function ActionCentre() {
         </div>
       </div>
       {error && <p className="mb-3 px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-xs text-rose-700">{error}</p>}
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {SECTIONS.map(section => (
           <SectionCard
             key={section.id}

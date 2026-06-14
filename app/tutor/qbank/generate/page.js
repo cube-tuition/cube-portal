@@ -13,6 +13,7 @@ import {
 } from '../../../../lib/qbank'
 import { exportWorksheet } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
+import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
 
 export default function GeneratePage() {
   const router = useRouter()
@@ -38,6 +39,9 @@ export default function GeneratePage() {
   const [busy, setBusy] = useState('')
   const [mode, setMode] = useState(null)            // null | 'additional' | 'exam'
   const [usageMap, setUsageMap] = useState({})
+  const [dragId, setDragId] = useState(null)        // tray question id being dragged
+  const [preview, setPreview] = useState(null)      // { url, filename, title } PDF preview modal
+  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -101,6 +105,19 @@ export default function GeneratePage() {
     if (i < 0 || j < 0 || j >= t.length) return t
     const next = [...t]; [next[i], next[j]] = [next[j], next[i]]; return next
   })
+  // Move dragged question `fromId` to the position of `toId` (drag-reorder).
+  const reorderTray = (fromId, toId) => {
+    if (fromId === toId) return
+    setTray((t) => {
+      const from = t.findIndex((x) => x.id === fromId)
+      const to = t.findIndex((x) => x.id === toId)
+      if (from < 0 || to < 0) return t
+      const next = [...t]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
   const addAllFiltered = () => setTray((t) => {
     const have = new Set(t.map((x) => x.id))
     return [...t, ...filtered.filter((q) => !have.has(q.id))]
@@ -119,7 +136,8 @@ export default function GeneratePage() {
     if (!tray.length) return
     setBusy(answers ? 'answers' : 'worksheet')
     try {
-      await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers })
+      const res = await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers, preview: true })
+      if (res?.url) setPreview({ url: res.url, filename: res.filename, title: answers ? 'Answer key — preview' : 'Worksheet — preview' })
       if (!answers) {
         await logWorksheetUsage(tray, title || 'Worksheet', profile?.full_name)
         fetchQuestionUsage().then(setUsageMap)
@@ -265,8 +283,17 @@ export default function GeneratePage() {
               ) : tray.map((q, i) => {
                 const l = labelFor(q); const imgs = q.qbank_question_images || []
                 return (
-                  <div key={q.id} className="rounded-xl border border-[#F0F4FF] bg-white p-3">
+                  <div key={q.id}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragEnter={() => { if (dragId) reorderTray(dragId, q.id) }}
+                    className={`rounded-xl border bg-white p-3 transition ${dragId === q.id ? 'opacity-40 border-[#325099] border-dashed' : 'border-[#F0F4FF]'}`}>
                     <div className="flex items-start gap-2">
+                      <span
+                        draggable
+                        onDragStart={() => setDragId(q.id)}
+                        onDragEnd={() => setDragId(null)}
+                        title="Drag to reorder"
+                        className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none mt-0.5">⠿</span>
                       <span className="text-sm font-bold text-[#062E63] mt-0.5">Q{i + 1}.</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-[13px] text-[#2A2035] line-clamp-3"><LatexContent text={q.stem_latex || '(no stem)'} /></div>
@@ -297,6 +324,7 @@ export default function GeneratePage() {
         </div>
         )}
       </div>
+      {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
     </div>
   )
 }

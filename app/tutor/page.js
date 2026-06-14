@@ -303,7 +303,7 @@ export default function TutorHome() {
                       {todayClasses.map((c, i) => (
                         <Link key={`${c.id}-${i}`} href={`/tutor/classes/${c.id}`}
                           className="flex items-center gap-3 px-5 py-2.5 hover:bg-white transition group">
-                          <span className="text-[11px] font-bold text-[#062E63] tabular-nums w-24 shrink-0">
+                          <span className="text-[11px] font-bold text-[#062E63] tabular-nums w-28 shrink-0 whitespace-nowrap">
                             {fmtTime(c.start_time)}–{fmtTime(c.end_time)}
                           </span>
                           <span className="flex-1 min-w-0">

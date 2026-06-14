@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
@@ -10,6 +10,7 @@ import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
 import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage } from '../../../../lib/qbank'
 import { exportWorksheet } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
+import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
 
 /*
  * Additional Questions — /tutor/qbank/worksheets
@@ -41,6 +42,16 @@ export default function AdditionalQuestionsPage() {
   const [dirty, setDirty] = useState(false)
   const [includeMarks, setIncludeMarks] = useState(true)
   const [busy, setBusy] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [preview, setPreview] = useState(null)      // { url, filename, title } PDF preview modal
+  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
+
+  // Autosave plumbing — refs hold the latest editable snapshot + in-flight state
+  // so debounced saves never race or persist stale data.
+  const dataRef = useRef({ selectedId: null, title: '', subtitle: '', tray: [] })
+  const savingRef = useRef(false)
+  const pendingRef = useRef(false)
+  const dirtyRef = useRef(false)
 
   // filters
   const [year, setYear] = useState('')
@@ -72,8 +83,32 @@ export default function AdditionalQuestionsPage() {
 
   const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
 
-  // open a worksheet into the editor
-  const openWorksheet = (ws) => {
+  // Keep refs in sync so the autosave loop always reads the latest values.
+  useEffect(() => { dataRef.current = { selectedId, title, subtitle, tray } }, [selectedId, title, subtitle, tray])
+  useEffect(() => { dirtyRef.current = dirty }, [dirty])
+
+  // Low-level write for a given snapshot.
+  const persist = useCallback(async (snap) => {
+    if (!snap?.selectedId) return
+    const { error } = await supabase.from(T_QBANK_WORKSHEETS).update({
+      title: (snap.title || '').trim() || 'Untitled worksheet',
+      subtitle: (snap.subtitle || '').trim() || null,
+      question_ids: (snap.tray || []).map((q) => q.id),
+      updated_at: new Date().toISOString(),
+    }).eq('id', snap.selectedId)
+    if (error) throw error
+  }, [])
+
+  // Force-write any unsaved edits immediately (used before switching/closing).
+  const flushNow = useCallback(async () => {
+    if (!dirtyRef.current) return
+    try { await persist(dataRef.current); setDirty(false) }
+    catch (e) { console.error('Worksheet flush failed:', e) }
+  }, [persist])
+
+  // open a worksheet into the editor (saving any pending edits first)
+  const openWorksheet = async (ws) => {
+    await flushNow()
     setSelectedId(ws.id)
     setTitle(ws.title || '')
     setSubtitle(ws.subtitle || '')
@@ -81,6 +116,8 @@ export default function AdditionalQuestionsPage() {
     setTray(ids.map((id) => qById[id]).filter(Boolean))
     setDirty(false)
   }
+
+  const closeEditor = async () => { await flushNow(); setSelectedId(null); loadWorksheets() }
 
   const createWorksheet = async () => {
     const { data, error } = await supabase.from(T_QBANK_WORKSHEETS)
@@ -91,20 +128,36 @@ export default function AdditionalQuestionsPage() {
     openWorksheet(data)
   }
 
-  const saveWorksheet = async () => {
-    if (!selectedId) return
-    setBusy('save')
-    const { error } = await supabase.from(T_QBANK_WORKSHEETS).update({
-      title: title.trim() || 'Untitled worksheet',
-      subtitle: subtitle.trim() || null,
-      question_ids: tray.map((q) => q.id),
-      updated_at: new Date().toISOString(),
-    }).eq('id', selectedId)
-    setBusy('')
-    if (error) { alert('Save failed: ' + error.message); return }
-    setDirty(false)
-    loadWorksheets()
-  }
+  // Re-entrant-safe autosave: if a save is already running, flag a follow-up
+  // rather than starting an overlapping write.
+  const saveWorksheet = useCallback(async () => {
+    if (savingRef.current) { pendingRef.current = true; return }
+    if (!dataRef.current.selectedId) return
+    savingRef.current = true; setSaving(true)
+    try {
+      // Loop so edits made mid-save get persisted without overlapping writes.
+      do {
+        pendingRef.current = false
+        await persist(dataRef.current)
+      } while (pendingRef.current)
+      setDirty(false)
+    } catch (e) {
+      console.error('Worksheet autosave failed:', e)
+    } finally {
+      savingRef.current = false; setSaving(false)
+      loadWorksheets()
+    }
+  }, [persist, loadWorksheets])
+
+  // Debounced autosave — fires ~1s after the last edit.
+  useEffect(() => {
+    if (!selectedId || !dirty) return
+    const t = setTimeout(() => { saveWorksheet() }, 1000)
+    return () => clearTimeout(t)
+  }, [dirty, title, subtitle, tray, selectedId, saveWorksheet])
+
+  // Best-effort flush when the page unmounts with unsaved edits.
+  useEffect(() => () => { if (dirtyRef.current) saveWorksheet() }, [saveWorksheet])
 
   const deleteWorksheet = async (ws) => {
     if (!window.confirm(`Delete worksheet "${ws.title}"? The questions stay in the bank — only this saved list is removed.`)) return
@@ -178,7 +231,8 @@ export default function AdditionalQuestionsPage() {
     if (!tray.length) return
     setBusy(answers ? 'answers' : 'worksheet')
     try {
-      await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers })
+      const res = await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers, preview: true })
+      if (res?.url) setPreview({ url: res.url, filename: res.filename, title: answers ? 'Answer key — preview' : 'Worksheet — preview' })
       if (!answers) {
         await logWorksheetUsage(tray, title || 'Worksheet', profile?.full_name)
         fetchQuestionUsage().then(setUsageMap)
@@ -200,10 +254,15 @@ export default function AdditionalQuestionsPage() {
         <div className="flex items-center gap-3 mt-1 mb-5">
           <h1 className="text-2xl font-bold text-[#062E63]">Additional Questions</h1>
           {selectedId && (
-            <button onClick={() => setSelectedId(null)}
+            <button onClick={closeEditor}
               className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3 py-1 hover:bg-white transition">
               ← All worksheets
             </button>
+          )}
+          {selectedId && (
+            <span className={`text-[11px] font-semibold ${saving ? 'text-[#2A2035]/40' : dirty ? 'text-[#325099]' : 'text-[#16A34A]'}`}>
+              {saving ? 'Saving…' : dirty ? 'Autosaving…' : 'Saved ✓'}
+            </span>
           )}
         </div>
 
@@ -313,10 +372,6 @@ export default function AdditionalQuestionsPage() {
                 <span className="text-xs text-[#2A2035]/50">{tray.length} question{tray.length === 1 ? '' : 's'}{includeMarks && totalMarks > 0 ? ` · ${totalMarks} marks` : ''}</span>
               </div>
               <div className="flex gap-2">
-                <button onClick={saveWorksheet} disabled={!dirty || busy}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition disabled:opacity-40 ${dirty ? 'bg-[#065F46] text-white hover:bg-[#047857]' : 'border border-[#DEE7FF] text-[#2A2035]/40'}`}>
-                  {busy === 'save' ? 'Saving…' : dirty ? 'Save changes' : 'Saved ✓'}
-                </button>
                 <button onClick={() => doExport(false)} disabled={!tray.length || busy}
                   className="flex-1 px-4 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
                   {busy === 'worksheet' ? 'Building…' : 'Worksheet PDF'}
@@ -326,7 +381,7 @@ export default function AdditionalQuestionsPage() {
                   {busy === 'answers' ? 'Building…' : 'Answer key PDF'}
                 </button>
               </div>
-              {dirty && <p className="text-[10px] text-amber-600">Unsaved changes — Save before leaving this page.</p>}
+              <p className="text-[10px] text-[#2A2035]/40">Changes save automatically.</p>
             </div>
 
             <div className="mt-3 space-y-2 max-h-[58vh] overflow-y-auto pr-1">
@@ -370,6 +425,7 @@ export default function AdditionalQuestionsPage() {
         </div>
         )}
       </div>
+      {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
     </div>
   )
 }
