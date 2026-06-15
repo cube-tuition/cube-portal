@@ -58,13 +58,11 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
 
       if (cancelled) return
 
-      if (assignment?.booklets) {
-        setAssignedBooklet(assignment.booklets)
-        setLoading(false)
-        return
-      }
+      setAssignedBooklet(assignment?.booklets || null)
 
-      // 2. Fall back to manually uploaded class booklet
+      // Always also load any class-specific booklet. When a curriculum booklet is
+      // assigned, tutors/admins can still add extra PDFs "on top" — those belong to
+      // this class only (stored in class_booklets), not the shared curriculum row.
       const { data } = await supabase
         .from(T_CLASS_BOOKLETS)
         .select('id, booklet_name, storage_path, storage_paths, storage_filenames, updated_at')
@@ -74,7 +72,6 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
         .maybeSingle()
 
       if (cancelled) return
-      setAssignedBooklet(null)
       setBooklet(data || null)
       setLoading(false)
     }
@@ -287,7 +284,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
   }
 
   // ── Assigned from curriculum ────────────────────────────────────────────────
-  if (assignedBooklet && !viewUrl) {
+  if (assignedBooklet && !viewUrl && !showUpload && !replacing) {
     const ab      = assignedBooklet
     const paths   = ab.file_paths?.length ? ab.file_paths : (ab.file_path ? [ab.file_path] : [])
     const names   = ab.pdf_filenames || []
@@ -326,6 +323,45 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
           </div>
         ) : (
           <div className="px-6 py-5 text-xs text-[#2A2035]/40 italic">No PDFs attached to this booklet yet.</div>
+        )}
+
+        {/* Class-specific PDFs added on top of the curriculum booklet */}
+        {getPaths(booklet).length > 0 && (
+          <div className="border-t border-[#DEE7FF] divide-y divide-[#F0F4FF]">
+            <div className="px-5 md:px-6 pt-3 pb-1 text-[10px] uppercase tracking-[0.2em] text-[#5B21B6]/70 font-semibold">Added for this class</div>
+            {getPaths(booklet).map((path, i) => {
+              const fname = getFilenames(booklet)[i] || `Extra ${i + 1}`
+              return (
+                <div key={path} className="px-5 md:px-6 py-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-9 h-9 rounded-xl bg-[#EDE9FE] text-[#5B21B6] flex items-center justify-center text-xs font-bold shrink-0">PDF</span>
+                    <p className="text-sm font-semibold text-[#2A2035] truncate">{fname}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => handleView(path, fname, i)} disabled={viewLoading === i}
+                      className="text-xs font-semibold bg-[#325099] text-white px-5 py-2 rounded-full hover:bg-[#062E63] transition disabled:opacity-60">
+                      {viewLoading === i ? '…' : 'View →'}
+                    </button>
+                    {isAdmin && (
+                      <button onClick={() => handleDeletePdf(i)}
+                        className="text-[11px] font-semibold text-[#DC2626] px-2.5 py-1.5 rounded-full hover:bg-[#FEE2E2] transition">
+                        {deletingIdx === i ? 'Confirm?' : 'Delete'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="px-5 md:px-6 py-3 border-t border-[#DEE7FF] bg-[#FBFCFF]">
+            <button onClick={() => { setReplacing(false); setShowUpload(true) }}
+              className="text-xs font-semibold text-[#325099] hover:text-[#062E63]">
+              + Add a PDF for this class
+            </button>
+          </div>
         )}
       </div>
     )
