@@ -722,6 +722,17 @@ const GRADE_STYLE = {
   D: { bg: '#FEE2E2', fg: '#991B1B' },
 }
 
+// Section header shared between the term-report columns.
+function SectionHeader({ title, subtitle }) {
+  return (
+    <div className="px-5 py-4 border-b border-[#DEE7FF] bg-[#F0FDF4]">
+      <p className="text-[10px] tracking-[0.3em] uppercase text-[#065F46] font-semibold font-display">Term Reports</p>
+      <h3 className="text-lg font-semibold text-[#2A2035] font-display">{title}</h3>
+      <p className="text-xs text-[#2A2035]/60 mt-1">{subtitle}</p>
+    </div>
+  )
+}
+
 function TermReportsSection({ classId, termId, roster, canEdit }) {
   const [criteriaMap, setCriteriaMap] = useState({})   // { [studentId]: { id, subject_knowledge, ... } }
   const [commentsMap, setCommentsMap] = useState({})   // { [studentId]: { id, comment } }
@@ -806,15 +817,6 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
     } catch (e) { alert('Save failed: ' + (e.message || String(e))) }
     finally { setSavingId(null) }
   }
-
-  // Section header shared between both columns
-  const SectionHeader = ({ title, subtitle }) => (
-    <div className="px-5 py-4 border-b border-[#DEE7FF] bg-[#F0FDF4]">
-      <p className="text-[10px] tracking-[0.3em] uppercase text-[#065F46] font-semibold font-display">Term Reports</p>
-      <h3 className="text-lg font-semibold text-[#2A2035] font-display">{title}</h3>
-      <p className="text-xs text-[#2A2035]/60 mt-1">{subtitle}</p>
-    </div>
-  )
 
   if (loading) return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 text-sm text-[#2A2035]/60">Loading…</div>

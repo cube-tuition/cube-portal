@@ -976,7 +976,7 @@ function HistoryPanel({ student, quizzes, attendance, term, currentWeek }) {
               <Th className="text-left pl-4 pr-2 py-2 w-[18%]">Week</Th>
               <Th className="text-left px-2 py-2 w-[22%]">Date</Th>
               <Th className="text-center px-2 py-2 w-[20%]">Attendance</Th>
-              <Th className="text-center px-2 py-2 w-[18%]">Prev week's HWK</Th>
+              <Th className="text-center px-2 py-2 w-[18%]">Prev week&rsquo;s HWK</Th>
               <Th className="text-center px-2 py-2 w-[22%]">RQ</Th>
             </tr>
           </thead>
