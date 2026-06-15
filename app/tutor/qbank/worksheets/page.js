@@ -45,6 +45,7 @@ export default function AdditionalQuestionsPage() {
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState(null)      // { url, filename, title } PDF preview modal
   const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
+  const [dragId, setDragId] = useState(null)        // tray question id being dragged
 
   // Autosave plumbing — refs hold the latest editable snapshot + in-flight state
   // so debounced saves never race or persist stale data.
@@ -214,6 +215,20 @@ export default function AdditionalQuestionsPage() {
       const i = t.findIndex((x) => x.id === id); const j = i + dir
       if (i < 0 || j < 0 || j >= t.length) return t
       const next = [...t]; [next[i], next[j]] = [next[j], next[i]]; return next
+    })
+    setDirty(true)
+  }
+  // Drag-to-reorder the worksheet questions (same as the Generate page).
+  const reorderTray = (fromId, toId) => {
+    if (fromId === toId) return
+    setTray((t) => {
+      const from = t.findIndex((x) => x.id === fromId)
+      const to = t.findIndex((x) => x.id === toId)
+      if (from < 0 || to < 0) return t
+      const next = [...t]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
     })
     setDirty(true)
   }
@@ -392,8 +407,17 @@ export default function AdditionalQuestionsPage() {
               ) : tray.map((q, i) => {
                 const l = labelFor(q); const imgs = q.qbank_question_images || []
                 return (
-                  <div key={q.id} className="rounded-xl border border-[#F0F4FF] bg-white p-3">
+                  <div key={q.id}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragEnter={() => { if (dragId) reorderTray(dragId, q.id) }}
+                    className={`rounded-xl border bg-white p-3 transition ${dragId === q.id ? 'opacity-40 border-[#325099] border-dashed' : 'border-[#F0F4FF]'}`}>
                     <div className="flex items-start gap-2">
+                      <span
+                        draggable
+                        onDragStart={() => setDragId(q.id)}
+                        onDragEnd={() => setDragId(null)}
+                        title="Drag to reorder"
+                        className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none mt-0.5">⠿</span>
                       <span className="text-sm font-bold text-[#062E63] mt-0.5">Q{i + 1}.</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-[13px] text-[#2A2035] line-clamp-3"><LatexContent text={q.stem_latex || '(no stem)'} /></div>

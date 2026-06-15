@@ -53,7 +53,7 @@ function fmtSavedAt(iso) {
   })
 }
 
-export default function SessionMarker({ classId, dateISO, cls, staff, readOnly = false }) {
+export default function SessionMarker({ classId, dateISO, cls, staff, readOnly = false, footer = null }) {
   const isAdmin = staff?.role === 'admin'
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
@@ -531,6 +531,9 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
           />
         </div>
       </div>
+
+      {/* Optional extra content (e.g. Wk 9 term reports) rendered above the save button */}
+      {footer}
 
       {/* Save session — always the last element */}
       {roster.length > 0 && (

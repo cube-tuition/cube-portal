@@ -540,20 +540,19 @@ export default function ClassOverviewPage() {
                         cls={cls}
                         staff={staff}
                         readOnly={!isAdmin && !!subAssignments[d] && staff?.id !== subAssignments[d]?.sub_tutor_id}
+                        footer={tab === 9 && term && i === currentWeek.dates.length - 1 ? (
+                          <TermReportsSection
+                            classId={cls.id}
+                            termId={term.id}
+                            roster={roster}
+                            canEdit={isAdmin || (cls.teacher || '').split(' ')[0].toLowerCase() === (staff?.full_name || '').split(' ')[0].toLowerCase()}
+                          />
+                        ) : null}
                       />
                     )}
                   </div>
                   )
                 })}
-              {/* Term reports editors — surfaced on Wk 9 (term wrap-up). */}
-              {tab === 9 && term && (
-                <TermReportsSection
-                  classId={cls.id}
-                  termId={term.id}
-                  roster={roster}
-                  canEdit={isAdmin || (cls.teacher || '').split(' ')[0].toLowerCase() === (staff?.full_name || '').split(' ')[0].toLowerCase()}
-                />
-              )}
               </>
             )}
 
