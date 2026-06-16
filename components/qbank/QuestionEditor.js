@@ -73,6 +73,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
   const [solution, setSolution] = useState('')
   const [difficulty, setDifficulty] = useState(3)
   const [marks, setMarks] = useState('')
+  const [audience, setAudience] = useState('both')   // 'exam' | 'student' | 'both'
   const [isMulti, setIsMulti] = useState(false)
   const [parts, setParts] = useState([blankPart(0)])
   const [options, setOptions] = useState(MCQ_LABELS.map((label) => ({ label, latex: '' })))
@@ -99,6 +100,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
           setSolution(q.solution_latex || '')
           setDifficulty(q.difficulty || 3)
           setMarks(q.marks ?? '')
+          setAudience(q.audience || 'exam')
           setIsMulti(q.is_multipart)
           if (Array.isArray(q.options) && q.options.length) {
             setOptions(MCQ_LABELS.map((label, i) => ({
@@ -108,9 +110,11 @@ export default function QuestionEditor({ questionId = null, staffName }) {
           if (q.correct_option) setCorrectOption(q.correct_option)
           if (q.criteria && typeof q.criteria === 'object') setCriteria(q.criteria)
 
-          // Prefill cascade from skill → topic → subject
+          // Prefill cascade from skill → topic → subject (skill is optional, so
+          // fall back to the question's own topic_id when there's no skill).
           const skill = t.skills.find((s) => s.id === q.skill_id)
-          const topic = skill && t.topics.find((tp) => tp.id === skill.topic_id)
+          const topic = (skill && t.topics.find((tp) => tp.id === skill.topic_id))
+            || t.topics.find((tp) => tp.id === q.topic_id)
           const subject = topic && t.subjects.find((su) => su.id === topic.subject_id)
           if (subject) { setYear(String(subject.year_level)); setSubjectId(subject.id) }
           if (topic) setTopicId(topic.id)
@@ -159,7 +163,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
 
   const handleSave = async () => {
     setError('')
-    if (!skillId) { setError('Pick a Year → Subject → Topic → Skill for this question.'); return }
+    if (!topicId) { setError('Pick a Year → Subject → Topic for this question. (Skill is optional.)'); return }
     if (!stem.trim()) { setError('Enter the question text.'); return }
     if (isMcq && options.filter((o) => o.latex.trim()).length < 2) {
       setError('Add at least two options for a multiple-choice question.'); return
@@ -167,12 +171,14 @@ export default function QuestionEditor({ questionId = null, staffName }) {
     setSaving(true)
     try {
       const payload = {
-        skill_id: skillId,
+        skill_id: skillId || null,
+        topic_id: topicId,
         qtype,
         stem_latex: stem,
         solution_latex: (isMulti && !isMcq) ? '' : solution,   // mcq: explanation; extended single: worked solution
         difficulty: Number(difficulty),
         marks: marks === '' ? (isMcq ? 1 : null) : Number(marks),
+        audience,
         is_multipart: isMcq ? false : isMulti,
         options: isMcq ? options.filter((o) => o.latex.trim()).map((o) => ({ label: o.label, latex: o.latex })) : [],
         correct_option: isMcq ? correctOption : null,
@@ -297,10 +303,10 @@ export default function QuestionEditor({ questionId = null, staffName }) {
             </select>
           </div>
           <div>
-            <label className="text-[11px] font-semibold text-[#2A2035]/50">Skill</label>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">Skill <span className="text-[#2A2035]/30 normal-case">(optional)</span></label>
             <select value={skillId} disabled={!topicId} className={inputCls}
               onChange={(e) => setSkillId(e.target.value)}>
-              <option value="">—</option>
+              <option value="">— None</option>
               {skillsForTopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
@@ -341,6 +347,23 @@ export default function QuestionEditor({ questionId = null, staffName }) {
               Multi-part question (a, b, c…)
             </label>
           )}
+        </div>
+
+        <div className="mt-4">
+          <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Available for</label>
+          <div className="inline-flex rounded-xl border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
+            {[['exam', 'Exams only'], ['student', 'Students only'], ['both', 'Both']].map(([v, lbl]) => (
+              <button key={v} type="button" onClick={() => setAudience(v)}
+                className={`px-3.5 py-1.5 transition ${audience === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-[#2A2035]/40 mt-1">
+            {audience === 'exam' ? 'Only selectable in the exam builder — hidden from student practice.'
+              : audience === 'student' ? 'Only available in student practice — never pulled into exams.'
+              : 'Available in both the exam builder and student practice.'}
+          </p>
         </div>
       </section>
 

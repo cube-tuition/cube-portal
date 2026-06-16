@@ -30,6 +30,7 @@ export default function QuestionBankPage() {
   const [topicId, setTopicId] = useState('')
   const [skillId, setSkillId] = useState('')
   const [difficulty, setDifficulty] = useState('')
+  const [qtype, setQtype] = useState('')   // '' | 'mcq' | 'extended'
   const [search, setSearch] = useState('')
   const [usageTab, setUsageTab] = useState('all')   // all | used | unused
 
@@ -64,7 +65,7 @@ export default function QuestionBankPage() {
   const labelFor = useCallback((q) => {
     if (!maps) return null
     const sk = maps.skill[q.skill_id]
-    const tp = sk && maps.topic[sk.topic_id]
+    const tp = (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
     const su = tp && maps.subject[tp.subject_id]
     return { skill: sk, topic: tp, subject: su }
   }, [maps])
@@ -80,12 +81,13 @@ export default function QuestionBankPage() {
     if (!maps) return []
     return questions.filter((q) => {
       const l = labelFor(q)
-      if (!l?.skill) return !year && !subjectId && !topicId && !skillId  // orphaned: only when no filter
+      if (!l?.topic) return !year && !subjectId && !topicId && !skillId  // fully untagged: only when no filter
       if (skillId && q.skill_id !== skillId) return false
       if (topicId && l.topic?.id !== topicId) return false
       if (subjectId && l.subject?.id !== subjectId) return false
       if (year && String(l.subject?.year_level) !== String(year)) return false
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
+      if (qtype && q.qtype !== qtype) return false
       if (usageTab !== 'all') {
         const used = (usageMap[q.id]?.count || 0) > 0
         if (usageTab === 'used' && !used) return false
@@ -97,7 +99,7 @@ export default function QuestionBankPage() {
       }
       return true
     })
-  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, search, usageTab, usageMap])
+  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, qtype, search, usageTab, usageMap])
 
   const handleDelete = async (q) => {
     if (!confirm('Delete this question permanently?')) return
@@ -106,8 +108,8 @@ export default function QuestionBankPage() {
     loadQuestions()
   }
 
-  const clearFilters = () => { setYear(''); setSubjectId(''); setTopicId(''); setSkillId(''); setDifficulty(''); setSearch('') }
-  const hasFilter = year || subjectId || topicId || skillId || difficulty || search
+  const clearFilters = () => { setYear(''); setSubjectId(''); setTopicId(''); setSkillId(''); setDifficulty(''); setQtype(''); setSearch('') }
+  const hasFilter = year || subjectId || topicId || skillId || difficulty || qtype || search
 
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
@@ -154,6 +156,11 @@ export default function QuestionBankPage() {
             <option value="">Any difficulty</option>
             {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
           </select>
+          <select value={qtype} onChange={(e) => setQtype(e.target.value)} className={selCls}>
+            <option value="">All types</option>
+            <option value="mcq">Multiple choice</option>
+            <option value="extended">Non-MCQ (written)</option>
+          </select>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search text…"
             className="flex-1 min-w-[120px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
           {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline">Clear</button> : null}
@@ -195,11 +202,14 @@ export default function QuestionBankPage() {
                     {DIFFICULTY_LABELS[q.difficulty]}
                   </span>
                   {q.qtype === 'mcq' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">MCQ</span>}
+                  {q.audience === 'exam' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">Exam only</span>}
+                  {q.audience === 'student' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#DCFCE7] text-[#166534]">Students</span>}
+                  {q.audience === 'both' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#475569]">Both</span>}
                   <UsageBadge usage={usageMap[q.id]} />
                   {l?.subject && <span className="text-[11px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
                   {l?.topic && <span className="text-[11px] text-[#2A2035]/40">› {l.topic.name}</span>}
                   {l?.skill && <span className="text-[11px] text-[#2A2035]/40">› {l.skill.name}</span>}
-                  {!l?.skill && <span className="text-[11px] text-[#EA580C]">⚠ skill removed — re-tag</span>}
+                  {!l?.topic && <span className="text-[11px] text-[#EA580C]">⚠ untagged</span>}
                   <div className="ml-auto flex items-center gap-3">
                     {q.marks != null && <span className="text-[11px] text-[#2A2035]/40">{q.marks} mark{q.marks === 1 ? '' : 's'}</span>}
                     {nParts > 0 && <span className="text-[11px] text-[#2A2035]/40">{nParts} part{nParts === 1 ? '' : 's'}</span>}

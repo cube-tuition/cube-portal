@@ -13,7 +13,7 @@ import {
   filterByTerm,
 } from '../../lib/terms'
 import PortalNav from '../../components/PortalNav'
-import { T_STUDENTS } from '../../lib/tables'
+import { T_STUDENTS, T_QUIZ_RESULTS, T_RESULTS, T_ATTENDANCE } from '../../lib/tables'
 
 export default function ArchivePage() {
   const [student, setStudent] = useState(null)
@@ -70,7 +70,7 @@ export default function ArchivePage() {
             Past Terms
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
-            Everything from every term you've been at CUBE — quizzes, homework, exams, attendance — all kept here for whenever you need it.
+            Everything from every term you&rsquo;ve been at CUBE — quizzes, homework, exams, attendance — all kept here for whenever you need it.
           </p>
         </div>
       </section>
@@ -85,7 +85,7 @@ export default function ArchivePage() {
             <div className="text-4xl mb-2">🌱</div>
             <p className="text-sm font-semibold text-[#2A2035]">No past terms yet.</p>
             <p className="text-xs text-[#2A2035]/50 mt-1">
-              Once this term wraps up, it'll show up here so you can always look back.
+              Once this term wraps up, it&rsquo;ll show up here so you can always look back.
             </p>
             <Link
               href="/results"

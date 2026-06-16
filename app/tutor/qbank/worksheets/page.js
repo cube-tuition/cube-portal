@@ -60,6 +60,7 @@ export default function AdditionalQuestionsPage() {
   const [topicId, setTopicId] = useState('')
   const [skillId, setSkillId] = useState('')
   const [difficulty, setDifficulty] = useState('')
+  const [qtype, setQtype] = useState('')   // '' | 'mcq' | 'extended'
   const [search, setSearch] = useState('')
 
   const loadWorksheets = useCallback(async () => {
@@ -180,7 +181,7 @@ export default function AdditionalQuestionsPage() {
   const labelFor = useCallback((q) => {
     if (!maps) return null
     const sk = maps.skill[q.skill_id]
-    const tp = sk && maps.topic[sk.topic_id]
+    const tp = (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
     const su = tp && maps.subject[tp.subject_id]
     return { skill: sk, topic: tp, subject: su }
   }, [maps])
@@ -200,13 +201,14 @@ export default function AdditionalQuestionsPage() {
       if (subjectId && l?.subject?.id !== subjectId) return false
       if (year && String(l?.subject?.year_level) !== String(year)) return false
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
+      if (qtype && q.qtype !== qtype) return false
       if (search.trim()) {
         const hay = `${q.stem_latex} ${q.solution_latex}`.toLowerCase()
         if (!hay.includes(search.toLowerCase())) return false
       }
       return true
     })
-  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, search])
+  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, qtype, search])
 
   const add = (q) => { setTray((t) => (t.find((x) => x.id === q.id) ? t : [...t, q])); setDirty(true) }
   const removeFromTray = (id) => { setTray((t) => t.filter((x) => x.id !== id)); setDirty(true) }
@@ -338,6 +340,11 @@ export default function AdditionalQuestionsPage() {
               <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
                 <option value="">Any difficulty</option>
                 {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+              </select>
+              <select value={qtype} onChange={(e) => setQtype(e.target.value)} className={selCls}>
+                <option value="">All types</option>
+                <option value="mcq">Multiple choice</option>
+                <option value="extended">Non-MCQ (written)</option>
               </select>
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
                 className="flex-1 min-w-[100px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />

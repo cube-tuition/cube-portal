@@ -11,9 +11,10 @@ import {
   fetchTaxonomy, yearsFromSubjects, qbankImageUrl,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage,
 } from '../../../../lib/qbank'
-import { exportWorksheet } from '../../../../lib/qbankWorksheet'
+import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
+import DocLivePreview from '../../../../components/qbank/DocLivePreview'
 
 export default function GeneratePage() {
   const router = useRouter()
@@ -29,6 +30,7 @@ export default function GeneratePage() {
   const [topicId, setTopicId] = useState('')
   const [skillId, setSkillId] = useState('')
   const [difficulty, setDifficulty] = useState('')
+  const [qtype, setQtype] = useState('')   // '' | 'mcq' | 'extended'
   const [search, setSearch] = useState('')
 
   // worksheet
@@ -68,7 +70,7 @@ export default function GeneratePage() {
   const labelFor = useCallback((q) => {
     if (!maps) return null
     const sk = maps.skill[q.skill_id]
-    const tp = sk && maps.topic[sk.topic_id]
+    const tp = (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
     const su = tp && maps.subject[tp.subject_id]
     return { skill: sk, topic: tp, subject: su }
   }, [maps])
@@ -89,13 +91,14 @@ export default function GeneratePage() {
       if (subjectId && l?.subject?.id !== subjectId) return false
       if (year && String(l?.subject?.year_level) !== String(year)) return false
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
+      if (qtype && q.qtype !== qtype) return false
       if (search.trim()) {
         const hay = `${q.stem_latex} ${q.solution_latex}`.toLowerCase()
         if (!hay.includes(search.toLowerCase())) return false
       }
       return true
     })
-  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, search])
+  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, qtype, search])
 
   const add = (q) => setTray((t) => (t.find((x) => x.id === q.id) ? t : [...t, q]))
   const removeFromTray = (id) => setTray((t) => t.filter((x) => x.id !== id))
@@ -132,6 +135,11 @@ export default function GeneratePage() {
     [tray],
   )
 
+  // Live preview (shares the worksheet exporter; toggle worksheet vs answer key)
+  const [previewAnswers, setPreviewAnswers] = useState(false)
+  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers: previewAnswers }), [title, subtitle, tray, includeMarks, previewAnswers])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, q: tray.map((q) => q.id) }), [title, subtitle, includeMarks, previewAnswers, tray])
+
   const doExport = async (answers) => {
     if (!tray.length) return
     setBusy(answers ? 'answers' : 'worksheet')
@@ -156,7 +164,7 @@ export default function GeneratePage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-7xl mx-auto px-6 pt-8 pb-16">
+      <div className="max-w-[1480px] mx-auto px-6 pt-8 pb-16">
         <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <div className="flex items-center gap-3 mt-1 mb-5">
           <h1 className="text-2xl font-bold text-[#062E63]">
@@ -191,7 +199,7 @@ export default function GeneratePage() {
         )}
 
         {mode === 'additional' && (
-        <div className="grid lg:grid-cols-2 gap-5">
+        <div className="grid lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-5 items-start">
           {/* ── Left: pick from bank ─────────────────────────────────────── */}
           <div>
             <div className="bg-white rounded-2xl border border-[#F0F4FF] p-3 flex flex-wrap items-center gap-2">
@@ -214,6 +222,11 @@ export default function GeneratePage() {
               <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
                 <option value="">Any difficulty</option>
                 {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+              </select>
+              <select value={qtype} onChange={(e) => setQtype(e.target.value)} className={selCls}>
+                <option value="">All types</option>
+                <option value="mcq">Multiple choice</option>
+                <option value="extended">Non-MCQ (written)</option>
               </select>
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
                 className="flex-1 min-w-[100px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
@@ -320,6 +333,19 @@ export default function GeneratePage() {
                 )
               })}
             </div>
+          </div>
+          {/* Live preview column */}
+          <div className="hidden xl:block sticky top-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Live preview</p>
+              <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
+                <button onClick={() => setPreviewAnswers(false)} className={`px-2.5 py-1 font-semibold ${!previewAnswers ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Worksheet</button>
+                <button onClick={() => setPreviewAnswers(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${previewAnswers ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Answers</button>
+              </div>
+            </div>
+            {tray.length === 0
+              ? <div className="bg-[#E9EDF6] rounded-xl p-6 text-center text-xs text-[#2A2035]/40">Add questions to see a preview.</div>
+              : <DocLivePreview render={renderPreview} signature={previewSig} scale={0.62} />}
           </div>
         </div>
         )}

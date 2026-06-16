@@ -12,7 +12,10 @@ import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuickEditModal from '../../../../../components/qbank/QuickEditModal'
 import { loadExam, saveExam, blankSlot } from '../../../../../lib/qbankExams'
-import { exportExamPdf } from '../../../../../lib/qbankExam'
+import { exportExamPdf, renderExamPreview } from '../../../../../lib/qbankExam'
+import DocLivePreview from '../../../../../components/qbank/DocLivePreview'
+import { listRubrics, blankBands, blankCriterion, normaliseRubric, createRubricFrom } from '../../../../../lib/rubrics'
+import RubricGridEditor from '../../../../../components/qbank/RubricGridEditor'
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII']
 const qMarks = (q) => {
@@ -42,6 +45,7 @@ export default function ExamBuilderPage() {
   const [preview, setPreview] = useState(null)     // { url, filename, title } for the PDF preview modal
   const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
   const [editQ, setEditQ] = useState(null)         // bank question being quick-edited
+  const [rubrics, setRubrics] = useState([])       // marking rubrics for English papers
 
   // Autosave plumbing: refs keep the latest exam + in-flight state so debounced
   // saves never race or persist a stale snapshot.
@@ -61,6 +65,7 @@ export default function ExamBuilderPage() {
       const [e, t] = await Promise.all([loadExam(id), fetchTaxonomy()])
       setExam(e); setTax(t); await loadQuestions()
       fetchQuestionUsage().then(setUsageMap)
+      listRubrics().then(setRubrics)
       setLoading(false)
     })
   }, [router, id, loadQuestions])
@@ -75,7 +80,9 @@ export default function ExamBuilderPage() {
     }
   }, [tax])
   const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
-  const qTopicId = useCallback((q) => maps?.skill[q.skill_id]?.topic_id, [maps])
+  const rubricById = useMemo(() => Object.fromEntries(rubrics.map((r) => [r.id, r])), [rubrics])
+  const isEnglish = exam?.paper_type === 'english'
+  const qTopicId = useCallback((q) => maps?.skill[q.skill_id]?.topic_id || q.topic_id, [maps])
 
   const yearLabel = exam?.year_label
   const subjectId = exam?.subject_id
@@ -130,6 +137,7 @@ export default function ExamBuilderPage() {
     if (!maps) return []
     const scope = exam.topic_ids || []
     return questions.filter((q) => {
+      if (q.audience === 'student') return false   // student-only questions never go into exams
       if (q.qtype !== section.type) return false
       const usedBy = usedIds.get(q.id)
       if (usedBy && usedBy !== slot._key) return false
@@ -184,31 +192,40 @@ export default function ExamBuilderPage() {
     const m = {}
     s.slots.forEach((sl) => {
       const q = qById[sl.question_id]; if (!q) return
-      const tId = maps?.skill[q.skill_id]?.topic_id
+      const tId = maps?.skill[q.skill_id]?.topic_id || q.topic_id
       const name = (tId && maps?.topic[tId]?.name) || 'Untagged'
       m[name] = (m[name] || 0) + qMarks(q)
     })
     return Object.entries(m).sort((a, b) => b[1] - a[1])
   }
 
+  // Shared payload for both the PDF export and the live preview.
+  const buildMeta = useCallback(() => ({
+    yearLabel: exam?.year_label, term: exam?.term, paperType: exam?.paper_type || 'maths',
+    readingTime: exam?.reading_time, workingTime: exam?.working_time, calculators: exam?.calculators,
+  }), [exam])
+  const buildSections = useCallback(() => (exam?.sections || []).map((s, i) => ({
+    roman: ROMAN[i] || String(i + 1), type: s.type, allow: s.allow_time,
+    questions: s.slots
+      .map((sl) => { const q = qById[sl.question_id]; return q ? { ...q, _workingLines: sl.working_lines || null, _rubric: sl.custom_rubric || rubricById[sl.rubric_id] || null, _showNotes: sl.show_notes !== false, _notes: sl.notes || '' } : null })
+      .filter(Boolean),
+  })), [exam, qById, rubricById])
+
+  const [previewSolutions, setPreviewSolutions] = useState(false)
+  const renderPreview = useCallback((container) => renderExamPreview(container, { meta: buildMeta(), sections: buildSections(), solutions: previewSolutions }), [buildMeta, buildSections, previewSolutions])
+  const previewSig = useMemo(() => JSON.stringify({
+    m: buildMeta(),
+    s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
+    sol: previewSolutions, ql: questions.length,
+  }), [exam, buildMeta, previewSolutions, questions.length])
+
   const doExport = async (solutions) => {
     await save()
     setBusy(solutions ? 'sol' : 'paper')
     try {
-      const payload = exam.sections.map((s, i) => ({
-        roman: ROMAN[i] || String(i + 1), type: s.type, allow: s.allow_time,
-        questions: s.slots
-          .map((sl) => { const q = qById[sl.question_id]; return q ? { ...q, _workingLines: sl.working_lines || null } : null })
-          .filter(Boolean),
-      }))
+      const payload = buildSections()
       if (!payload.some((s) => s.questions.length)) { alert('Fill at least one question first.'); return }
-      const res = await exportExamPdf({
-        meta: {
-          yearLabel: exam.year_label, term: exam.term,
-          readingTime: exam.reading_time, workingTime: exam.working_time, calculators: exam.calculators,
-        },
-        sections: payload, solutions, preview: true,
-      })
+      const res = await exportExamPdf({ meta: buildMeta(), sections: payload, solutions, preview: true })
       if (res?.url) setPreview({ url: res.url, filename: res.filename, title: solutions ? 'Solutions — preview' : 'Exam paper — preview' })
     } catch (e) { alert('Could not generate PDF: ' + (e.message || e)) }
     finally { setBusy('') }
@@ -231,7 +248,7 @@ export default function ExamBuilderPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-5xl mx-auto px-6 pt-8 pb-16">
+      <div className={`${tab === 'build' ? 'max-w-[1480px]' : 'max-w-5xl'} mx-auto px-6 pt-8 pb-16`}>
         <Link href="/tutor/qbank/exams" className="text-xs text-[#325099] hover:underline">← Exams</Link>
 
         {/* Header */}
@@ -261,6 +278,11 @@ export default function ExamBuilderPage() {
             <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
               <h2 className="text-sm font-bold text-[#062E63] mb-3">Exam details</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Paper type</label>
+                  <select value={exam.paper_type || 'maths'} className={inCls}
+                    onChange={(e) => patch({ paper_type: e.target.value })}>
+                    <option value="maths">Maths</option><option value="english">English</option>
+                  </select></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
                   <select value={exam.year_label || ''} className={inCls}
                     onChange={(e) => patch({ year_label: e.target.value, subject_id: null, topic_ids: [] })}>
@@ -272,7 +294,9 @@ export default function ExamBuilderPage() {
                     <option value="">—</option>{subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Term</label>
-                  <input value={exam.term || ''} onChange={(e) => patch({ term: e.target.value })} placeholder="e.g. 2" className={inCls} /></div>
+                  <select value={exam.term || ''} onChange={(e) => patch({ term: e.target.value })} className={inCls}>
+                    <option value="">—</option>{['1', '2', '3', '4'].map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Reading time</label>
                   <input value={exam.reading_time || ''} onChange={(e) => patch({ reading_time: e.target.value })} className={inCls} /></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Working time</label>
@@ -334,7 +358,8 @@ export default function ExamBuilderPage() {
           </div>
         ) : (
           /* ── BUILD / FILL TAB ─────────────────────────────────────────────── */
-          <div className="space-y-5">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-6 items-start">
+            <div className="space-y-5 min-w-0">
             {exam.sections.length === 0 && (
               <p className="text-sm text-[#2A2035]/50 bg-white rounded-2xl border border-dashed border-[#DEE7FF] p-6 text-center">
                 Add a section in the <button onClick={() => setTab('plan')} className="text-[#325099] font-semibold hover:underline">Plan</button> tab first.
@@ -360,6 +385,7 @@ export default function ExamBuilderPage() {
                     const n = sectionStart(si) + sli + 1
                     return <SlotRow key={slot._key} n={n} section={s} slot={slot}
                       scopeTopics={scopeTopics} tax={tax} maps={maps} qById={qById} usageMap={usageMap}
+                      paperEnglish={isEnglish} rubrics={rubrics} onRubricsChanged={() => listRubrics().then(setRubrics)}
                       matches={matchesFor(s, slot)}
                       onCriteria={(f) => updateSlot(s._key, slot._key, f)}
                       onPick={(qid) => updateSlot(s._key, slot._key, { question_id: qid })}
@@ -388,6 +414,18 @@ export default function ExamBuilderPage() {
                 {busy === 'sol' ? 'Building…' : 'Solutions PDF'}
               </button>
             </div>
+            </div>
+            {/* Live preview column */}
+            <div className="hidden xl:block sticky top-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Live preview</p>
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
+                  <button onClick={() => setPreviewSolutions(false)} className={`px-2.5 py-1 font-semibold ${!previewSolutions ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Paper</button>
+                  <button onClick={() => setPreviewSolutions(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${previewSolutions ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
+                </div>
+              </div>
+              <DocLivePreview render={renderPreview} signature={previewSig} scale={0.72} />
+            </div>
           </div>
         )}
       </div>
@@ -398,8 +436,30 @@ export default function ExamBuilderPage() {
 }
 
 // ── Slot row ──────────────────────────────────────────────────────────────────
-function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, matches, onCriteria, onPick, onRemove, onNew, onRefresh, onEdit, dragging, onDragStart, onDragEnter, onDragEnd }) {
+function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, paperEnglish, rubrics, onRubricsChanged, matches, onCriteria, onPick, onRemove, onNew, onRefresh, onEdit, dragging, onDragStart, onDragEnter, onDragEnd }) {
   const [open, setOpen] = useState(false)
+  const [savingLib, setSavingLib] = useState(false)
+  const handleRubricSelect = (e) => {
+    const v = e.target.value
+    if (v === '__custom__') {
+      const base = slot.rubric_id ? (rubrics || []).find((rb) => rb.id === slot.rubric_id) : null
+      const seed = base
+        ? { name: `${base.name} (custom)`, bands: base.bands, criteria: base.criteria }
+        : { name: 'Custom rubric', bands: blankBands(), criteria: [blankCriterion(5)] }
+      onCriteria({ rubric_id: null, custom_rubric: normaliseRubric(seed) })
+    } else {
+      onCriteria({ rubric_id: v || null, custom_rubric: null })
+    }
+  }
+  const saveCustomToLibrary = async () => {
+    setSavingLib(true)
+    try {
+      const newId = await createRubricFrom(slot.custom_rubric)
+      await onRubricsChanged?.()
+      onCriteria({ rubric_id: newId, custom_rubric: null })
+    } catch (err) { alert('Save failed: ' + err.message) }
+    finally { setSavingLib(false) }
+  }
   const chosen = slot.question_id ? qById[slot.question_id] : null
   const skillsForTopic = (tax && slot.topic_id) ? (tax.skillsByTopic[slot.topic_id] || []) : []
   const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
@@ -471,6 +531,37 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, ma
                   onChange={(e) => setLines('_', e.target.value)} className={lineInputCls} />
               )}
               <span className="text-[10px] text-[#2A2035]/35">blank = auto from marks</span>
+            </div>
+          )}
+          {section.type !== 'mcq' && paperEnglish && (
+            <div className="mt-2 pl-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-semibold text-[#2A2035]/60">Marking rubric:</span>
+                <select value={slot.custom_rubric ? '__custom__' : (slot.rubric_id || '')} onChange={handleRubricSelect} className={selCls}>
+                  <option value="">— none —</option>
+                  {(rubrics || []).map((rb) => <option key={rb.id} value={rb.id}>{rb.name}</option>)}
+                  <option value="__custom__">✎ Custom…</option>
+                </select>
+                <Link href="/tutor/qbank/rubrics" target="_blank" className="text-[10px] text-[#325099] hover:underline">manage</Link>
+                <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#2A2035]/60 cursor-pointer ml-2">
+                  <input type="checkbox" checked={slot.show_notes !== false} onChange={(e) => onCriteria({ show_notes: e.target.checked })} />
+                  Sample / marker notes
+                </label>
+              </div>
+              {slot.show_notes !== false && (
+                <textarea value={slot.notes || ''} onChange={(e) => onCriteria({ notes: e.target.value })}
+                  placeholder="Sample answer / marking notes for this question (shown on the Solutions copy)…"
+                  className="mt-2 w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-[12px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] resize-y min-h-[52px]" />
+              )}
+              {slot.custom_rubric && (
+                <div className="mt-2 border border-[#DEE7FF] rounded-xl p-3 bg-white">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <input value={slot.custom_rubric.name || ''} onChange={(e) => onCriteria({ custom_rubric: { ...slot.custom_rubric, name: e.target.value } })} placeholder="Rubric title" className="text-sm font-semibold text-[#2A2035] border-b border-transparent hover:border-[#DEE7FF] focus:border-[#325099] focus:outline-none flex-1 min-w-0" />
+                    <button onClick={saveCustomToLibrary} disabled={savingLib} className="text-[11px] font-semibold text-[#16A34A] hover:underline disabled:opacity-40 whitespace-nowrap">{savingLib ? 'Saving…' : '⬆ Save to library'}</button>
+                  </div>
+                  <RubricGridEditor value={slot.custom_rubric} onChange={(next) => onCriteria({ custom_rubric: next })} compact />
+                </div>
+              )}
             </div>
           )}
         </>

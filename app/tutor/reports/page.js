@@ -31,6 +31,7 @@ export default function ReportsLandingPage() {
   const [rosters, setRosters] = useState({})
   const [commentsCount, setCommentsCount] = useState({})  // class_id → # comments written for selected term
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     (async () => {
@@ -98,6 +99,16 @@ export default function ReportsLandingPage() {
     })
   }, [classes])
 
+  // Filter by the search box (class name or teacher).
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return ordered
+    return ordered.filter(c =>
+      (c.class_name || '').toLowerCase().includes(q) ||
+      (c.teacher || '').toLowerCase().includes(q)
+    )
+  }, [ordered, search])
+
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase font-display">Loading…</div>
@@ -133,6 +144,17 @@ export default function ReportsLandingPage() {
               ))}
             </select>
           </div>
+
+          {/* Class search */}
+          <div className="mt-4">
+            <input
+              type="search"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search classes by name or teacher…"
+              className="w-full md:w-96 bg-white border border-[#DEE7FF] rounded-full px-4 py-2.5 text-sm text-[#062E63] placeholder:text-[#2A2035]/40 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition"
+            />
+          </div>
         </div>
       </section>
 
@@ -141,9 +163,11 @@ export default function ReportsLandingPage() {
           <p className="text-sm text-[#2A2035]/60">Loading classes…</p>
         ) : ordered.length === 0 ? (
           <p className="text-sm text-[#2A2035]/60">No active classes.</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-[#2A2035]/60">No classes match &ldquo;{search}&rdquo;.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {ordered.map(c => {
+            {filtered.map(c => {
               const col = subjectColor(inferSubject(c))
               const count = (rosters[c.id] || []).length
               const written = commentsCount[c.id] || 0

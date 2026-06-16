@@ -5,11 +5,15 @@ import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
 import { getAuthProfile } from '../../lib/getProfile'
 import TutorNav from '../../components/TutorNav'
-import { normalizeDays, fmtTime, fmtMoney, isoDate } from '../../lib/format'
+import { normalizeDays, fmtTime, isoDate } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
-import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SHIFTS } from '../../lib/tables'
+import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS } from '../../lib/tables'
 import { buildClassLabelMap } from '../../lib/classLabels'
 import ActionCentre from '../../components/ActionCentre'
+import TrialFunnel from '../../components/home/TrialFunnel'
+import CapacityBoard from '../../components/home/CapacityBoard'
+import AtRiskWatchlist from '../../components/home/AtRiskWatchlist'
+import CommandPalette from '../../components/home/CommandPalette'
 
 /*
  * Tutor portal — landing page
@@ -20,23 +24,7 @@ import ActionCentre from '../../components/ActionCentre'
  */
 
 const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-const PAY_ANCHOR = '2026-05-18'  // must match SQL pay_period_for() and /tutor/pay
 
-// Pay period containing the given ISO date — mirrors SQL pay_period_for().
-function payPeriod(dateIso) {
-  const a = new Date(PAY_ANCHOR + 'T00:00:00')
-  const d = new Date(dateIso + 'T00:00:00')
-  const diffDays = Math.floor((d - a) / 86400000)
-  const n = Math.floor(diffDays / 14)
-  const start = new Date(a); start.setDate(a.getDate() + n * 14)
-  const end   = new Date(start); end.setDate(start.getDate() + 13)
-  const iso = (x) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`
-  return { start: iso(start), end: iso(end) }
-}
-const fmtPeriodLabel = (p) => {
-  const d = (s) => new Date(s + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
-  return `${d(p.start)} – ${d(p.end)}`
-}
 function greeting() {
   const h = new Date().getHours()
   if (h < 5)  return 'Burning the midnight oil'
@@ -60,11 +48,6 @@ export default function TutorHome() {
   const [currentTerm, setCurrentTerm] = useState(null)
   const [classes, setClasses] = useState([])
   const [enrollmentCounts, setEnrollmentCounts] = useState({})
-  const [period, setPeriod] = useState(() => payPeriod(isoDate(new Date())))
-  // Shifts in the current pay period — scope depends on role:
-  //   tutor: own shifts only (RLS enforces)
-  //   admin: all shifts in the period
-  const [shifts, setShifts] = useState([])
   const [unsavedSessions, setUnsavedSessions] = useState([])
   // (Admin unsaved-session tracking moved to /tutor/unsaved-sessions)
   const [authErr, setAuthErr] = useState(null)
@@ -132,19 +115,6 @@ export default function TutorHome() {
         for (const l of links || []) counts[l.class_id] = (counts[l.class_id] || 0) + 1
         setEnrollmentCounts(counts)
       }
-
-      // This fortnight's shifts. Tutor sees only own (RLS); admin sees all.
-      const currentPeriod = payPeriod(isoDate(new Date()))
-      setPeriod(currentPeriod)
-      let sq = supabase
-        .from(T_SHIFTS)
-        .select('id, tutor_id, work_date, start_time, end_time, hours, rate_snapshot, kind, status, notes')
-        .gte('work_date', currentPeriod.start)
-        .lte('work_date', currentPeriod.end)
-        .order('work_date')
-      if (!isAdmin) sq = sq.eq('tutor_id', user.id)
-      const { data: sh } = await sq
-      setShifts(sh || [])
 
       // Unsaved-session checks moved to /tutor/unsaved-sessions (linked from
       // the Action Centre's attendance row).
@@ -240,13 +210,6 @@ export default function TutorHome() {
   const firstName = (staff.full_name || '').split(' ')[0] || 'there'
   const isAdmin   = staff.role === 'admin'
 
-  // Pay-period totals (own for tutor, everyone for admin)
-  const periodHours = shifts.reduce((sum, s) => sum + Number(s.hours || 0), 0)
-  const periodAmount = shifts.reduce(
-    (sum, s) => sum + Number(s.hours || 0) * Number(s.rate_snapshot || 0),
-    0
-  )
-
   return (
     <div className="min-h-screen bg-white">
       <TutorNav staffName={staff.full_name} isAdmin={isAdmin} />
@@ -276,6 +239,17 @@ export default function TutorHome() {
               <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
                 Your home for class queues, attendance, and pay.
               </p>
+
+              {isAdmin && (
+                <button
+                  onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
+                  className="mt-5 inline-flex items-center gap-2 text-xs font-medium text-[#325099] bg-white/70 hover:bg-white border border-[#DEE7FF] rounded-full pl-3 pr-2 py-1.5 transition"
+                  title="Search students, classes and invoices"
+                >
+                  🔍 Quick search
+                  <kbd className="text-[10px] font-semibold bg-[#EEF4FF] border border-[#DEE7FF] rounded px-1.5 py-0.5">⌘K</kbd>
+                </button>
+              )}
 
               {/* Stat strip */}
               <div className="grid grid-cols-2 gap-3 mt-8 max-w-sm">
@@ -329,7 +303,16 @@ export default function TutorHome() {
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
         {/* Action Centre — directors only (gated here too, so the tutor page
             doesn't even mount it or run its checks) */}
-        {isAdmin && <ActionCentre />}
+        {isAdmin && <ActionCentre authorized />}
+
+        {/* Director insight widgets — pipeline, capacity, retention */}
+        {isAdmin && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+            <TrialFunnel />
+            <CapacityBoard classes={classes} currentTermId={currentTerm?.id} classLabelMap={classLabelMap} />
+            <AtRiskWatchlist currentTerm={currentTerm} />
+          </div>
+        )}
 
         {/* MAIN ROW — tutors only: today's classes + to-do.
             (Directors see today's classes in the banner and tasks in the Action Centre.) */}
@@ -343,7 +326,7 @@ export default function TutorHome() {
                   Today
                 </p>
                 <h2 className="text-lg font-semibold text-[#2A2035] font-display">
-                  {todayName}'s classes
+                  {todayName}&rsquo;s classes
                 </h2>
               </div>
               <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
@@ -425,6 +408,8 @@ export default function TutorHome() {
         )}
       </section>
 
+      {isAdmin && <CommandPalette />}
+
       <footer className="border-t border-[#DEE7FF] bg-white mt-10">
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-5 text-center">
           <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099]/70 font-semibold">
@@ -451,16 +436,6 @@ function StatTile({ label, value, suffix }) {
   )
 }
 
-// Compact tile used inside the "This fortnight" panel.
-function MiniStat({ label, value }) {
-  return (
-    <div className="rounded-xl border border-[#DEE7FF] bg-white px-3 py-2">
-      <p className="text-[9px] tracking-[0.2em] uppercase text-[#325099]/80 font-semibold">{label}</p>
-      <p className="text-base font-bold text-[#2A2035] font-display tabular-nums">{value}</p>
-    </div>
-  )
-}
-
 function UnsavedSessionCard({ s, fmtTime }) {
   const d = new Date(s.dateIso + 'T00:00:00')
   const dateLabel = d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -483,45 +458,3 @@ function UnsavedSessionCard({ s, fmtTime }) {
   )
 }
 
-function ActionCard({ href, emoji, accent, label, desc, comingSoon }) {
-  const inner = (
-    <>
-      <div
-        className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
-        style={{ background: accent }}
-      >
-        {emoji}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-[#2A2035] font-display flex items-center gap-2">
-          {label}
-          {comingSoon && (
-            <span className="text-[9px] font-bold tracking-widest uppercase bg-[#FEF3C7] text-[#92400E] px-1.5 py-0.5 rounded-full border border-[#FDE68A]">
-              Soon
-            </span>
-          )}
-        </p>
-        <p className="text-xs text-[#2A2035]/50 mt-0.5">{desc}</p>
-      </div>
-      {!comingSoon && (
-        <span className="text-[#325099] transition-transform group-hover:translate-x-0.5">→</span>
-      )}
-    </>
-  )
-
-  if (comingSoon) {
-    return (
-      <div className="group bg-white rounded-2xl border border-[#DEE7FF] p-5 flex items-center gap-4 opacity-80">
-        {inner}
-      </div>
-    )
-  }
-  return (
-    <Link
-      href={href}
-      className="group bg-white rounded-2xl border border-[#DEE7FF] p-5 flex items-center gap-4 hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition"
-    >
-      {inner}
-    </Link>
-  )
-}

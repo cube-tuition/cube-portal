@@ -8,8 +8,12 @@ import TutorNav from '../../../components/TutorNav'
 import { buildClassLabelMap } from '../../../lib/classLabels'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
-import { dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue } from '../../../lib/tableMeta'
+import { TABLE_META, dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue, fieldType, fieldEditorKind, linkedRef, formatDisplay } from '../../../lib/tableMeta'
 import { setUndoHandler, announceUndo } from '../../../lib/undo'
+import { useReferenceData } from '../../../lib/dbReference'
+import LinkedRecordBadge from '../../../components/db/LinkedRecordBadge'
+import LinkedRecordPicker from '../../../components/db/LinkedRecordPicker'
+import RecordDetailPanel from '../../../components/db/RecordDetailPanel'
 
 /*
  * Admin-only: Database Explorer — /tutor/database
@@ -68,6 +72,17 @@ const INVOICE_FAMILY_COL      = 'family_name'
 const LESSON_CLASS_COL        = 'class_label'          // joined "ClassName (Day)" shown in lessons table
 const LESSON_WEEK_COL         = 'week'                  // computed from lesson_date, read-only
 const LESSON_MAIN_TEACHER_COL = 'main_teacher'          // rollup from class.teacher, read-only
+
+// Joined/derived columns that are read-only ON A SPECIFIC VIRTUAL VIEW only.
+// These same names can be real, editable columns on their own tables (e.g.
+// course_name on `courses`, class_name on `classes`), so the read-only rule is
+// scoped per table rather than matched by column name globally.
+const READONLY_JOIN_COLS = {
+  enrolments: ['student_name', 'class_name'],
+  classes:    ['term_name', 'course_name'],
+  invoices:   ['term_name'],
+  lessons:    ['class_label', 'week', 'main_teacher'],
+}
 const LESSON_SCHED_TEACHER_COL = 'scheduled_teacher'    // resolved name from scheduled_teacher_id, editable dropdown
 
 const DEFAULT_WIDTH  = 150
@@ -1316,6 +1331,9 @@ export default function DatabasePage() {
   const [editingSession, setEditingSession]     = useState(null)     // session object | null
   const [deleteSessionId, setDeleteSessionId]   = useState(null)
   const [addSigninFor, setAddSigninFor]         = useState(null)     // session id | null
+  // Airtable-style reference data (linked-record resolution) + generic record panel
+  const refData = useReferenceData()
+  const [detailRecord, setDetailRecord] = useState(null)   // { realTable, row } | null
   // Lesson detail sidebar
   const [lessonSidebar, setLessonSidebar]   = useState(null)   // lesson row object | null
   const [sidebarData, setSidebarData]       = useState(null)   // { roster, attendance, tutors, classes }
@@ -1460,6 +1478,10 @@ export default function DatabasePage() {
   const [newClassForm, setNewClassForm] = useState({ course_id: '', day_of_week: '', start_time: '', end_time: '' })
   const [coursesList, setCoursesList]   = useState([])
   const [addClassSaving, setAddClassSaving] = useState(false)
+  // Add Course modal (form driven by the courses columns in tableMeta)
+  const [showAddCourseModal, setShowAddCourseModal] = useState(false)
+  const [newCourseForm, setNewCourseForm] = useState({})
+  const [addCourseSaving, setAddCourseSaving] = useState(false)
 
   // Lessons table — class selector + generate
   const [lessonClassFilter, setLessonClassFilter]   = useState('')   // class_id to filter lessons by
@@ -1974,7 +1996,12 @@ export default function DatabasePage() {
 
   // ── Cell editing ─────────────────────────────────────────────────────────────
   const isGuardianCol = (col) => col in PARENT_COL_MAP
-  const isNameCol     = (col) => ENROLMENT_NAME_COLS.includes(col) || col === TERM_NAME_COL || col === COURSE_NAME_COL || col === LESSON_CLASS_COL || col === LESSON_WEEK_COL || col === LESSON_MAIN_TEACHER_COL
+  // Read-only joined/derived columns are table-specific: they only appear (and
+  // are non-editable) on the virtual views that join them. The SAME names are
+  // real, editable columns on their own tables — e.g. course_name on `courses`
+  // and class_name on `classes` — so we must scope by selectedTable, not match
+  // the column name globally.
+  const isNameCol = (col) => (READONLY_JOIN_COLS[selectedTable] || []).includes(col)
 
   const handleCellClick = (rowId, col, currentVal) => {
     if (col === pkCol || isNameCol(col)) return
@@ -2063,6 +2090,22 @@ export default function DatabasePage() {
     if (e.key === 'Escape') { setEditingCell(null) }
     if (e.key === 'Tab')    { e.preventDefault(); handleCellSave() }
   }
+
+  // ── Airtable-style record detail panel ──────────────────────────────────────
+  // Open the current grid row (uses the real table behind any virtual view).
+  const openRowDetail = (rowObj) => {
+    const rt = VIRTUAL[selectedTable]?.realTable ?? selectedTable
+    setDetailRecord({ realTable: rt, row: rowObj })
+  }
+  // Open a linked record (clicked from a linked-record badge) by id.
+  const openLinkedDetail = async (refTable, id) => {
+    if (id === null || id === undefined || id === '') return
+    const { data } = await supabase.from(refTable).select('*').eq('id', id).single()
+    if (data) setDetailRecord({ realTable: refTable, row: data })
+  }
+  // Meta lookup helpers that respect virtual tables and the guardian sub-table.
+  const metaTableFor = (col) => isGuardianCol(col) ? T_PARENTS : (VIRTUAL[selectedTable]?.realTable ?? selectedTable)
+  const metaColFor   = (col) => isGuardianCol(col) ? PARENT_COL_MAP[col] : col
 
   // ── Enrolment price confirmed save ──────────────────────────────────────────
   const handlePriceConfirm = async () => {
@@ -2179,6 +2222,40 @@ export default function DatabasePage() {
     }
     setAddClassSaving(false)
     setShowAddClassModal(false)
+  }
+
+  // ── Add Course modal ──────────────────────────────────────────────────────────
+  // The form shows every editable course column (from tableMeta), so adding a
+  // course is a guided form rather than an inline blank row.
+  const courseFormCols = Object.entries(TABLE_META[T_COURSES]?.columns ?? {})
+    .filter(([, m]) => !m.readOnly && !m.hidden)
+  const courseFormValid = courseFormCols.every(([col, m]) => !m.required || String(newCourseForm[col] ?? '').trim() !== '')
+
+  const openAddCourseModal = () => {
+    setNewCourseForm({ delivery_mode: 'Class' })   // sensible default for the dropdown
+    setShowAddCourseModal(true)
+    setDeleteConfirm(null)
+  }
+
+  const handleAddCourse = async () => {
+    if (!courseFormValid) return
+    setAddCourseSaving(true)
+    const payload = {}
+    for (const [col] of courseFormCols) {
+      const v = newCourseForm[col]
+      payload[col] = (v === undefined || String(v).trim() === '') ? null : (typeof v === 'string' ? v.trim() : v)
+    }
+    const { data, error } = await supabase.from(T_COURSES).insert(payload).select().single()
+    if (error) { alert(`Add course failed: ${error.message}`); setAddCourseSaving(false); return }
+    if (selectedTable === T_COURSES) {
+      setRows(prev => [data, ...prev])
+      if (columns.length === 0) setColumns(Object.keys(data))
+    }
+    setRowCounts(prev => ({ ...prev, [T_COURSES]: (prev[T_COURSES] ?? 0) + 1 }))
+    pushUndo({ type: 'add_row', table: T_COURSES, realTable: T_COURSES, pkCol: 'id', rowId: data.id })
+    setAddCourseSaving(false)
+    setShowAddCourseModal(false)
+    setNewCourseForm({})
   }
 
   // ── Lessons: load class list + all staff when entering lessons table ──────────
@@ -3548,6 +3625,10 @@ export default function DatabasePage() {
                 <button onClick={() => setShowAddEnrolmentModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Enrolment
                 </button>
+              ) : selectedTable === T_COURSES ? (
+                <button onClick={openAddCourseModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  <span className="text-sm leading-none">+</span> Add Course
+                </button>
               ) : selectedTable === T_PARENTS ? (
                 <>
                   {/* Families / Data toggle */}
@@ -4129,7 +4210,7 @@ export default function DatabasePage() {
               <div className="flex flex-col items-center justify-center h-full gap-3">
                 <p className="text-4xl">📭</p>
                 <p className="text-sm font-semibold text-[#2A2035]">No rows yet</p>
-                <button onClick={selectedTable === 'classes' ? openAddClassModal : selectedTable === T_ENROLMENTS ? () => setShowAddEnrolmentModal(true) : () => setAddingRow(true)} className="px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">{selectedTable === 'classes' ? '+ Add Class' : selectedTable === T_ENROLMENTS ? '+ Add Enrolment' : '+ Add first row'}</button>
+                <button onClick={selectedTable === 'classes' ? openAddClassModal : selectedTable === T_ENROLMENTS ? () => setShowAddEnrolmentModal(true) : selectedTable === T_COURSES ? openAddCourseModal : () => setAddingRow(true)} className="px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">{selectedTable === 'classes' ? '+ Add Class' : selectedTable === T_ENROLMENTS ? '+ Add Enrolment' : selectedTable === T_COURSES ? '+ Add Course' : '+ Add first row'}</button>
               </div>
             ) : (
               <table className="text-xs border-separate border-spacing-0" style={{ tableLayout:'fixed', minWidth:'max-content' }}>
@@ -4282,6 +4363,15 @@ export default function DatabasePage() {
                               onClick={() => openLessonSidebar(row)}
                               className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#DEE7FF] text-[#325099]/40 hover:text-[#325099] transition text-[11px]"
                             >⊞</button>
+                          ) : pkCol ? (
+                            <>
+                              <span className="group-hover:hidden">{ri + 1}</span>
+                              <button
+                                title="Open record details"
+                                onClick={() => openRowDetail(row)}
+                                className="hidden group-hover:flex w-5 h-5 mx-auto items-center justify-center rounded hover:bg-[#DEE7FF] text-[#325099]/40 hover:text-[#325099] transition text-[11px]"
+                              >⊞</button>
+                            </>
                           ) : ri + 1}
                         </td>
 
@@ -4363,19 +4453,43 @@ export default function DatabasePage() {
                                     )}
                                   </div>
                                 )
-                              ) : isEditing ? (
-                                cellDropdown(selectedTable, col)
-                                  ? (
-                                    <select ref={editInputRef} value={editValue} onChange={e => handleDropdownSave(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null) }} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs cursor-pointer" style={{ width:w }}>
-                                      <option value="">—</option>
-                                      {/* keep the current (possibly legacy) value selectable so old rows still save */}
-                                      {editValue && !cellDropdown(selectedTable, col).includes(editValue) && <option value={editValue}>{editValue} (legacy)</option>}
-                                      {cellDropdown(selectedTable, col).map(o => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                  ) : (
-                                    <input ref={editInputRef} type="text" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                              ) : isEditing ? (() => {
+                                const mTbl = metaTableFor(col)
+                                const mCol = metaColFor(col)
+                                const ek   = fieldEditorKind(mTbl, mCol)
+                                // Linked record → searchable picker (only ever returns an existing id)
+                                if (ek === 'linked') {
+                                  const ref = linkedRef(mTbl, mCol)
+                                  if (ref) return (
+                                    <div className="relative" style={{ width: w, minHeight: 30 }}>
+                                      <LinkedRecordPicker
+                                        value={editValue}
+                                        options={refData.options(ref.refTable)}
+                                        width={w}
+                                        onPick={(id) => handleDropdownSave(id === null || id === undefined ? '' : String(id))}
+                                        onCancel={() => setEditingCell(null)}
+                                      />
+                                    </div>
                                   )
-                              ) : col === LESSON_WEEK_COL ? (
+                                }
+                                // Date → native date picker (only when value is blank or ISO date)
+                                if (ek === 'date' && (editValue === '' || /^\d{4}-\d{2}-\d{2}$/.test(editValue))) return (
+                                  <input ref={editInputRef} type="date" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                                )
+                                // Single-select dropdown (metadata or legacy map)
+                                if (cellDropdown(selectedTable, col)) return (
+                                  <select ref={editInputRef} value={editValue} onChange={e => handleDropdownSave(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null) }} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs cursor-pointer" style={{ width:w }}>
+                                    <option value="">—</option>
+                                    {/* keep the current (possibly legacy) value selectable so old rows still save */}
+                                    {editValue && !cellDropdown(selectedTable, col).includes(editValue) && <option value={editValue}>{editValue} (legacy)</option>}
+                                    {cellDropdown(selectedTable, col).map(o => <option key={o} value={o}>{o}</option>)}
+                                  </select>
+                                )
+                                // Plain text / number fallback
+                                return (
+                                  <input ref={editInputRef} type="text" inputMode={ek === 'number' || ek === 'currency' || ek === 'percent' ? 'decimal' : undefined} value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                                )
+                              })() : col === LESSON_WEEK_COL ? (
                                 <div className="px-2 py-1.5 text-center">
                                   {makeupWeek === null
                                     ? <span className="text-[#2A2035]/20 italic text-[10px]">—</span>
@@ -4386,16 +4500,46 @@ export default function DatabasePage() {
                                 </div>
 
                               ) : (() => {
-                                const badgeClass = CELL_BADGE_COLORS[`${selectedTable}:${col}`]?.[dv]
-                                return badgeClass ? (
-                                  <div className="px-3 py-1.5 cursor-text">
-                                    <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}`}>
-                                      {dv}
-                                    </span>
+                                const mTbl = metaTableFor(col)
+                                const mCol = metaColFor(col)
+                                // Linked record → resolved, clickable name badge (instead of a raw id)
+                                const ref = linkedRef(mTbl, mCol)
+                                if (ref) return (
+                                  <div className="px-3 py-1.5 overflow-hidden whitespace-nowrap">
+                                    <LinkedRecordBadge value={val} refTable={ref.refTable} resolve={refData.resolve} onOpen={openLinkedDetail} compact />
                                   </div>
-                                ) : (
-                                  <div className={`px-3 py-1.5 overflow-hidden whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic text-[10px]' : isPk ? 'text-[#325099]/60 font-mono text-[10px]' : isGuardian ? 'text-[#92400E]/80 text-xs' : isName ? 'text-emerald-800 text-xs font-medium' : 'text-[#2A2035] text-xs'} ${!isPk && !isName ? 'cursor-text' : 'cursor-default'}`} title={truncated ? dv : undefined}>
-                                    {dv === null ? 'null' : truncated ? dv.slice(0,50)+'…' : dv}
+                                )
+                                if (dv === null) return (
+                                  <div className="px-3 py-1.5 text-[#2A2035]/20 italic text-[10px]">null</div>
+                                )
+                                const ftype = fieldType(mTbl, mCol)
+                                // Hardcoded status colours first, then metadata-driven formatting
+                                const badgeClass = CELL_BADGE_COLORS[`${selectedTable}:${col}`]?.[dv]
+                                if (badgeClass) return (
+                                  <div className="px-3 py-1.5 cursor-text">
+                                    <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}`}>{dv}</span>
+                                  </div>
+                                )
+                                if (ftype === 'boolean') {
+                                  const on = dv === 'true'
+                                  return <div className="px-3 py-1.5"><span className={`inline-flex items-center gap-1 text-[11px] font-medium ${on ? 'text-emerald-700' : 'text-[#2A2035]/45'}`}>{on ? '☑ Yes' : '☐ No'}</span></div>
+                                }
+                                if (ftype === 'email') return (
+                                  <div className="px-3 py-1.5 overflow-hidden whitespace-nowrap"><a href={`mailto:${dv}`} onClick={e => e.stopPropagation()} className="text-[#325099] hover:underline text-xs">{dv}</a></div>
+                                )
+                                if (ftype === 'url') {
+                                  const href = /^https?:\/\//.test(dv) ? dv : `https://${dv}`
+                                  return <div className="px-3 py-1.5 overflow-hidden whitespace-nowrap"><a href={href} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-[#325099] hover:underline text-xs">{dv} ↗</a></div>
+                                }
+                                if (ftype === 'currency' || ftype === 'percent' || ftype === 'date' || ftype === 'datetime') return (
+                                  <div className="px-3 py-1.5 overflow-hidden whitespace-nowrap text-xs text-[#2A2035] tabular-nums" title={dv}>{formatDisplay(mTbl, mCol, val)}</div>
+                                )
+                                if (dropdownOptions(mTbl, mCol)) return (
+                                  <div className="px-3 py-1.5"><span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">{dv}</span></div>
+                                )
+                                return (
+                                  <div className={`px-3 py-1.5 overflow-hidden whitespace-nowrap ${isPk ? 'text-[#325099]/60 font-mono text-[10px]' : isGuardian ? 'text-[#92400E]/80 text-xs' : isName ? 'text-emerald-800 text-xs font-medium' : 'text-[#2A2035] text-xs'} ${!isPk && !isName ? 'cursor-text' : 'cursor-default'}`} title={truncated ? dv : undefined}>
+                                    {truncated ? dv.slice(0,50)+'…' : dv}
                                   </div>
                                 )
                               })()
@@ -4527,6 +4671,16 @@ export default function DatabasePage() {
           </div>
         </main>
       </div>
+
+      {/* ── Airtable-style record detail panel (linked records) ─────────────── */}
+      {detailRecord && (
+        <RecordDetailPanel
+          key={`${detailRecord.realTable}:${detailRecord.row?.id}`}
+          initial={detailRecord}
+          resolve={refData.resolve}
+          onClose={() => setDetailRecord(null)}
+        />
+      )}
 
       {/* ── Lesson Detail Sidebar ───────────────────────────────────────────── */}
       {lessonSidebar && (
@@ -4841,6 +4995,75 @@ export default function DatabasePage() {
         </div>
       )}
 
+
+      {/* ── Add Course Modal ─────────────────────────────────────────────────── */}
+      {showAddCourseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddCourseModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
+              <h2 className="text-base font-bold text-[#2A2035] font-display">Add Course</h2>
+              <p className="text-xs text-[#2A2035]/50 mt-0.5">Create a new course. The ID and created date are set automatically.</p>
+            </div>
+
+            {/* Body — one field per editable course column */}
+            <div className="px-6 py-5 space-y-4 max-h-[65vh] overflow-y-auto">
+              {courseFormCols.map(([col, m]) => {
+                const opts = dropdownOptions(T_COURSES, col)
+                const ek   = fieldEditorKind(T_COURSES, col)
+                const val  = newCourseForm[col] ?? ''
+                const set  = (v) => setNewCourseForm(p => ({ ...p, [col]: v }))
+                return (
+                  <div key={col}>
+                    <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">
+                      {columnLabel(T_COURSES, col)}{m.required && <span className="text-red-400"> *</span>}
+                    </label>
+                    {opts ? (
+                      <select
+                        value={val}
+                        onChange={e => set(e.target.value)}
+                        className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                      >
+                        <option value="">Select…</option>
+                        {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        inputMode={ek === 'currency' || ek === 'number' || ek === 'percent' ? 'decimal' : undefined}
+                        value={val}
+                        onChange={e => set(e.target.value)}
+                        placeholder={ek === 'currency' ? '0.00' : ''}
+                        onKeyDown={e => { if (e.key === 'Enter' && courseFormValid) handleAddCourse() }}
+                        className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                      />
+                    )}
+                    {m.help && <p className="text-[10px] text-[#2A2035]/40 mt-1">{m.help}</p>}
+                  </div>
+                )
+              })}
+              {!courseFormValid && <p className="text-[11px] text-[#2A2035]/40">Fields marked * are required.</p>}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2">
+              <button
+                onClick={() => setShowAddCourseModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddCourse}
+                disabled={addCourseSaving || !courseFormValid}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {addCourseSaving ? 'Adding…' : 'Add Course'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Top-up Invoice Modal ─────────────────────────────────────────────── */}
       {topUpModal && (

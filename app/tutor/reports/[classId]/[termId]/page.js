@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import { fetchAllTerms, formatTermLabel } from '../../../../../lib/terms'
 import { inferSubject, subjectsMatch } from '../../../../../components/CourseDetail'
 import { StudentReport } from '../../../../../components/reports/StudentReport'
+import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../lib/tables'
 
 /*
@@ -38,6 +39,9 @@ export default function ReportPage() {
   const [examData, setExamData] = useState(null)      // { topics, marks, sillyMistakes, maxScores }
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [building, setBuilding] = useState(false)
+  const [preview, setPreview] = useState(null)   // { url, filename } for the in-app PDF preview
+  const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
 
   useEffect(() => {
     (async () => {
@@ -194,6 +198,38 @@ export default function ReportPage() {
     return m
   }, [roster, attendance, quizzes])
 
+  // Build one combined PDF (all students' report pages) and show it in-app so the
+  // bundle can be checked without downloading or going through the print dialog.
+  const previewPdf = async () => {
+    setBuilding(true)
+    try {
+      const htmlToImage = await import('html-to-image')
+      const { jsPDF }   = await import('jspdf')
+      const articles = document.querySelectorAll('.report-bundle article.report-page')
+      if (!articles.length) { setBuilding(false); return }
+
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
+      for (let i = 0; i < articles.length; i++) {
+        const dataUrl = await htmlToImage.toJpeg(articles[i], {
+          quality: 0.92, pixelRatio: 2, backgroundColor: '#ffffff', skipFonts: false,
+        })
+        const img = new window.Image()
+        await new Promise(res => { img.onload = res; img.src = dataUrl })
+        const pdfW = pdf.internal.pageSize.getWidth()
+        const pdfH = (img.height * pdfW) / img.width
+        if (i > 0) pdf.addPage()
+        pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfW, pdfH)
+      }
+      const filename = `${cls.class_name}-${term ? formatTermLabel(term) : 'term'}-reports.pdf`
+        .replace(/[^a-z0-9.-]+/gi, '-').toLowerCase()
+      setPreview({ url: URL.createObjectURL(pdf.output('blob')), filename })
+    } catch (e) {
+      alert('Could not build the preview: ' + (e.message || e))
+    } finally {
+      setBuilding(false)
+    }
+  }
+
   const saveAllToStorage = async () => {
     setSavingPDFs(true)
     setSavedCount(0)
@@ -274,6 +310,14 @@ export default function ReportPage() {
             )}
             <button
               type="button"
+              onClick={previewPdf}
+              disabled={building || roster.length === 0}
+              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-40"
+            >
+              {building ? 'Building…' : '👁 Preview PDF'}
+            </button>
+            <button
+              type="button"
               onClick={saveAllToStorage}
               disabled={savingPDFs || roster.length === 0}
               className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-40"
@@ -338,6 +382,10 @@ export default function ReportPage() {
           .print\\:hidden { display: none !important; }
         }
       `}</style>
+
+      {preview && (
+        <PdfPreviewModal url={preview.url} filename={preview.filename} title="Term reports — preview" onClose={closePreview} />
+      )}
     </div>
   )
 }

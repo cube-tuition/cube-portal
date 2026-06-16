@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
 import { getCurrentTerm } from '@/lib/terms'
+import { isOneToOneClass } from '@/lib/classFormat'
 import {
   ComposedChart, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -39,9 +40,8 @@ function yearBandFromClassName(name) {
   if (y <= 10) return '9-10'
   return '11-12'
 }
-function is1on1(cls) {
-  return /\b1:1\b|1-on-1|one.on.one/i.test(cls.class_name)
-}
+// 1:1 vs group is now driven by courses.delivery_mode (with a name fallback),
+// via the shared lib/classFormat helper. See isOneToOneClass usage below.
 function sortByYear(rows) {
   return [...rows].sort((a, b) => {
     const ya = parseInt((a.class_name || '').match(/Y(\d+)/i)?.[1] || '99')
@@ -169,6 +169,7 @@ export default function ForecastPage() {
 
   // Live data
   const [classes,    setClasses]    = useState([])
+  const [courseModes, setCourseModes] = useState({})  // { course_id: '1:1' | 'Class' }
   const [tutors,     setTutors]     = useState([])
   const [rateMatrix, setRateMatrix] = useState([])
   const [fixedCosts, setFixedCosts] = useState([])
@@ -221,6 +222,9 @@ export default function ForecastPage() {
       .then(({ data }) => setRateMatrix(data || []))
     supabase.from('fixed_costs').select('*').order('frequency').order('name')
       .then(({ data }) => setFixedCosts(data || []))
+    // Per-course 1:1 vs group flag — robust source for is1on1 (name is fallback).
+    supabase.from('courses').select('id, delivery_mode')
+      .then(({ data }) => setCourseModes(Object.fromEntries((data || []).map(c => [c.id, c.delivery_mode]))))
   }, [])
 
   // ── Cross-term history (for the Overview trend + vs-last-term deltas) ───────
@@ -239,7 +243,7 @@ export default function ForecastPage() {
     try {
       const [{ data: cls }, { data: inv }] = await Promise.all([
         supabase.from('classes')
-          .select(`id, class_name, teacher, start_time, end_time,
+          .select(`id, class_name, course_id, teacher, start_time, end_time,
             enrolments!inner(id, student_id, price, status, students(full_name)),
             lessons(id, is_makeup)`)
           .eq('term_id', termId),
@@ -263,10 +267,10 @@ export default function ForecastPage() {
     const tutor = tutors.find(t => t.full_name.toLowerCase().startsWith(firstName))
     if (!tutor) return null
     const band = yearBandFromClassName(cls.class_name)
-    const mode = is1on1(cls) ? 'tutor' : 'class'
+    const mode = isOneToOneClass(cls, courseModes) ? 'tutor' : 'class'
     const row  = rateMatrix.find(r => r.tutor_id === tutor.id && r.year_band === band && r.mode === mode)
     return { rate: row ? Number(row.hourly_rate) : null, tutor }
-  }, [tutors, rateMatrix])
+  }, [tutors, rateMatrix, courseModes])
 
   // ── Compute class-level metrics ──────────────────────────────────────────────
   const classMetrics = useMemo(() => {
@@ -287,7 +291,7 @@ export default function ForecastPage() {
       const totalTeacherCost  = termlyTeacherFee + superAmount
       const termProfit        = termIncome - totalTeacherCost
 
-      const oneOnOne = is1on1(cls)
+      const oneOnOne = isOneToOneClass(cls, courseModes)
       const studentName = oneOnOne && activeEnrols.length === 1
         ? activeEnrols[0].students?.full_name || null
         : null
@@ -301,7 +305,7 @@ export default function ForecastPage() {
         is1on1: oneOnOne, studentName,
       }
     })
-  }, [classes, getRateForClass])
+  }, [classes, getRateForClass, courseModes])
 
   // ── Compute summary totals ───────────────────────────────────────────────────
   const summary = useMemo(() => {

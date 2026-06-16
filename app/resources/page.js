@@ -1,403 +1,504 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback, Fragment } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { requireStudent } from '../../lib/requireStudent'
-import { useRouter } from 'next/navigation'
 import PortalNav from '../../components/PortalNav'
-import { inferSubject, subjectColor } from '../../components/CourseDetail'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
-import { T_CLASS_BOOKLETS, T_ENROLMENTS, T_STUDENTS } from '../../lib/tables'
+import LatexContent from '../../components/qbank/LatexContent'
+import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
+import { fetchTaxonomy, qbankImageUrl } from '../../lib/qbank'
+import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS, T_ENROLMENTS } from '../../lib/tables'
 
 /*
- * Resources / Booklets
- * ─────────────────────────────────────────────────────────────────────────────
- * Left:  one tab per enrolled class.
- * Right: weeks 1–10 for the current term, showing booklets uploaded by admin
- *        via the teacher portal (stored in public.class_booklets + Supabase
- *        Storage bucket "class-booklets").
- *        Click → generates a 10-minute signed URL and opens the PDF inline.
+ * Resources — students REQUEST a practice worksheet (they don't hand-pick).
+ * They choose subject + topic + difficulty + length; the system pulls a
+ * balanced random set scoped to their year/enrolled subjects, shows it on-device
+ * with an optional answer key, and can save it to revisit (student_worksheets).
  */
 
-export default function Resources() {
-  const [student,        setStudent]        = useState(null)
-  const [enrolledClasses, setEnrolledClasses] = useState([])   // [{ id, class_name, subject }]
-  const [selectedClass,  setSelectedClass]  = useState(null)   // { id, class_name, subject }
-  const [classBooklets,  setClassBooklets]  = useState([])     // rows from class_booklets
-  const [currentTerm,    setCurrentTerm]    = useState(null)
-  const [viewing,        setViewing]        = useState(null)   // { storagePath, name, week }
-  const [loading,        setLoading]        = useState(true)
-  const [bookletsLoading, setBookletsLoading] = useState(false)
-  const router = useRouter()
+const DIFF_BANDS = { easy: [1, 2], medium: [3], hard: [4, 5] }
+// Year from a class name like "Y9 Maths" or "Year 9 English".
+const parseYear = (name) => {
+  const m = String(name || '').match(/\by(?:ear)?\s*(\d{1,2})/i)
+  return m ? parseInt(m[1], 10) : null
+}
+const shuffle = (arr) => {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[a[i], a[j]] = [a[j], a[i]] }
+  return a
+}
+// Spread the pick across skills (round-robin over shuffled per-skill buckets) so
+// a worksheet isn't all one skill or one difficulty, then shuffle the order.
+function pickBalanced(pool, n) {
+  const groups = {}
+  for (const q of pool) (groups[q.skill_id || '_'] ||= []).push(q)
+  const buckets = Object.values(groups).map(g => shuffle(g))
+  const out = []
+  let progressed = true
+  while (out.length < n && progressed) {
+    progressed = false
+    for (const b of buckets) {
+      if (out.length >= n) break
+      if (b.length) { out.push(b.pop()); progressed = true }
+    }
+  }
+  return shuffle(out)
+}
 
-  // ── Auth + enrolled classes + current term ──────────────────────────────────
+export default function Resources() {
+  const router = useRouter()
+  const [student, setStudent] = useState(null)
+  const [ready, setReady] = useState(false)
+  const [tax, setTax] = useState(null)
+  const [questions, setQuestions] = useState([])
+  const [enrolledPairs, setEnrolledPairs] = useState([])   // [{ year, subject }] from enrolled classes
+  const [savedSets, setSavedSets] = useState([])
+
+  // request form
+  const [subjectId, setSubjectId] = useState('')
+  const [topicIds, setTopicIds] = useState([])   // [] = all topics in the subject
+  const [band, setBand] = useState('')        // '' | 'easy' | 'medium' | 'hard'
+  const [qtype, setQtype] = useState('')      // '' | 'mcq' | 'extended'
+  const [count, setCount] = useState(20)
+
+  // generated worksheet
+  const [worksheet, setWorksheet] = useState([])
+  const [title, setTitle] = useState('')
+  const [currentSetId, setCurrentSetId] = useState(null)
+  const [mode, setMode] = useState('request') // 'request' | 'view'
+  const [showAnswers, setShowAnswers] = useState(false)
+  const [saveState, setSaveState] = useState('idle')
+  const [genParams, setGenParams] = useState(null) // remembers choices for "Regenerate"
+
+  const loadSets = useCallback(async (sid) => {
+    const { data } = await supabase.from(T_STUDENT_WORKSHEETS)
+      .select('*').eq('student_id', sid).order('updated_at', { ascending: false })
+    setSavedSets(data || [])
+  }, [])
+
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!requireStudent(user, router)) return
+      const { data: profile } = await supabase.from(T_STUDENTS).select('*').eq('id', user.id).single()
+      setStudent(profile); setReady(true)
 
-      const { data: profile } = await supabase
-        .from(T_STUDENTS).select('*').eq('id', user.id).single()
-      setStudent(profile)
+      const { data: links } = await supabase.from(T_ENROLMENTS).select('classes(class_name)').eq('student_id', user.id)
+      const pairs = (links || []).map(l => {
+        const cls = l.classes
+        if (!cls) return null
+        const y = parseYear(cls.class_name)
+        const subj = inferSubject(cls)
+        return (y && subj) ? { year: y, subject: subj } : null
+      }).filter(Boolean)
+      setEnrolledPairs(pairs)
 
-      const terms = await fetchAllTerms()
-      setCurrentTerm(getCurrentTerm(terms))
-
-      // Fetch enrolled classes with IDs so we can look up class_booklets.
-      // Note: classes table has no 'subject' column — subject is inferred
-      // from class_name by inferSubject() in CourseDetail.js.
-      const { data: links } = await supabase
-        .from(T_ENROLMENTS)
-        .select('classes(id, class_name)')
-        .eq('student_id', user.id)
-
-      const classes = (links || []).map(l => l.classes).filter(Boolean)
-
-      // Deduplicate by class_id (students shouldn't be in the same class twice,
-      // but guard against it anyway)
-      const seen = new Set()
-      const unique = []
-      for (const c of classes) {
-        if (c?.id && !seen.has(c.id)) {
-          seen.add(c.id)
-          unique.push(c)
-        }
-      }
-      setEnrolledClasses(unique)
-      setSelectedClass(unique[0] || null)
-      setLoading(false)
+      fetchTaxonomy().then(setTax)
+      loadSets(user.id)
+      supabase.from(T_QBANK_QUESTIONS)
+        .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order)')
+        .then(({ data }) => setQuestions(data || []))
     }
     load()
-  }, [])
+  }, [router, loadSets])
 
-  // ── Fetch booklets whenever the selected class or term changes ───────────────
-  useEffect(() => {
-    if (!selectedClass?.id || !currentTerm?.term_number) {
-      setClassBooklets([])
-      return
+  const maps = useMemo(() => {
+    if (!tax) return null
+    return {
+      skill: Object.fromEntries(tax.skills.map(s => [s.id, s])),
+      topic: Object.fromEntries(tax.topics.map(t => [t.id, t])),
+      subject: Object.fromEntries(tax.subjects.map(s => [s.id, s])),
     }
-    let cancelled = false
-    const load = async () => {
-      setBookletsLoading(true)
-      const { data } = await supabase
-        .from(T_CLASS_BOOKLETS)
-        .select('id, booklet_name, storage_path, week, updated_at')
-        .eq('class_id', selectedClass.id)
-        .eq('term_number', currentTerm.term_number)
-        .order('week', { ascending: true })
-      if (!cancelled) {
-        setClassBooklets(data || [])
-        setBookletsLoading(false)
-      }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [selectedClass?.id, currentTerm?.term_number])
+  }, [tax])
 
-  const selectedSubject = selectedClass ? inferSubject(selectedClass) : null
-  const accent          = subjectColor(selectedSubject)
+  const labelFor = useCallback((q) => {
+    if (!maps) return null
+    const sk = maps.skill[q.skill_id]
+    const tp = (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
+    const su = tp && maps.subject[tp.subject_id]
+    return { skill: sk, topic: tp, subject: su }
+  }, [maps])
 
-  // Map week → booklet row for quick lookup
-  const weeksMap = useMemo(() => {
-    const map = new Map()
-    for (const b of classBooklets) {
-      if (b.week) map.set(b.week, b)
+  // Subjects available to this student: match the (year, subject) of each class
+  // they're actually enrolled in (fuzzy subject match, e.g. "Maths" ↔ "Mathematics").
+  // Falls back to the profile year, then all subjects, so the picker is never empty.
+  const mySubjects = useMemo(() => {
+    if (!tax) return []
+    if (enrolledPairs.length) {
+      const f = tax.subjects.filter(s => enrolledPairs.some(p =>
+        String(s.year_level) === String(p.year) && subjectsMatch(s.name, p.subject)))
+      if (f.length) return f
     }
-    return map
-  }, [classBooklets])
+    if (student?.year) {
+      const byYear = tax.subjects.filter(s => String(s.year_level) === String(student.year))
+      if (byYear.length) return byYear
+    }
+    return tax.subjects
+  }, [tax, student, enrolledPairs])
+
+  // Effective subject: the student's choice, or the first available subject.
+  const selSubjectId = subjectId || mySubjects[0]?.id || ''
+  const topicsForSubject = useMemo(() => (tax && selSubjectId ? (tax.topicsBySubject[selSubjectId] || []) : []), [tax, selSubjectId])
+
+  const poolFor = useCallback((p) => {
+    if (!maps) return []
+    const bandArr = DIFF_BANDS[p.band] || null
+    return questions.filter(q => {
+      if (q.audience === 'exam') return false   // exam-only questions never appear in student practice
+      const l = labelFor(q)
+      if (!l?.subject || l.subject.id !== p.subjectId) return false
+      if (p.topicIds?.length && !p.topicIds.includes(l.topic?.id)) return false
+      if (bandArr && !bandArr.includes(q.difficulty)) return false
+      if (p.qtype && q.qtype !== p.qtype) return false
+      return true
+    })
+  }, [questions, maps, labelFor])
+
+  const runGenerate = (p) => {
+    const pool = poolFor(p)
+    if (pool.length === 0) {
+      alert('No questions available for those choices yet — try a different topic or difficulty.')
+      return false
+    }
+    setWorksheet(pickBalanced(pool, p.count))
+    setGenParams(p)
+    return true
+  }
+
+  const generate = () => {
+    const subjName = maps?.subject[selSubjectId]?.name || 'Practice'
+    const topicNames = topicIds.map(id => maps?.topic[id]?.name).filter(Boolean)
+    const topicLabel = topicNames.length === 1 ? topicNames[0] : topicNames.length > 1 ? `${topicNames.length} topics` : ''
+    const p = { subjectId: selSubjectId, topicIds, band, qtype, count: Number(count) }
+    if (!runGenerate(p)) return
+    setTitle(`${subjName}${topicLabel ? ' · ' + topicLabel : ''} practice`)
+    setCurrentSetId(null)
+    setShowAnswers(false)
+    setSaveState('idle')
+    setMode('view')
+  }
+
+  const regenerate = () => { if (genParams) { runGenerate(genParams); setShowAnswers(false); setSaveState('idle'); setCurrentSetId(null) } }
+
+  const openSet = (s) => {
+    const byId = Object.fromEntries(questions.map(q => [q.id, q]))
+    const ids = Array.isArray(s.question_ids) ? s.question_ids : []
+    setWorksheet(ids.map(id => byId[id]).filter(Boolean))
+    setTitle(s.title || 'Saved worksheet')
+    setCurrentSetId(s.id)
+    setGenParams(null)
+    setShowAnswers(false)
+    setSaveState('idle')
+    setMode('view')
+  }
+
+  const saveSet = async () => {
+    if (!student || worksheet.length === 0) return
+    setSaveState('saving')
+    const payload = {
+      student_id: student.id,
+      title: title.trim() || 'My worksheet',
+      question_ids: worksheet.map(q => q.id),
+      updated_at: new Date().toISOString(),
+    }
+    let err
+    if (currentSetId) {
+      ({ error: err } = await supabase.from(T_STUDENT_WORKSHEETS).update(payload).eq('id', currentSetId))
+    } else {
+      const { data, error } = await supabase.from(T_STUDENT_WORKSHEETS).insert(payload).select('id').single()
+      err = error; if (data) setCurrentSetId(data.id)
+    }
+    if (err) { setSaveState('idle'); alert('Could not save: ' + err.message); return }
+    setSaveState('saved')
+    loadSets(student.id)
+  }
+
+  const deleteSet = async (s) => {
+    if (!window.confirm(`Delete "${s.title}"?`)) return
+    await supabase.from(T_STUDENT_WORKSHEETS).delete().eq('id', s.id)
+    if (currentSetId === s.id) { setMode('request'); setCurrentSetId(null) }
+    loadSets(student.id)
+  }
+
+  if (!ready) return (
+    <div className="min-h-screen flex items-center justify-center bg-white text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
+  )
+
+  const selCls = 'w-full border border-[#DEE7FF] rounded-xl px-3 py-2.5 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#F8FAFF]">
       <PortalNav studentName={student?.full_name} />
 
-      {/* HERO */}
       <section className="bg-gradient-to-r from-[#F8FAFF] via-[#EEF4FF] to-[#BFD1FF] border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-12 md:py-16">
-          <div className="flex items-center gap-2 mb-3">
-            <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display">
-              Booklets & materials
-            </p>
-            {currentTerm && (
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#062E63] bg-white border border-[#DEE7FF] px-2.5 py-1 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#325099]" />
-                {formatTermLabel(currentTerm)}
-              </span>
-            )}
-          </div>
-          <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
-            Resources
-          </h1>
-          <p className="text-sm md:text-base text-[#2A2035]/70 max-w-2xl leading-relaxed">
-            Just the booklets for the courses you're enrolled in — ready to view straight from the portal.
-          </p>
+        <div className="max-w-5xl mx-auto px-6 md:px-10 py-8">
+          <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold mb-1 font-display">Resources</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-[#2A2035] font-display">Practice worksheets</h1>
+          <p className="text-sm text-[#2A2035]/70 mt-1 max-w-2xl">Pick a topic and we&rsquo;ll build you a fresh practice worksheet to study on your device.</p>
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
-        {loading ? (
-          <div className="rounded-2xl border border-[#DEE7FF] bg-white p-12 text-center text-sm text-[#2A2035]/50">
-            Loading your booklets…
-          </div>
-        ) : enrolledClasses.length === 0 ? (
-          <div className="rounded-2xl border border-[#DEE7FF] bg-white p-12 text-center">
-            <div className="text-4xl mb-2">📚</div>
-            <p className="text-sm font-semibold text-[#2A2035]">No courses yet, so no booklets to show.</p>
-            <p className="text-xs text-[#2A2035]/50 mt-1">Once you're enrolled, booklets for your courses will appear here.</p>
-          </div>
+      <div className="max-w-5xl mx-auto px-6 md:px-10 py-8">
+        {mode === 'view' ? (
+          <ViewSet
+            worksheet={worksheet} title={title} setTitle={setTitle}
+            showAnswers={showAnswers} setShowAnswers={setShowAnswers}
+            canRegenerate={!!genParams} onRegenerate={regenerate}
+            onSave={saveSet} saveState={saveState}
+            onBack={() => setMode('request')} />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Request form */}
+            <div className="bg-white rounded-2xl border border-[#F0F4FF] p-5 space-y-4">
+              <h2 className="text-sm font-bold text-[#062E63]">Create a worksheet</h2>
 
-            {/* LEFT — Course tabs */}
-            <div className="md:col-span-1">
-              <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-3 font-display">
-                Choose a course
-              </p>
-              <div className="space-y-3">
-                {enrolledClasses.map(cls => {
-                  const subj = inferSubject(cls)
-                  const a    = subjectColor(subj)
-                  const isActive = selectedClass?.id === cls.id
-                  return (
-                    <button
-                      key={cls.id}
-                      onClick={() => { setSelectedClass(cls); setViewing(null) }}
-                      className={`w-full text-left rounded-2xl border p-4 transition ${
-                        isActive
-                          ? 'border-[#062E63] bg-[#F8FAFF]'
-                          : 'border-[#DEE7FF] bg-white hover:border-[#BACBFF] hover:bg-[#F8FAFF]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
-                          style={{ background: a.bg }}
-                        >
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: a.fg }} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-[#2A2035] font-display">{cls.class_name}</p>
-                          <p className="text-[11px] text-[#2A2035]/50 mt-0.5">{subj}</p>
-                        </div>
-                        <span
-                          className={`text-lg transition-transform ${isActive ? 'translate-x-0.5' : ''}`}
-                          style={{ color: a.fg }}
-                        >
-                          →
-                        </span>
-                      </div>
-                    </button>
-                  )
-                })}
+              <div>
+                <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Subject</label>
+                <select value={selSubjectId} onChange={e => { setSubjectId(e.target.value); setTopicIds([]) }} className={selCls}>
+                  {mySubjects.map(s => <option key={s.id} value={s.id}>Year {s.year_level} · {s.name}</option>)}
+                </select>
               </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-semibold text-[#2A2035]/50">Topics</label>
+                  <span className="text-[10px] text-[#2A2035]/40">{topicIds.length ? `${topicIds.length} selected` : 'all topics'}</span>
+                </div>
+                {topicsForSubject.length === 0 ? (
+                  <p className="text-xs text-[#2A2035]/40">No topics for this subject yet.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {topicsForSubject.map(t => {
+                      const on = topicIds.includes(t.id)
+                      return (
+                        <button key={t.id} type="button"
+                          onClick={() => setTopicIds(ids => on ? ids.filter(x => x !== t.id) : [...ids, t.id])}
+                          className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${on ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/60 border-[#DEE7FF] hover:border-[#325099]'}`}>
+                          {t.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                <p className="text-[10px] text-[#2A2035]/40 mt-1.5">Pick one or more, or leave all unselected for the whole subject.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Difficulty</label>
+                  <select value={band} onChange={e => setBand(e.target.value)} className={selCls}>
+                    <option value="">Mixed</option>
+                    <option value="easy">Easier</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Harder</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Question type</label>
+                  <select value={qtype} onChange={e => setQtype(e.target.value)} className={selCls}>
+                    <option value="">Mixed</option>
+                    <option value="mcq">Multiple choice</option>
+                    <option value="extended">Written</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">How many questions</label>
+                <div className="flex gap-2">
+                  {[10, 20, 30].map(n => (
+                    <button key={n} onClick={() => setCount(n)}
+                      className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition ${count === n ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/60 border-[#DEE7FF] hover:border-[#325099]'}`}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button onClick={generate} disabled={!selSubjectId}
+                className="w-full mt-1 py-3 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
+                Generate worksheet →
+              </button>
             </div>
 
-            {/* RIGHT — Week-by-week list, or PDF viewer */}
-            <div className="md:col-span-2">
-              {viewing ? (
-                <BookletViewer viewing={viewing} onClose={() => setViewing(null)} accent={accent} />
+            {/* Saved worksheets */}
+            <div>
+              <h2 className="text-sm font-bold text-[#062E63] mb-3">Your saved worksheets</h2>
+              {savedSets.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] p-8 text-center">
+                  <p className="text-sm text-[#2A2035]/50">No saved worksheets yet. Generate one and tap Save to keep it.</p>
+                </div>
               ) : (
-                <WeekList
-                  cls={selectedClass}
-                  accent={accent}
-                  weeksMap={weeksMap}
-                  loading={bookletsLoading}
-                  onOpen={setViewing}
-                />
+                <div className="space-y-2">
+                  {savedSets.map(s => (
+                    <div key={s.id} className="bg-white rounded-xl border border-[#F0F4FF] p-3 flex items-center gap-3">
+                      <button onClick={() => openSet(s)} className="flex-1 text-left min-w-0">
+                        <p className="text-sm font-semibold text-[#062E63] truncate">{s.title}</p>
+                        <p className="text-[11px] text-[#2A2035]/40">{(s.question_ids?.length || 0)} questions · {new Date(s.updated_at).toLocaleDateString()}</p>
+                      </button>
+                      <button onClick={() => openSet(s)} className="text-[11px] font-semibold text-[#325099] hover:underline shrink-0">Open →</button>
+                      <button onClick={() => deleteSet(s)} className="text-[11px] text-[#DC2626]/60 hover:text-[#DC2626] shrink-0">✕</button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-
           </div>
         )}
-      </section>
-
-      <footer className="border-t border-[#DEE7FF] bg-white mt-10">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-5 text-center">
-          <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099]/70 font-semibold">
-            © CUBE Tuition · Chatswood
-          </p>
-        </div>
-      </footer>
+      </div>
     </div>
   )
 }
 
-// ── Week-by-week list ──────────────────────────────────────────────────────────
-function WeekList({ cls, accent, weeksMap, loading, onOpen }) {
-  const weeks = Array.from({ length: 10 }, (_, i) => i + 1)
+// ── On-screen worksheet view (styled like a paper worksheet) ───────────────────
+const questionMarks = (q) => {
+  const parts = q.qbank_question_parts || []
+  if (q.qtype === 'mcq') return q.marks ?? 1
+  if (parts.length) return parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
+  return q.marks || 0
+}
+
+function Solution({ children }) {
+  return (
+    <div className="mt-1.5 px-3 py-2 rounded-md bg-[#F0FDF4] border-l-[3px] border-[#16A34A] text-[13px] text-[#166534] leading-relaxed">
+      {children}
+    </div>
+  )
+}
+
+function ViewSet({ worksheet, title, setTitle, showAnswers, setShowAnswers, canRegenerate, onRegenerate, onSave, saveState, onBack }) {
+  const totalMarks = worksheet.reduce((s, q) => s + questionMarks(q), 0)
+  // Multiple-choice questions are always grouped together at the start.
+  const mcqs = worksheet.filter(q => q.qtype === 'mcq')
+  const written = worksheet.filter(q => q.qtype !== 'mcq')
+  const ordered = [...mcqs, ...written]
+  const showSections = mcqs.length > 0 && written.length > 0
 
   return (
-    <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-      <div className="px-5 py-4 border-b border-[#DEE7FF] flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: accent.bg }}>
-            <span className="w-2 h-2 rounded-full" style={{ background: accent.fg }} />
-          </div>
-          <div>
-            <p className="text-[10px] tracking-[0.3em] uppercase font-semibold font-display" style={{ color: accent.fg }}>
-              Term booklets
-            </p>
-            <p className="font-semibold text-[#2A2035] font-display">{cls?.class_name || 'Choose a course'}</p>
-          </div>
-        </div>
-        <p className="text-[11px] tracking-widest uppercase font-semibold text-[#325099]/60">Week 1 – 10</p>
+    <div className="max-w-3xl mx-auto">
+      {/* Controls (not part of the sheet) */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <button onClick={onBack} className="text-xs font-semibold text-[#325099] hover:text-[#062E63]">← New worksheet</button>
+        <div className="flex-1" />
+        {canRegenerate && (
+          <button onClick={onRegenerate} className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-3 py-2 rounded-full hover:bg-[#F0F4FF] transition">↻ Regenerate</button>
+        )}
+        <button onClick={onSave} disabled={saveState === 'saving'}
+          className="text-xs font-semibold text-[#325099] border border-[#325099] px-4 py-2 rounded-full hover:bg-[#F0F4FF] transition disabled:opacity-40">
+          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : 'Save'}
+        </button>
+        <button onClick={() => setShowAnswers(a => !a)}
+          className={`text-xs font-semibold px-4 py-2 rounded-full transition ${showAnswers ? 'bg-[#16A34A] text-white hover:bg-[#15803D]' : 'bg-[#325099] text-white hover:bg-[#062E63]'}`}>
+          {showAnswers ? 'Hide answers' : 'Show answers'}
+        </button>
       </div>
 
-      {loading ? (
-        <div className="px-5 py-10 text-center text-sm text-[#2A2035]/40">
-          Loading booklets…
+      {/* The paper */}
+      <div className="bg-white rounded-2xl border border-[#E5ECFF] shadow-sm px-7 md:px-12 py-9">
+        {/* Worksheet header */}
+        <div className="border-b-2 border-[#1f2a44] pb-4 mb-5">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold font-display">CUBE Tuition · Practice worksheet</p>
+            <p className="text-[11px] text-[#2A2035]/50">{worksheet.length} question{worksheet.length === 1 ? '' : 's'}{totalMarks > 0 ? ` · ${totalMarks} marks` : ''}</p>
+          </div>
+          <input value={title} onChange={e => setTitle(e.target.value)}
+            className="w-full mt-1 text-2xl font-bold text-[#1f2a44] bg-transparent focus:outline-none font-display" />
+          <div className="flex flex-wrap gap-x-10 gap-y-1 mt-3 text-[13px] text-[#2A2035]/70">
+            <span className="flex items-baseline gap-2">Name:<span className="inline-block w-44 border-b border-[#94a3b8]" /></span>
+            <span className="flex items-baseline gap-2">Date:<span className="inline-block w-28 border-b border-[#94a3b8]" /></span>
+          </div>
         </div>
-      ) : (
-        <ul className="divide-y divide-[#DEE7FF]">
-          {weeks.map(w => {
-            const booklet = weeksMap.get(w)
 
-            if (!booklet) {
-              return (
-                <li key={w} className="px-5 py-3.5 flex items-center gap-3">
-                  <WeekChip n={w} />
-                  <span className="text-sm text-[#2A2035]/40">— not uploaded yet</span>
-                </li>
-              )
-            }
+        <ol>
+          {ordered.map((q, i) => (
+            <Fragment key={q.id}>
+              {showSections && i === 0 && <SectionLabel text="Section A · Multiple choice" />}
+              {showSections && i === mcqs.length && <SectionLabel text="Section B · Written response" />}
+              <QuestionView q={q} n={i + 1} showAnswers={showAnswers} last={i === ordered.length - 1} />
+            </Fragment>
+          ))}
+        </ol>
+      </div>
+    </div>
+  )
+}
 
-            return (
-              <li key={w} className="px-5 py-3.5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <WeekChip n={w} accent={accent} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#2A2035] truncate">
-                      {booklet.booklet_name || `Week ${w} Booklet`}
-                    </p>
-                    <p className="text-[11px] text-[#2A2035]/50">
-                      {booklet.updated_at
-                        ? `Updated ${new Date(booklet.updated_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`
-                        : 'PDF available'}
-                    </p>
+function SectionLabel({ text }) {
+  return (
+    <li className="list-none pt-4 pb-2 first:pt-0">
+      <p className="text-[11px] tracking-[0.2em] uppercase text-[#325099] font-semibold font-display">{text}</p>
+    </li>
+  )
+}
+
+function QuestionView({ q, n, showAnswers, last }) {
+  const parts = (q.qbank_question_parts || []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  const images = q.qbank_question_images || []
+  const marks = questionMarks(q)
+  const isMcq = q.qtype === 'mcq'
+
+  return (
+    <li className={`py-5 ${last ? '' : 'border-b border-dashed border-[#E2E8F0]'}`}>
+      <div className="flex gap-3">
+        <span className="text-[15px] font-bold text-[#1f2a44] shrink-0 leading-relaxed">{n}.</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 text-[15px] text-[#1f2a44] leading-relaxed"><LatexContent text={q.stem_latex || ''} /></div>
+            {marks > 0 && <span className="text-[12px] text-[#2A2035]/45 shrink-0 mt-0.5">[{marks}]</span>}
+          </div>
+
+          {images.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-3 my-3">
+              {images.map(im => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={im.id} src={qbankImageUrl(im.storage_path)} alt={im.alt || ''} className="max-w-[320px] max-h-[230px] object-contain" />
+              ))}
+            </div>
+          )}
+
+          {/* MCQ */}
+          {isMcq && Array.isArray(q.options) && q.options.length > 0 && (
+            <div className="mt-2.5 grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
+              {q.options.map(opt => {
+                const correct = showAnswers && opt.label === q.correct_option
+                return (
+                  <div key={opt.label} className={`flex items-start gap-2 text-[14px] ${correct ? 'text-[#166534] font-semibold' : 'text-[#1f2a44]'}`}>
+                    <span className="font-bold">{opt.label})</span>
+                    <span><LatexContent text={opt.latex || ''} /></span>
+                    {correct && <span className="ml-1">✓</span>}
                   </div>
-                </div>
-                <button
-                  onClick={() => onOpen({
-                    storagePath: booklet.storage_path,
-                    name: booklet.booklet_name || `Week ${w} Booklet`,
-                    week: w,
-                  })}
-                  className="shrink-0 text-xs font-semibold text-white rounded-full px-4 py-2 transition hover:opacity-90"
-                  style={{ background: accent.fg }}
-                >
-                  View →
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </div>
-  )
-}
+                )
+              })}
+            </div>
+          )}
+          {isMcq && showAnswers && q.solution_latex?.trim() && (
+            <Solution><span className="font-semibold">Why: </span><LatexContent text={q.solution_latex} /></Solution>
+          )}
 
-// ── Week chip ──────────────────────────────────────────────────────────────────
-function WeekChip({ n, accent }) {
-  return (
-    <div
-      className="w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 border"
-      style={{
-        background:   accent ? accent.bg  : '#F8FAFF',
-        borderColor:  accent ? accent.fg + '33' : '#DEE7FF',
-        color:        accent ? accent.fg  : '#325099',
-      }}
-    >
-      <span className="text-[8px] tracking-widest uppercase font-bold leading-none">Wk</span>
-      <span className="text-sm font-bold tabular-nums leading-tight mt-0.5">{n}</span>
-    </div>
-  )
-}
+          {/* Multi-part written */}
+          {parts.length > 0 && (
+            <div className="mt-2.5 space-y-3">
+              {parts.map((p, i) => {
+                const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                return (
+                  <div key={p.id || lbl}>
+                    <div className="flex items-start gap-3 text-[14px] text-[#1f2a44]">
+                      <div className="flex-1"><span className="font-semibold mr-1">{lbl})</span><LatexContent text={p.prompt_latex || ''} /></div>
+                      {p.marks != null && <span className="text-[11px] text-[#2A2035]/40 shrink-0 mt-0.5">[{p.marks}]</span>}
+                    </div>
+                    {showAnswers && p.solution_latex?.trim() && <Solution><LatexContent text={p.solution_latex} /></Solution>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
-// ── PDF viewer ─────────────────────────────────────────────────────────────────
-// Generates a fresh signed URL the moment the viewer mounts, then
-// renders an iframe. Signed URLs expire after 10 minutes (600 s).
-function BookletViewer({ viewing, onClose, accent }) {
-  const [signedUrl,  setSignedUrl]  = useState(null)
-  const [urlLoading, setUrlLoading] = useState(true)
-  const [urlError,   setUrlError]   = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      setUrlLoading(true)
-      setUrlError(null)
-      const { data, error } = await supabase.storage
-        .from('class-booklets')
-        .createSignedUrl(viewing.storagePath, 600)
-      if (cancelled) return
-      if (error || !data?.signedUrl) {
-        setUrlError('Could not load the PDF. Please try again.')
-      } else {
-        setSignedUrl(data.signedUrl)
-      }
-      setUrlLoading(false)
-    }
-    load()
-    return () => { cancelled = true }
-  }, [viewing.storagePath])
-
-  return (
-    <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-      {/* Toolbar */}
-      <div className="px-5 py-4 flex items-center justify-between border-b border-[#DEE7FF]">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={onClose}
-            className="text-xs font-semibold text-[#325099] hover:text-[#062E63] px-3 py-1.5 rounded-full hover:bg-[#F8FAFF] transition"
-          >
-            ← Back
-          </button>
-          <div className="min-w-0">
-            <p className="text-[10px] tracking-[0.3em] uppercase font-semibold" style={{ color: accent.fg }}>
-              Week {viewing.week}
-            </p>
-            <p className="font-semibold text-[#2A2035] font-display truncate">{viewing.name}</p>
-          </div>
+          {/* Single written — solution only (students answer separately) */}
+          {!isMcq && !parts.length && showAnswers && q.solution_latex?.trim() && (
+            <Solution><span className="font-semibold">Solution. </span><LatexContent text={q.solution_latex} /></Solution>
+          )}
         </div>
-        {signedUrl && (
-          <div className="flex items-center gap-3 shrink-0">
-            <a
-              href={signedUrl}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-semibold text-[#325099] hover:text-[#062E63] px-3 py-1.5 rounded-full hover:bg-[#F8FAFF] transition"
-            >
-              ↓ Download
-            </a>
-            <a
-              href={signedUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold text-[#325099] hover:text-[#062E63] transition"
-            >
-              Open in new tab ↗
-            </a>
-          </div>
-        )}
       </div>
-
-      {/* Body */}
-      {urlLoading ? (
-        <div className="flex items-center justify-center" style={{ height: '75vh' }}>
-          <p className="text-sm text-[#2A2035]/40">Loading PDF…</p>
-        </div>
-      ) : urlError ? (
-        <div className="flex items-center justify-center" style={{ height: '75vh' }}>
-          <p className="text-sm font-semibold text-[#991B1B]">{urlError}</p>
-        </div>
-      ) : (
-        <iframe
-          key={viewing.storagePath}
-          src={signedUrl}
-          className="w-full"
-          style={{ height: '75vh', border: 'none' }}
-          title={viewing.name}
-        />
-      )}
-    </div>
+    </li>
   )
 }

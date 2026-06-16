@@ -74,8 +74,13 @@ function SectionCard({ section, items, loading, onDone }) {
   )
 }
 
-export default function ActionCentre() {
-  const [visible, setVisible] = useState(false)
+export default function ActionCentre({ authorized }) {
+  // When the parent already knows the viewer is a director/admin (e.g. the
+  // /tutor home only mounts this for admins), it passes `authorized` so we can
+  // skip a duplicate getAuthProfile() round trip. Visibility is then derived,
+  // not stored, so we never setState synchronously in the effect.
+  const [selfVisible, setSelfVisible] = useState(false)
+  const visible = authorized !== undefined ? !!authorized : selfVisible
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState([])
   const [generatedAt, setGeneratedAt] = useState(null)
@@ -91,10 +96,17 @@ export default function ActionCentre() {
   }
 
   useEffect(() => {
+    // Access already verified by the parent — just run the checks. Deferred to a
+    // microtask so we don't setState synchronously inside the effect body.
+    if (authorized !== undefined) {
+      if (authorized) Promise.resolve().then(load)
+      return
+    }
+    // Standalone use — self-gate with its own auth check (unchanged behaviour).
     getAuthProfile().then(({ role }) => {
-      if (role === 'admin' || role === 'director') { setVisible(true); load() }
+      if (role === 'admin' || role === 'director') { setSelfVisible(true); load() }
     })
-  }, [])
+  }, [authorized])
 
   if (!visible) return null
 
