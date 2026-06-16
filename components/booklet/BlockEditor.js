@@ -97,6 +97,21 @@ export default function BlockEditor({ block, onChange }) {
           <ImageField value={block.image} onChange={v => set({ image: v })} />
         </div>
       )
+    case 'worked':
+      return (
+        <div className="space-y-2.5">
+          <div><label className={L}>Label</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Worked Solution" /></div>
+          <div><label className={L}>Body ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onBold(e, block.body, v => set({ body: v }))} placeholder={'Step-by-step working for the example…'} /></div>
+          <ImageField value={block.image} onChange={v => set({ image: v })} />
+        </div>
+      )
+    case 'steps':
+      return (
+        <div className="space-y-2.5">
+          <div><label className={L}>Label</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Steps" /></div>
+          <div><label className={L}>Steps — one per line (auto-numbered)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onBold(e, block.body, v => set({ body: v }))} placeholder={'Read the question carefully\nIdentify what is being asked\nChoose the correct formula\nSubstitute and solve'} /></div>
+        </div>
+      )
     case 'text':
       return (
         <div className="space-y-2.5">

@@ -55,7 +55,7 @@ export default function BookletBuilderList() {
       <div className="max-w-5xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-[#2A2035] font-display">Booklet Builder</h1>
+            <h1 className="text-2xl font-bold text-[#2A2035] font-display">Workbooks</h1>
             <p className="text-sm text-[#2A2035]/55 mt-0.5">Build CUBE booklets in the portal — export Student &amp; Solutions copies, then assign to a class on the Curriculum page.</p>
           </div>
           <button onClick={create} disabled={creating} className="px-4 py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">{creating ? 'Creating…' : '＋ New booklet'}</button>

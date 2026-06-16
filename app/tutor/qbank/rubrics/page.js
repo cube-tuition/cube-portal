@@ -34,7 +34,8 @@ export default function RubricsList() {
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} />
       <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
+        <Link href="/tutor/qbank/exams" className="text-xs text-[#325099] hover:underline">← Exams</Link>
+        <div className="flex items-center justify-between mb-6 mt-1">
           <div>
             <h1 className="text-2xl font-bold text-[#2A2035] font-display">Marking rubrics</h1>
             <p className="text-sm text-[#2A2035]/55 mt-0.5">Reusable band-descriptor grids for English writing papers. Attach one to any writing question in the exam builder.</p>

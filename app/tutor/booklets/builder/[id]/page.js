@@ -5,7 +5,7 @@ import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS } from '../../../../../lib/tables'
-import { BLOCK_TYPES, newBlock } from '../../../../../lib/bookletRender'
+import { BLOCK_TYPES, BLOCK_GROUPS, newBlock } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
@@ -164,13 +164,22 @@ export default function BookletBuilderEditor() {
           {/* Add palette */}
           <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 mb-4">
             <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Add a block</p>
-            <div className="flex flex-wrap gap-1.5">
-              {BLOCK_TYPES.map(t => (
-                <button key={t.type} onClick={() => addBlock(t.type)} className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
-                  <span className="mr-1">{t.icon}</span>{t.label}
-                </button>
+            <div className="space-y-2.5">
+              {BLOCK_GROUPS.map(g => (
+                <div key={g}>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">{g}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {BLOCK_TYPES.filter(t => t.group === g).map(t => (
+                      <button key={t.type} onClick={() => addBlock(t.type)} className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+                        <span className="mr-1">{t.icon}</span>{t.label}
+                      </button>
+                    ))}
+                    {g === 'Questions' && (
+                      <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                    )}
+                  </div>
+                </div>
               ))}
-              <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
             </div>
           </div>
 

@@ -127,7 +127,6 @@ export default function QuestionBankPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/tutor/qbank/categories" className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
-            <Link href="/tutor/qbank/exams" className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Exams</Link>
             <Link href="/tutor/qbank/worksheets" className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Additional Questions</Link>
             <Link href="/tutor/qbank/generate" className="px-3.5 py-2 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition">Generate worksheet</Link>
             <Link href="/tutor/qbank/new" className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>

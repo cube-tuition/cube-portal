@@ -87,7 +87,12 @@ export default function ExamBuilderPage() {
   const yearLabel = exam?.year_label
   const subjectId = exam?.subject_id
   const years = useMemo(() => (tax ? [...new Set(tax.subjects.map((s) => s.year_level))].sort((a, b) => a - b) : []), [tax])
-  const subjectsForYear = useMemo(() => (tax && yearLabel ? tax.subjects.filter((s) => String(s.year_level) === String(yearLabel)) : []), [tax, yearLabel])
+  // Exam subject (maths/english) + year → the matching qbank_subject that drives topic scope.
+  const subjectFor = useCallback((yr, paper) => {
+    const subs = (tax?.subjects || []).filter((s) => String(s.year_level) === String(yr))
+    const re = paper === 'english' ? /english|eald|eal/i : /math/i
+    return (subs.find((s) => re.test(s.name)) || subs[0])?.id || null
+  }, [tax])
   const scopeTopics = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
 
   // ── mutators ──────────────────────────────────────────────────────────────
@@ -278,20 +283,15 @@ export default function ExamBuilderPage() {
             <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
               <h2 className="text-sm font-bold text-[#062E63] mb-3">Exam details</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Paper type</label>
+                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Exam subject</label>
                   <select value={exam.paper_type || 'maths'} className={inCls}
-                    onChange={(e) => patch({ paper_type: e.target.value })}>
+                    onChange={(e) => patch({ paper_type: e.target.value, subject_id: subjectFor(exam.year_label, e.target.value), topic_ids: [] })}>
                     <option value="maths">Maths</option><option value="english">English</option>
                   </select></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
                   <select value={exam.year_label || ''} className={inCls}
-                    onChange={(e) => patch({ year_label: e.target.value, subject_id: null, topic_ids: [] })}>
+                    onChange={(e) => patch({ year_label: e.target.value, subject_id: subjectFor(e.target.value, exam.paper_type || 'maths'), topic_ids: [] })}>
                     <option value="">—</option>{years.map((y) => <option key={y} value={String(y)}>Year {y}</option>)}
-                  </select></div>
-                <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Subject</label>
-                  <select value={exam.subject_id || ''} disabled={!exam.year_label} className={inCls}
-                    onChange={(e) => patch({ subject_id: e.target.value || null, topic_ids: [] })}>
-                    <option value="">—</option>{subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Term</label>
                   <select value={exam.term || ''} onChange={(e) => patch({ term: e.target.value })} className={inCls}>
@@ -311,7 +311,7 @@ export default function ExamBuilderPage() {
             <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
               <h2 className="text-sm font-bold text-[#062E63] mb-1">Topic scope</h2>
               <p className="text-[11px] text-[#2A2035]/50 mb-3">The topics this exam covers. Question slots can only pull from these.</p>
-              {!exam.subject_id ? <p className="text-xs text-[#2A2035]/40 italic">Pick a year and subject first.</p>
+              {!exam.subject_id ? <p className="text-xs text-[#2A2035]/40 italic">Pick a year and exam subject first.</p>
                 : scopeTopics.length === 0 ? <p className="text-xs text-[#EA580C]">No topics for this subject — add some in <Link href="/tutor/qbank/categories" className="underline">Categories</Link>.</p>
                   : <div className="flex flex-wrap gap-2">
                     {scopeTopics.map((t) => {
