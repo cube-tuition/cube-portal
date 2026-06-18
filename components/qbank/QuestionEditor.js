@@ -81,6 +81,8 @@ export default function QuestionEditor({ questionId = null, staffName }) {
   const [criteria, setCriteria] = useState({})
   const [images, setImages] = useState([])
   const [removedImageIds, setRemovedImageIds] = useState([])
+  const [solutionImages, setSolutionImages] = useState([])
+  const [removedSolutionImageIds, setRemovedSolutionImageIds] = useState([])
   const [usage, setUsage] = useState(null)
 
   // ── Load taxonomy (+ existing question when editing) ────────────────────────
@@ -132,7 +134,11 @@ export default function QuestionEditor({ questionId = null, staffName }) {
           }
           const { data: im } = await supabase.from(T_QBANK_QUESTION_IMAGES)
             .select('*').eq('question_id', questionId).order('sort_order')
-          if (im?.length) setImages(im.map((x) => ({ id: x.id, storage_path: x.storage_path, alt: x.alt || '' })))
+          if (im?.length) {
+            const map = (x) => ({ id: x.id, storage_path: x.storage_path, alt: x.alt || '' })
+            setImages(im.filter((x) => (x.role || 'stem') !== 'solution').map(map))
+            setSolutionImages(im.filter((x) => x.role === 'solution').map(map))
+          }
 
           const um = await fetchQuestionUsage([questionId])
           if (alive) setUsage(um[questionId] || null)
@@ -216,20 +222,25 @@ export default function QuestionEditor({ questionId = null, staffName }) {
         }
       }
 
-      // Images: delete removed, upload new
-      if (removedImageIds.length) {
+      // Images: delete removed (stem + solution), upload new with their role
+      const removedAll = [...removedImageIds, ...removedSolutionImageIds]
+      if (removedAll.length) {
         const { data: removedRows } = await supabase.from(T_QBANK_QUESTION_IMAGES)
-          .select('storage_path').in('id', removedImageIds)
-        await supabase.from(T_QBANK_QUESTION_IMAGES).delete().in('id', removedImageIds)
+          .select('storage_path').in('id', removedAll)
+        await supabase.from(T_QBANK_QUESTION_IMAGES).delete().in('id', removedAll)
         for (const r of removedRows || []) await deleteQbankImage(r.storage_path)
       }
-      const newOnes = images.filter((x) => x._new)
-      for (let i = 0; i < newOnes.length; i++) {
-        const img = newOnes[i]
-        const path = await uploadQbankImage(img.file)
-        await supabase.from(T_QBANK_QUESTION_IMAGES)
-          .insert({ question_id: qid, storage_path: path, alt: img.alt || null, sort_order: i })
+      const uploadNew = async (list, role) => {
+        const newOnes = list.filter((x) => x._new)
+        for (let i = 0; i < newOnes.length; i++) {
+          const img = newOnes[i]
+          const path = await uploadQbankImage(img.file)
+          await supabase.from(T_QBANK_QUESTION_IMAGES)
+            .insert({ question_id: qid, storage_path: path, alt: img.alt || null, sort_order: i, role })
+        }
       }
+      await uploadNew(images, 'stem')
+      await uploadNew(solutionImages, 'solution')
 
       router.push('/tutor/qbank')
     } catch (e) {
@@ -244,6 +255,12 @@ export default function QuestionEditor({ questionId = null, staffName }) {
     const newlyRemoved = images.filter((x) => x.id && !stillThere.has(x.id)).map((x) => x.id)
     if (newlyRemoved.length) setRemovedImageIds((r) => [...r, ...newlyRemoved])
     setImages(next)
+  }
+  const onSolutionImagesChange = (next) => {
+    const stillThere = new Set(next.filter((x) => x.id).map((x) => x.id))
+    const newlyRemoved = solutionImages.filter((x) => x.id && !stillThere.has(x.id)).map((x) => x.id)
+    if (newlyRemoved.length) setRemovedSolutionImageIds((r) => [...r, ...newlyRemoved])
+    setSolutionImages(next)
   }
 
   const updatePart = (key, field, val) =>
@@ -403,10 +420,13 @@ export default function QuestionEditor({ questionId = null, staffName }) {
         )}
 
         {(isMcq || !isMulti) && (
-          <LatexField
-            label={isMcq ? 'Explanation (shown in the solutions)' : 'Worked solution (answer key)'}
-            value={solution} onChange={setSolution} rows={isMcq ? 2 : 4}
-            placeholder={'e.g. Factorising: $$(x-2)(x-3)=0 \\Rightarrow x=2,3$$'} />
+          <>
+            <LatexField
+              label={isMcq ? 'Explanation (shown in the solutions)' : 'Worked solution (answer key)'}
+              value={solution} onChange={setSolution} rows={isMcq ? 2 : 4}
+              placeholder={'e.g. Factorising: $$(x-2)(x-3)=0 \\Rightarrow x=2,3$$'} />
+            <ImageManager label="Solution figures / images" images={solutionImages} onChange={onSolutionImagesChange} />
+          </>
         )}
         {!isMcq && !isMulti && Number(marks) > 1 && (
           <CriteriaEditor marks={marks} value={criteria} onChange={setCriteria} />

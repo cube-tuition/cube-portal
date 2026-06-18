@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
@@ -189,11 +188,11 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                 }
                 return (
                   <button key={week} onClick={() => setAssignSlot({ term, week })}
-                    className="group w-full border-2 border-dashed border-[#FDE68A] rounded-xl overflow-hidden hover:border-[#F59E0B] hover:bg-[#FFFBEB] transition text-left">
-                    <div className="h-[3px] w-full" style={{ background: '#FDE68A' }} />
+                    className="group w-full border border-dashed border-[#DEE7FF] rounded-xl overflow-hidden bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF] transition text-left">
+                    <div className="h-[3px] w-full bg-[#EEF2FB]" />
                     <div className="px-3 pt-2 pb-2.5">
-                      <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5" style={{ color: '#D97706' }}>Wk {week}</span>
-                      <p className="text-[11px] font-semibold text-[#2A2035]/20 group-hover:text-[#325099]/40 transition">+ assign booklet</p>
+                      <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5 text-[#A9B4CC] group-hover:text-[#325099] transition">Wk {week}</span>
+                      <p className="text-[11px] font-semibold text-[#2A2035]/30 group-hover:text-[#325099]/60 transition">+ assign booklet</p>
                     </div>
                   </button>
                 )
@@ -508,7 +507,6 @@ export default function BookletsPage() {
   const [loading, setLoading]       = useState(true)
   const [activeYear, setActiveYear] = useState(8)
   const [activeSub, setActiveSub]   = useState('Maths')
-  const [showAdd, setShowAdd]       = useState(false)
   const [addPrefill, setAddPrefill] = useState({})
   const [editing, setEditing]       = useState(null)
   const [deleteId, setDeleteId]     = useState(null)
@@ -623,18 +621,6 @@ export default function BookletsPage() {
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Curriculum</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">{booklets.length} booklet{booklets.length !== 1 ? 's' : ''} across all years and subjects</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/tutor/booklets/master"
-              className="px-4 py-2 text-sm font-semibold text-[#325099] border border-[#DEE7FF] rounded-xl hover:bg-[#F0F4FF] transition">
-              📚 Booklet Database
-            </Link>
-            <button
-              onClick={() => setShowAdd(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition"
-            >
-              <span className="text-base leading-none">+</span> Add Booklet
-            </button>
           </div>
         </div>
 
@@ -803,17 +789,16 @@ export default function BookletsPage() {
                           <button
                             key={week}
                             onClick={() => setAssignSlot({ term: termNum, week })}
-                            className="group w-full border-2 border-dashed border-[#FDE68A] rounded-xl flex flex-col overflow-hidden hover:border-[#F59E0B] hover:bg-[#FFFBEB] transition text-left"
+                            className="group w-full border border-dashed border-[#DEE7FF] rounded-xl flex flex-col overflow-hidden bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF] transition text-left"
                           >
-                            <div className="h-[3px] w-full" style={{ background: '#FDE68A' }} />
+                            <div className="h-[3px] w-full bg-[#EEF2FB]" />
                             <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5 flex-1">
                               <span
-                                className="text-[9px] font-bold uppercase tracking-widest"
-                                style={{ color: '#D97706' }}
+                                className="text-[9px] font-bold uppercase tracking-widest text-[#A9B4CC] group-hover:text-[#325099] transition"
                               >
                                 Wk {week}
                               </span>
-                              <p className="text-[12px] font-semibold text-[#2A2035]/20 group-hover:text-[#325099]/40 transition leading-snug">
+                              <p className="text-[12px] font-semibold text-[#2A2035]/30 group-hover:text-[#325099]/60 transition leading-snug">
                                 + assign booklet
                               </p>
                             </div>
@@ -848,15 +833,15 @@ export default function BookletsPage() {
       )}
 
       {/* Modals */}
-      {(showAdd || editing) && (
+      {editing && (
         <BookletModal
           booklet={editing}
           defaultYear={activeYear}
           defaultSubject={activeSub}
           defaultTerm={addPrefill.term_number}
           defaultWeek={addPrefill.week}
-          onClose={() => { setShowAdd(false); setEditing(null); setAddPrefill({}) }}
-          onSaved={() => { setShowAdd(false); setEditing(null); setAddPrefill({}); load() }}
+          onClose={() => { setEditing(null); setAddPrefill({}) }}
+          onSaved={() => { setEditing(null); setAddPrefill({}); load() }}
         />
       )}
       {deleteId && (

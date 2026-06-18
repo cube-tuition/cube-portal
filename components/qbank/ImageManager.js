@@ -11,7 +11,7 @@ import { qbankImageUrl } from '../../lib/qbank'
  * Removing an existing image flags it (the parent collects ids to delete on
  * save); removing a new one just drops it from the array.
  */
-export default function ImageManager({ images, onChange }) {
+export default function ImageManager({ images, onChange, label = 'Figures / images' }) {
   const inputRef = useRef(null)
 
   const addFiles = (fileList) => {
@@ -36,7 +36,7 @@ export default function ImageManager({ images, onChange }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <label className="text-xs font-semibold text-[#062E63]">Figures / images</label>
+        <label className="text-xs font-semibold text-[#062E63]">{label}</label>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}

@@ -52,7 +52,7 @@ export default function GeneratePage() {
       fetchTaxonomy().then(setTax)
       fetchQuestionUsage().then(setUsageMap)
       supabase.from(T_QBANK_QUESTIONS)
-        .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order)')
+        .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
         .order('created_at', { ascending: false })
         .then(({ data }) => { setQuestions(data || []); setLoadingQ(false) })
     })

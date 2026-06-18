@@ -292,6 +292,11 @@ export default function EndOfTermEmailPage() {
   const allUploaded   = students.length > 0 && uploadedCount === students.length
   const familiesWithEmail = families.filter(f => f.parent_email)
 
+  // Per-STUDENT "not yet sent" list. Family grouping can hide students with no
+  // family/parent email, so we track unsent reports at the student level too.
+  const sentEmails = new Set(results.filter(r => r.success).map(r => r.email))
+  const unsentStudents = students.filter(s => !(s.parent_email && sentEmails.has(s.parent_email)))
+
   // ── Send emails ───────────────────────────────────────────────────────────
   const [sendingFamily, setSendingFamily] = useState(null) // email address of family being individually sent
   const [confirmSend,  setConfirmSend]  = useState(null)  // { families, label } | null — pending confirmation
@@ -542,6 +547,42 @@ export default function EndOfTermEmailPage() {
         {/* ── TAB: Preview & Send ──────────────────────────────────────────── */}
         {tab === 'preview' && (
           <div className="space-y-5">
+
+            {/* Reports not yet sent — listed per STUDENT so none are missed,
+                including students with no linked family / parent email. */}
+            {students.length > 0 && (
+              unsentStudents.length === 0 ? (
+                <div className="bg-[#F0FDF4] border border-[#A7F3D0] rounded-2xl px-5 py-3 text-sm font-semibold text-[#166534]">
+                  ✓ All {students.length} student report{students.length > 1 ? 's have' : ' has'} been sent.
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-[#FED7AA] overflow-hidden">
+                  <div className="bg-[#FFF7ED] border-b border-[#FED7AA] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+                    <span className="text-xs font-bold text-[#9A3412]">⚠ Reports not yet sent · {unsentStudents.length} student{unsentStudents.length > 1 ? 's' : ''}</span>
+                    <span className="text-[11px] text-[#9A3412]/70">Per student — catches anyone with no family / parent email</span>
+                  </div>
+                  <div className="divide-y divide-[#FFEDD5] max-h-72 overflow-y-auto">
+                    {unsentStudents.map(s => {
+                      const pdfReady = uploads[`${s.student_id}_${s.class_id}`]?.exists
+                      const reason = !s.parent_email
+                        ? { t: 'No parent email', c: 'bg-[#FEE2E2] text-red-700' }
+                        : !pdfReady
+                          ? { t: 'PDF missing', c: 'bg-[#FEF3C7] text-[#92400E]' }
+                          : { t: 'Not sent yet', c: 'bg-[#EEF3FF] text-[#325099]' }
+                      return (
+                        <div key={`${s.student_id}_${s.class_id}`} className="px-5 py-2.5 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="font-medium text-sm text-[#062E63]">{s.student_name}</span>
+                            <span className="text-xs text-[#325099]/50 ml-2">Y{s.year} · {s.class_name}{s.parent_email ? ` · ${s.parent_email}` : ''}</span>
+                          </div>
+                          <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0 ${reason.c}`}>{reason.t}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            )}
 
             {/* Email template editor */}
             <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">

@@ -64,7 +64,8 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
     for (const a of attendance) {
       const w = weekNumber(isoToDate(a.session_date), term)
       if (!w) continue
-      const order = { absent: 3, late: 2, excused: 1, makeup: 1, present: 0 }
+      // A cancelled lesson still counts as an absence for the trend/report.
+      const order = { absent: 3, cancelled: 3, late: 2, excused: 1, makeup: 1, present: 0 }
       const prev = attByWeek.get(w)
       if (!prev || (order[a.status] || 0) > (order[prev.status] || 0)) attByWeek.set(w, a)
     }
@@ -80,11 +81,14 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
       const quiz = quizByWeek.get(w)
       const score = quiz?.score != null && quiz?.max_score
         ? Math.round((quiz.score / quiz.max_score) * 100) : null
-      const status = att?.status || null
+      // Treat a cancelled lesson as an absence on the trend/report.
+      const status = att?.status === 'cancelled' ? 'absent' : (att?.status || null)
       const hw = quiz?.homework_grade || null
       out.push({
         week: `Wk ${w}`, score,
-        attended: status === 'present' || status === 'late' || status === 'makeup' ? 1 : (status ? 0 : null),
+        // Full-height shaded band for any recorded status (coloured per status by
+        // the chart's Cell), so absences show as a red band rather than nothing.
+        attended: status ? 1 : null,
         status, hw, hwNum: hw ? HW_NUMERIC[hw] || null : null,
       })
     }

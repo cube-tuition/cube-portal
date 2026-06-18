@@ -181,13 +181,17 @@ export default function ClassOverviewPage() {
       for (const s of subs || []) subMap[s.session_date] = s
       setSubAssignments(subMap)
 
-      // Lessons for this class — regular sessions only (makeup rows are guest
-      // slots for individual students and must not appear as class sessions).
+      // Lessons for this class. We include regular sessions AND class sessions
+      // that were moved to another teacher/date — those get is_makeup=true but
+      // keep makeup_student_id null, and should still appear (marked "moved")
+      // under their original week. We still exclude per-student makeup guest rows
+      // (makeup_student_id set), which are individual slots and must not appear
+      // as class sessions.
       const { data: lessonRows } = await supabase
         .from(T_LESSONS)
-        .select('id, lesson_date, start_time, end_time, room, status, notes, main_teacher, scheduled_teacher_id')
+        .select('id, lesson_date, week, start_time, end_time, room, status, notes, main_teacher, scheduled_teacher_id, is_makeup, makeup_student_id')
         .eq('class_id', classId)
-        .eq('is_makeup', false)
+        .is('makeup_student_id', null)
         .order('lesson_date')
       setLessons(lessonRows || [])
 
@@ -217,7 +221,14 @@ export default function ClassOverviewPage() {
       const weekMap = new Map()
       for (const lesson of lessons) {
         const d = new Date(lesson.lesson_date + 'T00:00:00')
-        const weekNum = Math.floor((d - termStart) / (7 * 24 * 60 * 60 * 1000)) + 1
+        // Prefer the lesson's stored week number when valid so that a session
+        // moved to a later date (e.g. a 1:1 lesson moved to another teacher)
+        // still appears under its original week tab instead of jumping weeks or
+        // disappearing. Fall back to computing the week from the date.
+        const computedWeek = Math.floor((d - termStart) / (7 * 24 * 60 * 60 * 1000)) + 1
+        const weekNum = (Number.isInteger(lesson.week) && lesson.week >= 1 && lesson.week <= 10)
+          ? lesson.week
+          : computedWeek
         if (weekNum < 1) continue
         if (!weekMap.has(weekNum)) weekMap.set(weekNum, { week: weekNum, dates: [], lessons: [] })
         weekMap.get(weekNum).dates.push(lesson.lesson_date)
@@ -447,6 +458,13 @@ export default function ClassOverviewPage() {
                   const lesson = lessonByDate.get(d)
                   const isCancelled = lesson?.status === 'cancelled'
                   const isRescheduled = lesson?.status === 'rescheduled'
+                  // A class session that was moved to another teacher/date keeps
+                  // makeup_student_id null but is flagged is_makeup. Keep showing
+                  // the week, marked as moved, instead of dropping it.
+                  const isMoved = lesson?.is_makeup === true && !lesson?.makeup_student_id
+                  const movedTeacherName = lesson?.scheduled_teacher_id
+                    ? (allStaff.find(s => s.id === lesson.scheduled_teacher_id)?.full_name || null)
+                    : null
                   // Use lesson-specific time/room overrides if present
                   const displayStart = lesson?.start_time || cls.start_time
                   const displayEnd   = lesson?.end_time   || cls.end_time
@@ -492,8 +510,23 @@ export default function ClassOverviewPage() {
                       </div>
                     )}
 
+                    {/* Moved-to-another-teacher banner — keep the week visible */}
+                    {isMoved && (
+                      <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#FEF3C7] border border-[#FDE68A]">
+                        <span className="text-base">🔄</span>
+                        <div>
+                          <p className="text-xs font-bold text-[#92400E]">
+                            Lesson moved{movedTeacherName ? ` to ${movedTeacherName}` : ' to another teacher'} · {fmtDate(lesson.lesson_date)}
+                          </p>
+                          <p className="text-xs text-[#92400E]/80 mt-0.5">
+                            This session is now marked on the substitute teacher&rsquo;s page.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Lesson time/room override (scheduled but different from default) */}
-                    {hasOverride && (
+                    {hasOverride && !isMoved && (
                       <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#EEF4FF] border border-[#DEE7FF]">
                         <span className="text-base">ℹ️</span>
                         <p className="text-xs font-semibold text-[#325099]">
@@ -504,7 +537,7 @@ export default function ClassOverviewPage() {
                     )}
 
                     {/* Teacher / sub assignment — shown above the workbook */}
-                    {!isCancelled && (
+                    {!isCancelled && !isMoved && (
                       <SubPicker
                         classId={cls.id}
                         dateISO={d}
@@ -532,7 +565,7 @@ export default function ClassOverviewPage() {
                         <WeekBooklet cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin} />
                       </div>
                     )}
-                    {!isCancelled && (
+                    {!isCancelled && !isMoved && (
                       <SessionMarker
                         key={`${cls.id}-${d}`}
                         classId={cls.id}

@@ -55,7 +55,7 @@ export default function ExamBuilderPage() {
   const dirtyRef = useRef(false)
 
   const loadQuestions = useCallback(() => supabase.from(T_QBANK_QUESTIONS)
-    .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order)')
+    .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
     .then(({ data }) => setQuestions(data || [])), [])
 
   useEffect(() => {

@@ -34,7 +34,7 @@ function onBold(e, value, setValue) {
   requestAnimationFrame(() => { try { el.selectionStart = el.selectionEnd = caret } catch { /* noop */ } })
 }
 
-function ImageField({ value, onChange }) {
+function ImageField({ value, onChange, label = 'Diagram / image' }) {
   const [busy, setBusy] = useState(false)
   const upload = async (file) => {
     if (!file) return
@@ -45,7 +45,7 @@ function ImageField({ value, onChange }) {
   }
   return (
     <div>
-      <label className={L}>Diagram / image</label>
+      <label className={L}>{label}</label>
       {value ? (
         <div className="flex items-center gap-2">
           <img src={qbankImageUrl(value)} alt="" className="h-16 rounded border border-[#DEE7FF] object-contain bg-white" />
@@ -129,6 +129,7 @@ export default function BlockEditor({ block, onChange }) {
           </div>
           <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} />
           <div><label className={L}>Sample solution / answer (shown in Solutions copy)</label><textarea className={TA} value={block.solution} onChange={e => set({ solution: e.target.value })} onKeyDown={e => onBold(e, block.solution, v => set({ solution: v }))} placeholder={'a. 320 cm²\nb. 90 mm²'} /></div>
+          <ImageField label="Solution diagram / image (Solutions copy)" value={block.solutionImage || ''} onChange={v => set({ solutionImage: v })} />
         </div>
       )
     case 'mcq':
@@ -147,13 +148,14 @@ export default function BlockEditor({ block, onChange }) {
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-[110px_1fr] gap-2">
+          <div className="grid grid-cols-[110px_90px_1fr] gap-2">
             <div><label className={L}>Correct</label>
               <select className={I} value={block.answer} onChange={e => set({ answer: e.target.value })}>
                 <option value="">—</option>
                 {(block.options || []).map(o => <option key={o.k} value={o.k}>{o.k}</option>)}
               </select>
             </div>
+            <div><label className={L}>Marks</label><input className={I} value={block.marks ?? ''} onChange={e => set({ marks: e.target.value })} placeholder="1" /></div>
             <div><label className={L}>Explanation (Solutions copy)</label><input className={I} value={block.explanation} onChange={e => set({ explanation: e.target.value })} /></div>
           </div>
         </div>

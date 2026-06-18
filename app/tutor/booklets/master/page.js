@@ -415,17 +415,13 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
     booklet ? (booklet.file_paths?.length ? booklet.file_paths : (booklet.file_path ? [booklet.file_path] : [])) : []
   )
   const [existingPdfNames,  setExistingPdfNames]  = useState(booklet?.pdf_filenames  || [])
-  const [existingWordPaths, setExistingWordPaths] = useState(booklet?.word_paths     || [])
-  const [existingWordNames, setExistingWordNames] = useState(booklet?.word_filenames || [])
 
   // New files staged for upload
   const [newPdfFiles,  setNewPdfFiles]  = useState([])
-  const [newWordFiles, setNewWordFiles] = useState([])
 
   const [saving, setSaving] = useState(false)
   const [err,    setErr]    = useState('')
   const pdfRef  = useRef()
-  const wordRef = useRef()
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
 
@@ -450,20 +446,14 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
       // Remove deleted existing files from storage
       if (isEdit) {
         const origPdf  = booklet.file_paths?.length ? booklet.file_paths : (booklet.file_path ? [booklet.file_path] : [])
-        const origWord = booklet.word_paths || []
         const removedPdf  = origPdf.filter(p => !existingPdfPaths.includes(p))
-        const removedWord = origWord.filter(p => !existingWordPaths.includes(p))
         if (removedPdf.length)  await supabase.storage.from('booklets').remove(removedPdf)
-        if (removedWord.length) await supabase.storage.from('booklets').remove(removedWord)
       }
 
       const { paths: newPdfPaths,  names: newPdfNames  } = await uploadFiles(newPdfFiles,  folder)
-      const { paths: newWordPaths, names: newWordNames } = await uploadFiles(newWordFiles, folder)
 
       const finalPdfPaths  = [...existingPdfPaths,  ...newPdfPaths]
       const finalPdfNames  = [...existingPdfNames,  ...newPdfNames]
-      const finalWordPaths = [...existingWordPaths, ...newWordPaths]
-      const finalWordNames = [...existingWordNames, ...newWordNames]
 
       const payload = {
         booklet_name:   form.booklet_name.trim(),
@@ -477,8 +467,6 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
         file_path:      finalPdfPaths[0]  ?? null,
         file_paths:     finalPdfPaths,
         pdf_filenames:  finalPdfNames,
-        word_paths:     finalWordPaths,
-        word_filenames: finalWordNames,
       }
 
       const { error } = isEdit
@@ -593,31 +581,6 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
               onChange={e => { setNewPdfFiles(p => [...p, ...Array.from(e.target.files || [])]); e.target.value = '' }} />
           </div>
 
-          {/* Word docs */}
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">Word Documents <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
-            {existingWordPaths.map((path, i) => (
-              <div key={path} className="flex items-center justify-between px-3 py-2 mb-1.5 bg-[#F0FDF4] rounded-lg">
-                <span className="text-xs font-semibold text-[#0F766E] truncate">📝 {existingWordNames[i] || `Doc ${i + 1}`}</span>
-                <button onClick={() => { setExistingWordPaths(p => p.filter((_, j) => j !== i)); setExistingWordNames(p => p.filter((_, j) => j !== i)) }}
-                  className="text-[10px] text-red-400 hover:text-red-600 font-semibold ml-2 shrink-0">Remove</button>
-              </div>
-            ))}
-            {newWordFiles.map((f, i) => (
-              <div key={i} className="flex items-center justify-between px-3 py-2 mb-1.5 bg-[#ECFDF5] rounded-lg">
-                <span className="text-xs font-semibold text-[#0F766E] truncate">📝 {f.name}</span>
-                <button onClick={() => setNewWordFiles(p => p.filter((_, j) => j !== i))}
-                  className="text-[10px] text-red-400 hover:text-red-600 font-semibold ml-2 shrink-0">Remove</button>
-              </div>
-            ))}
-            <div onClick={() => wordRef.current?.click()}
-              className="border-2 border-dashed border-[#D1FAE5] rounded-xl px-4 py-3 text-center cursor-pointer hover:border-[#0F766E] hover:bg-[#F0FDF4] transition">
-              <p className="text-xs text-[#2A2035]/40">{(existingWordPaths.length + newWordFiles.length) > 0 ? '+ Add another Word doc' : 'Click to attach Word document(s)'}</p>
-            </div>
-            <input ref={wordRef} type="file" accept=".docx,.doc,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple className="hidden"
-              onChange={e => { setNewWordFiles(p => [...p, ...Array.from(e.target.files || [])]); e.target.value = '' }} />
-          </div>
-
           {err && <p className="text-xs text-red-500">{err}</p>}
         </div>
 
@@ -638,6 +601,8 @@ export default function MasterDatabasePage() {
   const router = useRouter()
   const [staff,    setStaff]    = useState(null)
   const [booklets, setBooklets] = useState([])
+  const [builds,   setBuilds]   = useState([])   // booklet_builds (workbook builder)
+  const [creatingWb, setCreatingWb] = useState(false)
   const [loading,  setLoading]  = useState(true)
 
   const [activeYear, setActiveYear] = useState(5)
@@ -665,14 +630,38 @@ export default function MasterDatabasePage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('booklets')
-      .select('id, booklet_name, year, subject, topic, skill, term_number, week, notes, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
-      .order('topic', { nullsFirst: false })
-      .order('booklet_name')
+    const [{ data }, { data: bd }] = await Promise.all([
+      supabase
+        .from('booklets')
+        .select('id, booklet_name, year, subject, topic, skill, term_number, week, notes, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
+        .order('topic', { nullsFirst: false })
+        .order('booklet_name'),
+      supabase
+        .from('booklet_builds')
+        .select('id, title, year, subject, topic, status, booklet_id, updated_at')
+        .order('updated_at', { ascending: false }),
+    ])
     setBooklets(data || [])
+    setBuilds(bd || [])
     setLoading(false)
   }, [])
+
+  // Create a new workbook (builder) and jump straight into it.
+  const createWorkbook = async () => {
+    setCreatingWb(true)
+    const { data, error } = await supabase.from('booklet_builds')
+      .insert({ title: 'Untitled workbook', subject: activeSub, year: activeYear, blocks: [] })
+      .select('id').single()
+    setCreatingWb(false)
+    if (error) { alert('Could not create workbook: ' + error.message); return }
+    router.push(`/tutor/booklets/builder/${data.id}`)
+  }
+
+  const deleteWorkbook = async (wb) => {
+    if (!confirm(`Delete "${wb.title || 'Untitled workbook'}"? This can't be undone.`)) return
+    await supabase.from('booklet_builds').delete().eq('id', wb.id)
+    setBuilds(bs => bs.filter(x => x.id !== wb.id))
+  }
 
   useEffect(() => { if (staff) load() }, [staff, load])
 
@@ -749,6 +738,12 @@ export default function MasterDatabasePage() {
   const accentColor = getAccentColor(activeSub)
   const accentBg    = getAccentBg(activeSub)
 
+  // Builder workbooks: drafts (not yet saved to the database) shown in a strip;
+  // published ones are matched to their master row so we can offer "Open in builder".
+  const draftBuilds = builds.filter(wb => wb.status !== 'published')
+  const buildByBookletId = {}
+  for (const wb of builds) if (wb.booklet_id) buildByBookletId[wb.booklet_id] = wb
+
   if (!staff) return null
 
   return (
@@ -789,6 +784,13 @@ export default function MasterDatabasePage() {
               🎯 Skills
             </button>
             <button
+              onClick={createWorkbook}
+              disabled={creatingWb}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#325099] text-[#325099] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap disabled:opacity-40"
+            >
+              📓 {creatingWb ? 'Creating…' : 'Create workbook'}
+            </button>
+            <button
               onClick={() => setShowAdd(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-xl hover:bg-[#062E63] transition whitespace-nowrap"
             >
@@ -823,6 +825,30 @@ export default function MasterDatabasePage() {
             </button>
           ))}
         </div>
+
+        {/* Workbooks in progress (builder drafts not yet saved to the database) */}
+        {draftBuilds.length > 0 && (
+          <div className="mb-7 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden shadow-sm">
+            <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-2.5 flex items-center justify-between gap-3">
+              <span className="text-xs font-bold text-[#325099]">📝 Workbooks in progress · {draftBuilds.length}</span>
+              <span className="text-[11px] text-[#2A2035]/40">Save to curriculum from the builder to add them to the database below</span>
+            </div>
+            <div className="divide-y divide-[#F0F4FF]">
+              {draftBuilds.map(wb => (
+                <div key={wb.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
+                  <button onClick={() => router.push(`/tutor/booklets/builder/${wb.id}`)} className="text-left min-w-0 truncate">
+                    <span className="font-semibold text-sm text-[#062E63]">{wb.title || 'Untitled workbook'}</span>
+                    <span className="text-xs text-[#2A2035]/50 ml-2">{[wb.subject, wb.year ? `Year ${wb.year}` : null, wb.topic].filter(Boolean).join(' · ') || 'No details yet'}</span>
+                  </button>
+                  <div className="flex items-center gap-3 shrink-0 text-[11px]">
+                    <button onClick={() => router.push(`/tutor/booklets/builder/${wb.id}`)} className="font-semibold text-[#325099] hover:underline">Open →</button>
+                    <button onClick={() => deleteWorkbook(wb)} className="text-[#2A2035]/40 hover:text-rose-500">Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-24">
@@ -860,7 +886,6 @@ export default function MasterDatabasePage() {
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Topic</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Skill</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">PDFs</th>
-                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#0F766E]/60">Word Docs</th>
                           <th className="px-4 py-3 w-12"></th>
                         </tr>
                       </thead>
@@ -945,19 +970,17 @@ export default function MasterDatabasePage() {
                               />
                             </td>
 
-                            {/* Word docs */}
-                            <td className="px-5 py-3">
-                              <FileCell
-                                booklet={b}
-                                type="word"
-                                accentColor={accentColor}
-                                accentBg={accentBg}
-                                onUpdated={handleBookletUpdated}
-                              />
-                            </td>
-
-                            {/* Edit */}
-                            <td className="px-4 py-3">
+                            {/* Edit / Open in builder */}
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              {buildByBookletId[b.id] && (
+                                <button
+                                  onClick={() => router.push(`/tutor/booklets/builder/${buildByBookletId[b.id].id}`)}
+                                  className="block ml-auto text-[10px] font-semibold text-[#325099]/50 hover:text-[#325099] transition mb-1"
+                                  title="Open in workbook builder"
+                                >
+                                  Builder ↗
+                                </button>
+                              )}
                               <button
                                 onClick={() => setEditingBooklet(b)}
                                 className="text-[10px] font-semibold text-[#325099]/50 hover:text-[#325099] transition"
