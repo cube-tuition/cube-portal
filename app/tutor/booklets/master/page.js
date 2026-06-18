@@ -408,6 +408,7 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
     term_number:  booklet?.term_number  ?? '',
     week:         booklet?.week         ?? '',
     notes:        booklet?.notes        ?? '',
+    content:      booklet?.content      ?? '',
   })
 
   // Existing files (edit mode)
@@ -464,6 +465,7 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
         term_number:    form.term_number !== '' ? Number(form.term_number) : null,
         week:           form.week        !== '' ? Number(form.week)        : null,
         notes:          form.notes.trim() || null,
+        content:        form.content.trim() || null,
         file_path:      finalPdfPaths[0]  ?? null,
         file_paths:     finalPdfPaths,
         pdf_filenames:  finalPdfNames,
@@ -556,6 +558,13 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
             <textarea value={form.notes} onChange={set('notes')} rows={2} placeholder="Any notes…" className={INP + ' resize-none'} />
           </div>
 
+          {/* Content */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Content <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
+            <textarea value={form.content} onChange={set('content')} rows={5} placeholder={'What\'s in this booklet? e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'} className={INP + ' resize-y'} />
+            <p className="text-[10px] text-[#2A2035]/40 mt-1">Shown via the “Content” link on the booklet row.</p>
+          </div>
+
           {/* PDFs */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">PDFs <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
@@ -615,6 +624,10 @@ export default function MasterDatabasePage() {
   const [editingSkill,   setEditingSkill]   = useState(null)
   const [skillDraft,     setSkillDraft]     = useState('')
   const [editingBooklet, setEditingBooklet] = useState(null)
+  const [viewContent,    setViewContent]    = useState(null)   // booklet whose content modal is open
+  const [deleteBooklet,  setDeleteBooklet]  = useState(null)   // booklet pending deletion
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting,       setDeleting]       = useState(false)
   const [showTopics,     setShowTopics]     = useState(false)
   const [showSkills,     setShowSkills]     = useState(false)
   const [topicBank,      setTopicBank]      = useState([])
@@ -633,7 +646,7 @@ export default function MasterDatabasePage() {
     const [{ data }, { data: bd }] = await Promise.all([
       supabase
         .from('booklets')
-        .select('id, booklet_name, year, subject, topic, skill, term_number, week, notes, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
+        .select('id, booklet_name, year, subject, topic, skill, term_number, week, notes, content, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
@@ -693,6 +706,28 @@ export default function MasterDatabasePage() {
 
   const handleBookletUpdated = (updated) => {
     setBooklets(bs => bs.map(b => b.id === updated.id ? updated : b))
+  }
+
+  // Permanently delete a booklet: its PDFs in storage, any curriculum
+  // assignments, and unlink any workbook build (reverting it to a draft).
+  const handleDeleteBooklet = async () => {
+    const b = deleteBooklet
+    if (!b) return
+    setDeleting(true)
+    try {
+      const pdfPaths = b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : [])
+      if (pdfPaths.length) await supabase.storage.from('booklets').remove(pdfPaths)
+      await supabase.from('class_booklet_assignments').delete().eq('booklet_id', b.id)
+      await supabase.from('booklet_builds').update({ booklet_id: null, status: 'draft' }).eq('booklet_id', b.id)
+      const { error } = await supabase.from('booklets').delete().eq('id', b.id)
+      if (error) throw error
+      setBooklets(bs => bs.filter(x => x.id !== b.id))
+      setDeleteBooklet(null); setDeleteConfirmText('')
+    } catch (e) {
+      alert('Could not delete booklet: ' + e.message)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const saveTopic = async (id, topic) => {
@@ -895,6 +930,12 @@ export default function MasterDatabasePage() {
                             <td className="px-5 py-3 font-semibold text-[#2A2035]">
                               <div>{bookletLabel(b)}</div>
                               {b.notes && <div className="text-[10px] text-[#2A2035]/40 mt-0.5 font-normal">{b.notes}</div>}
+                              <button
+                                onClick={() => setViewContent(b)}
+                                className="mt-1 text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition"
+                              >
+                                📄 Content
+                              </button>
                             </td>
                             <td className="px-4 py-3 text-[#2A2035]/50">{b.term_number ? `T${b.term_number}` : '—'}</td>
                             <td className="px-4 py-3 text-[#2A2035]/50">{b.week ?? '—'}</td>
@@ -988,6 +1029,13 @@ export default function MasterDatabasePage() {
                               >
                                 Edit
                               </button>
+                              <button
+                                onClick={() => { setDeleteBooklet(b); setDeleteConfirmText('') }}
+                                className="ml-3 text-[10px] font-semibold text-red-400/70 hover:text-red-600 transition"
+                                title="Delete booklet"
+                              >
+                                Delete
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -1046,6 +1094,72 @@ export default function MasterDatabasePage() {
           onSaved={() => { setEditingBooklet(null); load() }}
         />
       )}
+
+      {viewContent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) setViewContent(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+            <div className="flex items-start justify-between px-6 py-4 border-b border-[#F0F4FF]">
+              <div>
+                <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">Booklet content</p>
+                <h2 className="text-sm font-bold text-[#062E63]">{bookletLabel(viewContent)}</h2>
+              </div>
+              <button onClick={() => setViewContent(null)} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-6 py-5">
+              {viewContent.content ? (
+                <p className="text-sm text-[#2A2035] whitespace-pre-wrap leading-relaxed">{viewContent.content}</p>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-sm text-[#2A2035]/40">No content listed for this booklet yet.</p>
+                  <button
+                    onClick={() => { setEditingBooklet(viewContent); setViewContent(null) }}
+                    className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
+                  >
+                    Add content →
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteBooklet && (() => {
+        const confirmTarget = (deleteBooklet.booklet_name || '').trim()
+        const ready = deleteConfirmText.trim() === confirmTarget && confirmTarget.length > 0
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget && !deleting) { setDeleteBooklet(null); setDeleteConfirmText('') } }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <div className="px-6 py-4 border-b border-[#F0F4FF]">
+                <h2 className="text-sm font-bold text-red-600">Delete booklet</h2>
+              </div>
+              <div className="px-6 py-5 space-y-3">
+                <p className="text-sm text-[#2A2035]">
+                  This permanently deletes <span className="font-bold text-[#062E63]">{bookletLabel(deleteBooklet)}</span>, its PDF files, and any curriculum assignments. This cannot be undone.
+                </p>
+                <p className="text-xs text-[#2A2035]/60">
+                  To confirm, type the booklet name <span className="font-semibold text-[#062E63]">{confirmTarget}</span> below:
+                </p>
+                <input
+                  autoFocus
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  placeholder={confirmTarget}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] focus:outline-none focus:border-red-400 bg-white"
+                />
+              </div>
+              <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+                <button onClick={() => { setDeleteBooklet(null); setDeleteConfirmText('') }} disabled={deleting}
+                  className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition disabled:opacity-40">Cancel</button>
+                <button onClick={handleDeleteBooklet} disabled={!ready || deleting}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  {deleting ? 'Deleting…' : 'Delete permanently'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

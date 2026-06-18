@@ -143,7 +143,9 @@ export default function BlockEditor({ block, onChange }) {
               {(block.options || []).map((o, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <span className="w-5 text-xs font-bold text-[#325099]">{o.k}.</span>
-                  <input className={I} value={o.t} onChange={e => { const options = block.options.map((x, j) => j === i ? { ...x, t: e.target.value } : x); set({ options }) }} />
+                  <input className={I} value={o.t}
+                    onChange={e => { const options = block.options.map((x, j) => j === i ? { ...x, t: e.target.value } : x); set({ options }) }}
+                    onKeyDown={e => onBold(e, o.t, v => { const options = block.options.map((x, j) => j === i ? { ...x, t: v } : x); set({ options }) })} />
                 </div>
               ))}
             </div>
@@ -156,7 +158,7 @@ export default function BlockEditor({ block, onChange }) {
               </select>
             </div>
             <div><label className={L}>Marks</label><input className={I} value={block.marks ?? ''} onChange={e => set({ marks: e.target.value })} placeholder="1" /></div>
-            <div><label className={L}>Explanation (Solutions copy)</label><input className={I} value={block.explanation} onChange={e => set({ explanation: e.target.value })} /></div>
+            <div><label className={L}>Explanation (Solutions copy)</label><input className={I} value={block.explanation} onChange={e => set({ explanation: e.target.value })} onKeyDown={e => onBold(e, block.explanation, v => set({ explanation: v }))} /></div>
           </div>
         </div>
       )
@@ -182,9 +184,67 @@ export default function BlockEditor({ block, onChange }) {
           <div><label className={L}>Lines</label><input className={I} type="text" inputMode="numeric" value={block.lines} onChange={e => set({ lines: e.target.value.replace(/\D/g, '') })} /></div>
         </div>
       )
+    case 'table':
+      return <TableEditor block={block} set={set} />
     default:
       return null
   }
+}
+
+// ── Table editor — flexible rows/cols, optional header, math/bold cells ───────
+function TableEditor({ block, set }) {
+  const rows = Array.isArray(block.rows) && block.rows.length ? block.rows : [['', '']]
+  const nCols = rows[0]?.length || 0
+  const setCell = (r, c, v) => set({ rows: rows.map((row, ri) => ri === r ? row.map((cell, ci) => ci === c ? v : cell) : row) })
+  const addRow = () => set({ rows: [...rows, Array(nCols || 1).fill('')] })
+  const removeRow = () => { if (rows.length > 1) set({ rows: rows.slice(0, -1) }) }
+  const addCol = () => set({ rows: rows.map(row => [...row, '']) })
+  const removeCol = () => { if (nCols > 1) set({ rows: rows.map(row => row.slice(0, -1)) }) }
+  const STEP = 'w-6 h-6 flex items-center justify-center rounded border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none'
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-4 flex-wrap">
+        <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer">
+          <input type="checkbox" checked={!!block.headerRow} onChange={e => set({ headerRow: e.target.checked })} /> Header row
+        </label>
+        <div className="flex items-center gap-1.5 text-[11px] text-[#2A2035]/50">
+          <span>Rows</span>
+          <button type="button" onClick={removeRow} className={STEP}>−</button>
+          <span className="w-4 text-center font-semibold text-[#2A2035]">{rows.length}</span>
+          <button type="button" onClick={addRow} className={STEP}>+</button>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] text-[#2A2035]/50">
+          <span>Columns</span>
+          <button type="button" onClick={removeCol} className={STEP}>−</button>
+          <span className="w-4 text-center font-semibold text-[#2A2035]">{nCols}</span>
+          <button type="button" onClick={addCol} className={STEP}>+</button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="border-collapse">
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri}>
+                {row.map((cell, ci) => (
+                  <td key={ci} className="p-0.5">
+                    <textarea
+                      value={cell}
+                      onChange={e => setCell(ri, ci, e.target.value)}
+                      onKeyDown={e => onBold(e, cell, v => setCell(ri, ci, v))}
+                      rows={1}
+                      placeholder={block.headerRow && ri === 0 ? 'Header' : ''}
+                      className={`w-28 align-middle border border-[#DEE7FF] rounded px-2 py-1 text-xs text-center resize-y focus:outline-none focus:border-[#325099] ${block.headerRow && ri === 0 ? 'bg-[#EEF1F5] font-semibold' : 'bg-white'}`}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells.</p>
+    </div>
+  )
 }
 
 function PartsEditor({ parts, onChange }) {
@@ -198,7 +258,7 @@ function PartsEditor({ parts, onChange }) {
               <span className="text-[11px] font-bold text-[#325099]">{String.fromCharCode(97 + i)}.</span>
               <button onClick={() => onChange(parts.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs">Remove</button>
             </div>
-            <input className={I + ' mb-1.5'} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} placeholder="Part prompt (optional)" />
+            <input className={I + ' mb-1.5'} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} onKeyDown={e => onBold(e, p.prompt || '', v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x)))} placeholder="Part prompt (optional)" />
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
           </div>
         ))}

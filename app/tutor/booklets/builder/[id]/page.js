@@ -151,7 +151,7 @@ export default function BookletBuilderEditor() {
     const [m] = arr.splice(from, 1); arr.splice(to, 0, m); setBlocks(arr)
   }
 
-  const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic } : {}
+  const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title } : {}
 
   const openExport = async (solutions) => {
     setExporting(true)
@@ -187,13 +187,24 @@ export default function BookletBuilderEditor() {
         topic: bk.topic || null, file_path: studentPath, file_paths: filePaths,
       }
       let bookletId = bk.booklet_id
-      if (bookletId) await supabase.from(T_BOOKLETS).update(payload).eq('id', bookletId)
-      else {
+      let oldPaths = []
+      if (bookletId) {
+        // Grab the previous PDF paths so we can clean them up after re-publishing.
+        const { data: existing } = await supabase.from(T_BOOKLETS).select('file_path, file_paths').eq('id', bookletId).maybeSingle()
+        oldPaths = existing?.file_paths?.length ? existing.file_paths : (existing?.file_path ? [existing.file_path] : [])
+        await supabase.from(T_BOOKLETS).update(payload).eq('id', bookletId)
+      } else {
         const { data, error } = await supabase.from(T_BOOKLETS).insert(payload).select('id').single()
         if (error) throw error
         bookletId = data.id
       }
       await supabase.from(T_BOOKLET_BUILDS).update({ status: 'published', booklet_id: bookletId }).eq('id', bk.id)
+
+      // Delete the booklet's previous PDFs from storage so repeated re-publishes
+      // don't leave orphaned files accumulating in the bucket. (Each publish uses
+      // a fresh timestamped filename, so none of the old paths are reused.)
+      const orphaned = oldPaths.filter(p => p && !filePaths.includes(p))
+      if (orphaned.length) await supabase.storage.from('booklets').remove(orphaned)
       setBk(b => ({ ...b, status: 'published', booklet_id: bookletId }))
       alert('Saved to curriculum. You can now assign it to a class from the Curriculum page.')
     } catch (e) { alert('Save to curriculum failed: ' + e.message) }
@@ -209,6 +220,14 @@ export default function BookletBuilderEditor() {
   const foundBlocks = allBlocks.filter(b => sectionOf(b) === 'homework' && b.hwGroup !== 'developmental')
   const devBlocks = allBlocks.filter(b => sectionOf(b) === 'homework' && b.hwGroup === 'developmental')
   const quizBlocks = allBlocks.filter(b => sectionOf(b) === 'revision')
+
+  // Chemistry uses a fixed module/week naming scheme (e.g. M2W3 → "11.C. M2W3")
+  // and only runs in Years 11–12.
+  const isChem = bk.subject === 'Chemistry'
+  const yearOptions = isChem ? [11, 12] : YEARS
+  const chemMatch = /^M(\d*)W(\d*)$/i.exec(bk.title || '')
+  const chemModule = chemMatch ? chemMatch[1] : ''
+  const chemWeek = chemMatch ? chemMatch[2] : ''
 
   // One block card (drag handle, type badge, move/delete, editor). `list` is the
   // group the block belongs to so up/down can disable at the group's ends.
@@ -252,7 +271,12 @@ export default function BookletBuilderEditor() {
         {/* Meta row — Subject + Year are dropdowns; Booklet name is typed.
             The full name auto-formats as "Year.SubjectCode. Name" (shown above). */}
         <div className="max-w-[1500px] mx-auto px-5 pb-3 flex items-center gap-2 flex-wrap text-sm">
-          <select value={bk.subject || ''} onChange={e => mutate({ subject: e.target.value })}
+          <select value={bk.subject || ''} onChange={e => {
+              const s = e.target.value
+              const patch = { subject: s }
+              if (s === 'Chemistry' && ![11, 12].includes(Number(bk.year))) patch.year = null
+              mutate(patch)
+            }}
             className="w-44 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]">
             <option value="">Subject…</option>
             {SUBJECTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -261,11 +285,24 @@ export default function BookletBuilderEditor() {
           <select value={bk.year ?? ''} onChange={e => mutate({ year: e.target.value ? Number(e.target.value) : null })}
             className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]">
             <option value="">Year…</option>
-            {YEARS.map(y => <option key={y} value={y}>Year {y}</option>)}
+            {yearOptions.map(y => <option key={y} value={y}>Year {y}</option>)}
           </select>
-          <input value={bk.title || ''} onChange={e => mutate({ title: e.target.value })}
-            placeholder="Booklet name (e.g. Algebra)"
-            className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
+          {isChem ? (
+            <div className="flex items-center gap-2">
+              <input type="number" min="1" value={chemModule}
+                onChange={e => mutate({ title: `M${e.target.value.replace(/\D/g, '')}W${chemWeek}` })}
+                placeholder="Module #"
+                className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
+              <input type="number" min="1" value={chemWeek}
+                onChange={e => mutate({ title: `M${chemModule}W${e.target.value.replace(/\D/g, '')}` })}
+                placeholder="Week #"
+                className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
+            </div>
+          ) : (
+            <input value={bk.title || ''} onChange={e => mutate({ title: e.target.value })}
+              placeholder="Booklet name (e.g. Algebra)"
+              className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
+          )}
         </div>
       </div>
 

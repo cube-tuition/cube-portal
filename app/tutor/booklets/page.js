@@ -29,6 +29,30 @@ const bookletLabel = (b) => {
   return `${b.year}.${code}. ${b.booklet_name}`
 }
 
+// Read-only modal that shows what's inside a booklet (its content field), so
+// teachers can see what a curriculum booklet covers.
+function ContentModal({ booklet, onClose }) {
+  if (!booklet) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-[#F0F4FF]">
+          <div>
+            <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">Booklet content</p>
+            <h2 className="text-sm font-bold text-[#062E63]">{bookletLabel(booklet)}</h2>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-6 py-5">
+          {booklet.content
+            ? <p className="text-sm text-[#2A2035] whitespace-pre-wrap leading-relaxed">{booklet.content}</p>
+            : <p className="text-sm text-[#2A2035]/40 text-center py-8">No content listed for this booklet yet.</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Class Assign Modal ────────────────────────────────────────────────────────
 function ClassAssignModal({ classId, className, year, subject, term, week, accentColor, accentBg, onClose, onAssigned }) {
   const [booklets, setBooklets] = useState([])
@@ -117,12 +141,13 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
   const [assignments, setAssignments] = useState([])
   const [loading,     setLoading]     = useState(true)
   const [assignSlot,  setAssignSlot]  = useState(null)
+  const [viewContent, setViewContent] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase
       .from('class_booklet_assignments')
-      .select('id, term_number, week, booklets(booklet_name, topic, file_paths, file_path, pdf_filenames)')
+      .select('id, term_number, week, booklets(booklet_name, year, subject, topic, content, file_paths, file_path, pdf_filenames)')
       .eq('class_id', cls.id)
     setAssignments(data || [])
     setLoading(false)
@@ -167,8 +192,12 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                         {b.topic && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{b.topic}</p>}
                       </div>
                       <div className="px-3 pb-2 flex items-center justify-between gap-1">
-                        <button onClick={() => handleUnassign(a.id)}
-                          className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleUnassign(a.id)}
+                            className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
+                          <button onClick={() => setViewContent(b)}
+                            className="text-[9px] font-semibold text-[#325099]/60 hover:text-[#325099] transition">📄 Content</button>
+                        </div>
                         <div className="flex gap-1">
                           {pdfPaths.slice(0, 2).map((path, pi) => {
                             const { data } = supabase.storage.from('booklets').getPublicUrl(path)
@@ -215,6 +244,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
           onAssigned={() => { setAssignSlot(null); load() }}
         />
       )}
+      <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
     </>
   )
 }
@@ -509,6 +539,7 @@ export default function BookletsPage() {
   const [activeSub, setActiveSub]   = useState('Maths')
   const [addPrefill, setAddPrefill] = useState({})
   const [editing, setEditing]       = useState(null)
+  const [viewContent, setViewContent] = useState(null)
   const [deleteId, setDeleteId]     = useState(null)
   const [deleteFilePaths, setDeleteFilePaths] = useState([])
   const [assignSlot, setAssignSlot] = useState(null) // { term, week }
@@ -529,7 +560,7 @@ export default function BookletsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, topic, term_number, week, notes, file_path, file_paths')
+      .select('id, booklet_name, year, subject, topic, term_number, week, notes, content, file_path, file_paths')
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
@@ -756,6 +787,8 @@ export default function BookletsPage() {
                                 <div className="flex gap-2.5">
                                   <button onClick={() => setEditing(b)}
                                     className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                                  <button onClick={() => setViewContent(b)}
+                                    className="text-[10px] font-semibold text-[#325099]/70 hover:underline">Content</button>
                                   <button onClick={async () => {
                                     await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                     load()
@@ -833,6 +866,7 @@ export default function BookletsPage() {
       )}
 
       {/* Modals */}
+      <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
       {editing && (
         <BookletModal
           booklet={editing}
