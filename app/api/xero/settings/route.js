@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../../lib/apiAuth'
 
 function adminSb() {
   return createClient(
@@ -9,7 +10,10 @@ function adminSb() {
 }
 
 /** GET /api/xero/settings — returns current account mapping */
-export async function GET() {
+export async function GET(req) {
+  const auth = await requireApiRole(req, ['admin', 'director'])
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const { data, error } = await adminSb()
     .from('xero_settings').select('*').eq('id', 1).single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -19,6 +23,9 @@ export async function GET() {
 /** POST /api/xero/settings — saves account mapping */
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const body = await req.json()
     const allowed = ['enrolment_account_code', 'discount_account_code', 'credit_account_code', 'tax_type']
     const update = {}

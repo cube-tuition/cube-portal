@@ -1,4 +1,5 @@
 'use client'
+import { authedFetch } from '../../lib/authedFetch'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { requireStudent } from '../../lib/requireStudent'
@@ -255,7 +256,7 @@ export default function DropinPage() {
       setSelectedSession(null)
       // Fire-and-forget admin notification — booking confirmation isn't
       // blocked on email delivery, and any failure is logged server-side.
-      fetch('/api/notify-booking', {
+      authedFetch('/api/notify-booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'booked', bookingId: data.id }),
@@ -303,7 +304,7 @@ export default function DropinPage() {
     }
 
     if (snapshot) {
-      fetch('/api/notify-booking', {
+      authedFetch('/api/notify-booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancelled', snapshot }),

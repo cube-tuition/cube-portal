@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /**
  * POST /api/undo-cancellation
@@ -12,6 +13,9 @@ import { createClient } from '@supabase/supabase-js'
  */
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const { cancellation_id } = await req.json()
     if (!cancellation_id) return NextResponse.json({ error: 'Missing cancellation_id' }, { status: 400 })
 

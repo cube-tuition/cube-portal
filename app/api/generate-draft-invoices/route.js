@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
  * POST /api/generate-draft-invoices
@@ -24,6 +25,9 @@ Please update BSB/Account in app/api/generate-draft-invoices/route.js`
 
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
     const { term_id } = await req.json()
     if (!term_id) return Response.json({ error: 'Missing term_id' }, { status: 400 })
 

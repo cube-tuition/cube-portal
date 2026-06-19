@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { T_DROPIN_SIGNINS } from '../../../lib/tables'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
  * /api/notify-booking
@@ -24,6 +25,9 @@ import { T_DROPIN_SIGNINS } from '../../../lib/tables'
 export const dynamic = 'force-dynamic'
 
 export async function POST(request) {
+  const auth = await requireApiRole(request, null)
+  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
   let body
   try {
     body = await request.json()

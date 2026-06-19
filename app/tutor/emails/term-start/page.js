@@ -1,4 +1,5 @@
 'use client'
+import { authedFetch } from '../../../../lib/authedFetch'
 import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -272,7 +273,7 @@ function TermStartEmailPageInner() {
 
   // ── Send helpers ──────────────────────────────────────────────────────────
   const sendToFamilies = async (fams) => {
-    const res = await fetch('/api/send-term-start-emails', {
+    const res = await authedFetch('/api/send-term-start-emails', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({

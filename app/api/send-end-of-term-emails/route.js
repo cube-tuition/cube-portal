@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
  * POST /api/send-end-of-term-emails
@@ -71,6 +72,9 @@ function toHtml(plainText) {
 
 export async function POST(request) {
   try {
+    const auth = await requireApiRole(request, ['admin', 'director'])
+    if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
     const { term_id, term_name, template, families } = await request.json()
 
     if (!term_id || !families?.length) {

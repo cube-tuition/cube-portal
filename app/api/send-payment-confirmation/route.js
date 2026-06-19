@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
  * POST /api/send-payment-confirmation
@@ -12,6 +13,9 @@ import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
 
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const { invoice_id } = await req.json()
     if (!invoice_id) return NextResponse.json({ error: 'Missing invoice_id' }, { status: 400 })
 

@@ -1,4 +1,5 @@
 'use client'
+import { authedFetch } from '../../../lib/authedFetch'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
@@ -1199,7 +1200,7 @@ function CancelLessonModal({ row, onClose, onCancelled }) {
     if (!studentId) { setError('Please select a student.'); return }
     setSubmitting(true); setError(null)
     try {
-      const res = await fetch('/api/cancel-lesson', {
+      const res = await authedFetch('/api/cancel-lesson', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lesson_id: row.id, student_id: studentId, type, reason }),
@@ -2580,7 +2581,7 @@ export default function DatabasePage() {
     if (!makeupStudent || !lessonSidebar) return
     setMakeupSaving(true)
     try {
-      const res = await fetch('/api/cancel-lesson', {
+      const res = await authedFetch('/api/cancel-lesson', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -4615,7 +4616,7 @@ export default function DatabasePage() {
                                     <button
                                       onClick={() => {
                                         if (!confirm('Undo this cancellation?')) return
-                                        fetch('/api/undo-cancellation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cancellation_id: c.id }) })
+                                        authedFetch('/api/undo-cancellation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cancellation_id: c.id }) })
                                           .then(() => setLessonCancellations(prev => {
                                             const updated = (prev[rowId] || []).filter(x => x.id !== c.id)
                                             return { ...prev, [rowId]: updated }

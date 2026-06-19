@@ -1,4 +1,5 @@
 'use client'
+import { authedFetch } from '../../lib/authedFetch'
 import { useState } from 'react'
 import { fmtMoney, fmtDate } from '../../lib/format'
 import { generateInvoicePdf } from '../../lib/invoicePdf'
@@ -36,7 +37,7 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
       const pdf_base64  = btoa(binary)
       const pdf_filename = `${inv.invoice_number || 'invoice'}.pdf`
 
-      const res = await fetch('/api/send-invoice', {
+      const res = await authedFetch('/api/send-invoice', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: inv.id, email_to: inv.parent_email, subject, body, pdf_base64, pdf_filename }),

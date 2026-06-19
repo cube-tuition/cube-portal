@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../../lib/apiAuth'
 
 function adminSb() {
   return createClient(
@@ -16,6 +17,9 @@ function adminSb() {
  *   - courseNames: unique class names from invoices in the given term
  */
 export async function GET(req) {
+  const auth = await requireApiRole(req, ['admin', 'director'])
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const sb = adminSb()
   const { searchParams } = new URL(req.url)
   const termId = searchParams.get('term_id')
@@ -48,6 +52,9 @@ export async function GET(req) {
  */
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const { mappings } = await req.json()
     if (!Array.isArray(mappings)) {
       return NextResponse.json({ error: 'mappings must be an array' }, { status: 400 })

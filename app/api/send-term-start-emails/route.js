@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
  * POST /api/send-term-start-emails
@@ -109,6 +110,9 @@ function toHtml(plainText, { termName = '' } = {}) {
 
 export async function POST(request) {
   try {
+    const auth = await requireApiRole(request, ['admin', 'director'])
+    if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
     const { term_id, term_name, term_dates, term_start, template, families } = await request.json()
 
     if (!families?.length) {

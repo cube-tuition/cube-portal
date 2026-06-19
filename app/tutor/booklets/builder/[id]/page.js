@@ -60,6 +60,8 @@ export default function BookletBuilderEditor() {
   // doesn't require hunting for the new block at the bottom of the list.
   const lastBlockRef = useRef(null)
   const [lastAddedId, setLastAddedId] = useState(null)
+  // Clicking a block selects it as the insertion anchor — new blocks go after it.
+  const [selectedBlockId, setSelectedBlockId] = useState(null)
   useEffect(() => {
     if (lastAddedId) lastBlockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [lastAddedId])
@@ -85,7 +87,7 @@ export default function BookletBuilderEditor() {
         const b = bkRef.current
         await supabase.from(T_BOOKLET_BUILDS).update({
           title: b.title, year: b.year ? Number(b.year) : null, subject: b.subject, topic: b.topic,
-          blocks: b.blocks, updated_at: new Date().toISOString(),
+          content: b.content ?? null, blocks: b.blocks, updated_at: new Date().toISOString(),
         }).eq('id', b.id)
       } while (pendingRef.current)
       setDirty(false)
@@ -120,15 +122,27 @@ export default function BookletBuilderEditor() {
   // Insert a (new or bank) block into the currently-active section/group, keeping
   // the canonical ordering, then scroll it into view.
   const insertBlock = (blk) => {
+    const arr = [...(bk.blocks || [])]
+    const anchorIdx = selectedBlockId ? arr.findIndex(b => b.id === selectedBlockId) : -1
     let mk
-    if (activeSection === 'homework') mk = { ...blk, section: 'homework', hwGroup: activeHwGroup }
-    else if (activeSection === 'revision') mk = { ...blk, section: 'revision', hwGroup: undefined }
-    else mk = { ...blk, section: 'content', hwGroup: undefined }
-    setBlocks(recompose([...(bk.blocks || []), mk])); setLastAddedId(mk.id)
+    if (anchorIdx >= 0) {
+      // Insert right after the selected block, in that block's section/group.
+      const a = arr[anchorIdx]
+      mk = { ...blk, section: a.section || 'content', hwGroup: a.section === 'homework' ? (a.hwGroup || 'foundational') : undefined }
+      arr.splice(anchorIdx + 1, 0, mk)
+    } else {
+      if (activeSection === 'homework') mk = { ...blk, section: 'homework', hwGroup: activeHwGroup }
+      else if (activeSection === 'revision') mk = { ...blk, section: 'revision', hwGroup: undefined }
+      else mk = { ...blk, section: 'content', hwGroup: undefined }
+      arr.push(mk)
+    }
+    setBlocks(recompose(arr))
+    setLastAddedId(mk.id)
+    setSelectedBlockId(mk.id) // keep building downward from the new block
   }
   const addBlock = (type) => insertBlock(newBlock(type))
   const updateBlock = (bid, next) => setBlocks(bk.blocks.map(b => b.id === bid ? next : b))
-  const removeBlock = (bid) => setBlocks(bk.blocks.filter(b => b.id !== bid))
+  const removeBlock = (bid) => { setBlocks(bk.blocks.filter(b => b.id !== bid)); if (selectedBlockId === bid) setSelectedBlockId(null) }
   // Move within the same section/group only (skips over blocks of other groups).
   const moveBlock = (bid, dir) => {
     const arr = [...(bk.blocks || [])]
@@ -184,7 +198,8 @@ export default function BookletBuilderEditor() {
       const filePaths = [studentPath, solutionsPath]
       const payload = {
         booklet_name: bk.title, year: Number(bk.year), subject: bk.subject,
-        topic: bk.topic || null, file_path: studentPath, file_paths: filePaths,
+        topic: bk.topic || null, content: bk.content || null,
+        file_path: studentPath, file_paths: filePaths,
       }
       let bookletId = bk.booklet_id
       let oldPaths = []
@@ -231,28 +246,34 @@ export default function BookletBuilderEditor() {
 
   // One block card (drag handle, type badge, move/delete, editor). `list` is the
   // group the block belongs to so up/down can disable at the group's ends.
-  const renderBlockCard = (b, list, i) => (
+  const renderBlockCard = (b, list, i) => {
+    const selected = selectedBlockId === b.id
+    return (
     <div key={b.id}
       ref={b.id === lastAddedId ? lastBlockRef : null}
       draggable
       onDragStart={() => { dragId.current = b.id }}
       onDragOver={e => e.preventDefault()}
       onDrop={() => onDropOn(b.id)}
-      className="bg-white rounded-xl border border-[#DEE7FF] p-3.5">
-      <div className="flex items-center justify-between mb-2.5">
+      className={`bg-white rounded-xl border p-3.5 transition ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}>
+      <div className="flex items-center justify-between mb-2.5 cursor-pointer"
+        onClick={() => setSelectedBlockId(id => id === b.id ? null : b.id)}
+        title="Click to insert new blocks right after this one">
         <div className="flex items-center gap-2">
           <span className="cursor-grab text-[#2A2035]/30 text-sm" title="Drag to reorder">⠿</span>
           <span className="text-[10px] font-bold tracking-wider uppercase text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2 py-0.5">{BLOCK_TYPES.find(t => t.type === b.type)?.label || b.type}</span>
+          {selected && <span className="text-[10px] font-semibold text-[#325099]">↳ new blocks insert here</span>}
         </div>
         <div className="flex items-center gap-1.5 text-[#2A2035]/40">
-          <button onClick={() => moveBlock(b.id, -1)} disabled={i === 0} className="hover:text-[#325099] disabled:opacity-20 text-sm">↑</button>
-          <button onClick={() => moveBlock(b.id, 1)} disabled={i === list.length - 1} className="hover:text-[#325099] disabled:opacity-20 text-sm">↓</button>
-          <button onClick={() => removeBlock(b.id)} className="hover:text-rose-500 text-sm ml-1">🗑</button>
+          <button onClick={e => { e.stopPropagation(); moveBlock(b.id, -1) }} disabled={i === 0} className="hover:text-[#325099] disabled:opacity-20 text-sm">↑</button>
+          <button onClick={e => { e.stopPropagation(); moveBlock(b.id, 1) }} disabled={i === list.length - 1} className="hover:text-[#325099] disabled:opacity-20 text-sm">↓</button>
+          <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
       <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} />
     </div>
-  )
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F9FF]">
@@ -311,8 +332,8 @@ export default function BookletBuilderEditor() {
         <div>
           {/* Page tabs — Cover is automatic (page 1); Content + Homework are editable. */}
           <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
-            {[{ id: 'content', label: 'Content page' }, { id: 'homework', label: 'Homework page' }, { id: 'revision', label: 'Revision Quiz' }].map(s => (
-              <button key={s.id} onClick={() => setActiveSection(s.id)}
+            {[{ id: 'content', label: 'Content page' }, { id: 'homework', label: 'Homework page' }, { id: 'revision', label: 'Revision Quiz' }, { id: 'summary', label: 'Content' }].map(s => (
+              <button key={s.id} onClick={() => { setActiveSection(s.id); setSelectedBlockId(null) }}
                 className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition ${activeSection === s.id ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
                 {s.label}
               </button>
@@ -322,7 +343,9 @@ export default function BookletBuilderEditor() {
           {/* Add palette — sticky so it stays reachable as the block list grows.
               The page-coloured band starts higher than the card (top-[96px] +
               pt-4 keeps the card at ~112px) so it tucks under the opaque header
-              and there's no see-through gap; blocks scroll cleanly behind it. */}
+              and there's no see-through gap; blocks scroll cleanly behind it.
+              Hidden on the "Content" (summary) tab, which has no blocks. */}
+          {activeSection !== 'summary' && (
           <div className="sticky top-[96px] z-20 bg-[#F7F9FF] pt-4 pb-4">
             <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Add a block</p>
@@ -381,6 +404,7 @@ export default function BookletBuilderEditor() {
               )}
             </div>
           </div>
+          )}
 
           {/* Blocks */}
           {activeSection === 'content' ? (
@@ -407,7 +431,7 @@ export default function BookletBuilderEditor() {
                 )
               })}
             </div>
-          ) : (
+          ) : activeSection === 'revision' ? (
             quizBlocks.length === 0 ? (
               <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No quiz questions yet — add one above.</div>
             ) : (
@@ -415,6 +439,18 @@ export default function BookletBuilderEditor() {
                 {quizBlocks.map((b, i) => renderBlockCard(b, quizBlocks, i))}
               </div>
             )
+          ) : (
+            <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Booklet content</p>
+              <p className="text-xs text-[#2A2035]/55 mb-3">A summary of what this booklet covers. Teachers see this via the “Content” link in the curriculum (it doesn’t appear in the printed booklet).</p>
+              <textarea
+                value={bk.content || ''}
+                onChange={e => mutate({ content: e.target.value })}
+                rows={12}
+                placeholder={'e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'}
+                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099] resize-y"
+              />
+            </div>
           )}
         </div>
 
@@ -452,7 +488,7 @@ function bankToBlock(q) {
     return { ...newBlock('mcq'), prompt: q.stem_latex || '', image: firstImg, options, answer: (q.correct_option || '').toString().toUpperCase().slice(0, 1), explanation: q.solution_latex || '', marks: q.marks ? String(q.marks) : '' }
   }
   const parts = (q.qbank_question_parts || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-    .map(p => ({ prompt: p.prompt_latex || '', image: '' }))
+    .map(p => ({ prompt: p.prompt_latex || '', image: '', solution: p.solution_latex || '' }))
   return { ...newBlock('question'), prompt: q.stem_latex || '', image: firstImg, marks: q.marks ? String(q.marks) : '', solution: q.solution_latex || '', solutionImage: firstSolImg, parts }
 }
 

@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const { invoice_id, email_to, subject, body, pdf_base64, pdf_filename } = await req.json()
 
     if (!invoice_id || !email_to) {

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
  * POST /api/update-invoice-status
@@ -20,6 +21,9 @@ const ALLOWED_FIELDS = {
 
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
     const { invoice_id, field, value } = await req.json()
     if (!invoice_id || !field) return Response.json({ error: 'Missing invoice_id or field' }, { status: 400 })
     if (!ALLOWED_FIELDS[field]) return Response.json({ error: `Invalid field: ${field}` }, { status: 400 })

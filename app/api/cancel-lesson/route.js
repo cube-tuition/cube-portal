@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /**
  * POST /api/cancel-lesson
@@ -23,6 +24,9 @@ import { createClient } from '@supabase/supabase-js'
  */
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const { lesson_id, student_id, type, reason } = await req.json()
     if (!lesson_id || !student_id || !type) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })

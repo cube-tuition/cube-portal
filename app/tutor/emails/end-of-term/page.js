@@ -1,4 +1,5 @@
 'use client'
+import { authedFetch } from '../../../../lib/authedFetch'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -303,7 +304,7 @@ export default function EndOfTermEmailPage() {
 
   const sendToFamilies = async (familiesToSend) => {
     try {
-      const res = await fetch('/api/send-end-of-term-emails', {
+      const res = await authedFetch('/api/send-end-of-term-emails', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({

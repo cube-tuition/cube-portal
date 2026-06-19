@@ -1,4 +1,5 @@
 'use client'
+import { authedFetch } from '../../lib/authedFetch'
 import { useState } from 'react'
 
 export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync }) {
@@ -22,10 +23,10 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
     setLoadingAcc(true); setAccError(null)
     try {
       const [accRes, xeroItemsRes, settRes, itemMappingRes] = await Promise.all([
-        fetch('/api/xero/accounts').then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d }),
-        fetch('/api/xero/items').then(r => r.json()),
-        fetch('/api/xero/settings').then(r => r.json()),
-        fetch('/api/xero/item-mappings' + (termId ? '?term_id=' + termId : '')).then(r => r.json()),
+        authedFetch('/api/xero/accounts').then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d }),
+        authedFetch('/api/xero/items').then(r => r.json()),
+        authedFetch('/api/xero/settings').then(r => r.json()),
+        authedFetch('/api/xero/item-mappings' + (termId ? '?term_id=' + termId : '')).then(r => r.json()),
       ])
       if (!accRes.accounts?.length) throw new Error('No accounts returned from Xero — your chart of accounts may be empty or all accounts are archived.')
       setAccounts(accRes.accounts)
@@ -51,7 +52,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
 
   const handleSaveGlobal = async () => {
     setSaving(true); setSaved(false)
-    await fetch('/api/xero/settings', {
+    await authedFetch('/api/xero/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     })
@@ -66,7 +67,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
       item_code: v.item_code || null,
       item_name: v.item_name || null,
     }))
-    await fetch('/api/xero/item-mappings', {
+    await authedFetch('/api/xero/item-mappings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mappings: rows }),
     })

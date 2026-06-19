@@ -1,4 +1,5 @@
 'use client'
+import { authedFetch } from '../../../../lib/authedFetch'
 import { useEffect, useState, useCallback, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -461,7 +462,7 @@ function InvoiceDashboardInner() {
   const handleStatusChange = async (invoiceId, field, value) => {
     setStatusEditing(invoiceId)
     try {
-      const res = await fetch('/api/update-invoice-status', {
+      const res = await authedFetch('/api/update-invoice-status', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: invoiceId, field, value }),
       })
@@ -472,7 +473,7 @@ function InvoiceDashboardInner() {
       // Auto-send payment confirmation when marked paid
       if (field === 'payment_status' && value === 'paid') {
         try {
-          const cfRes = await fetch('/api/send-payment-confirmation', {
+          const cfRes = await authedFetch('/api/send-payment-confirmation', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ invoice_id: invoiceId }),
           })
@@ -496,7 +497,7 @@ function InvoiceDashboardInner() {
   const handleResendConfirmation = async (invoiceId) => {
     setResendingId(invoiceId)
     try {
-      const res = await fetch('/api/send-payment-confirmation', {
+      const res = await authedFetch('/api/send-payment-confirmation', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: invoiceId }),
       })
@@ -510,7 +511,7 @@ function InvoiceDashboardInner() {
   const handleGenerate = async () => {
     setGenerating(true); setError(null); setSuccessMsg(null)
     try {
-      const res  = await fetch('/api/generate-draft-invoices', {
+      const res  = await authedFetch('/api/generate-draft-invoices', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ term_id: termId }),
@@ -529,7 +530,7 @@ function InvoiceDashboardInner() {
   const handleRefresh = async (inv) => {
     setRefreshingId(inv.id)
     try {
-      const res  = await fetch('/api/refresh-invoice', {
+      const res  = await authedFetch('/api/refresh-invoice', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: inv.id }),
       })
@@ -548,7 +549,7 @@ function InvoiceDashboardInner() {
   const handleApprove = async (inv) => {
     setApprovingId(inv.id)
     try {
-      const res = await fetch('/api/approve-invoice', {
+      const res = await authedFetch('/api/approve-invoice', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: inv.id }),
       })

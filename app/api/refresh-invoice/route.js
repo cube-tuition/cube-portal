@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /**
  * POST /api/refresh-invoice
@@ -10,6 +11,9 @@ import { createClient } from '@supabase/supabase-js'
  */
 export async function POST(req) {
   try {
+    const auth = await requireApiRole(req, ['admin', 'director'])
+    if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
     const { invoice_id } = await req.json()
     if (!invoice_id) return Response.json({ error: 'Missing invoice_id' }, { status: 400 })
 
