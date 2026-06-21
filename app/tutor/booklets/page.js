@@ -6,6 +6,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
 import { fmtTime } from '../../../lib/format'
+import ExamPdfButtons from '../../../components/ExamPdfButtons'
 
 const SUBJECTS_BY_YEAR = {
   11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
@@ -55,25 +56,31 @@ function ContentModal({ booklet, onClose }) {
 
 // ── Class Assign Modal ────────────────────────────────────────────────────────
 function ClassAssignModal({ classId, className, year, subject, term, week, accentColor, accentBg, onClose, onAssigned }) {
+  const [tab,      setTab]      = useState('booklet')   // 'booklet' | 'exam'
   const [booklets, setBooklets] = useState([])
+  const [exams,    setExams]    = useState(null)
   const [loading,  setLoading]  = useState(true)
   const [query,    setQuery]    = useState('')
   const [saving,   setSaving]   = useState(null)
+  const [error,    setError]    = useState('')
 
   useEffect(() => {
     supabase
       .from('booklets')
-      .select('id, booklet_name, topic, file_paths, file_path, pdf_filenames')
+      .select('id, booklet_name, topic, file_paths, file_path, pdf_filenames, is_exam')
       .eq('year', year).eq('subject', subject)
       .order('topic', { nullsFirst: false }).order('booklet_name')
-      .then(({ data }) => { setBooklets(data || []); setLoading(false) })
+      .then(({ data }) => { setBooklets((data || []).filter(b => !b.is_exam)); setLoading(false) })
+    supabase
+      .from('qbank_exams')
+      .select('id, title, year_label, term, updated_at')
+      .order('updated_at', { ascending: false })
+      .then(({ data }) => setExams(data || []))
   }, [year, subject])
 
-  const filtered = booklets.filter(b => {
-    if (!query.trim()) return true
-    const q = query.toLowerCase()
-    return b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q)
-  })
+  const q = query.trim().toLowerCase()
+  const filtered = booklets.filter(b => !q || b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q))
+  const examsFiltered = (exams || []).filter(e => !q || (e.title || '').toLowerCase().includes(q))
 
   const handleAssign = async (b) => {
     setSaving(b.id)
@@ -82,53 +89,117 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
     onAssigned()
   }
 
+  // Assign an exam by REFERENCE only — no PDF is generated or stored. We keep a
+  // lightweight exam-flagged booklet (exam_id) so it slots into the week; the
+  // paper/solutions are built on demand when a teacher clicks to download.
+  const handleAssignExam = async (ex) => {
+    setError(''); setSaving(ex.id)
+    try {
+      const row = {
+        booklet_name: ex.title || 'Exam', year, subject, is_exam: true, exam_id: ex.id,
+        file_paths: null, pdf_filenames: null, updated_at: new Date().toISOString(),
+      }
+      const { data: existing } = await supabase.from('booklets').select('id').eq('exam_id', ex.id).maybeSingle()
+      let bookletId
+      if (existing) { await supabase.from('booklets').update(row).eq('id', existing.id); bookletId = existing.id }
+      else {
+        const { data: ins, error: insErr } = await supabase.from('booklets').insert(row).select('id').single()
+        if (insErr) throw insErr
+        bookletId = ins.id
+      }
+      await supabase.from('class_booklet_assignments')
+        .upsert({ class_id: classId, booklet_id: bookletId, term_number: term, week }, { onConflict: 'class_id,term_number,week' })
+      onAssigned()
+    } catch (e) {
+      setError(e.message || 'Could not assign the exam.'); setSaving(null)
+    }
+  }
+
+  const tabCls = (t) => `flex-1 px-3 py-1.5 text-xs font-bold rounded-lg transition ${tab === t ? 'bg-[#325099] text-white' : 'text-[#2A2035]/50 hover:bg-[#F0F4FF]'}`
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <div>
-            <h2 className="text-sm font-bold text-[#062E63]">Assign Booklet</h2>
+            <h2 className="text-sm font-bold text-[#062E63]">Assign to week</h2>
             <p className="text-[10px] text-[#2A2035]/40 mt-0.5">{className} · Term {term}, Week {week}</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+          <button onClick={onClose} disabled={!!saving} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
         </div>
+
+        <div className="px-4 pt-3">
+          <div className="flex gap-1 bg-[#F4F7FF] rounded-xl p-1">
+            <button onClick={() => { setTab('booklet'); setQuery('') }} className={tabCls('booklet')}>Add booklet</button>
+            <button onClick={() => { setTab('exam'); setQuery('') }} className={tabCls('exam')}>Add exam</button>
+          </div>
+        </div>
+
         <div className="px-4 pt-3 pb-2">
           <input autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
-            placeholder="Search booklets…"
+            placeholder={tab === 'booklet' ? 'Search workbooks…' : 'Search exams…'}
             className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-[#F8FAFF]" />
         </div>
+
+        {error && <p className="px-5 text-[11px] text-[#DC2626] pb-1">{error}</p>}
+
         <div className="overflow-y-auto flex-1 px-4 pb-4">
-          {loading ? (
-            <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
-          ) : filtered.length === 0 ? (
-            <p className="text-xs text-center text-[#2A2035]/40 py-8 italic">
-              {query ? 'No booklets match.' : `No booklets in master database for Year ${year} ${subject}.`}
-            </p>
+          {tab === 'booklet' ? (
+            loading ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8 italic">
+                {query ? 'No booklets match.' : `No booklets in master database for Year ${year} ${subject}.`}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {filtered.map(b => {
+                  const pdfCount = b.file_paths?.length || (b.file_path ? 1 : 0)
+                  return (
+                    <button key={b.id} onClick={() => handleAssign(b)} disabled={!!saving}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
+                        {b.topic && <p className="text-[10px] font-medium mt-0.5" style={{ color: accentColor }}>{b.topic}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {pdfCount > 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: accentBg, color: accentColor }}>
+                            {pdfCount} PDF{pdfCount > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-semibold opacity-0 group-hover:opacity-100 transition" style={{ color: accentColor }}>
+                          {saving === b.id ? 'Saving…' : 'Assign →'}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )
           ) : (
-            <div className="flex flex-col gap-1.5">
-              {filtered.map(b => {
-                const pdfCount = b.file_paths?.length || (b.file_path ? 1 : 0)
-                return (
-                  <button key={b.id} onClick={() => handleAssign(b)} disabled={!!saving}
+            exams === null ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
+            ) : examsFiltered.length === 0 ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8 italic">{query ? 'No exams match.' : 'No exams in the exam database yet.'}</p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {examsFiltered.map(ex => (
+                  <button key={ex.id} onClick={() => handleAssignExam(ex)} disabled={!!saving}
                     className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
-                      {b.topic && <p className="text-[10px] font-medium mt-0.5" style={{ color: accentColor }}>{b.topic}</p>}
+                      <p className="text-xs font-semibold text-[#062E63] truncate">{ex.title || 'Untitled exam'}</p>
+                      <p className="text-[10px] font-medium mt-0.5 text-[#2A2035]/45">
+                        {ex.year_label ? `Year ${ex.year_label}` : ''}{ex.year_label && ex.term ? ' · ' : ''}{ex.term || ''}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {pdfCount > 0 && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: accentBg, color: accentColor }}>
-                          {pdfCount} PDF{pdfCount > 1 ? 's' : ''}
-                        </span>
-                      )}
-                      <span className="text-[10px] font-semibold opacity-0 group-hover:opacity-100 transition" style={{ color: accentColor }}>
-                        {saving === b.id ? 'Saving…' : 'Assign →'}
-                      </span>
-                    </div>
+                    <span className="text-[10px] font-semibold shrink-0 self-center" style={{ color: accentColor }}>
+                      {saving === ex.id ? 'Assigning…' : 'Assign →'}
+                    </span>
                   </button>
-                )
-              })}
-            </div>
+                ))}
+              </div>
+            )
           )}
         </div>
       </div>
@@ -147,7 +218,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
     setLoading(true)
     const { data } = await supabase
       .from('class_booklet_assignments')
-      .select('id, term_number, week, booklets(booklet_name, year, subject, topic, content, file_paths, file_path, pdf_filenames)')
+      .select('id, term_number, week, booklets(booklet_name, year, subject, topic, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
       .eq('class_id', cls.id)
     setAssignments(data || [])
     setLoading(false)
@@ -187,8 +258,11 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                     <div key={week} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm overflow-hidden hover:shadow-md hover:border-[#C7D7FF] transition-all">
                       <div className="h-[3px] w-full" style={{ background: accentColor }} />
                       <div className="px-3 pt-2 pb-1.5">
-                        <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5" style={{ color: accentColor }}>Wk {week}</span>
-                        <p className="text-[11px] font-bold text-[#062E63] leading-snug">{bookletLabel(b)}</p>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accentColor }}>Wk {week}</span>
+                          {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
+                        </div>
+                        <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                         {b.topic && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{b.topic}</p>}
                       </div>
                       <div className="px-3 pb-2 flex items-center justify-between gap-1">
@@ -198,19 +272,23 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                           <button onClick={() => setViewContent(b)}
                             className="text-[9px] font-semibold text-[#325099]/60 hover:text-[#325099] transition">📄 Content</button>
                         </div>
-                        <div className="flex gap-1">
-                          {pdfPaths.slice(0, 2).map((path, pi) => {
-                            const { data } = supabase.storage.from('booklets').getPublicUrl(path)
-                            return data?.publicUrl ? (
-                              <a key={pi} href={data.publicUrl} target="_blank" rel="noopener noreferrer"
-                                className="text-[9px] font-bold px-1.5 py-0.5 rounded-md hover:opacity-80 transition"
-                                style={{ background: accentBg, color: accentColor }}>
-                                {pdfNames[pi] ? pdfNames[pi].slice(0, 8) + (pdfNames[pi].length > 8 ? '…' : '') : `PDF ${pi + 1}`}
-                              </a>
-                            ) : null
-                          })}
-                          {pdfPaths.length > 2 && <span className="text-[9px] text-[#2A2035]/30">+{pdfPaths.length - 2}</span>}
-                        </div>
+                        {b.is_exam ? (
+                          <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
+                        ) : (
+                          <div className="flex gap-1">
+                            {pdfPaths.slice(0, 2).map((path, pi) => {
+                              const { data } = supabase.storage.from('booklets').getPublicUrl(path)
+                              return data?.publicUrl ? (
+                                <a key={pi} href={data.publicUrl} target="_blank" rel="noopener noreferrer"
+                                  className="text-[9px] font-bold px-1.5 py-0.5 rounded-md hover:opacity-80 transition"
+                                  style={{ background: accentBg, color: accentColor }}>
+                                  {pdfNames[pi] ? pdfNames[pi].slice(0, 8) + (pdfNames[pi].length > 8 ? '…' : '') : `PDF ${pi + 1}`}
+                                </a>
+                              ) : null
+                            })}
+                            {pdfPaths.length > 2 && <span className="text-[9px] text-[#2A2035]/30">+{pdfPaths.length - 2}</span>}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
@@ -423,27 +501,33 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
 
 // ── Assign Booklet Modal (pick from master database) ─────────────────────────
 function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) {
+  const [tab, setTab]                 = useState('booklet')   // 'booklet' | 'exam'
   const [allBooklets, setAllBooklets] = useState([])
+  const [exams, setExams]             = useState(null)
   const [loading, setLoading]         = useState(true)
   const [query, setQuery]             = useState('')
   const [assigning, setAssigning]     = useState(null)
+  const [error, setError]             = useState('')
 
   useEffect(() => {
     supabase
       .from('booklets')
-      .select('id, booklet_name, topic, term_number, week, pdf_filenames, file_paths, file_path')
+      .select('id, booklet_name, topic, term_number, week, pdf_filenames, file_paths, file_path, is_exam')
       .eq('year', year)
       .eq('subject', subject)
       .order('topic', { nullsFirst: false })
       .order('booklet_name')
-      .then(({ data }) => { setAllBooklets(data || []); setLoading(false) })
+      .then(({ data }) => { setAllBooklets((data || []).filter(b => !b.is_exam)); setLoading(false) })
+    supabase
+      .from('qbank_exams')
+      .select('id, title, year_label, term, updated_at')
+      .order('updated_at', { ascending: false })
+      .then(({ data }) => setExams(data || []))
   }, [year, subject])
 
-  const filtered = allBooklets.filter(b => {
-    if (!query.trim()) return true
-    const q = query.toLowerCase()
-    return b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q)
-  })
+  const q = query.trim().toLowerCase()
+  const filtered = allBooklets.filter(b => !q || b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q))
+  const examsFiltered = (exams || []).filter(e => !q || (e.title || '').toLowerCase().includes(q))
 
   const handleAssign = async (booklet) => {
     setAssigning(booklet.id)
@@ -451,18 +535,45 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) 
     onAssigned()
   }
 
+  // Assign an exam by REFERENCE only — no PDF is generated or stored. Keep a
+  // lightweight exam-flagged booklet (exam_id) slotted into the week; the
+  // paper/solutions are built on demand when a teacher clicks to download.
+  const handleAssignExam = async (ex) => {
+    setError(''); setAssigning(ex.id)
+    try {
+      const row = {
+        booklet_name: ex.title || 'Exam', year, subject, is_exam: true, exam_id: ex.id, term_number: term, week,
+        file_paths: null, pdf_filenames: null, updated_at: new Date().toISOString(),
+      }
+      const { data: existing } = await supabase.from('booklets').select('id').eq('exam_id', ex.id).maybeSingle()
+      if (existing) await supabase.from('booklets').update(row).eq('id', existing.id)
+      else { const { error: insErr } = await supabase.from('booklets').insert(row); if (insErr) throw insErr }
+      onAssigned()
+    } catch (e) {
+      setError(e.message || 'Could not assign the exam.'); setAssigning(null)
+    }
+  }
+
   const accentColor = getAccentColor(subject)
   const accentBg    = getAccentBg(subject)
+  const tabCls = (t) => `flex-1 px-3 py-1.5 text-xs font-bold rounded-lg transition ${tab === t ? 'bg-[#325099] text-white' : 'text-[#2A2035]/50 hover:bg-[#F0F4FF]'}`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <div>
-            <h2 className="text-sm font-bold text-[#062E63]">Assign Booklet</h2>
+            <h2 className="text-sm font-bold text-[#062E63]">Assign to week</h2>
             <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} {subject} · Term {term}, Week {week}</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+          <button onClick={onClose} disabled={!!assigning} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
+        </div>
+
+        <div className="px-4 pt-3">
+          <div className="flex gap-1 bg-[#F4F7FF] rounded-xl p-1">
+            <button onClick={() => { setTab('booklet'); setQuery('') }} className={tabCls('booklet')}>Add booklet</button>
+            <button onClick={() => { setTab('exam'); setQuery('') }} className={tabCls('exam')}>Add exam</button>
+          </div>
         </div>
 
         <div className="px-4 pt-3 pb-2">
@@ -471,57 +582,84 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) 
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search booklets…"
+            placeholder={tab === 'booklet' ? 'Search workbooks…' : 'Search exams…'}
             className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-[#F8FAFF]"
           />
         </div>
 
+        {error && <p className="px-5 text-[11px] text-[#DC2626] pb-1">{error}</p>}
+
         <div className="overflow-y-auto flex-1 px-4 pb-4">
-          {loading ? (
-            <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
-          ) : filtered.length === 0 ? (
-            <p className="text-xs text-center text-[#2A2035]/40 py-8">
-              {query ? 'No booklets match your search.' : `No booklets in master database for Year ${year} ${subject}.`}
-            </p>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              {filtered.map(b => {
-                const pdfCount = b.file_paths?.length || (b.file_path ? 1 : 0)
-                const isCurrentlyAssigned = b.term_number != null && b.week != null
-                return (
-                  <button
-                    key={b.id}
-                    onClick={() => handleAssign(b)}
-                    disabled={assigning === b.id}
-                    className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
-                      {b.topic && (
-                        <p className="text-[10px] font-medium mt-0.5 truncate" style={{ color: accentColor }}>
-                          {b.topic}
-                        </p>
-                      )}
-                      {isCurrentlyAssigned && (
-                        <p className="text-[10px] text-[#2A2035]/30 mt-0.5">
-                          Currently: T{b.term_number} W{b.week}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {pdfCount > 0 && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: accentBg, color: accentColor }}>
-                          {pdfCount} PDF{pdfCount > 1 ? 's' : ''}
+          {tab === 'booklet' ? (
+            loading ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8">
+                {query ? 'No booklets match your search.' : `No booklets in master database for Year ${year} ${subject}.`}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {filtered.map(b => {
+                  const pdfCount = b.file_paths?.length || (b.file_path ? 1 : 0)
+                  const isCurrentlyAssigned = b.term_number != null && b.week != null
+                  return (
+                    <button
+                      key={b.id}
+                      onClick={() => handleAssign(b)}
+                      disabled={!!assigning}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
+                        {b.topic && (
+                          <p className="text-[10px] font-medium mt-0.5 truncate" style={{ color: accentColor }}>
+                            {b.topic}
+                          </p>
+                        )}
+                        {isCurrentlyAssigned && (
+                          <p className="text-[10px] text-[#2A2035]/30 mt-0.5">
+                            Currently: T{b.term_number} W{b.week}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {pdfCount > 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md" style={{ background: accentBg, color: accentColor }}>
+                            {pdfCount} PDF{pdfCount > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-semibold text-[#325099] opacity-0 group-hover:opacity-100 transition">
+                          {assigning === b.id ? 'Assigning…' : 'Assign →'}
                         </span>
-                      )}
-                      <span className="text-[10px] font-semibold text-[#325099] opacity-0 group-hover:opacity-100 transition">
-                        {assigning === b.id ? 'Assigning…' : 'Assign →'}
-                      </span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          ) : (
+            exams === null ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
+            ) : examsFiltered.length === 0 ? (
+              <p className="text-xs text-center text-[#2A2035]/40 py-8 italic">{query ? 'No exams match.' : 'No exams in the exam database yet.'}</p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {examsFiltered.map(ex => (
+                  <button key={ex.id} onClick={() => handleAssignExam(ex)} disabled={!!assigning}
+                    className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[#062E63] truncate">{ex.title || 'Untitled exam'}</p>
+                      <p className="text-[10px] font-medium mt-0.5 text-[#2A2035]/45">
+                        {ex.year_label ? `Year ${ex.year_label}` : ''}{ex.year_label && ex.term ? ' · ' : ''}{ex.term || ''}
+                      </p>
                     </div>
+                    <span className="text-[10px] font-semibold shrink-0 self-center" style={{ color: accentColor }}>
+                      {assigning === ex.id ? 'Assigning…' : 'Assign →'}
+                    </span>
                   </button>
-                )
-              })}
-            </div>
+                ))}
+              </div>
+            )
           )}
         </div>
       </div>
@@ -540,8 +678,6 @@ export default function BookletsPage() {
   const [addPrefill, setAddPrefill] = useState({})
   const [editing, setEditing]       = useState(null)
   const [viewContent, setViewContent] = useState(null)
-  const [deleteId, setDeleteId]     = useState(null)
-  const [deleteFilePaths, setDeleteFilePaths] = useState([])
   const [assignSlot, setAssignSlot] = useState(null) // { term, week }
   const [classes,      setClasses]      = useState([])
   const [activeClass,  setActiveClass]  = useState(null) // class id
@@ -560,7 +696,7 @@ export default function BookletsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, topic, term_number, week, notes, content, file_path, file_paths')
+      .select('id, booklet_name, year, subject, topic, term_number, week, notes, content, file_path, file_paths, is_exam, exam_id')
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
@@ -606,13 +742,6 @@ export default function BookletsPage() {
     if (!subjects.includes(activeSub)) setActiveSub(subjects[0])
   }, [activeYear])
 
-  // Delete
-  const handleDelete = async () => {
-    if (deleteFilePaths.length) await supabase.storage.from('booklets').remove(deleteFilePaths)
-    await supabase.from('booklets').delete().eq('id', deleteId)
-    setBooklets(b => b.filter(x => x.id !== deleteId))
-    setDeleteId(null); setDeleteFilePaths([])
-  }
 
   // Get public URL for a stored PDF
   const getPdfUrl = (path) => {
@@ -772,13 +901,16 @@ export default function BookletsPage() {
                             <div key={week} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md hover:border-[#C7D7FF] transition-all">
                               <div className="h-[3px] w-full" style={{ background: accentColor }} />
                               <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5">
-                                <span
-                                  className="text-[9px] font-bold uppercase tracking-widest"
-                                  style={{ color: accentColor }}
-                                >
-                                  Week {week}
-                                </span>
-                                <p className="text-[12px] font-bold text-[#062E63] leading-snug">{bookletLabel(b)}</p>
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className="text-[9px] font-bold uppercase tracking-widest"
+                                    style={{ color: accentColor }}
+                                  >
+                                    Week {week}
+                                  </span>
+                                  {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
+                                </div>
+                                <p className="text-[12px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                                 {b.notes && (
                                   <p className="text-[10px] text-[#2A2035]/45 line-clamp-1">{b.notes}</p>
                                 )}
@@ -793,10 +925,10 @@ export default function BookletsPage() {
                                     await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                     load()
                                   }} className="text-[10px] font-semibold text-[#2A2035]/30 hover:text-[#D97706] hover:underline transition">Unassign</button>
-                                  <button onClick={() => { setDeleteId(b.id); setDeleteFilePaths(pdfPaths) }}
-                                    className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
                                 </div>
-                                {pdfPaths.length > 0 ? (
+                                {b.is_exam ? (
+                                  <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
+                                ) : pdfPaths.length > 0 ? (
                                   <div className="flex gap-1">
                                     {pdfPaths.map((path, i) => {
                                       const url = getPdfUrl(path)
@@ -878,26 +1010,6 @@ export default function BookletsPage() {
           onSaved={() => { setEditing(null); setAddPrefill({}); load() }}
         />
       )}
-      {deleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-80 border border-[#DEE7FF]">
-            <div className="px-6 py-5">
-              <p className="text-sm font-bold text-[#062E63] mb-2">Delete this booklet?</p>
-              <p className="text-xs text-[#2A2035]/60 leading-relaxed">
-                {deleteFilePaths.length
-                  ? `The booklet record and its ${deleteFilePaths.length} uploaded PDF${deleteFilePaths.length > 1 ? 's' : ''} will both be permanently deleted.`
-                  : 'The booklet record will be permanently deleted.'}
-              </p>
-            </div>
-            <div className="px-6 pb-5 flex gap-2 justify-end">
-              <button onClick={() => { setDeleteId(null); setDeleteFilePaths([]) }}
-                className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-              <button onClick={handleDelete}
-                className="px-4 py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Delete</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -961,7 +1073,7 @@ function TutorCurriculumPage({ staff }) {
     setLoadingAsgn(true)
     supabase
       .from('class_booklet_assignments')
-      .select('term_number, week, booklets(id, booklet_name, topic, file_paths, file_path, year, subject)')
+      .select('term_number, week, booklets(id, booklet_name, topic, file_paths, file_path, year, subject, is_exam, exam_id)')
       .eq('class_id', activeClassId)
       .then(({ data }) => {
         setAssignments(data || [])
@@ -1201,7 +1313,9 @@ function TutorCurriculumPage({ staff }) {
                                     >
                                       Wk {week}{isCurWeek ? ' ●' : ''}
                                     </span>
-                                    {pdfPaths.length > 0 && (
+                                    {b.is_exam ? (
+                                      <ExamPdfButtons examId={b.exam_id} accentColor={accent} accentBg={accentBg} />
+                                    ) : pdfPaths.length > 0 ? (
                                       <div className="flex gap-1 flex-wrap justify-end">
                                         {pdfPaths.slice(0, 3).map((path, pi) => {
                                           const url = getPdfUrl(path)
@@ -1222,11 +1336,11 @@ function TutorCurriculumPage({ staff }) {
                                           <span className="text-[9px] text-[#2A2035]/30">+{pdfPaths.length - 3}</span>
                                         )}
                                       </div>
-                                    )}
+                                    ) : null}
                                   </div>
                                   {/* Booklet name */}
                                   <p className="text-[11px] font-bold text-[#062E63] leading-snug">
-                                    {bookletLabel(b)}
+                                    {b.is_exam ? <><span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] mr-1">Exam</span>{b.booklet_name}</> : bookletLabel(b)}
                                   </p>
                                   {/* Topic */}
                                   {b.topic && (

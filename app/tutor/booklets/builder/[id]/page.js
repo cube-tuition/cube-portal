@@ -10,6 +10,7 @@ import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
+import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
 
 // Standard year/subject options so metadata is consistent across booklets.
 // Topics are loaded per year+subject from the shared `topics` table. The stored
@@ -44,6 +45,7 @@ export default function BookletBuilderEditor() {
   const [solnView, setSolnView] = useState(false)
   const [preview, setPreview] = useState(null)
   const [bankOpen, setBankOpen] = useState(false)
+  const [newQOpen, setNewQOpen] = useState(false)   // create a new bank question, then drop it in as a block
   const [exporting, setExporting] = useState(false)
   const [publishing, setPublishing] = useState(false)
 
@@ -141,6 +143,15 @@ export default function BookletBuilderEditor() {
     setSelectedBlockId(mk.id) // keep building downward from the new block
   }
   const addBlock = (type) => insertBlock(newBlock(type))
+  // After a new bank question is saved, fetch it (with parts + images) and drop
+  // it into the booklet as a block, mirroring the "from question bank" flow.
+  const onNewQuestionSaved = async (qid) => {
+    const { data } = await supabase.from(T_QBANK_QUESTIONS)
+      .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
+      .eq('id', qid).single()
+    if (data) insertBlock(bankToBlock(data))
+    setNewQOpen(false)
+  }
   const updateBlock = (bid, next) => setBlocks(bk.blocks.map(b => b.id === bid ? next : b))
   const removeBlock = (bid) => { setBlocks(bk.blocks.filter(b => b.id !== bid)); if (selectedBlockId === bid) setSelectedBlockId(null) }
   // Move within the same section/group only (skips over blocks of other groups).
@@ -362,7 +373,10 @@ export default function BookletBuilderEditor() {
                           </button>
                         ))}
                         {g === 'Questions' && (
-                          <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                          <>
+                            <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                            <button onClick={() => setNewQOpen(true)} className="text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -389,6 +403,7 @@ export default function BookletBuilderEditor() {
                       </button>
                     ))}
                     <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                    <button onClick={() => setNewQOpen(true)} className="text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
                   </div>
                 </div>
               ) : (
@@ -400,6 +415,7 @@ export default function BookletBuilderEditor() {
                     </button>
                   ))}
                   <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                  <button onClick={() => setNewQOpen(true)} className="text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
                 </div>
               )}
             </div>
@@ -472,6 +488,21 @@ export default function BookletBuilderEditor() {
       </div>
 
       {bankOpen && <BankPicker booklet={bk} onClose={() => setBankOpen(false)} onPick={(blk) => insertBlock(blk)} />}
+      {newQOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+          onClick={(e) => { if (e.target === e.currentTarget) setNewQOpen(false) }}>
+          <div className="bg-[#F7F9FF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-[#062E63]">New question → bank &amp; booklet</h2>
+              <button onClick={() => setNewQOpen(false)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg">✕</button>
+            </div>
+            <p className="text-[11px] text-[#2A2035]/50 mb-4">Saved to the question bank and added to this booklet as a block.</p>
+            <QuestionEditor staffName={staff?.full_name}
+              defaults={{ year: bk.year, subjectName: bk.subject, audience: 'both' }}
+              onSaved={onNewQuestionSaved} onCancel={() => setNewQOpen(false)} />
+          </div>
+        </div>
+      )}
       {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
     </div>
   )

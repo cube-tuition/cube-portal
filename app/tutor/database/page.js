@@ -5253,7 +5253,7 @@ function isoDateEnr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
-function AddEnrolmentModal({ allTerms, onClose, onCreated }) {
+function AddEnrolmentModal({ onClose, onCreated }) {
   const [students, setStudents]   = useState([])
   const [classes,  setClasses]    = useState([])
   const [studentSearch, setStudentSearch] = useState('')
@@ -5275,45 +5275,30 @@ function AddEnrolmentModal({ allTerms, onClose, onCreated }) {
       .then(({ data }) => setClasses(data || []))
   }, [])
 
+  // Trial start = the class's lesson on its class day in the selected start week.
   useEffect(() => {
-    if (status !== 'trial' || !classId) { setTrialStartDate(null); return }
-    const cls = classes.find(c => c.id === classId)
-    if (!cls) return
-    setTrialLoading(true)
-    const today = isoDateEnr(new Date())
-    supabase
-      .from('lessons')
-      .select('lesson_date')
-      .eq('class_id', classId)
-      .gte('lesson_date', today)
-      .order('lesson_date', { ascending: true })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setTrialStartDate(data[0].lesson_date)
-          setTrialLoading(false)
-          return
-        }
-        const days = normalizeDays(cls.day_of_week)
-        if (days.length === 0 || !allTerms?.length) { setTrialStartDate(null); setTrialLoading(false); return }
-        const sortedTerms = [...allTerms].sort((a, b) => a.start_date.localeCompare(b.start_date))
-        let nextDate = null
-        for (const term of sortedTerms) {
-          if (!term.start_date || !term.end_date) continue
-          const startMs = Math.max(new Date(term.start_date + 'T00:00:00').getTime(), new Date(today + 'T00:00:00').getTime())
-          const cursor = new Date(startMs)
-          const termEnd = new Date(term.end_date + 'T00:00:00')
-          while (cursor <= termEnd) {
-            const curDay = DAY_ORDER_ENR[(cursor.getDay() + 6) % 7]
-            if (days.includes(curDay)) { nextDate = isoDateEnr(cursor); break }
-            cursor.setDate(cursor.getDate() + 1)
-          }
-          if (nextDate) break
-        }
-        setTrialStartDate(nextDate)
-        setTrialLoading(false)
-      })
-  }, [classId, status, classes, allTerms])
+    let alive = true
+    ;(async () => {
+      await Promise.resolve()
+      if (!alive) return
+      if (status !== 'trial' || !classId) { setTrialStartDate(null); return }
+      setTrialLoading(true)
+      const { data } = await supabase
+        .from('lessons')
+        .select('lesson_date')
+        .eq('class_id', classId)
+        .eq('week', startWeek)
+        .is('makeup_student_id', null)
+        .order('lesson_date', { ascending: true })
+      if (!alive) return
+      // Prefer an upcoming lesson for that week; otherwise the earliest matching one.
+      const today = isoDateEnr(new Date())
+      const pick = (data || []).find(d => d.lesson_date >= today) || (data || [])[0]
+      setTrialStartDate(pick?.lesson_date || null)
+      setTrialLoading(false)
+    })()
+    return () => { alive = false }
+  }, [classId, status, startWeek])
 
   const filteredStudents = students.filter(s =>
     !studentSearch || s.full_name.toLowerCase().includes(studentSearch.toLowerCase()) ||

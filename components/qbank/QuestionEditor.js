@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import {
   T_QBANK_QUESTIONS, T_QBANK_QUESTION_PARTS, T_QBANK_QUESTION_IMAGES,
+  T_QBANK_TOPICS, T_QBANK_SKILLS,
 } from '../../lib/tables'
 import {
   fetchTaxonomy, yearsFromSubjects, uploadQbankImage, deleteQbankImage,
@@ -52,9 +53,10 @@ function CriteriaEditor({ marks, value, onChange }) {
   )
 }
 
-export default function QuestionEditor({ questionId = null, staffName }) {
+export default function QuestionEditor({ questionId = null, staffName, onSaved = null, onCancel = null, defaults = null }) {
   const router = useRouter()
   const editing = !!questionId
+  const embedded = !!(onSaved || onCancel)
 
   const [tax, setTax] = useState(null)          // { subjects, topicsBySubject, skillsByTopic }
   const [loading, setLoading] = useState(true)
@@ -143,10 +145,27 @@ export default function QuestionEditor({ questionId = null, staffName }) {
           const um = await fetchQuestionUsage([questionId])
           if (alive) setUsage(um[questionId] || null)
         }
+      } else if (defaults) {
+        // Prefill the classification when opened from a builder (modal mode).
+        if (defaults.audience) setAudience(defaults.audience)
+        let topic = defaults.topicId ? t.topics.find((tp) => tp.id === defaults.topicId) : null
+        const skill = defaults.skillId ? t.skills.find((s) => s.id === defaults.skillId) : null
+        let subject = topic ? t.subjects.find((su) => su.id === topic.subject_id) : null
+        if (!subject && defaults.year && defaults.subjectName) {
+          subject = t.subjects.find(
+            (su) => String(su.year_level) === String(defaults.year) && su.name === defaults.subjectName,
+          ) || null
+        }
+        if (subject) { setYear(String(subject.year_level)); setSubjectId(subject.id) }
+        else if (defaults.year) setYear(String(defaults.year))
+        if (topic) setTopicId(topic.id)
+        if (skill) setSkillId(skill.id)
       }
       setLoading(false)
     })()
     return () => { alive = false }
+    // defaults is read once on mount for prefill; intentionally not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, questionId])
 
   // ── Derived dropdown lists ──────────────────────────────────────────────────
@@ -163,6 +182,26 @@ export default function QuestionEditor({ questionId = null, staffName }) {
     () => (tax && topicId ? (tax.skillsByTopic[topicId] || []) : []),
     [tax, topicId],
   )
+
+  // ── Create a new topic / skill inline from the dropdowns ────────────────────
+  const addTopic = async () => {
+    const name = (window.prompt('New topic name:') || '').trim()
+    if (!name) return
+    const { data, error: e } = await supabase.from(T_QBANK_TOPICS)
+      .insert({ subject_id: subjectId, name }).select('id').single()
+    if (e) { setError(e.message || 'Could not create the topic.'); return }
+    const t = await fetchTaxonomy(); setTax(t)
+    setTopicId(data.id); setSkillId('')
+  }
+  const addSkill = async () => {
+    const name = (window.prompt('New skill name:') || '').trim()
+    if (!name) return
+    const { data, error: e } = await supabase.from(T_QBANK_SKILLS)
+      .insert({ topic_id: topicId, name }).select('id').single()
+    if (e) { setError(e.message || 'Could not create the skill.'); return }
+    const t = await fetchTaxonomy(); setTax(t)
+    setSkillId(data.id)
+  }
 
   // ── Save ────────────────────────────────────────────────────────────────────
   const isMcq = qtype === 'mcq'
@@ -242,6 +281,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
       await uploadNew(images, 'stem')
       await uploadNew(solutionImages, 'solution')
 
+      if (onSaved) { onSaved(qid); return }   // modal mode — hand control back to the builder
       router.push('/tutor/qbank')
     } catch (e) {
       setError(e.message || 'Could not save the question.')
@@ -314,17 +354,19 @@ export default function QuestionEditor({ questionId = null, staffName }) {
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Topic</label>
             <select value={topicId} disabled={!subjectId} className={inputCls}
-              onChange={(e) => { setTopicId(e.target.value); setSkillId('') }}>
+              onChange={(e) => { if (e.target.value === '__new__') { addTopic(); return } setTopicId(e.target.value); setSkillId('') }}>
               <option value="">—</option>
               {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {subjectId && <option value="__new__">＋ New topic…</option>}
             </select>
           </div>
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Skill <span className="text-[#2A2035]/30 normal-case">(optional)</span></label>
             <select value={skillId} disabled={!topicId} className={inputCls}
-              onChange={(e) => setSkillId(e.target.value)}>
+              onChange={(e) => { if (e.target.value === '__new__') { addSkill(); return } setSkillId(e.target.value) }}>
               <option value="">— None</option>
               {skillsForTopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {topicId && <option value="__new__">＋ New skill…</option>}
             </select>
           </div>
         </div>
@@ -475,7 +517,7 @@ export default function QuestionEditor({ questionId = null, staffName }) {
           className="px-5 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
           {saving ? 'Saving…' : editing ? 'Save changes' : 'Add to bank'}
         </button>
-        <button onClick={() => router.push('/tutor/qbank')}
+        <button onClick={() => (onCancel ? onCancel() : router.push('/tutor/qbank'))}
           className="px-5 py-2.5 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/60 hover:bg-[#F8FAFF] transition">
           Cancel
         </button>

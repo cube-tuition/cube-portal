@@ -11,6 +11,7 @@ import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuickEditModal from '../../../../../components/qbank/QuickEditModal'
+import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
 import { loadExam, saveExam, blankSlot } from '../../../../../lib/qbankExams'
 import { exportExamPdf, renderExamPreview } from '../../../../../lib/qbankExam'
 import DocLivePreview from '../../../../../components/qbank/DocLivePreview'
@@ -45,6 +46,7 @@ export default function ExamBuilderPage() {
   const [preview, setPreview] = useState(null)     // { url, filename, title } for the PDF preview modal
   const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
   const [editQ, setEditQ] = useState(null)         // bank question being quick-edited
+  const [newQ, setNewQ] = useState(null)           // { secKey, slotKey, topic_id, skill_id } — creating a new bank question for a slot
   const [rubrics, setRubrics] = useState([])       // marking rubrics for English papers
 
   // Autosave plumbing: refs keep the latest exam + in-flight state so debounced
@@ -236,7 +238,14 @@ export default function ExamBuilderPage() {
     finally { setBusy('') }
   }
 
-  const newQuestion = async () => { await save(); window.open('/tutor/qbank/new', '_blank') }
+  // Open the question editor in a modal, pre-classified to the slot's topic/skill.
+  const newQuestion = (ctx = null) => setNewQ(ctx || {})
+  // After saving the new bank question, refresh the bank and drop it into the slot.
+  const onNewQuestionSaved = async (qid) => {
+    await loadQuestions()
+    if (newQ?.slotKey) updateSlot(newQ.secKey, newQ.slotKey, { question_id: qid })
+    setNewQ(null)
+  }
 
   if (!ready || loading) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   if (!exam) return (
@@ -390,7 +399,8 @@ export default function ExamBuilderPage() {
                       onCriteria={(f) => updateSlot(s._key, slot._key, f)}
                       onPick={(qid) => updateSlot(s._key, slot._key, { question_id: qid })}
                       onRemove={() => removeSlot(s._key, slot._key)}
-                      onNew={newQuestion} onRefresh={loadQuestions} onEdit={setEditQ}
+                      onNew={() => newQuestion({ secKey: s._key, slotKey: slot._key, topic_id: slot.topic_id, skill_id: slot.skill_id })}
+                      onRefresh={loadQuestions} onEdit={setEditQ}
                       dragging={dragSlot?.slotKey === slot._key}
                       onDragStart={() => setDragSlot({ secKey: s._key, slotKey: slot._key })}
                       onDragEnter={() => { if (dragSlot && dragSlot.secKey === s._key) reorderSlot(s._key, dragSlot.slotKey, slot._key) }}
@@ -431,6 +441,21 @@ export default function ExamBuilderPage() {
       </div>
       {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
       {editQ && <QuickEditModal question={editQ} onClose={() => setEditQ(null)} onSaved={async () => { await loadQuestions(); setEditQ(null) }} />}
+      {newQ && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+          onClick={(e) => { if (e.target === e.currentTarget) setNewQ(null) }}>
+          <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-[#062E63]">New question → bank</h2>
+              <button onClick={() => setNewQ(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg">✕</button>
+            </div>
+            <p className="text-[11px] text-[#2A2035]/50 mb-4">Saved to the question bank and placed straight into this slot.</p>
+            <QuestionEditor staffName={profile?.full_name}
+              defaults={{ topicId: newQ.topic_id, skillId: newQ.skill_id, audience: 'exam' }}
+              onSaved={onNewQuestionSaved} onCancel={() => setNewQ(null)} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -570,7 +595,7 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
           <div className="flex items-center gap-2">
             <button onClick={() => setOpen((o) => !o)} className="text-[11px] font-semibold text-[#325099] hover:underline">{open ? 'Hide' : 'Choose'} matching question{matches.length ? ` (${matches.length})` : ''}</button>
             <button onClick={onRefresh} title="Refresh bank" className="text-[11px] text-[#2A2035]/40 hover:text-[#325099]">↻</button>
-            {matches.length === 0 && <button onClick={onNew} className="text-[11px] font-semibold text-[#16A34A] hover:underline ml-auto">+ Create new</button>}
+            <button onClick={onNew} className="text-[11px] font-semibold text-[#16A34A] hover:underline ml-auto">+ Create new</button>
           </div>
           {open && (
             <div className="mt-2 space-y-1.5 max-h-60 overflow-y-auto">

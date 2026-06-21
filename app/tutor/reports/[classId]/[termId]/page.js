@@ -9,6 +9,7 @@ import { inferSubject, subjectsMatch } from '../../../../../components/CourseDet
 import { StudentReport } from '../../../../../components/reports/StudentReport'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../lib/tables'
+import { loadExamAnalysisForClass } from '../../../../../lib/examMarking'
 
 /*
  * Printable end-of-term report bundle — one page per student.
@@ -148,35 +149,11 @@ export default function ReportPage() {
         setPrepost({ topics, totalMarks, scores: scoreMap })
       }
 
-      // Exam marks
-      const termNumber = t.term_number
-      const [{ data: cbaRows }, { data: examRows }] = await Promise.all([
-        supabase
-          .from('class_booklet_assignments')
-          .select('booklet_id, booklets(topic)')
-          .eq('class_id', classId)
-          .eq('term_number', termNumber),
-        supabase
-          .from('exam_marks')
-          .select('student_id, topic, section, score, max_score, silly_mistakes')
-          .eq('class_id', classId)
-          .eq('term_id', termId),
-      ])
-      const examTopics = [...new Set(
-        (cbaRows || []).map(r => r.booklets?.topic).filter(tp => tp && tp !== 'Exam')
-      )]
-      const mMap  = { '1': {}, '2': {} }
-      const smMap = { '1': {}, '2': {} }
-      const xMap  = { '1': {}, '2': {} }
-      for (const m of examRows || []) {
-        const sec = m.section || '2'
-        if (!mMap[sec][m.student_id])  mMap[sec][m.student_id]  = {}
-        if (!smMap[sec][m.student_id]) smMap[sec][m.student_id] = {}
-        mMap[sec][m.student_id][m.topic]  = m.score ?? ''
-        smMap[sec][m.student_id][m.topic] = m.silly_mistakes ?? 0
-        xMap[sec][m.topic] = m.max_score
-      }
-      setExamData({ topics: examTopics, marks: mMap, sillyMistakes: smMap, maxScores: xMap })
+      // Exam analysis — per-question marks rolled up by topic (assigned exam).
+      const examAnalysis = await loadExamAnalysisForClass({
+        classId, termNumber: t.term_number, termId, roster: students,
+      })
+      setExamData(examAnalysis)
 
       setLoading(false)
     })()

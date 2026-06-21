@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { inferSubject, subjectColor } from '../CourseDetail'
 import { formatTermLabel } from '../../lib/terms'
-import { ExamAnalyticsReport } from './ExamAnalyticsReport'
+import StudentExamAnalysisView, { studentAnalysisRows } from '../StudentExamAnalysisView'
 
 const ATT_COLOR = {
   present: '#10b981',
@@ -456,13 +456,21 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
 
         <section className="mb-6">
           <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-3">Exam analytics</h2>
-          <ExamAnalyticsReport
-            student={student}
-            roster={roster}
-            examData={examData}
-            col={col}
-            rqAvg={stats.avgRq}
-          />
+          {examData && examData.perStudent ? (() => {
+            const d = studentAnalysisRows(examData, student.id)
+            return (
+              <StudentExamAnalysisView
+                studentName={student.full_name}
+                rows={d.rows}
+                overall={d.overall}
+                sections={d.sections}
+                strengths={d.strengths}
+                weaknesses={d.weaknesses}
+              />
+            )
+          })() : (
+            <p className="text-xs text-[#2A2035]/40 italic">No exam assigned to this class for the term.</p>
+          )}
         </section>
 
         {pageFooter}

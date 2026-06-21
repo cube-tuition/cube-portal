@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { T_CLASS_BOOKLETS } from '../lib/tables'
+import ExamPdfButtons from './ExamPdfButtons'
 
 /*
  * <WeekBooklet cls={...} term={...} week={N} isAdmin={bool} />
@@ -50,7 +51,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
       // 1. Check curriculum assignment first
       const { data: assignment } = await supabase
         .from('class_booklet_assignments')
-        .select('id, booklets(id, booklet_name, year, subject, file_paths, file_path, pdf_filenames)')
+        .select('id, booklets(id, booklet_name, year, subject, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
         .eq('class_id', cls.id)
         .eq('term_number', term.term_number)
         .eq('week', week)
@@ -288,18 +289,26 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
     const ab      = assignedBooklet
     const paths   = ab.file_paths?.length ? ab.file_paths : (ab.file_path ? [ab.file_path] : [])
     const names   = ab.pdf_filenames || []
-    const label   = ab.year ? `${ab.year}.${(ab.subject||'')[0]||''}. ${ab.booklet_name}` : ab.booklet_name
+    const label   = ab.is_exam ? ab.booklet_name : (ab.year ? `${ab.year}.${(ab.subject||'')[0]||''}. ${ab.booklet_name}` : ab.booklet_name)
 
     return (
       <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
         <div className="px-5 md:px-6 py-4 border-b border-[#DEE7FF] flex items-center gap-3 bg-[#F8FAFF]">
           <WeekChip n={week} />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[#2A2035] font-display truncate">{label}</p>
-            <p className="text-[11px] text-[#325099]/60 truncate">From curriculum · {cls?.class_name}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-[#2A2035] font-display truncate">{label}</p>
+              {ab.is_exam && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
+            </div>
+            <p className="text-[11px] text-[#325099]/60 truncate">{ab.is_exam ? 'Exam · ' : ''}From curriculum · {cls?.class_name}</p>
           </div>
         </div>
-        {paths.length > 0 ? (
+        {ab.is_exam ? (
+          <div className="px-5 md:px-6 py-4 flex items-center justify-between gap-3">
+            <p className="text-sm text-[#2A2035]/55">Generate the exam PDF to download:</p>
+            <ExamPdfButtons examId={ab.exam_id} size="lg" />
+          </div>
+        ) : paths.length > 0 ? (
           <div className="divide-y divide-[#F0F4FF]">
             {paths.map((path, i) => {
               const pdfLabel = names[i] || ab.booklet_name || `Part ${i + 1}`
