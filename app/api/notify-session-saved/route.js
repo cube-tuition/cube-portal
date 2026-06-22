@@ -35,15 +35,16 @@ export async function POST(req) {
   const to = process.env.SESSION_EMAIL_TO || 'admin@cubetuition.com.au'
   const from = process.env.RESEND_FROM_EMAIL || 'CUBE Tuition <admin@cubetuition.com.au>'
 
-  const { className, date, week, markedBy, notes = {}, students = [] } = body || {}
+  const { className, date, week, markedBy, hasRq = true, notes = {}, students = [] } = body || {}
   const dateLabel = fmtDate(date)
+  const quizCol = !!hasRq   // a 'No RQ' session drops the Quiz column
 
   const rows = (students || []).map((s) => `
     <tr>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(s.name)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-transform:capitalize">${esc(s.attendance || '—')}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(s.homework || '—')}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #eee">${(s.quiz != null && s.quiz !== '') ? esc(s.quiz) + '%' : '—'}</td>
+      ${quizCol ? `<td style="padding:6px 8px;border-bottom:1px solid #eee">${(s.quiz != null && s.quiz !== '') ? esc(s.quiz) + '%' : '—'}</td>` : ''}
       <td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(s.comment || '')}${s.trialFeedback ? `<br/><em style="color:#b45309">Trial: ${esc(s.trialFeedback)}</em>` : ''}</td>
     </tr>`).join('')
 
@@ -53,11 +54,13 @@ export async function POST(req) {
         <th style="padding:6px 8px;border-bottom:2px solid #ddd">Student</th>
         <th style="padding:6px 8px;border-bottom:2px solid #ddd">Attendance</th>
         <th style="padding:6px 8px;border-bottom:2px solid #ddd">Homework</th>
-        <th style="padding:6px 8px;border-bottom:2px solid #ddd">Quiz</th>
+        ${quizCol ? '<th style="padding:6px 8px;border-bottom:2px solid #ddd">Quiz</th>' : ''}
         <th style="padding:6px 8px;border-bottom:2px solid #ddd">Comment</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>` : '<p style="font-size:13px;color:#888">No per-student marks entered.</p>'
+
+  const noRqNote = quizCol ? '' : '<p style="font-size:13px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin:10px 0 0">No revision quiz this week.</p>'
 
   const noteBlock = (label, val) => val ? `<p style="margin:4px 0;font-size:13px"><strong>${esc(label)}:</strong> ${esc(val)}</p>` : ''
   const notesHtml = [noteBlock('General', notes.general), noteBlock('Workbook', notes.workbook), noteBlock('Homework', notes.homework)].join('')
@@ -68,6 +71,7 @@ export async function POST(req) {
       <p style="color:#555;margin:0 0 14px;font-size:13px">${esc(dateLabel)}${week ? ` · ${esc(week)}` : ''} · marked by ${esc(markedBy || '—')}</p>
       <h3 style="font-size:14px;color:#325099;margin:14px 0 4px">Student marks</h3>
       ${studentsTable}
+      ${noRqNote}
       ${notesHtml ? `<h3 style="font-size:14px;color:#325099;margin:16px 0 4px">Notes to CUBE</h3>${notesHtml}` : ''}
     </div>`
 

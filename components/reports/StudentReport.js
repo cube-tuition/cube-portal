@@ -2,7 +2,7 @@
 import { useMemo } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, ReferenceLine, Bar, ComposedChart, Cell,
+  CartesianGrid, Bar, ComposedChart, Cell,
 } from 'recharts'
 import { inferSubject, subjectColor } from '../CourseDetail'
 import { formatTermLabel } from '../../lib/terms'
@@ -56,7 +56,7 @@ function StatBox({ label, value, sub }) {
   )
 }
 
-export function StudentReport({ student, cls, term, roster, attendance, quizzes, comment, criteria, prepost, examData, isLast }) {
+export function StudentReport({ student, cls, term, roster, attendance, quizzes, comment, criteria, prepost, examData, rqByWeek = {}, isLast }) {
   const col = subjectColor(inferSubject(cls))
 
   const weekly = useMemo(() => {
@@ -90,13 +90,19 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
         // the chart's Cell), so absences show as a red band rather than nothing.
         attended: status ? 1 : null,
         status, hw, hwNum: hw ? HW_NUMERIC[hw] || null : null,
+        noRq: rqByWeek[w] === false,   // class had no revision quiz this week
       })
     }
     return out
-  }, [attendance, quizzes, term])
+  }, [attendance, quizzes, term, rqByWeek])
 
   const stats = useMemo(() => {
-    const scored = quizzes.filter(q => q.score != null && q.max_score)
+    const scored = quizzes.filter(q => {
+      if (q.score == null || !q.max_score) return false
+      const m = String(q.week || '').match(/(\d+)/)
+      const w = m ? parseInt(m[1], 10) : null
+      return !(w != null && rqByWeek[w] === false)   // exclude weeks marked 'No RQ'
+    })
     const avgRq  = scored.length
       ? Math.round(scored.reduce((a, q) => a + (q.score / q.max_score) * 100, 0) / scored.length) : null
     const attTotal   = attendance.length
@@ -111,7 +117,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
       if (c > hwModeCount) { hwModeCount = c; hwMode = g }
     }
     return { avgRq, attPct, attTotal, hwMode, hwTotal, scoredCount: scored.length }
-  }, [quizzes, attendance])
+  }, [quizzes, attendance, rqByWeek])
 
   const reportHeader = (pageNum) => (
     <header className="flex items-start justify-between gap-4 border-b border-[#DEE7FF] pb-4 mb-5">
@@ -322,7 +328,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
             <ResponsiveContainer>
               <ComposedChart
                 data={weekly.filter(d => d.week !== 'Wk 1' && d.week !== 'Wk 10')}
-                margin={{ top: 8, right: 64, bottom: 8, left: 8 }}
+                margin={{ top: 8, right: 20, bottom: 8, left: 12 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#DEE7FF" />
                 <XAxis
@@ -359,15 +365,18 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                 />
                 <YAxis
                   yAxisId="score"
+                  type="number"
                   domain={[0, 100]}
                   ticks={[0, 25, 50, 75, 100]}
+                  interval={0}
                   tickFormatter={v => `${v}%`}
-                  tick={{ fontSize: 11, fill: '#374151', fontWeight: 500 }}
-                  axisLine={{ stroke: '#DEE7FF' }}
-                  tickLine={{ stroke: '#DEE7FF' }}
-                  width={52}
+                  tick={{ fontSize: 11, fill: '#1F2937', fontWeight: 600 }}
+                  tickMargin={6}
+                  axisLine={{ stroke: '#CBD5E1' }}
+                  tickLine={{ stroke: '#CBD5E1' }}
+                  width={46}
                 />
-                <YAxis yAxisId="att" hide domain={[0, 1]} />
+                <YAxis yAxisId="att" orientation="right" hide domain={[0, 1]} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
@@ -375,7 +384,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                     return (
                       <div className="bg-white border border-[#DEE7FF] rounded-xl p-3 text-xs shadow-lg">
                         <p className="font-semibold text-[#2A2035] mb-1">{label}</p>
-                        <p>RQ score: {row.score == null ? '—' : `${row.score}%`}</p>
+                        <p>RQ score: {row.noRq ? 'No RQ' : (row.score == null ? '—' : `${row.score}%`)}</p>
                         <p>Prev week's HWK: {row.hw || '—'}</p>
                         <p>Attendance: {row.status || '—'}</p>
                       </div>
@@ -395,12 +404,6 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                   strokeWidth={2.5}
                   dot={{ r: 4, fill: col.line, strokeWidth: 0 }}
                   connectNulls
-                />
-                <ReferenceLine yAxisId="score" y={70} stroke="#10b981" strokeDasharray="4 4"
-                  label={{ value: 'Good (70%)', position: 'insideTopRight', fill: '#10b981', fontSize: 9, fontWeight: 600 }}
-                />
-                <ReferenceLine yAxisId="score" y={50} stroke="#f59e0b" strokeDasharray="4 4"
-                  label={{ value: 'Pass (50%)', position: 'insideTopRight', fill: '#f59e0b', fontSize: 9, fontWeight: 600 }}
                 />
               </ComposedChart>
             </ResponsiveContainer>
@@ -446,7 +449,9 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                     ) : <span className="text-[#2A2035]/30">—</span>}
                   </td>
                   <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[#2A2035]">
-                    {r.score == null ? <span className="text-[#2A2035]/30 font-normal">—</span> : `${r.score}%`}
+                    {r.noRq
+                      ? <span className="text-[#2A2035]/40 font-normal italic">No RQ</span>
+                      : r.score == null ? <span className="text-[#2A2035]/30 font-normal">—</span> : `${r.score}%`}
                   </td>
                 </tr>
               ))}

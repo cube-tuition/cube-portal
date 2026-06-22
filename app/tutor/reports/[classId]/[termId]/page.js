@@ -38,6 +38,7 @@ export default function ReportPage() {
   const [criteria, setCriteria] = useState({})        // studentId → { subject_knowledge, ... }
   const [prepost,  setPrepost]  = useState(null)      // { topics, totalMarks, scores: { [studentId]: { pre, post } } }
   const [examData, setExamData] = useState(null)      // { topics, marks, sillyMistakes, maxScores }
+  const [rqByWeek, setRqByWeek] = useState({})        // weekNum → has_rq (false ⇒ no revision quiz)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [building, setBuilding] = useState(false)
@@ -154,6 +155,18 @@ export default function ReportPage() {
         classId, termNumber: t.term_number, termId, roster: students,
       })
       setExamData(examAnalysis)
+
+      // Per-week revision-quiz flag (false ⇒ class had no RQ that week).
+      const { data: lessonRqRows } = await supabase
+        .from('lessons')
+        .select('week, has_rq, is_makeup')
+        .eq('class_id', classId)
+      const rqMap = {}
+      for (const l of lessonRqRows || []) {
+        if (l.is_makeup || l.week == null) continue
+        rqMap[l.week] = l.has_rq
+      }
+      setRqByWeek(rqMap)
 
       setLoading(false)
     })()
@@ -331,6 +344,7 @@ export default function ReportPage() {
             criteria={criteria[s.id] || {}}
             prepost={prepost}
             examData={examData}
+            rqByWeek={rqByWeek}
             isLast={i === roster.length - 1}
           />
         ))}

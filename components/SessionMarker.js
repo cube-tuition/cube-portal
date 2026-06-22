@@ -71,6 +71,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const [term, setTerm] = useState(null)
   const [booklet, setBooklet] = useState(null)
   const [bookletWeek, setBookletWeek] = useState(null)
+  const [rqEnabled, setRqEnabled] = useState(true)   // session-level: does this week have a revision quiz?
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState('idle')
   const [saveError, setSaveError] = useState(null)
@@ -119,7 +120,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       if (!isAbsent && bookletWeek !== 1 && bookletWeek !== 10) {
         const issues = []
         if (!m.hw) issues.push("prev week's HWK")
-        if (m.rq === '' || m.rq == null) issues.push('RQ')
+        if (rqEnabled && (m.rq === '' || m.rq == null)) issues.push('RQ')
         if (issues.length) missing.push(`${s.full_name} (${issues.join(', ')})`)
       }
       if (s.enrolmentStatus === 'trial' && !isAbsent && !(m.trialFeedback || '').trim()) {
@@ -282,7 +283,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       // Load lesson notes (admin "Notes from CUBE" + tutor "Notes to CUBE" fields)
       const { data: lessonRow } = await supabase
         .from('lessons')
-        .select('id, notes, notes_general, notes_workbook, notes_homework')
+        .select('id, notes, notes_general, notes_workbook, notes_homework, has_rq')
         .eq('class_id', classId)
         .eq('lesson_date', dateISO)
         .eq('is_makeup', false)
@@ -293,6 +294,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         setNotesGeneral(lessonRow.notes_general || '')
         setNotesWorkbook(lessonRow.notes_workbook || '')
         setNotesHomework(lessonRow.notes_homework || '')
+        setRqEnabled(lessonRow.has_rq !== false)   // null/true ⇒ has RQ; false ⇒ no RQ
       }
 
       setLoading(false)
@@ -406,8 +408,11 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       notes_workbook: notesWorkbook.trim() || null,
       notes_homework: notesHomework.trim() || null,
     }
-    const hasAnyNote = Object.values(notesPayload).some(v => v !== null)
-    if (hasAnyNote || lessonId) {
+    // Record whether this week has a revision quiz (weeks 2–9 only; 1 & 10 never do).
+    const rqApplicable = bookletWeek !== 1 && bookletWeek !== 10
+    if (rqApplicable) notesPayload.has_rq = rqEnabled
+    const hasAnyNote = notesGeneral.trim() || notesWorkbook.trim() || notesHomework.trim()
+    if (hasAnyNote || lessonId || rqApplicable) {
       try {
         if (lessonId) {
           const { error } = await supabase.from('lessons').update(notesPayload).eq('id', lessonId)
@@ -461,6 +466,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             date: dateISO,
             week: weekLabel,
             markedBy: staff?.full_name || null,
+            hasRq: (bookletWeek !== 1 && bookletWeek !== 10) ? rqEnabled : false,
             notes: { general: notesGeneral.trim(), workbook: notesWorkbook.trim(), homework: notesHomework.trim() },
             students: studentsPayload,
           }),
@@ -509,12 +515,32 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             </p>
           </div>
         ) : (
+          <>
+          {bookletWeek !== 1 && bookletWeek !== 10 && (
+            <div className="flex flex-wrap items-center gap-3 mb-3 px-1">
+              <span className="text-xs font-semibold text-[#062E63]">Revision quiz this week?</span>
+              <div className="inline-flex rounded-lg border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
+                {[['yes', 'Yes'], ['no', 'No']].map(([v, lbl]) => {
+                  const on = (v === 'yes') === rqEnabled
+                  return (
+                    <button key={v} type="button" disabled={isLocked || readOnly}
+                      onClick={() => setRqEnabled(v === 'yes')}
+                      className={`px-3.5 py-1.5 transition disabled:opacity-50 ${on ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
+                      {lbl}
+                    </button>
+                  )
+                })}
+              </div>
+              {!rqEnabled && <span className="text-[11px] text-[#2A2035]/45">No RQ this week — no mark needed; the report shows “No RQ”.</span>}
+            </div>
+          )}
           <MarkTable
             roster={roster}
             marks={marks}
             history={history}
             term={term}
             currentWeek={bookletWeek}
+            rqEnabled={rqEnabled}
             expanded={expanded}
             onToggleExpand={(sid) => setExpanded(prev => {
               const next = new Set(prev)
@@ -533,6 +559,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             showValidation={showValidation}
             isOneToOne={/1.?:?.?1/i.test(cls?.class_name || '')}
           />
+          </>
         )}
 
         {/* Notes (split: From CUBE / To CUBE → general/workbook/homework) */}
@@ -704,7 +731,7 @@ const UNDERSTANDING_OPTIONS = [
 ]
 
 function MarkTable({
-  roster, marks, history, term, currentWeek,
+  roster, marks, history, term, currentWeek, rqEnabled = true,
   expanded, onToggleExpand,
   onChange,
   isLocked, savedAt, onEdit,
@@ -732,7 +759,7 @@ function MarkTable({
               <Th className="text-left pl-5 pr-3 w-[26%]">Student name</Th>
               <Th className="text-center px-3 w-[14%]">Attendance <span className="text-[#EF4444]">*</span></Th>
               {currentWeek !== 1 && currentWeek !== 10 && <Th className="text-center px-3 w-[14%]">HW completion <span className="text-[#EF4444]">*</span></Th>}
-              {currentWeek !== 1 && currentWeek !== 10 && <Th className="text-center px-3 w-[14%]">{isOneToOne ? 'Understanding %' : 'RQ mark %'} <span className="text-[#EF4444]">*</span></Th>}
+              {currentWeek !== 1 && currentWeek !== 10 && rqEnabled && <Th className="text-center px-3 w-[14%]">{isOneToOne ? 'Understanding %' : 'RQ mark %'} <span className="text-[#EF4444]">*</span></Th>}
               <Th className="text-left px-5 bg-[#EEF4FF] text-[#062E63]">Additional comments</Th>
             </tr>
           </thead>
@@ -751,7 +778,7 @@ function MarkTable({
               // Validation highlights — only shown after a failed save attempt
               const attInvalid          = showValidation && !att && !isCancelled
               const hwInvalid           = showValidation && !isAbsent && !isCancelled && att && !m.hw
-              const rqInvalid           = showValidation && !isAbsent && !isCancelled && att && (m.rq === '' || m.rq == null)
+              const rqInvalid           = showValidation && rqEnabled && !isAbsent && !isCancelled && att && (m.rq === '' || m.rq == null)
               const trialFeedbackInvalid = showValidation && isTrial && !isAbsent && !isCancelled && !(m.trialFeedback || '').trim()
 
               if (isCancelled) return (
@@ -823,7 +850,7 @@ function MarkTable({
                         </div>
                       </td>
                     )}
-                    {currentWeek !== 1 && currentWeek !== 10 && (
+                    {currentWeek !== 1 && currentWeek !== 10 && rqEnabled && (
                       <td className="px-3 py-3">
                         <div className={rqInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
                           {isOneToOne ? (
@@ -857,7 +884,7 @@ function MarkTable({
                   </tr>
                   {isTrial && !isAbsent && (
                     <tr className="border-b last:border-0 border-[#FDE68A]" style={{ background: '#FFFBEB' }}>
-                      <td colSpan={currentWeek !== 1 && currentWeek !== 10 ? 5 : 3} className="pl-5 pr-5 pb-3 pt-1">
+                      <td colSpan={currentWeek === 1 || currentWeek === 10 ? 3 : (rqEnabled ? 5 : 4)} className="pl-5 pr-5 pb-3 pt-1">
                         <div className="flex items-start gap-2">
                           <span className="text-[10px] font-bold tracking-widest uppercase text-[#92400E] mt-2 shrink-0">Trial feedback</span>
                           <div className="flex-1">
@@ -865,7 +892,7 @@ function MarkTable({
                               rows={2}
                               value={m.trialFeedback || ''}
                               onChange={e => onChange(s.id, 'trialFeedback', e.target.value)}
-                              placeholder="How did the trial go? Strengths, areas for improvement, recommendation to enrol…"
+                              placeholder="How did the trial go? Strengths, areas for improvement, recommendations…"
                               disabled={isLocked}
                               className={`w-full bg-white border rounded-lg px-3 py-2 text-xs text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 transition resize-none disabled:bg-[#FFFBEB] disabled:cursor-not-allowed ${trialFeedbackInvalid ? 'border-[#EF4444] ring-2 ring-[#EF4444]/30' : 'border-[#FDE68A] focus:ring-[#D97706]/20 focus:border-[#D97706]'}`}
                             />
