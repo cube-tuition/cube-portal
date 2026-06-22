@@ -12,7 +12,7 @@ import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuickEditModal from '../../../../../components/qbank/QuickEditModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
-import { loadExam, saveExam, blankSlot } from '../../../../../lib/qbankExams'
+import { loadExam, saveExam, blankSlot, buildExamRenderPayload } from '../../../../../lib/qbankExams'
 import { exportExamPdf, renderExamPreview } from '../../../../../lib/qbankExam'
 import DocLivePreview from '../../../../../components/qbank/DocLivePreview'
 import { listRubrics, blankBands, blankCriterion, normaliseRubric, createRubricFrom } from '../../../../../lib/rubrics'
@@ -211,12 +211,8 @@ export default function ExamBuilderPage() {
     yearLabel: exam?.year_label, term: exam?.term, paperType: exam?.paper_type || 'maths',
     readingTime: exam?.reading_time, workingTime: exam?.working_time, calculators: exam?.calculators,
   }), [exam])
-  const buildSections = useCallback(() => (exam?.sections || []).map((s, i) => ({
-    roman: ROMAN[i] || String(i + 1), type: s.type, allow: s.allow_time,
-    questions: s.slots
-      .map((sl) => { const q = qById[sl.question_id]; return q ? { ...q, _workingLines: sl.working_lines || null, _rubric: sl.custom_rubric || rubricById[sl.rubric_id] || null, _showNotes: sl.show_notes !== false, _notes: sl.notes || '' } : null })
-      .filter(Boolean),
-  })), [exam, qById, rubricById])
+  // Shared with the curriculum exam assign + student reports (single source of truth).
+  const buildSections = useCallback(() => buildExamRenderPayload({ exam, questions, rubrics }).sections, [exam, questions, rubrics])
 
   const [previewSolutions, setPreviewSolutions] = useState(false)
   const renderPreview = useCallback((container) => renderExamPreview(container, { meta: buildMeta(), sections: buildSections(), solutions: previewSolutions }), [buildMeta, buildSections, previewSolutions])

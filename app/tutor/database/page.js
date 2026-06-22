@@ -5336,8 +5336,25 @@ function AddEnrolmentModal({ onClose, onCreated }) {
       price: proRatedPrice,
       trial_start_date: status === 'trial' ? trialStartDate : null,
     }
-    const { error: err } = await supabase.from('enrolments').insert(payload)
+    const { data: newEnrol, error: err } = await supabase.from('enrolments').insert(payload).select('id').single()
     if (err) { setError(err.message); setSaving(false); return }
+
+    // A trial enrolment also needs a trial_submissions row so it appears in the
+    // Trials UI (which is driven by trial_submissions, incl. convert/decline).
+    if (status === 'trial') {
+      await supabase.from('trial_submissions').insert({
+        submitted_at: new Date().toISOString(),
+        student_name: selectedStudent?.full_name || null,
+        student_year: selectedStudent?.year != null ? String(selectedStudent.year) : null,
+        school: selectedStudent?.school || null,
+        trial_class_id: classId,
+        trial_date: trialStartDate || null,
+        status: 'trial_scheduled',
+        source: 'manual',
+        converted_student_id: studentId,
+        enrolment_id: newEnrol?.id || null,
+      })
+    }
     onCreated()
   }
 

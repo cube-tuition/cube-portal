@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../lib/terms'
 import { inferSubject, subjectsMatch } from './CourseDetail'
 import { T_ATTENDANCE, T_BOOKLETS, T_ENROLMENTS, T_QUIZ_RESULTS } from '../lib/tables'
+import { authedFetch } from '../lib/authedFetch'
 
 /*
  * SessionMarker — the per-session marking UI (workbook + roll + notes).
@@ -436,6 +437,36 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       setSaveStatus('saved')
       setIsLocked(true)
       setSavedAt(new Date().toISOString())
+
+      // Fire-and-forget: email an admin inbox a full breakdown of the saved
+      // session. Never blocks the save; any failure is logged only.
+      try {
+        const studentsPayload = roster.map((s) => {
+          const m = marks[s.id] || {}
+          return {
+            name: s.full_name,
+            attendance: m.attendance || null,
+            comment: (m.comment || '').trim() || null,
+            homework: m.hw || null,
+            quiz: (m.rq !== '' && m.rq != null) ? m.rq : null,
+            trialFeedback: s.enrolmentStatus === 'trial' ? ((m.trialFeedback || '').trim() || null) : null,
+          }
+        }).filter((s) => s.attendance || s.comment || s.homework || s.quiz != null || s.trialFeedback)
+
+        authedFetch('/api/notify-session-saved', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            className: cls?.class_name,
+            date: dateISO,
+            week: weekLabel,
+            markedBy: staff?.full_name || null,
+            notes: { general: notesGeneral.trim(), workbook: notesWorkbook.trim(), homework: notesHomework.trim() },
+            students: studentsPayload,
+          }),
+        }).catch((e) => console.warn('Session-saved email failed (save itself succeeded):', e))
+      } catch (e) { console.warn('Session-saved email skipped:', e) }
+
       setTimeout(() => setSaveStatus(prev => (prev === 'saved' ? 'idle' : prev)), 4000)
     }
   }

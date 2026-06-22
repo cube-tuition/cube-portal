@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { loadExam } from '../lib/qbankExams'
+import { resolveAssignedExamId, loadExamItems, computeExamAnalysis } from '../lib/examMarking'
 import StudentExamAnalysisView, { studentAnalysisRows } from './StudentExamAnalysisView'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -17,20 +17,10 @@ import {
  * Marks are stored per (class, term, student, question) in exam_question_marks.
  */
 
-const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII']
 const firstName = (n) => (n || '—').split(' ')[0]
 const pct = (s, m) => (!m || s == null) ? null : Math.round((Number(s) / Number(m)) * 100)
 function scoreColor(p) { if (p == null) return '#9CA3AF'; if (p >= 80) return '#10B981'; if (p >= 60) return '#F59E0B'; return '#EF4444' }
 function scoreBg(p) { if (p == null) return '#F3F4F6'; if (p >= 80) return '#D1FAE5'; if (p >= 60) return '#FEF3C7'; return '#FEE2E2' }
-
-// Total marks for a question: sum of part marks (multipart), else its marks (MCQ → 1).
-const qMax = (q) => {
-  if (q.is_multipart && Array.isArray(q.qbank_question_parts) && q.qbank_question_parts.length) {
-    return q.qbank_question_parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
-  }
-  if (q.qtype === 'mcq') return Number(q.marks) || 1
-  return Number(q.marks) || 0
-}
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -61,68 +51,14 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       if (!alive) return
       setLoading(true); setError(null)
       try {
-        const { data: asgs } = await supabase
-          .from('class_booklet_assignments')
-          .select('week, booklet_id, booklets(is_exam, exam_id, booklet_name)')
-          .eq('class_id', classId).eq('term_number', termNumber)
-        const byWeekDesc = (arr) => [...arr].sort((a, b) => (b.week || 0) - (a.week || 0))
-
-        let examId = null, examName = null
-        // 1. Preferred: an exam assigned via the "Add exam" flow (linked to a qbank exam).
-        const linked = byWeekDesc((asgs || []).filter((a) => a.booklets?.is_exam && a.booklets?.exam_id))[0]
-        if (linked) { examId = linked.booklets.exam_id; examName = linked.booklets.booklet_name }
-        else {
-          // 2. Fallback: an exam-title booklet assigned the old way (no qbank link).
-          //    Resolve the matching qbank exam by the class's year + subject + term,
-          //    then backfill the link so future loads are direct.
-          const cand = byWeekDesc((asgs || []).filter((a) => {
-            const nm = a.booklets?.booklet_name || ''
-            return /exam/i.test(nm) && !/review/i.test(nm)
-          }))[0]
-          if (cand) {
-            const { data: cls } = await supabase.from('classes').select('class_name').eq('id', classId).maybeSingle()
-            const nm = cls?.class_name || ''
-            const yr = (nm.match(/(\d+)/) || [])[1]
-            const paper = /english/i.test(nm) ? 'english' : 'maths'
-            if (yr) {
-              const { data: exs } = await supabase.from('qbank_exams')
-                .select('id')
-                .eq('year_label', String(yr)).eq('paper_type', paper)
-                .or(`term.eq.${termNumber},term.eq.Term ${termNumber}`)
-              if (exs && exs.length === 1) {
-                examId = exs[0].id; examName = cand.booklets.booklet_name
-                await supabase.from('booklets').update({ is_exam: true, exam_id: examId }).eq('id', cand.booklet_id)
-              }
-            }
-          }
-        }
+        // Resolve the class's assigned exam (shared with the student reports).
+        const { examId, examName, backfillBookletId } = await resolveAssignedExamId(classId, termNumber)
         if (!examId) { if (alive) { setExam(null); setItems([]); setLoading(false) } return }
-
-        const ex = await loadExam(examId)
-        const qids = []
-        ;(ex?.sections || []).forEach((s) => (s.slots || []).forEach((sl) => { if (sl.question_id) qids.push(sl.question_id) }))
-        let qById = {}
-        if (qids.length) {
-          const { data: qs } = await supabase
-            .from('qbank_questions')
-            .select('id, qtype, marks, is_multipart, stem_latex, qbank_question_parts(marks), qbank_topics(name)')
-            .in('id', qids)
-          qById = Object.fromEntries((qs || []).map((q) => [q.id, q]))
+        // Persist an old-style assignment's resolved link so future loads are direct.
+        if (backfillBookletId) {
+          await supabase.from('booklets').update({ is_exam: true, exam_id: examId }).eq('id', backfillBookletId)
         }
-        const list = []
-        ;(ex?.sections || []).forEach((s, si) => {
-          const label = `Section ${ROMAN[si] || si + 1} · ${s.type === 'mcq' ? 'Multiple choice' : 'Extended response'}`
-          ;(s.slots || []).forEach((sl) => {
-            const q = qById[sl.question_id]
-            if (!q) return
-            list.push({
-              qid: q.id, n: list.length + 1, section: label,
-              topic: q.qbank_topics?.name || 'Uncategorised',
-              max: qMax(q), qtype: q.qtype,
-              stem: (q.stem_latex || '').replace(/\$/g, '').replace(/\s+/g, ' ').trim().slice(0, 70),
-            })
-          })
-        })
+        const list = await loadExamItems(examId)
 
         const { data: existing } = await supabase
           .from('exam_question_marks')
@@ -195,47 +131,17 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
   }, [marks, exam, canEdit, handleSave])
 
   // ── Topical analysis (auto) ─────────────────────────────────────────────────
+  // Core topic/section roll-up is shared with the student reports (single source
+  // of truth in lib/examMarking); overall + strengths/weaknesses are layered on.
   const analysis = useMemo(() => {
-    const topicFullMax = {}
-    const orderedTopics = []
-    const orderedSections = []
-    for (const it of items) {
-      if (!(it.topic in topicFullMax)) { topicFullMax[it.topic] = 0; orderedTopics.push(it.topic) }
-      topicFullMax[it.topic] += it.max
-      if (it.section && !orderedSections.includes(it.section)) orderedSections.push(it.section)
-    }
-    const topicAgg = {}      // topic -> { awarded, max }
-    const perStudent = {}    // sid -> { topics:{t:{awarded,max}}, sections:{s:{awarded,max}}, awarded, max }
-    for (const st of roster) {
-      perStudent[st.id] = { topics: {}, sections: {}, awarded: 0, max: 0 }
-      for (const it of items) {
-        const a = marks[st.id]?.[it.qid]
-        if (a === '' || a == null) continue
-        const aw = Number(a) || 0
-        topicAgg[it.topic] = topicAgg[it.topic] || { awarded: 0, max: 0 }
-        topicAgg[it.topic].awarded += aw; topicAgg[it.topic].max += it.max
-        const ps = perStudent[st.id]
-        ps.topics[it.topic] = ps.topics[it.topic] || { awarded: 0, max: 0 }
-        ps.topics[it.topic].awarded += aw; ps.topics[it.topic].max += it.max
-        if (it.section) {
-          ps.sections[it.section] = ps.sections[it.section] || { awarded: 0, max: 0 }
-          ps.sections[it.section].awarded += aw; ps.sections[it.section].max += it.max
-        }
-        ps.awarded += aw; ps.max += it.max
-      }
-    }
-    const topics = orderedTopics.map((t) => {
-      const agg = topicAgg[t] || { awarded: 0, max: 0 }
-      return { topic: t, fullMax: topicFullMax[t], awarded: agg.awarded, max: agg.max, pct: pct(agg.awarded, agg.max) }
-    })
-    const overallAwarded = topics.reduce((s, t) => s + t.awarded, 0)
-    const overallMax = topics.reduce((s, t) => s + t.max, 0)
+    const base = computeExamAnalysis(items, marks, roster)
+    const overallAwarded = base.topics.reduce((s, t) => s + t.awarded, 0)
+    const overallMax = base.topics.reduce((s, t) => s + t.max, 0)
     return {
-      topics, orderedTopics, orderedSections,
+      ...base,
       overall: { awarded: overallAwarded, max: overallMax, pct: pct(overallAwarded, overallMax) },
-      perStudent,
-      strengths: topics.filter((t) => t.pct != null && t.pct >= 80).map((t) => t.topic),
-      weaknesses: topics.filter((t) => t.pct != null && t.pct < 60).map((t) => t.topic),
+      strengths: base.topics.filter((t) => t.pct != null && t.pct >= 80).map((t) => t.topic),
+      weaknesses: base.topics.filter((t) => t.pct != null && t.pct < 60).map((t) => t.topic),
     }
   }, [roster, items, marks])
 
