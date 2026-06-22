@@ -416,8 +416,8 @@ export default function BookletBuilderEditor() {
         </div>
       </div>
 
-      <div className="max-w-[1500px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[1fr_620px] gap-6">
-        {/* Editor column */}
+      <div className="max-w-[1560px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[1fr_232px_600px] gap-6">
+        {/* Blocks column — the added building blocks */}
         <div>
           {/* Page tabs — Cover is automatic (page 1); Content + Homework are editable. */}
           <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
@@ -434,71 +434,9 @@ export default function BookletBuilderEditor() {
               pt-4 keeps the card at ~112px) so it tucks under the opaque header
               and there's no see-through gap; blocks scroll cleanly behind it.
               Hidden on the "Content" (summary) tab, which has no blocks. */}
-          {activeSection !== 'summary' && (
-          <div className="sticky top-[96px] z-20 bg-[#F7F9FF] pt-4 pb-4">
-            <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
-              <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Add a block</p>
-
-              {activeSection === 'content' ? (
-                <div className="space-y-2.5">
-                  {BLOCK_GROUPS.map(g => (
-                    <div key={g}>
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">{g}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {BLOCK_TYPES.filter(t => t.group === g).map(t => (
-                          <button key={t.type} onClick={() => addBlock(t.type)} className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
-                            <span className="mr-1">{t.icon}</span>{t.label}
-                          </button>
-                        ))}
-                        {g === 'Questions' && (
-                          <>
-                            <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-                            <button onClick={() => setNewQOpen(true)} className="text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : activeSection === 'homework' ? (
-                <div className="space-y-2.5">
-                  {/* Homework: questions + writing only, no boxes/headings */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35">Adding to</span>
-                    <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
-                      {HW_GROUPS.map((g, gi) => (
-                        <button key={g.id} onClick={() => setActiveHwGroup(g.id)}
-                          className={`px-2.5 py-1 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
-                          {g.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {HW_BLOCK_TYPES.map(t => (
-                      <button key={t.type} onClick={() => addBlock(t.type)} className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
-                        <span className="mr-1">{t.icon}</span>{t.label}
-                      </button>
-                    ))}
-                    <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-                    <button onClick={() => setNewQOpen(true)} className="text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {/* Revision quiz: questions + writing only, single flat list */}
-                  {HW_BLOCK_TYPES.map(t => (
-                    <button key={t.type} onClick={() => addBlock(t.type)} className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
-                      <span className="mr-1">{t.icon}</span>{t.label}
-                    </button>
-                  ))}
-                  <button onClick={() => setBankOpen(true)} className="text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-                  <button onClick={() => setNewQOpen(true)} className="text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
-                </div>
-              )}
-            </div>
-            {activeSection === 'content' && contentPages.length > 1 && (
-              <div className="mt-2 bg-white rounded-xl border border-[#DEE7FF] p-2 shadow-sm flex items-center gap-1.5 flex-wrap">
+          {activeSection === 'content' && contentPages.length > 1 && (
+            <div className="sticky top-[96px] z-20 bg-[#F7F9FF] pt-4 pb-3">
+              <div className="bg-white rounded-xl border border-[#DEE7FF] p-2 shadow-sm flex items-center gap-1.5 flex-wrap">
                 <span className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mr-0.5">Jump to page</span>
                 {contentPages.map((pg, pi) => (
                   <button key={pi} onClick={() => document.getElementById(`bk-page-anchor-${pi}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -508,14 +446,13 @@ export default function BookletBuilderEditor() {
                   </button>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
           )}
 
           {/* Blocks */}
           {activeSection === 'content' ? (
             contentBlocks.length === 0 ? (
-              <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No content blocks yet — add one above.</div>
+              <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No content blocks yet — add one from the palette.</div>
             ) : (
               <div className="space-y-3">
                 {contentPages.map((pg, pi) => (
@@ -527,7 +464,7 @@ export default function BookletBuilderEditor() {
                       {pg.breakId && <button onClick={() => removeBlock(pg.breakId)} className="text-[10px] font-semibold text-rose-500 hover:underline">✕ remove break</button>}
                     </div>
                     {pg.ids.length === 0 ? (
-                      <div className="text-center py-5 text-xs text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">Empty page — add blocks above or remove this break.</div>
+                      <div className="text-center py-5 text-xs text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">Empty page — add blocks from the palette or remove this break.</div>
                     ) : (
                       pg.ids.map(bid => { const e = blockById[bid]; return e ? renderBlockCard(e.b, contentBlocks, e.i) : null })
                     )}
@@ -553,7 +490,7 @@ export default function BookletBuilderEditor() {
             </div>
           ) : activeSection === 'revision' ? (
             quizBlocks.length === 0 ? (
-              <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No quiz questions yet — add one above.</div>
+              <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No quiz questions yet — add one from the palette.</div>
             ) : (
               <div className="space-y-3">
                 {quizBlocks.map((b, i) => renderBlockCard(b, quizBlocks, i))}
@@ -592,6 +529,74 @@ export default function BookletBuilderEditor() {
                   />
                 </>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Palette column — all the add-block buttons in a vertical row */}
+        <div>
+          {activeSection !== 'summary' && (
+            <div className="sticky top-[96px]">
+              <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Add a block</p>
+                {activeSection === 'content' ? (
+                  <div className="space-y-3">
+                    {BLOCK_GROUPS.map(g => (
+                      <div key={g}>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">{g}</p>
+                        <div className="flex flex-col gap-1.5">
+                          {BLOCK_TYPES.filter(t => t.group === g).map(t => (
+                            <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+                              <span className="mr-1.5">{t.icon}</span>{t.label}
+                            </button>
+                          ))}
+                          {g === 'Questions' && (
+                            <>
+                              <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                              <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : activeSection === 'homework' ? (
+                  <div className="space-y-2.5">
+                    {/* Homework: questions + writing only, no boxes/headings */}
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">Adding to</p>
+                      <div className="flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
+                        {HW_GROUPS.map((g, gi) => (
+                          <button key={g.id} onClick={() => setActiveHwGroup(g.id)}
+                            className={`flex-1 px-2 py-1 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
+                            {g.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {HW_BLOCK_TYPES.map(t => (
+                        <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+                          <span className="mr-1.5">{t.icon}</span>{t.label}
+                        </button>
+                      ))}
+                      <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                      <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {/* Revision quiz: questions + writing only, single flat list */}
+                    {HW_BLOCK_TYPES.map(t => (
+                      <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+                        <span className="mr-1.5">{t.icon}</span>{t.label}
+                      </button>
+                    ))}
+                    <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                    <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

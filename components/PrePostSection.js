@@ -608,7 +608,10 @@ function StudentCharts({ student, topics, totalMarks, scoresMap, classAvg, expan
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
                     <YAxis tick={{ fontSize: 10, fill: '#325099' }} />
                     <Tooltip content={<ChartTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} payload={[
+                      ...(hasPreData  ? [{ value: 'Pre test',  type: 'square', id: 'Pre test',  color: PRE_COLOR }]  : []),
+                      ...(hasPostData ? [{ value: 'Post test', type: 'square', id: 'Post test', color: POST_COLOR }] : []),
+                    ]} />
                     {hasPreData  && <Bar dataKey="Pre test"  fill={PRE_COLOR}  radius={[3,3,0,0]} />}
                     {hasPostData && <Bar dataKey="Post test" fill={POST_COLOR} radius={[3,3,0,0]} />}
                   </BarChart>
@@ -626,7 +629,10 @@ function StudentCharts({ student, topics, totalMarks, scoresMap, classAvg, expan
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#325099' }} unit="%" />
                     <Tooltip content={<ChartTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} payload={[
+                      ...(hasPreData  ? [{ value: 'Pre test %',  type: 'square', id: 'Pre %',  color: PRE_COLOR }]  : []),
+                      ...(hasPostData ? [{ value: 'Post test %', type: 'square', id: 'Post %', color: POST_COLOR }] : []),
+                    ]} />
                     {hasPreData  && <Bar dataKey="Pre %"  fill={PRE_COLOR}  name="Pre test %" radius={[3,3,0,0]} unit="%" />}
                     {hasPostData && <Bar dataKey="Post %" fill={POST_COLOR} name="Post test %" radius={[3,3,0,0]} unit="%" />}
                   </BarChart>
