@@ -5,7 +5,7 @@ import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS } from '../../../../../lib/tables'
-import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock } from '../../../../../lib/bookletRender'
+import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, BOOKLET_CSS } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
@@ -64,6 +64,9 @@ export default function BookletBuilderEditor() {
   const [lastAddedId, setLastAddedId] = useState(null)
   // Clicking a block selects it as the insertion anchor — new blocks go after it.
   const [selectedBlockId, setSelectedBlockId] = useState(null)
+  // Real page grouping for the content cards — measured the same way the preview
+  // paginates, so headers mirror the printed pages (manual breaks + overflow).
+  const [physicalPages, setPhysicalPages] = useState(null)
   useEffect(() => {
     if (lastAddedId) lastBlockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [lastAddedId])
@@ -101,6 +104,62 @@ export default function BookletBuilderEditor() {
     const t = setTimeout(() => save(), 900)
     return () => clearTimeout(t)
   }, [dirty, bk, loading, save])
+
+  // Measure where content actually breaks into A4 pages — identical stage + logic
+  // to the live preview / PDF export (lib/bookletExport) — and group the content
+  // blocks into those same physical pages. Each page records whether it began
+  // from a manual "New page" (breakId, removable) or automatic overflow (auto).
+  useEffect(() => {
+    if (loading || !bk) return
+    const raf = requestAnimationFrame(() => {
+      const content = (bk.blocks || []).filter(b => b.section !== 'homework' && b.section !== 'revision')
+      const PAGE_H = 1123
+      const stage = document.createElement('div')
+      stage.className = 'bk-root'
+      stage.style.cssText = 'position:fixed;left:-12000px;top:0;z-index:-1;visibility:hidden'
+      const style = document.createElement('style')
+      style.textContent = BOOKLET_CSS
+      stage.appendChild(style)
+      document.body.appendChild(stage)
+      const newPage = () => {
+        const page = document.createElement('article'); page.className = 'bk-page'
+        const inner = document.createElement('div'); inner.className = 'bk-content'
+        page.appendChild(inner); stage.appendChild(page)
+        return { page, inner }
+      }
+      const out = []
+      let cur = { breakId: null, auto: false, ids: [] }
+      let mp = newPage()
+      let countOnPage = 0
+      let qn = 0
+      for (const b of content) {
+        // A manual "New page" always starts a fresh builder page (even if it ends
+        // up empty — e.g. a break at the very end), so the button always shows.
+        if (b.type === 'pagebreak') {
+          out.push(cur); cur = { breakId: b.id, auto: false, ids: [] }
+          mp = newPage(); countOnPage = 0
+          continue
+        }
+        if (b.type === 'question' || b.type === 'mcq') qn++
+        const tmp = document.createElement('div')
+        tmp.innerHTML = blockHtml(b, { solutions: solnView, qNum: qn })
+        const el = tmp.firstElementChild
+        if (el) {
+          mp.inner.appendChild(el)
+          if (mp.page.scrollHeight > PAGE_H && countOnPage > 0) {
+            mp.inner.removeChild(el)
+            out.push(cur); cur = { breakId: null, auto: true, ids: [] }
+            mp = newPage(); mp.inner.appendChild(el); countOnPage = 0
+          }
+        }
+        cur.ids.push(b.id); countOnPage++
+      }
+      out.push(cur)
+      document.body.removeChild(stage)
+      setPhysicalPages(out)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [bk, solnView, loading])
 
   const mutate = (patch) => { setBk(b => ({ ...b, ...patch })); setDirty(true) }
   const setBlocks = (blocks) => mutate({ blocks })
@@ -255,6 +314,25 @@ export default function BookletBuilderEditor() {
   const chemModule = chemMatch ? chemMatch[1] : ''
   const chemWeek = chemMatch ? chemMatch[2] : ''
 
+  // Card lookup by id (block + its global index, so move up/down still spans the
+  // whole content list even across page boundaries).
+  const blockById = Object.fromEntries(contentBlocks.map((b, i) => [b.id, { b, i }]))
+  // Pages to render: the measured physical pages when available, otherwise a
+  // single page with every (non-break) content block as a first-paint fallback.
+  const contentPages = (physicalPages && physicalPages.length)
+    ? physicalPages
+    : [{ breakId: null, auto: false, ids: contentBlocks.filter(b => b.type !== 'pagebreak').map(b => b.id) }]
+
+  // Chemistry "Content" tab: auto-compiled syllabus dot-points, grouped by the
+  // section headers in the content page (builder-only — never printed).
+  const chemSyllabusSections = contentBlocks
+    .filter(b => b.type === 'section')
+    .map(b => ({
+      label: [b.number, b.title].filter(v => v != null && String(v).trim() !== '').join('. '),
+      points: String(b.syllabus || '').split('\n').map(l => l.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean),
+    }))
+    .filter(s => s.points.length)
+
   // One block card (drag handle, type badge, move/delete, editor). `list` is the
   // group the block belongs to so up/down can disable at the group's ends.
   const renderBlockCard = (b, list, i) => {
@@ -281,7 +359,7 @@ export default function BookletBuilderEditor() {
           <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
-      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} />
+      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} />
     </div>
     )
   }
@@ -419,6 +497,18 @@ export default function BookletBuilderEditor() {
                 </div>
               )}
             </div>
+            {activeSection === 'content' && contentPages.length > 1 && (
+              <div className="mt-2 bg-white rounded-xl border border-[#DEE7FF] p-2 shadow-sm flex items-center gap-1.5 flex-wrap">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mr-0.5">Jump to page</span>
+                {contentPages.map((pg, pi) => (
+                  <button key={pi} onClick={() => document.getElementById(`bk-page-anchor-${pi}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    title={pg.auto ? 'Automatic overflow page' : 'Page'}
+                    className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-md px-2 py-0.5 hover:bg-[#F0F4FF] transition">
+                    {pi + 1}{pg.auto && <span className="text-[#2A2035]/30">·</span>}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           )}
 
@@ -428,7 +518,21 @@ export default function BookletBuilderEditor() {
               <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No content blocks yet — add one above.</div>
             ) : (
               <div className="space-y-3">
-                {contentBlocks.map((b, i) => renderBlockCard(b, contentBlocks, i))}
+                {contentPages.map((pg, pi) => (
+                  <div key={pi} id={`bk-page-anchor-${pi}`} style={{ scrollMarginTop: 230 }} className="space-y-3">
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2.5 py-0.5">Page {pi + 1}</span>
+                      {pg.auto && <span className="text-[9px] font-semibold uppercase tracking-wider text-[#2A2035]/35" title="Starts automatically because the previous page is full">auto</span>}
+                      <div className="h-px flex-1 bg-[#DEE7FF]" />
+                      {pg.breakId && <button onClick={() => removeBlock(pg.breakId)} className="text-[10px] font-semibold text-rose-500 hover:underline">✕ remove break</button>}
+                    </div>
+                    {pg.ids.length === 0 ? (
+                      <div className="text-center py-5 text-xs text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">Empty page — add blocks above or remove this break.</div>
+                    ) : (
+                      pg.ids.map(bid => { const e = blockById[bid]; return e ? renderBlockCard(e.b, contentBlocks, e.i) : null })
+                    )}
+                  </div>
+                ))}
               </div>
             )
           ) : activeSection === 'homework' ? (
@@ -458,14 +562,36 @@ export default function BookletBuilderEditor() {
           ) : (
             <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Booklet content</p>
-              <p className="text-xs text-[#2A2035]/55 mb-3">A summary of what this booklet covers. Teachers see this via the “Content” link in the curriculum (it doesn’t appear in the printed booklet).</p>
-              <textarea
-                value={bk.content || ''}
-                onChange={e => mutate({ content: e.target.value })}
-                rows={12}
-                placeholder={'e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'}
-                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099] resize-y"
-              />
+              {isChem ? (
+                <>
+                  <p className="text-xs text-[#2A2035]/55 mb-3">Auto-compiled from the syllabus dot-points on each section header in the Content page, grouped by section. Updates as you edit sections — it doesn’t appear in the printed booklet.</p>
+                  {chemSyllabusSections.length === 0 ? (
+                    <p className="text-xs text-[#2A2035]/40 italic">No syllabus dot-points yet — add them on the section headers in the Content page.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {chemSyllabusSections.map((s, i) => (
+                        <div key={i}>
+                          {s.label && <p className="text-sm font-semibold text-[#062E63] mb-1">{s.label}</p>}
+                          <ul className="list-disc pl-6 space-y-1">
+                            {s.points.map((p, j) => <li key={j} className="text-sm text-[#2A2035]/80">{p}</li>)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-[#2A2035]/55 mb-3">A summary of what this booklet covers. Teachers see this via the “Content” link in the curriculum (it doesn’t appear in the printed booklet).</p>
+                  <textarea
+                    value={bk.content || ''}
+                    onChange={e => mutate({ content: e.target.value })}
+                    rows={12}
+                    placeholder={'e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'}
+                    className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099] resize-y"
+                  />
+                </>
+              )}
             </div>
           )}
         </div>

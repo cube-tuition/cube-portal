@@ -160,15 +160,40 @@ function ImageField({ value, onChange, label = 'Diagram / image' }) {
   )
 }
 
-export default function BlockEditor({ block, onChange }) {
+// Two-column control for callout boxes: a toggle, plus a right-column textarea
+// when enabled (the box's main Body becomes the left column).
+function TwoColField({ block, set }) {
+  return (
+    <div className="rounded-lg border border-[#E6ECFF] bg-[#F7F9FF] p-2.5 space-y-2">
+      <label className="flex items-center gap-2 text-[11px] font-semibold text-[#325099] cursor-pointer">
+        <input type="checkbox" checked={!!block.twoCol} onChange={e => set({ twoCol: e.target.checked })} className="accent-[#325099]" />
+        Split into two columns
+      </label>
+      {block.twoCol && (
+        <div><label className={L}>Right column (“- ” bullets, $…$ maths, ⌘/Ctrl-B bold)</label>
+          <textarea className={TA} value={block.body2 || ''} onChange={e => set({ body2: e.target.value })} onKeyDown={e => onTextKey(e, block.body2 || '', v => set({ body2: v }))} placeholder={'Right-hand column content…'} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function BlockEditor({ block, onChange, isChem = false }) {
   const set = (patch) => onChange({ ...block, ...patch })
 
   switch (block.type) {
     case 'section':
       return (
-        <div className="grid grid-cols-[80px_1fr] gap-2">
-          <div><label className={L}>No.</label><input className={I} value={block.number} onChange={e => set({ number: e.target.value })} placeholder="1" /></div>
-          <div><label className={L}>Section title</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} /></div>
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-[80px_1fr] gap-2">
+            <div><label className={L}>No.</label><input className={I} value={block.number} onChange={e => set({ number: e.target.value })} placeholder="1" /></div>
+            <div><label className={L}>Section title</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} /></div>
+          </div>
+          {isChem && (
+            <div><label className={L}>Syllabus dot-points (“- ” for each point, $…$ maths, ⌘/Ctrl-B bold)</label>
+              <textarea className={TA} value={block.syllabus || ''} onChange={e => set({ syllabus: e.target.value })} onKeyDown={e => onTextKey(e, block.syllabus || '', v => set({ syllabus: v }))} placeholder={'- Investigate the role of activation energy, collisions and molecular orientation in collisions'} />
+            </div>
+          )}
         </div>
       )
     case 'subtopic':
@@ -177,7 +202,8 @@ export default function BlockEditor({ block, onChange }) {
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Label</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Formula" /></div>
-          <div><label className={L}>Body (use $…$ for maths, “- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Area of a Parallelogram:\n$A = bh$\n- $b$ is the base\n- $h$ is the perpendicular height'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (use $…$ for maths, “- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Area of a Parallelogram:\n$A = bh$\n- $b$ is the base\n- $h$ is the perpendicular height'} /></div>
+          <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
         </div>
       )
@@ -185,14 +211,16 @@ export default function BlockEditor({ block, onChange }) {
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Label</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Note" /></div>
-          <div><label className={L}>Body (“- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Common mistakes:\n- Using diameter instead of radius\n- Forgetting to square the radius'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (“- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Common mistakes:\n- Using diameter instead of radius\n- Forgetting to square the radius'} /></div>
+          <TwoColField block={block} set={set} />
         </div>
       )
     case 'definition':
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Label</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Definition" /></div>
-          <div><label className={L}>Body ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'A polygon is a closed 2D shape with straight sides.'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'A polygon is a closed 2D shape with straight sides.'} /></div>
+          <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
         </div>
       )
@@ -200,7 +228,8 @@ export default function BlockEditor({ block, onChange }) {
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Label</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Worked Solution" /></div>
-          <div><label className={L}>Body ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Step-by-step working for the example…'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Step-by-step working for the example…'} /></div>
+          <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
         </div>
       )
