@@ -24,7 +24,7 @@ export default function HubLayout({ children }) {
     const load = async () => {
       const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
-      if (!profile || (profile.role !== 'tutor' && profile.role !== 'admin')) {
+      if (!profile || !['tutor', 'admin', 'director'].includes(profile.role)) {
         router.push('/dashboard'); return
       }
       setStaff(profile)
@@ -33,10 +33,12 @@ export default function HubLayout({ children }) {
     load()
   }, [router])
 
-  const isAdmin = staff?.role === 'admin'
+  // Directors + admins are Info Centre editors; tutors are viewers.
+  const canEdit = staff?.role === 'admin' || staff?.role === 'director'
+  const isAdmin = canEdit
 
   return (
-    <HubContext.Provider value={{ staff, isAdmin, loading }}>
+    <HubContext.Provider value={{ staff, isAdmin, canEdit, loading }}>
       <div className="min-h-screen bg-[#F8FAFF] flex flex-col">
         {/* Top nav — shown even while loading so the page doesn't flash bare */}
         <TutorNav staffName={staff?.full_name} isAdmin={isAdmin} />

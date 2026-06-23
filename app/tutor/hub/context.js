@@ -7,5 +7,5 @@ import { createContext, useContext } from 'react'
  * module instance — avoids Next.js code-splitting creating two copies of
  * HubContext (which would cause useHub() to return the default value).
  */
-export const HubContext = createContext({ staff: null, isAdmin: false, loading: true })
+export const HubContext = createContext({ staff: null, isAdmin: false, canEdit: false, loading: true })
 export function useHub() { return useContext(HubContext) }
