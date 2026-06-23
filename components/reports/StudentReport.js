@@ -164,7 +164,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
           <section>
             <div className="flex items-center gap-2 mb-3">
               <span className="w-1 h-4 rounded-full" style={{ background: col.fg }} />
-              <h2 className="text-[10px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Student Criteria</h2>
+              <h2 className="text-[12px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Student Criteria</h2>
             </div>
             <div className="rounded-xl overflow-hidden border border-[#E8EDF8]">
               <div className="grid grid-cols-[1fr_repeat(4,2rem)] bg-[#F4F7FF] px-3 py-2 border-b border-[#E8EDF8]">
@@ -204,14 +204,14 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
           <section>
             <div className="flex items-center gap-2 mb-3">
               <span className="w-1 h-4 rounded-full" style={{ background: col.fg }} />
-              <h2 className="text-[10px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Teacher Comment</h2>
+              <h2 className="text-[12px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Teacher Comment</h2>
             </div>
             <div className="rounded-xl border border-[#E8EDF8] bg-[#F9FAFD] p-4 relative overflow-hidden">
               <span className="absolute top-2 right-3 text-5xl font-serif leading-none select-none pointer-events-none" style={{ color: col.fg + '18' }}>"</span>
               {comment.trim() ? (
-                <p className="text-[12px] text-[#2A2035] leading-relaxed whitespace-pre-wrap relative z-10">{comment}</p>
+                <p className="text-[14px] text-[#2A2035] leading-relaxed whitespace-pre-wrap relative z-10">{comment}</p>
               ) : (
-                <p className="text-[11px] text-[#2A2035]/35 italic relative z-10">No comment recorded for this term.</p>
+                <p className="text-[13px] text-[#2A2035]/35 italic relative z-10">No comment recorded for this term.</p>
               )}
               {cls.teacher && (
                 <p className="mt-3 pt-3 border-t border-[#E8EDF8] text-[10px] font-semibold tracking-[0.15em] uppercase" style={{ color: col.fg + 'BB' }}>
@@ -239,8 +239,11 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
               <section>
                 <div className="flex items-center gap-2 mb-3">
                   <span className="w-1 h-4 rounded-full" style={{ background: col.fg }} />
-                  <h2 className="text-[10px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Pre / Post Test</h2>
+                  <h2 className="text-[12px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Pre / Post Test</h2>
                 </div>
+                <p className="text-[11px] text-[#2A2035]/55 leading-relaxed mb-3 -mt-1">
+                  The same short diagnostic test is given at the start and again at the end of the term. Comparing the two shows how much your child has improved across each topic over the term.
+                </p>
                 {!prepost || (!hasPreData && !hasPostData) ? (
                   <div className="rounded-xl border border-[#E8EDF8] bg-[#F9FAFD] px-4 py-3">
                     <p className="text-[11px] text-[#2A2035]/35 italic">No pre/post test data recorded for this term.</p>

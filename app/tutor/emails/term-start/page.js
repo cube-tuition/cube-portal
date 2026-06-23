@@ -105,14 +105,12 @@ function buildPreviewHtml(template, family, termName, termDates, termStart) {
     }</p>`).join('')
   return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4ff;">
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:32px auto;padding:32px 24px;color:#2A2035;background:#ffffff;border-radius:12px;box-shadow:0 2px 16px rgba(6,46,99,0.08);">
-      <div style="background:#062E63;border-radius:12px;padding:18px 24px;margin-bottom:32px;">
-        <span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.5px;">CUBE</span>
-        <span style="color:rgba(255,255,255,0.55);font-size:10px;letter-spacing:3px;text-transform:uppercase;margin-left:10px;vertical-align:middle;">Tuition</span>
+      <div style="background:#062E63;background:linear-gradient(120deg,#04204a 0%,#062E63 48%,#0d3f80 100%);border-radius:14px;padding:26px 30px;margin-bottom:32px;">
+        <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:0.5px;">CUBE</span>
+        <span style="color:rgba(255,255,255,0.6);font-size:11px;letter-spacing:4px;text-transform:uppercase;margin-left:10px;vertical-align:middle;">Tuition</span>
+        <div style="height:3px;width:48px;background:linear-gradient(90deg,#5b7bc4,#9db8e8);border-radius:2px;margin-top:14px;font-size:0;line-height:0;">&nbsp;</div>
       </div>
       <div style="font-size:15px;">${paras}</div>
-      <div style="margin-top:32px;padding-top:16px;border-top:1px solid #DEE7FF;font-size:11px;color:#325099;opacity:0.6;">
-        CUBE Tuition · This email was sent from the CUBE staff portal.
-      </div>
     </div>
   </body></html>`
 }

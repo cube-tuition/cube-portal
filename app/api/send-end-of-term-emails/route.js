@@ -1,6 +1,16 @@
 import { Resend } from 'resend'
+import { randomUUID } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+
+// "Term 2 2026" → "26T2" for compact filenames; falls back to a safe slug.
+function termCode(termName = '') {
+  const t = termName.match(/term\s*(\d+)/i)
+  const y = termName.match(/(\d{4})/)
+  if (t && y) return `${y[1].slice(2)}T${t[1]}`
+  return termName.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_') || 'Term'
+}
+const slug = (s = '') => s.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_')
 
 /*
  * POST /api/send-end-of-term-emails
@@ -58,14 +68,12 @@ function toHtml(plainText) {
     .join('')
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;color:#2A2035;background:#ffffff;">
-      <div style="background:#062E63;border-radius:12px;padding:18px 24px;margin-bottom:32px;">
-        <span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.5px;">CUBE</span>
-        <span style="color:rgba(255,255,255,0.55);font-size:10px;letter-spacing:3px;text-transform:uppercase;margin-left:10px;vertical-align:middle;">Tuition</span>
+      <div style="background:#062E63;background:linear-gradient(120deg,#04204a 0%,#062E63 48%,#0d3f80 100%);border-radius:14px;padding:26px 30px;margin-bottom:32px;">
+        <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:0.5px;">CUBE</span>
+        <span style="color:rgba(255,255,255,0.6);font-size:11px;letter-spacing:4px;text-transform:uppercase;margin-left:10px;vertical-align:middle;">Tuition</span>
+        <div style="height:3px;width:48px;background:linear-gradient(90deg,#5b7bc4,#9db8e8);border-radius:2px;margin-top:14px;font-size:0;line-height:0;">&nbsp;</div>
       </div>
       <div style="font-size:15px;">${paragraphs}</div>
-      <div style="margin-top:32px;padding-top:16px;border-top:1px solid #DEE7FF;font-size:11px;color:#325099;opacity:0.6;">
-        CUBE Tuition · This email was sent from the CUBE staff portal.
-      </div>
     </div>
   `
 }
@@ -107,10 +115,12 @@ export async function POST(request) {
           const fileRes = await fetch(signed.signedUrl)
           if (fileRes.ok) {
             const buffer = await fileRes.arrayBuffer()
-            const safeName = student.student_name.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_')
-            const safeTerm = term_name.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_')
+            const safeName = slug(student.student_name)
+            const safeClass = slug(student.class_name || '')
+            // e.g. "Aiden_Park_Y8_Maths_26T2_Report.pdf"
+            const filename = [safeName, safeClass, termCode(term_name), 'Report'].filter(Boolean).join('_') + '.pdf'
             attachments.push({
-              filename: `${safeName}_${safeTerm}_Report.pdf`,
+              filename,
               content:  Buffer.from(buffer).toString('base64'),
             })
           } else {
@@ -147,6 +157,9 @@ export async function POST(request) {
         subject,
         html:        toHtml(bodyText),
         attachments: attachments.length > 0 ? attachments : undefined,
+        // Unique per send so Gmail never threads a resend under the previous
+        // email (which hides the body) — each one is a fresh, complete message.
+        headers:     { 'X-Entity-Ref-ID': randomUUID() },
       })
 
       results.push({

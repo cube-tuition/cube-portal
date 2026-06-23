@@ -8,6 +8,7 @@ import TutorNav from '../../../components/TutorNav'
 import { normalizeDays, fmtTime, fmtTimeRange, isoDate } from '../../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { weekLabelFor } from '../../../lib/calendarWeeks'
+import { pickSubjectColor } from '../../../lib/subjectColours'
 import MonthCalendarModal from '../../../components/calendar/MonthCalendarModal'
 import { inferSubject } from '../../../components/CourseDetail'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
@@ -49,28 +50,7 @@ const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'
 const DAY_SHORT = { Monday:'Mon', Tuesday:'Tue', Wednesday:'Wed', Thursday:'Thu', Friday:'Fri', Saturday:'Sat', Sunday:'Sun' }
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-const SUBJECT_COLOR = {
-  Maths:     { bg: '#DEE7FF', fg: '#062E63' },
-  Math:      { bg: '#DEE7FF', fg: '#062E63' },
-  English:   { bg: '#FCE7F3', fg: '#9D174D' },
-  EALD:      { bg: '#FCE7F3', fg: '#9D174D' },
-  SpeakDev:  { bg: '#EDE9FE', fg: '#5B21B6' },
-  Chemistry: { bg: '#D1FAE5', fg: '#065F46' },
-  Chem:      { bg: '#D1FAE5', fg: '#065F46' },
-  Physics:   { bg: '#E0E7FF', fg: '#3730A3' },
-  Biology:   { bg: '#D1FAE5', fg: '#065F46' },
-  Economics: { bg: '#FEF3C7', fg: '#92400E' },
-  Econ:      { bg: '#FEF3C7', fg: '#92400E' },
-  Science:   { bg: '#D1FAE5', fg: '#065F46' },
-}
-const pickSubjectColor = (name = '') => {
-  const lower = name.toLowerCase()
-  const keys = Object.keys(SUBJECT_COLOR).sort((a, b) => b.length - a.length)
-  for (const k of keys) {
-    if (lower.includes(k.toLowerCase())) return SUBJECT_COLOR[k]
-  }
-  return { bg: '#DEE7FF', fg: '#062E63' }
-}
+// pickSubjectColor lives in lib/subjectColours.js (shared with the month view).
 
 // start_time / end_time are stored as PostgreSQL time (HH:MM:SS), 24-hour.
 function startMinutes(t) {

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { isoDate, addDays, mondayOf, weekLabelFor } from '../../lib/calendarWeeks'
+import { pickSubjectColor } from '../../lib/subjectColours'
 
 /*
  * Full-screen month calendar. Date-driven (no schedule projection): renders the
@@ -69,11 +70,12 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
         const c = classById[l.class_id]
         if (!c) continue
         if (movedSrc.has(l.id) && isOneToOne(c.class_name)) continue
-        push(l.lesson_date, { id: `l-${l.id}`, name: c.class_name, time: l.start_time, sort: startMin(l.start_time), makeup: false })
+        push(l.lesson_date, { id: `l-${l.id}`, name: c.class_name, time: l.start_time, sort: startMin(l.start_time), makeup: false, color: pickSubjectColor(c.class_name) })
       }
       for (const m of (makeups || [])) {
         const sn = m.students?.full_name || 'Student'
-        push(m.lesson_date, { id: `m-${m.id}`, name: `1:1 Makeup · ${sn}`, time: m.start_time, sort: startMin(m.start_time), makeup: true })
+        const subjName = m.classes?.class_name || ''
+        push(m.lesson_date, { id: `m-${m.id}`, name: `1:1 Makeup · ${sn}`, time: m.start_time, sort: startMin(m.start_time), makeup: true, color: pickSubjectColor(subjName) })
       }
       for (const k of Object.keys(map)) map[k].sort((a, b) => a.sort - b.sort)
       if (!cancelled) { setByDate(map); setLoading(false) }
@@ -132,7 +134,8 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
                       <div className="space-y-1">
                         {pills.map(p => (
                           <div key={p.id} title={`${p.name}${p.time ? ' · ' + fmtTime(p.time) : ''}`}
-                            className={`text-[10px] leading-tight rounded px-1.5 py-0.5 truncate ${p.makeup ? 'bg-[#F3E8FF] text-[#6B21A8]' : 'bg-[#EEF4FF] text-[#325099]'}`}>
+                            style={{ background: p.color?.bg || '#EEF4FF', color: p.color?.fg || '#325099', borderLeft: p.makeup ? `3px solid ${p.color?.fg || '#6B21A8'}` : 'none' }}
+                            className="text-[10px] leading-tight rounded px-1.5 py-0.5 truncate">
                             {p.time ? <span className="font-semibold mr-1">{fmtTime(p.time)}</span> : null}{p.name}
                           </div>
                         ))}
