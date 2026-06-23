@@ -142,7 +142,7 @@ export default function EndOfTermEmailPage() {
     }
     return DEFAULT_TEMPLATE
   })
-  const [tab,      setTab]      = useState('upload')  // 'upload' | 'send'
+  const [tab,      setTab]      = useState('preview') // 'preview' | 'template'
   const resultsKey = termId ? `cube_eot_results_${termId}` : null
   const [results,  setResults]  = useState(() => {
     if (typeof window !== 'undefined' && termId) {
@@ -209,6 +209,8 @@ export default function EndOfTermEmailPage() {
         const all = await supabase.from(T_CLASSES).select('id, class_name')
         cls = all.data || []
       }
+      // 1:1 students don't get written reports — exclude 1:1 classes entirely.
+      cls = (cls || []).filter(c => !/\b1\s*:\s*1\b/.test(c.class_name || ''))
       const classMap = Object.fromEntries((cls || []).map(c => [c.id, c]))
       const classIds = (cls || []).map(c => c.id)
       if (!classIds.length) { setStudents([]); setLoading(false); return }
@@ -472,124 +474,45 @@ export default function EndOfTermEmailPage() {
           </div>
         )}
 
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">{error}</div>
+        )}
+
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
-          {[
-            { id: 'upload', label: '① Upload Reports' },
-            { id: 'preview', label: '② Preview & Send' },
-          ].map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${
-                tab === t.id
-                  ? 'bg-[#062E63] text-white'
-                  : 'text-[#325099]/60 hover:text-[#062E63]'
-              }`}
-            >
+          {[{ id: 'preview', label: '① Preview & Send' }, { id: 'template', label: '② Email template' }].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#062E63]'}`}>
               {t.label}
             </button>
           ))}
         </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">{error}</div>
-        )}
-
-        {/* ── TAB: Upload Reports ──────────────────────────────────────────── */}
-        {tab === 'upload' && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-            {loading ? (
-              <div className="text-center py-16 text-[#325099]/40 text-sm">Loading students…</div>
-            ) : !termId ? (
-              <div className="text-center py-16 text-[#325099]/40 text-sm">Select a term to get started.</div>
-            ) : students.length === 0 ? (
-              <div className="text-center py-16 text-[#325099]/40 text-sm">No active enrolments found for this term.</div>
-            ) : (
-              <>
-                <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-3 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[#325099]/60">
-                    Upload one PDF per student · Stored in Supabase Storage
-                  </span>
-                  <div className="flex items-center gap-3">
-                    {allUploaded && (
-                      <span className="text-xs font-bold text-[#10b981]">✓ All PDFs uploaded</span>
-                    )}
-                    <button
-                      onClick={async () => {
-                        setRefreshing(true)
-                        await checkStorageUploads(students, termId)
-                        setRefreshing(false)
-                      }}
-                      disabled={refreshing}
-                      className="text-xs font-semibold text-[#325099] hover:text-[#062E63] transition disabled:opacity-40"
-                    >
-                      {refreshing ? 'Checking…' : '↻ Refresh'}
-                    </button>
-                  </div>
-                </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-                      <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-[#325099]/60">Student</th>
-                      <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-[#325099]/60">Yr</th>
-                      <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-[#325099]/60">Class</th>
-                      <th className="text-left px-5 py-2.5 text-[11px] font-semibold text-[#325099]/60">Parent</th>
-                      <th className="text-center px-5 py-2.5 text-[11px] font-semibold text-[#325099]/60">PDF</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...students].sort((a, b) => {
-                      const aUp = uploads[`${a.student_id}_${a.class_id}`]?.exists ? 1 : 0
-                      const bUp = uploads[`${b.student_id}_${b.class_id}`]?.exists ? 1 : 0
-                      return aUp - bUp
-                    }).map((s, i) => {
-                      const key      = `${s.student_id}_${s.class_id}`
-                      const upStatus = uploads[key] || { exists: false, uploading: false }
-                      return (
-                        <tr
-                          key={key}
-                          className={`border-b border-[#DEE7FF] last:border-0 ${
-                            upStatus.exists ? 'bg-[#F0FDF4]' : i % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'
-                          }`}
-                        >
-                          <td className="px-5 py-2.5 font-medium text-[#062E63]">{s.student_name}</td>
-                          <td className="px-5 py-2.5 text-xs text-[#325099]/60">Y{s.year}</td>
-                          <td className="px-5 py-2.5 text-xs text-[#325099]/80">{s.class_name}</td>
-                          <td className="px-5 py-2.5 text-xs text-[#325099]/60">{s.parent_name || '—'}</td>
-                          <td className="px-5 py-2.5 text-center">
-                            {upStatus.uploading ? (
-                              <span className="text-xs text-[#325099]/50">Uploading…</span>
-                            ) : upStatus.exists ? (
-                              <label className="inline-flex items-center gap-1.5 cursor-pointer group">
-                                <span className="text-xs font-semibold text-[#10b981]">✓ Uploaded</span>
-                                <span className="text-[10px] text-[#325099]/40 group-hover:text-[#325099] transition">Replace</span>
-                                <input
-                                  type="file" accept="application/pdf" className="hidden"
-                                  onChange={e => e.target.files?.[0] && uploadPDF(s.student_id, s.class_id, e.target.files[0])}
-                                />
-                              </label>
-                            ) : (
-                              <label className="inline-flex items-center gap-1 bg-[#EEF3FF] hover:bg-[#DEE7FF] text-[#325099] text-xs font-semibold px-3 py-1 rounded-full cursor-pointer transition">
-                                ↑ Upload PDF
-                                <input
-                                  type="file" accept="application/pdf" className="hidden"
-                                  onChange={e => e.target.files?.[0] && uploadPDF(s.student_id, s.class_id, e.target.files[0])}
-                                />
-                              </label>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </>
-            )}
+        {/* ── Email template ──────────────────────────────────────────────── */}
+        {tab === 'template' && (
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-sm font-bold text-[#062E63]">Email body</h2>
+              <button
+                onClick={() => { setTemplate(DEFAULT_TEMPLATE); localStorage.setItem(TEMPLATE_KEY, DEFAULT_TEMPLATE) }}
+                className="text-[11px] text-[#325099]/50 hover:text-[#325099] transition"
+              >
+                Reset to default
+              </button>
+            </div>
+            <p className="text-xs text-[#325099]/60 mb-3">
+              Available placeholders: <code className="bg-[#F0F4FF] px-1 rounded">{'{{parent_name}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{followup_date}}'}</code> <span className="text-[#325099]/40">(7 days from send)</span>
+            </p>
+            <textarea
+              value={template}
+              onChange={e => { setTemplate(e.target.value); localStorage.setItem(TEMPLATE_KEY, e.target.value) }}
+              rows={14}
+              className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#062E63] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#325099]/25 resize-y"
+            />
           </div>
         )}
 
-        {/* ── TAB: Preview & Send ──────────────────────────────────────────── */}
+        {/* ── Preview & Send ──────────────────────────────────────────────── */}
         {tab === 'preview' && (
           <div className="space-y-5">
 
@@ -628,28 +551,6 @@ export default function EndOfTermEmailPage() {
                 </div>
               )
             )}
-
-            {/* Email template editor */}
-            <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="text-sm font-bold text-[#062E63]">Email body</h2>
-                <button
-                  onClick={() => { setTemplate(DEFAULT_TEMPLATE); localStorage.setItem(TEMPLATE_KEY, DEFAULT_TEMPLATE) }}
-                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] transition"
-                >
-                  Reset to default
-                </button>
-              </div>
-              <p className="text-xs text-[#325099]/60 mb-3">
-                Available placeholders: <code className="bg-[#F0F4FF] px-1 rounded">{'{{parent_name}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code> <code className="bg-[#F0F4FF] px-1 rounded">{'{{followup_date}}'}</code> <span className="text-[#325099]/40">(7 days from send)</span>
-              </p>
-              <textarea
-                value={template}
-                onChange={e => { setTemplate(e.target.value); localStorage.setItem(TEMPLATE_KEY, e.target.value) }}
-                rows={12}
-                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#062E63] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#325099]/25 resize-y"
-              />
-            </div>
 
             {/* Family preview cards */}
             <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
