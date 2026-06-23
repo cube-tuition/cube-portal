@@ -40,6 +40,8 @@ function firstName(fullName) {
 const PRE_COLOR  = '#EF4444'   // red
 const POST_COLOR = '#325099'   // blue
 const AVG_COLOR  = '#F59E0B'   // amber
+const EXP_COLOR  = '#9CA3AF'   // grey — expected/target mark
+const SCORE_GREEN = '#10B981'  // green — student's own total score (vs-average chart)
 
 // ─── Custom tooltip ───────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }) {
@@ -56,6 +58,21 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
+// Fixed-order legend — recharts' default (and even an explicit `payload`) can
+// reorder Pre/Post; rendering the items ourselves guarantees the order we pass.
+function FixedLegend({ items }) {
+  return (
+    <div style={{ display: 'flex', gap: 20, justifyContent: 'center', fontSize: 11, paddingTop: 6 }}>
+      {items.map(it => (
+        <span key={it.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: it.color, fontWeight: 600 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 2, background: it.color, display: 'inline-block' }} />
+          {it.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PrePostSection({ classId, termId, roster, canEdit }) {
   const [test, setTest]         = useState(null)     // prepost_tests row (or null)
@@ -67,6 +84,7 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
   // ── Setup editor state ───────────────────────────────────────────────────
   const [editingSetup, setEditingSetup]   = useState(false)
   const [topicDrafts, setTopicDrafts]     = useState([])  // [{name, marks}]
+  const [expectedDraft, setExpectedDraft] = useState({ pre: '', post: '' })  // expected total marks
   const [savingSetup, setSavingSetup]     = useState(false)
 
   // ── Score saving ─────────────────────────────────────────────────────────
@@ -83,7 +101,7 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
       // Fetch test config
       const { data: testRow } = await supabase
         .from(T_PREPOST_TESTS)
-        .select('id, topics, updated_at')
+        .select('id, topics, expected_pre, expected_post, updated_at')
         .eq('class_id', classId)
         .eq('term_id', termId)
         .maybeSingle()
@@ -116,6 +134,10 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
 
   const startEditSetup = () => {
     setTopicDrafts(topics.length > 0 ? topics.map(t => ({ ...t })) : [{ name: '', marks: '' }])
+    setExpectedDraft({
+      pre:  test?.expected_pre  != null ? String(test.expected_pre)  : '',
+      post: test?.expected_post != null ? String(test.expected_post) : '',
+    })
     setEditingSetup(true)
   }
 
@@ -130,15 +152,17 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
       .filter(t => t.name.trim())
       .map(t => ({ name: t.name.trim(), marks: Number(t.marks) || 0, ...(t.questions?.trim() ? { questions: t.questions.trim() } : {}) }))
     if (cleaned.length === 0) return
+    const expPre  = expectedDraft.pre  === '' ? null : Number(expectedDraft.pre)
+    const expPost = expectedDraft.post === '' ? null : Number(expectedDraft.post)
     setSavingSetup(true)
     if (test) {
       await supabase.from(T_PREPOST_TESTS)
-        .update({ topics: cleaned, updated_at: new Date().toISOString() })
+        .update({ topics: cleaned, expected_pre: expPre, expected_post: expPost, updated_at: new Date().toISOString() })
         .eq('id', test.id)
-      setTest(prev => ({ ...prev, topics: cleaned }))
+      setTest(prev => ({ ...prev, topics: cleaned, expected_pre: expPre, expected_post: expPost }))
     } else {
       const { data } = await supabase.from(T_PREPOST_TESTS)
-        .insert({ class_id: classId, term_id: termId, topics: cleaned })
+        .insert({ class_id: classId, term_id: termId, topics: cleaned, expected_pre: expPre, expected_post: expPost })
         .select().single()
       setTest(data)
     }
@@ -250,6 +274,14 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
                 </span>
               )}
             </h3>
+            {(test?.expected_pre != null || test?.expected_post != null) && (
+              <p className="text-xs text-[#2A2035]/55 mt-1">
+                Expected mark:
+                {test?.expected_pre != null && <span className="ml-1"><span className="font-semibold text-[#EF4444]">Pre</span> {test.expected_pre}{totalMarks > 0 ? `/${totalMarks}` : ''}</span>}
+                {test?.expected_pre != null && test?.expected_post != null && <span className="text-[#2A2035]/30"> · </span>}
+                {test?.expected_post != null && <span><span className="font-semibold text-[#325099]">Post</span> {test.expected_post}{totalMarks > 0 ? `/${totalMarks}` : ''}</span>}
+              </p>
+            )}
           </div>
           {canEdit && !editingSetup && (
             <button onClick={startEditSetup}
@@ -311,6 +343,30 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
               <span className="w-5 h-5 rounded-full bg-[#DEE7FF] flex items-center justify-center text-[13px] font-bold leading-none">+</span>
               Add topic
             </button>
+
+            {/* Expected overall marks — a manual target for the test as a whole */}
+            <div className="border-t border-[#DEE7FF] pt-4">
+              <p className="text-[9px] tracking-[0.2em] uppercase font-semibold text-[#325099]/50 mb-2">Expected mark (whole test)</p>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-[#2A2035]">
+                  <span className="font-semibold text-[#EF4444] w-16">Pre test</span>
+                  <input type="number" min={0} value={expectedDraft.pre}
+                    onChange={e => setExpectedDraft(d => ({ ...d, pre: e.target.value }))}
+                    placeholder="e.g. 20"
+                    className="w-24 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-center tabular-nums placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition" />
+                  {totalMarks > 0 && <span className="text-xs text-[#2A2035]/40">/ {totalMarks}</span>}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[#2A2035]">
+                  <span className="font-semibold text-[#325099] w-16">Post test</span>
+                  <input type="number" min={0} value={expectedDraft.post}
+                    onChange={e => setExpectedDraft(d => ({ ...d, post: e.target.value }))}
+                    placeholder="e.g. 35"
+                    className="w-24 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-center tabular-nums placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition" />
+                  {totalMarks > 0 && <span className="text-xs text-[#2A2035]/40">/ {totalMarks}</span>}
+                </label>
+              </div>
+            </div>
+
             <div className="flex gap-2 pt-1">
               <button onClick={handleSaveSetup} disabled={savingSetup || topicDrafts.filter(t => t.name.trim()).length === 0}
                 className="text-xs font-semibold bg-[#325099] text-white px-5 py-2 rounded-full hover:bg-[#062E63] transition disabled:opacity-50">
@@ -508,6 +564,8 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
                 totalMarks={totalMarks}
                 scoresMap={scoresMap}
                 classAvg={classAvg}
+                expectedPre={test?.expected_pre ?? null}
+                expectedPost={test?.expected_post ?? null}
                 expanded={expandedStudent === student.id}
                 onToggle={() => setExpandedStudent(prev => prev === student.id ? null : student.id)}
               />
@@ -520,7 +578,7 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
 }
 
 // ─── Per-student chart card ────────────────────────────────────────────────────
-function StudentCharts({ student, topics, totalMarks, scoresMap, classAvg, expanded, onToggle }) {
+function StudentCharts({ student, topics, totalMarks, scoresMap, classAvg, expectedPre = null, expectedPost = null, expanded, onToggle }) {
   const preScores  = scoresMap[student.id]?.pre  || []
   const postScores = scoresMap[student.id]?.post || []
 
@@ -528,32 +586,6 @@ function StudentCharts({ student, topics, totalMarks, scoresMap, classAvg, expan
   const postTotal = postScores.filter(s => s != null).reduce((a, b) => a + Number(b), 0)
   const hasPreData  = preScores.some(s => s != null && s !== '')
   const hasPostData = postScores.some(s => s != null && s !== '')
-
-  // Chart data
-  const topicChartData = topics.map((t, i) => ({
-    name: t.name.length > 12 ? t.name.slice(0, 12) + '…' : t.name,
-    fullName: t.name,
-    maxMarks: t.marks,
-    'Pre test': hasPreData && preScores[i] != null ? Number(preScores[i]) : 0,
-    'Post test': hasPostData && postScores[i] != null ? Number(postScores[i]) : 0,
-    'Pre %': hasPreData && preScores[i] != null ? safePct(preScores[i], t.marks) : 0,
-    'Post %': hasPostData && postScores[i] != null ? safePct(postScores[i], t.marks) : 0,
-    'Class avg %': classAvg.byTopic.post[i] != null
-      ? Math.round((classAvg.byTopic.post[i] / t.marks) * 100) : 0,
-  }))
-
-  const totalChartData = [
-    {
-      name: 'Pre test',
-      'Score': hasPreData ? safePct(preTotal, totalMarks) : 0,
-      'Class avg': classAvg.pre != null ? safePct(classAvg.pre, totalMarks) : 0,
-    },
-    {
-      name: 'Post test',
-      'Score': hasPostData ? safePct(postTotal, totalMarks) : 0,
-      'Class avg': classAvg.post != null ? safePct(classAvg.post, totalMarks) : 0,
-    },
-  ]
 
   const hasAnyData = hasPreData || hasPostData
   const prePct  = hasPreData  ? safePct(preTotal,  totalMarks) : null
@@ -595,90 +627,149 @@ function StudentCharts({ student, topics, totalMarks, scoresMap, classAvg, expan
           {!hasAnyData ? (
             <p className="text-center text-sm text-[#2A2035]/40 py-6">No scores entered for this student yet.</p>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-              {/* Chart 1: Raw marks by topic */}
-              <div>
-                <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">
-                  {firstName(student.full_name)}: Pre/Post test by topic (Raw mark)
-                </p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={topicChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
-                    <YAxis tick={{ fontSize: 10, fill: '#325099' }} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} payload={[
-                      ...(hasPreData  ? [{ value: 'Pre test',  type: 'square', id: 'Pre test',  color: PRE_COLOR }]  : []),
-                      ...(hasPostData ? [{ value: 'Post test', type: 'square', id: 'Post test', color: POST_COLOR }] : []),
-                    ]} />
-                    {hasPreData  && <Bar dataKey="Pre test"  fill={PRE_COLOR}  radius={[3,3,0,0]} />}
-                    {hasPostData && <Bar dataKey="Post test" fill={POST_COLOR} radius={[3,3,0,0]} />}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Chart 2: % by topic */}
-              <div>
-                <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">
-                  {firstName(student.full_name)}: Pre/Post test by topic (%)
-                </p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={topicChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#325099' }} unit="%" />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} payload={[
-                      ...(hasPreData  ? [{ value: 'Pre test %',  type: 'square', id: 'Pre %',  color: PRE_COLOR }]  : []),
-                      ...(hasPostData ? [{ value: 'Post test %', type: 'square', id: 'Post %', color: POST_COLOR }] : []),
-                    ]} />
-                    {hasPreData  && <Bar dataKey="Pre %"  fill={PRE_COLOR}  name="Pre test %" radius={[3,3,0,0]} unit="%" />}
-                    {hasPostData && <Bar dataKey="Post %" fill={POST_COLOR} name="Post test %" radius={[3,3,0,0]} unit="%" />}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Chart 3: Total pre/post vs class average */}
-              <div>
-                <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">
-                  {firstName(student.full_name)}: Pre/Post test vs Class Average (Total)
-                </p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={totalChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#325099' }} unit="%" />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="Score"     fill={POST_COLOR} name={`${firstName(student.full_name)}'s score`} radius={[3,3,0,0]} unit="%" />
-                    <Bar dataKey="Class avg" fill={AVG_COLOR}  name="Class average" radius={[3,3,0,0]} unit="%" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Chart 4: Post test vs class avg by topic */}
-              <div>
-                <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">
-                  {firstName(student.full_name)}: Post test vs Class Average by topic
-                </p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={topicChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#325099' }} unit="%" />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    {hasPostData && <Bar dataKey="Post %" fill={POST_COLOR} name={`${firstName(student.full_name)}'s post %`} radius={[3,3,0,0]} unit="%" />}
-                    <Bar dataKey="Class avg %" fill={AVG_COLOR} name="Class average" radius={[3,3,0,0]} unit="%" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-            </div>
+            <PrePostCharts student={student} topics={topics} totalMarks={totalMarks}
+              scoresMap={scoresMap} classAvg={classAvg} expectedPre={expectedPre} expectedPost={expectedPost} />
           )}
         </div>
       )}
     </div>
   )
+}
+
+// ─── Shared 3-chart block (class Pre/Post tab + term report) ────────────────────
+// Renders one student's pre/post results: raw by topic, % by topic, and totals
+// vs class average (with optional Expected target). Computes its own chart data
+// from the shared inputs so it can be dropped into the report individualised.
+export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap = {}, classAvg = { pre: null, post: null, byTopic: { pre: [], post: [] } }, expectedPre = null, expectedPost = null }) {
+  const preScores  = scoresMap[student.id]?.pre  || []
+  const postScores = scoresMap[student.id]?.post || []
+  const preTotal  = preScores.filter(s => s != null).reduce((a, b) => a + Number(b), 0)
+  const postTotal = postScores.filter(s => s != null).reduce((a, b) => a + Number(b), 0)
+  const hasPreData  = preScores.some(s => s != null && s !== '')
+  const hasPostData = postScores.some(s => s != null && s !== '')
+  if (!hasPreData && !hasPostData) {
+    return <p className="text-center text-sm text-[#2A2035]/40 py-6">No pre/post scores entered for this student yet.</p>
+  }
+  const fn = firstName(student.full_name)
+  const topicChartData = topics.map((t, i) => ({
+    name: t.name.length > 12 ? t.name.slice(0, 12) + '…' : t.name,
+    fullName: t.name,
+    maxMarks: t.marks,
+    'Pre test':  hasPreData  && preScores[i]  != null ? Number(preScores[i])  : 0,
+    'Post test': hasPostData && postScores[i] != null ? Number(postScores[i]) : 0,
+    'Pre %':  hasPreData  && preScores[i]  != null ? safePct(preScores[i],  t.marks) : 0,
+    'Post %': hasPostData && postScores[i] != null ? safePct(postScores[i], t.marks) : 0,
+  }))
+  const expPrePct  = expectedPre  != null && totalMarks > 0 ? Math.round((Number(expectedPre)  / totalMarks) * 100) : null
+  const expPostPct = expectedPost != null && totalMarks > 0 ? Math.round((Number(expectedPost) / totalMarks) * 100) : null
+  const hasExpected = expPrePct != null || expPostPct != null
+  const totalChartData = [
+    { name: 'Pre test',  'Score': hasPreData  ? safePct(preTotal,  totalMarks) : 0, 'Class avg': classAvg.pre  != null ? safePct(classAvg.pre,  totalMarks) : 0, 'Expected': expPrePct },
+    { name: 'Post test', 'Score': hasPostData ? safePct(postTotal, totalMarks) : 0, 'Class avg': classAvg.post != null ? safePct(classAvg.post, totalMarks) : 0, 'Expected': expPostPct },
+  ]
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Raw marks by topic */}
+      <div>
+        <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">{fn}: Pre/Post test by topic (Raw mark)</p>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={topicChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
+            <YAxis tick={{ fontSize: 10, fill: '#325099' }} />
+            <Tooltip content={<ChartTooltip />} />
+            <Legend content={<FixedLegend items={[
+              ...(hasPreData  ? [{ label: 'Pre test',  color: PRE_COLOR }]  : []),
+              ...(hasPostData ? [{ label: 'Post test', color: POST_COLOR }] : []),
+            ]} />} />
+            {hasPreData  && <Bar dataKey="Pre test"  fill={PRE_COLOR}  radius={[3,3,0,0]} />}
+            {hasPostData && <Bar dataKey="Post test" fill={POST_COLOR} radius={[3,3,0,0]} />}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* % by topic */}
+      <div>
+        <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">{fn}: Pre/Post test by topic (%)</p>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={topicChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#325099' }} unit="%" />
+            <Tooltip content={<ChartTooltip />} />
+            <Legend content={<FixedLegend items={[
+              ...(hasPreData  ? [{ label: 'Pre test %',  color: PRE_COLOR }]  : []),
+              ...(hasPostData ? [{ label: 'Post test %', color: POST_COLOR }] : []),
+            ]} />} />
+            {hasPreData  && <Bar dataKey="Pre %"  fill={PRE_COLOR}  name="Pre test %" radius={[3,3,0,0]} unit="%" />}
+            {hasPostData && <Bar dataKey="Post %" fill={POST_COLOR} name="Post test %" radius={[3,3,0,0]} unit="%" />}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      </div>
+
+      {/* Totals vs class average — centred on its own row */}
+      <div className="md:max-w-[calc(50%-12px)] md:mx-auto">
+        <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">{fn}: Pre/Post test vs Class Average (Total)</p>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={totalChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#325099' }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#325099' }} unit="%" />
+            <Tooltip content={<ChartTooltip />} />
+            <Legend content={<FixedLegend items={[
+              { label: `${fn}'s score`, color: SCORE_GREEN },
+              { label: 'Class average', color: AVG_COLOR },
+              ...(hasExpected ? [{ label: 'Expected', color: EXP_COLOR }] : []),
+            ]} />} />
+            <Bar dataKey="Score"     fill={SCORE_GREEN} name={`${fn}'s score`} radius={[3,3,0,0]} unit="%" />
+            <Bar dataKey="Class avg" fill={AVG_COLOR}  name="Class average" radius={[3,3,0,0]} unit="%" />
+            {hasExpected && <Bar dataKey="Expected" fill={EXP_COLOR} name="Expected" radius={[3,3,0,0]} unit="%" />}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+
+// Load a class+term's pre/post test, scores and class averages for the report.
+// Returns null if no test is configured, else { topics, totalMarks, scoresMap,
+// classAvg, expectedPre, expectedPost } ready for <PrePostCharts/>.
+export async function loadPrePostForReport(classId, termId, roster = []) {
+  const { data: testRow } = await supabase
+    .from(T_PREPOST_TESTS)
+    .select('id, topics, expected_pre, expected_post')
+    .eq('class_id', classId).eq('term_id', termId)
+    .maybeSingle()
+  if (!testRow) return null
+  const { data: scoreRows } = await supabase
+    .from(T_PREPOST_SCORES)
+    .select('student_id, test_type, scores')
+    .eq('test_id', testRow.id)
+  const scoresMap = {}
+  for (const r of scoreRows || []) {
+    if (!scoresMap[r.student_id]) scoresMap[r.student_id] = { pre: [], post: [] }
+    scoresMap[r.student_id][r.test_type] = r.scores || []
+  }
+  const topics = testRow.topics || []
+  const totalMarks = topics.reduce((s, t) => s + (Number(t.marks) || 0), 0)
+  const studentTotal = (sid, mode) => {
+    const filled = (scoresMap[sid]?.[mode] || []).filter(s => s != null && s !== '')
+    return filled.length ? filled.reduce((a, b) => a + Number(b), 0) : null
+  }
+  const avg = (mode) => {
+    const totals = roster.map(s => studentTotal(s.id, mode)).filter(v => v != null)
+    return totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : null
+  }
+  const topicAvg = (mode, idx) => {
+    const vals = roster.map(s => { const v = scoresMap[s.id]?.[mode]?.[idx]; return v != null && v !== '' ? Number(v) : null }).filter(v => v != null)
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+  }
+  const classAvg = {
+    pre: avg('pre'), post: avg('post'),
+    byTopic: { pre: topics.map((_, i) => topicAvg('pre', i)), post: topics.map((_, i) => topicAvg('post', i)) },
+  }
+  return { topics, totalMarks, scores: scoresMap, classAvg, expectedPre: testRow.expected_pre ?? null, expectedPost: testRow.expected_post ?? null }
 }

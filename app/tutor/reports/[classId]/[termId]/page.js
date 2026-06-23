@@ -8,8 +8,9 @@ import { fetchAllTerms, formatTermLabel } from '../../../../../lib/terms'
 import { inferSubject, subjectsMatch } from '../../../../../components/CourseDetail'
 import { StudentReport } from '../../../../../components/reports/StudentReport'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
-import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../lib/tables'
+import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../lib/tables'
 import { loadExamAnalysisForClass } from '../../../../../lib/examMarking'
+import { loadPrePostForReport } from '../../../../../components/PrePostSection'
 
 /*
  * Printable end-of-term report bundle — one page per student.
@@ -127,28 +128,10 @@ export default function ReportPage() {
       for (const r of cr || []) crMap[r.student_id] = r
       setCriteria(crMap)
 
-      // Pre/post test
-      const { data: ppTest } = await supabase
-        .from(T_PREPOST_TESTS)
-        .select('id, topics')
-        .eq('class_id', classId)
-        .eq('term_id', t.id)
-        .maybeSingle()
-      if (ppTest) {
-        const { data: ppScores } = await supabase
-          .from(T_PREPOST_SCORES)
-          .select('student_id, test_type, scores')
-          .eq('test_id', ppTest.id)
-          .in('student_id', ids)
-        const scoreMap = {}
-        for (const r of ppScores || []) {
-          if (!scoreMap[r.student_id]) scoreMap[r.student_id] = { pre: [], post: [] }
-          scoreMap[r.student_id][r.test_type] = r.scores || []
-        }
-        const topics = ppTest.topics || []
-        const totalMarks = topics.reduce((s, tp) => s + (Number(tp.marks) || 0), 0)
-        setPrepost({ topics, totalMarks, scores: scoreMap })
-      }
+      // Pre/post test (topics, scores, class averages + expected marks) for the
+      // numeric summary AND the individualised charts in the report.
+      const pp = await loadPrePostForReport(classId, t.id, students)
+      if (pp) setPrepost(pp)
 
       // Exam analysis — per-question marks rolled up by topic (assigned exam).
       const examAnalysis = await loadExamAnalysisForClass({

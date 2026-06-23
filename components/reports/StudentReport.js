@@ -7,6 +7,7 @@ import {
 import { inferSubject, subjectColor } from '../CourseDetail'
 import { formatTermLabel } from '../../lib/terms'
 import StudentExamAnalysisView, { studentAnalysisRows } from '../StudentExamAnalysisView'
+import { PrePostCharts } from '../PrePostSection'
 
 const ATT_COLOR = {
   present: '#10b981',
@@ -155,7 +156,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
 
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatBox label="Quiz average" value={stats.avgRq != null ? `${stats.avgRq}%` : '—'} sub={`${stats.scoredCount} quiz${stats.scoredCount === 1 ? '' : 'zes'}`} />
-          <StatBox label="Previous week's HWK" value={stats.hwMode ?? '—'} sub={`${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'} logged`} />
+          <StatBox label="Average HWK grade" value={stats.hwMode ?? '—'} sub={`${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'} logged`} />
           <StatBox label="Attendance" value={stats.attPct != null ? `${stats.attPct}%` : '—'} sub={`${stats.attTotal} session${stats.attTotal === 1 ? '' : 's'}`} />
         </div>
 
@@ -245,6 +246,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                     <p className="text-[11px] text-[#2A2035]/35 italic">No pre/post test data recorded for this term.</p>
                   </div>
                 ) : (
+                  <>
                   <div className="rounded-xl border border-[#E8EDF8] overflow-hidden">
                     <div className="grid grid-cols-3 divide-x divide-[#E8EDF8]">
                       <div className="px-4 py-3 bg-[#FEF2F2]">
@@ -265,47 +267,15 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                         {improvement != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">percentage points</p>}
                       </div>
                     </div>
-                    {topics.length > 0 && (
-                      <div className="border-t border-[#E8EDF8]">
-                        <table className="w-full text-[10px] border-collapse">
-                          <thead>
-                            <tr className="bg-[#F8FAFF] border-b border-[#E8EDF8]">
-                              <th className="text-left px-3 py-2 font-semibold text-[#6B7CB8]">Topic</th>
-                              <th className="text-center px-2 py-2 font-semibold text-[#EF4444]">Pre</th>
-                              <th className="text-center px-2 py-2 font-semibold text-[#325099]">Post</th>
-                              <th className="text-center px-2 py-2 font-semibold text-[#6B7CB8]">Change</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {topics.map((t, i) => {
-                              const ps    = preScores[i]  ?? null
-                              const qs    = postScores[i] ?? null
-                              const tPre  = ps != null && t.marks ? Math.round((Number(ps)  / t.marks) * 100) : null
-                              const tPost = qs != null && t.marks ? Math.round((Number(qs) / t.marks) * 100) : null
-                              const tDelta = tPre != null && tPost != null ? tPost - tPre : null
-                              return (
-                                <tr key={i} className={`border-b last:border-0 border-[#EEF1F9] ${i % 2 === 0 ? 'bg-white' : 'bg-[#F9FAFD]'}`}>
-                                  <td className="px-3 py-1.5 text-[#3A3550]">
-                                    {t.name}
-                                    {t.questions && <span className="ml-1.5 text-[9px] text-[#325099]/50 font-medium">{t.questions}</span>}
-                                  </td>
-                                  <td className="px-2 py-1.5 text-center font-semibold text-[#EF4444] tabular-nums">
-                                    {tPre != null ? `${tPre}%` : <span className="text-[#CBD5E1]">—</span>}
-                                  </td>
-                                  <td className="px-2 py-1.5 text-center font-semibold text-[#325099] tabular-nums">
-                                    {tPost != null ? `${tPost}%` : <span className="text-[#CBD5E1]">—</span>}
-                                  </td>
-                                  <td className="px-2 py-1.5 text-center font-semibold tabular-nums" style={{ color: tDelta == null ? '#CBD5E1' : tDelta >= 0 ? '#10B981' : '#F59E0B' }}>
-                                    {tDelta == null ? '—' : `${tDelta >= 0 ? '+' : ''}${tDelta}pp`}
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
                   </div>
+                  {prepost?.classAvg && (
+                    <div className="mt-4">
+                      <PrePostCharts student={student} topics={topics} totalMarks={totalMarks}
+                        scoresMap={prepost.scores} classAvg={prepost.classAvg}
+                        expectedPre={prepost.expectedPre} expectedPost={prepost.expectedPost} />
+                    </div>
+                  )}
+                  </>
                 )}
               </section>
             )
