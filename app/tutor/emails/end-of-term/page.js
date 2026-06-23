@@ -40,10 +40,6 @@ Kind regards,
 The CUBE Team`
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-function storageKey(termId, studentId, classId) {
-  return `${termId}/${studentId}_${classId}.pdf`
-}
-
 function formatNames(names) {
   if (names.length === 0) return ''
   if (names.length === 1) return names[0]
@@ -114,12 +110,19 @@ function mergeEotResults(a = [], b = []) {
   return [...byEmail.values()]
 }
 
+// Accumulate-only: merge with whatever is already stored so a stale or empty
+// client state can never erase a previously-recorded send. (There is no
+// "un-send" — a family is either sent or not yet, so successes only ever add.)
 async function saveEotResultsToDb(termId, results) {
   if (!termId) return
   try {
+    const { data } = await supabase.from('portal_settings').select('value').eq('key', eotResultsKey(termId)).maybeSingle()
+    let existing = []
+    try { existing = JSON.parse(data?.value || '[]') || [] } catch {}
+    const merged = mergeEotResults(existing, results || [])
     await supabase.from('portal_settings').upsert({
       key: eotResultsKey(termId),
-      value: JSON.stringify(results || []),
+      value: JSON.stringify(merged),
       updated_at: new Date().toISOString(),
     })
   } catch { /* non-fatal: localStorage still holds the cache */ }
@@ -151,7 +154,6 @@ export default function EndOfTermEmailPage() {
     return []
   })
   const [sending,      setSending]      = useState(false)
-  const [refreshing,   setRefreshing]   = useState(false)
   const [error,        setError]        = useState(null)
   const [previewFamily, setPreviewFamily] = useState(null) // family object to preview, or null
 
@@ -192,10 +194,6 @@ export default function EndOfTermEmailPage() {
     }
     setUploads(next)
   }
-
-  const refreshUploads = useCallback(async (rowsOverride, tIdOverride) => {
-    await checkStorageUploads(rowsOverride || students, tIdOverride || termId)
-  }, [termId, students])
 
   // ── Load students ─────────────────────────────────────────────────────────
   const loadStudents = useCallback(async () => {
@@ -297,17 +295,6 @@ export default function EndOfTermEmailPage() {
     if (termId && loadedRef.current) saveEotResultsToDb(termId, results)
   }, [results, resultsKey, termId])
 
-  // ── Upload PDF for a student ───────────────────────────────────────────────
-  const uploadPDF = async (studentId, classId, file) => {
-    const key = `${studentId}_${classId}`
-    setUploads(prev => ({ ...prev, [key]: { ...prev[key], uploading: true } }))
-    const path = storageKey(termId, studentId, classId)
-    const { error: upErr } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(path, file, { upsert: true, contentType: 'application/pdf' })
-    setUploads(prev => ({ ...prev, [key]: { exists: !upErr, uploading: false } }))
-    if (upErr) setError(`Upload failed: ${upErr.message}`)
-  }
 
   // ── Family grouping ────────────────────────────────────────────────────────
   const families = useMemo(() => {
@@ -335,7 +322,6 @@ export default function EndOfTermEmailPage() {
   // ── Derived counts ─────────────────────────────────────────────────────────
   const term = terms.find(t => t.id === termId)
   const uploadedCount = students.filter(s => uploads[`${s.student_id}_${s.class_id}`]?.exists).length
-  const allUploaded   = students.length > 0 && uploadedCount === students.length
   const familiesWithEmail = families.filter(f => f.parent_email)
 
   // Per-STUDENT "not yet sent" list. Family grouping can hide students with no
