@@ -7,6 +7,8 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { normalizeDays, fmtTime, fmtTimeRange, isoDate } from '../../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
+import { weekLabelFor } from '../../../lib/calendarWeeks'
+import MonthCalendarModal from '../../../components/calendar/MonthCalendarModal'
 import { inferSubject } from '../../../components/CourseDetail'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
 import { buildClassLabelMap } from '../../../lib/classLabels'
@@ -101,17 +103,6 @@ function fmtDateLabel(d) {
   return `${DAY_SHORT[dayNameOf(d)]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`
 }
 
-// Returns "W6" given a weekStart date and the current term (which has start_date).
-// Falls back to null if the term is unknown or the week is outside the term.
-function termWeekLabel(weekStart, term) {
-  if (!term || !term.start_date) return null
-  const termStart = mondayOf(new Date(`${term.start_date}T00:00:00`))
-  const diffMs = weekStart.getTime() - termStart.getTime()
-  const weekNum = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1
-  if (weekNum < 1) return null
-  return `W${weekNum}`
-}
-
 export default function TutorClassesPage() {
   const [staff, setStaff] = useState(null)
   const [allTerms, setAllTerms] = useState([])
@@ -124,6 +115,7 @@ export default function TutorClassesPage() {
   const [dropinSessions, setDropinSessions] = useState([]) // [dropin_sessions row] — drop-in sessions for this tutor
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
   const [weekLessons, setWeekLessons] = useState([])  // actual lesson rows for the current week
+  const [monthOpen, setMonthOpen] = useState(false)   // full-screen month calendar modal
   const [search, setSearch] = useState('')
   const [authErr, setAuthErr] = useState(null)
   const [expandedCourse, setExpandedCourse] = useState(null)   // course key (lowercased name)
@@ -231,7 +223,7 @@ export default function TutorClassesPage() {
       const behind = isoDate(addDays(new Date(), -7))
       const makeupQuery = supabase
         .from(T_LESSONS)
-        .select('id, lesson_date, start_time, end_time, room, class_id, makeup_student_id, students!makeup_student_id(full_name, year), classes(class_name)')
+        .select('id, lesson_date, start_time, end_time, room, class_id, makeup_student_id, makeup_source_lesson_id, students!makeup_student_id(full_name, year), classes(class_name)')
         .eq('is_makeup', true)
         .gte('lesson_date', behind)
         .lte('lesson_date', ahead)
@@ -398,13 +390,23 @@ export default function TutorClassesPage() {
   const upcomingSessions = useMemo(() => {
     const out = []
 
-    // Classes that have actual lesson rows in the DB this week — use those exact dates/times
-    // Exclude fully cancelled lessons from the calendar
+    // The calendar is driven PURELY by actual lesson rows for the visible dates —
+    // no recurring-schedule projection — so a week with no rows (e.g. beyond the
+    // term) shows nothing, matching the database exactly.
     const activeLessons = weekLessons.filter(l => l.status !== 'cancelled')
-    const classIdsWithLessons = new Set(weekLessons.map(l => l.class_id)) // still use all for fallback logic
+
+    // When a 1:1 lesson is moved to another day, a makeup row is created pointing
+    // back at the original via makeup_source_lesson_id (the original row stays).
+    // Hide that original so the session only shows on its new (makeup) day.
+    const movedSourceIds = new Set(
+      (makeupSessions || []).map(m => m.lesson?.makeup_source_lesson_id).filter(Boolean)
+    )
+    const isOneToOne = (c) => /\b1\s*:\s*1\b/.test(c?.class_name || '')
+
     for (const lesson of activeLessons) {
       const cls = classes.find(c => c.id === lesson.class_id)
       if (!cls) continue
+      if (movedSourceIds.has(lesson.id) && isOneToOne(cls)) continue // moved 1:1 — shows on the makeup day only
       const d = new Date(lesson.lesson_date + 'T00:00:00')
       out.push({
         key:     `lesson-${lesson.id}`,
@@ -416,29 +418,12 @@ export default function TutorClassesPage() {
       })
     }
 
-    // Classes with no DB lessons this week — fall back to schedule-derived dates
-    for (const d of weekDays) {
-      const dn = dayNameOf(d)
-      for (const c of classes) {
-        if (classIdsWithLessons.has(c.id)) continue // already handled above
-        const days = normalizeDays(c.day_of_week)
-        if (!days.includes(dn)) continue
-        out.push({
-          key:     `${c.id}-${isoDate(d)}`,
-          date:    d,
-          dateISO: isoDate(d),
-          dayName: dn,
-          cls:     c,
-        })
-      }
-    }
-
     out.sort((a, b) => {
       if (a.date.getTime() !== b.date.getTime()) return a.date - b.date
       return startMinutes(a.cls.start_time) - startMinutes(b.cls.start_time)
     })
     return out
-  }, [classes, weekDays, weekLessons])
+  }, [classes, weekLessons, makeupSessions])
 
   const sessionsByDate = useMemo(() => {
     const map = new Map()
@@ -712,7 +697,7 @@ export default function TutorClassesPage() {
               {weekStart.getTime() === mondayOf(new Date()).getTime() ? 'This week' : 'Week of'}
             </p>
             <h2 className="text-lg font-semibold text-[#2A2035] font-display">
-              {termWeekLabel(weekStart, currentTerm) ?? `${fmtDateLabel(weekDays[0])} – ${fmtDateLabel(weekDays[6])}`}
+              {weekLabelFor(weekStart, allTerms)?.label ?? `${fmtDateLabel(weekDays[0])} – ${fmtDateLabel(weekDays[6])}`}
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -733,6 +718,12 @@ export default function TutorClassesPage() {
               className="text-xs font-semibold text-[#062E63] bg-white border border-[#DEE7FF] hover:bg-[#F8FAFF] px-3 py-1.5 rounded-full transition"
             >
               Next →
+            </button>
+            <button
+              onClick={() => setMonthOpen(true)}
+              className="text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-3 py-1.5 rounded-full transition"
+            >
+              ▦ Full view
             </button>
             <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60 ml-2">
               {upcomingSessions.length} session{upcomingSessions.length === 1 ? '' : 's'}
@@ -768,6 +759,17 @@ export default function TutorClassesPage() {
           </p>
         </div>
       </footer>
+
+      {monthOpen && (
+        <MonthCalendarModal
+          classes={classes}
+          staff={staff}
+          isAdmin={staff?.role === 'admin'}
+          classView={classView}
+          terms={allTerms}
+          onClose={() => setMonthOpen(false)}
+        />
+      )}
     </div>
   )
 }

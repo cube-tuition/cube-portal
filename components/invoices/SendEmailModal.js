@@ -4,6 +4,12 @@ import { useState } from 'react'
 import { fmtMoney, fmtDate } from '../../lib/format'
 import { generateInvoicePdf } from '../../lib/invoicePdf'
 
+function daysOverdue(dueDate) {
+  if (!dueDate) return 0
+  const ms = Date.now() - new Date(dueDate + 'T00:00:00').getTime()
+  return Math.max(0, Math.floor(ms / 86400000))
+}
+
 export function buildEmailBody(inv, template, termName) {
   return (template || '')
     .replace(/\{\{guardian\}\}/g,     inv.parent_name ? inv.parent_name.split(' ')[0] : 'there')
@@ -12,14 +18,27 @@ export function buildEmailBody(inv, template, termName) {
     .replace(/\{\{invNo\}\}/g,        inv.invoice_number || '—')
     .replace(/\{\{amount\}\}/g,       fmtMoney(inv.total))
     .replace(/\{\{dueDate\}\}/g,      fmtDate(inv.due_date))
+    .replace(/\{\{daysOverdue\}\}/g,  String(daysOverdue(inv.due_date)))
 }
 
-export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate, onClose, onSent }) {
-  const [subject,  setSubject]  = useState(() => (emailSubjectTemplate || 'Invoice for {{studentNames}} – {{term}}')
-    .replace(/\{\{studentNames\}\}/g, (inv.student_names || []).join(', ') || inv.parent_name || '—')
-    .replace(/\{\{term\}\}/g,         term?.name || '')
-    .replace(/\{\{invNo\}\}/g,        inv.invoice_number || ''))
-  const [body,     setBody]     = useState(() => buildEmailBody(inv, emailTemplate, term?.name))
+// Built-in default templates for an overdue reminder (editable in the modal).
+const REMINDER_SUBJECT = 'Overdue: Invoice {{invNo}} for {{studentNames}} – {{term}}'
+const REMINDER_BODY =
+`Hi {{guardian}},
+
+This is a friendly reminder that invoice {{invNo}} for {{studentNames}} ({{term}}) is now overdue. The amount of {{amount}} was due on {{dueDate}} ({{daysOverdue}} days ago).
+
+If you have already arranged payment, please disregard this email and accept our thanks. Otherwise, we would appreciate it if you could settle the invoice at your earliest convenience. A copy is attached for your reference.
+
+If you have any questions or believe this is in error, simply reply to this email.
+
+Kind regards,
+CUBE Tuition`
+
+export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate, reminder = false, onClose, onSent }) {
+  const [subject,  setSubject]  = useState(() =>
+    buildEmailBody(inv, reminder ? REMINDER_SUBJECT : (emailSubjectTemplate || 'Invoice for {{studentNames}} – {{term}}'), term?.name))
+  const [body,     setBody]     = useState(() => buildEmailBody(inv, reminder ? REMINDER_BODY : emailTemplate, term?.name))
   const [sending,  setSending]  = useState(false)
   const [error,    setError]    = useState(null)
   const [tab,      setTab]      = useState('edit')
@@ -40,13 +59,14 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
       const res = await authedFetch('/api/send-invoice', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: inv.id, email_to: inv.parent_email, subject, body, pdf_base64, pdf_filename }),
+        body: JSON.stringify({ invoice_id: inv.id, email_to: inv.parent_email, subject, body, pdf_base64, pdf_filename, is_reminder: reminder }),
       })
       if (!res.ok) {
-        const e = await res.json()
+        const e = await res.json().catch(() => ({}))
         throw new Error(e.error || 'Send failed')
       }
-      onSent(inv.id)
+      const data = await res.json().catch(() => ({}))
+      onSent(inv.id, data.reminder_sent_at)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -59,7 +79,7 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#DEE7FF]">
           <div>
-            <h3 className="font-bold text-[#062E63] text-sm">Send Invoice</h3>
+            <h3 className="font-bold text-[#062E63] text-sm">{reminder ? 'Send Overdue Reminder' : 'Send Invoice'}</h3>
             <p className="text-[11px] text-[#325099]/50 mt-0.5">
               To: <span className="font-semibold text-[#325099]">{inv.parent_name}</span>
               {' · '}<span className="text-blue-600">{inv.parent_email || 'no email'}</span>
@@ -131,7 +151,7 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
           </button>
           <button onClick={handleSend} disabled={sending || !inv.parent_email}
             className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
-            {sending ? 'Sending…' : '✉ Send Invoice'}
+            {sending ? 'Sending…' : (reminder ? '✉ Send Reminder' : '✉ Send Invoice')}
           </button>
         </div>
       </div>

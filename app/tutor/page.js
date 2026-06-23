@@ -285,7 +285,7 @@ export default function TutorHome() {
                               {(classLabelMap.get(c.id) || c.class_name || 'Untitled class')}
                             </span>
                             <span className="block text-[10px] text-[#2A2035]/50">
-                              {c.room ? `📍 ${c.room} · ` : ''}👥 {enrollmentCounts[c.id] || 0}
+                              {c.room ? `📍 ${c.room} · ` : ''}👥 {enrollmentCounts[c.id] || 0}{c.teacher ? ` · 👤 ${c.teacher}` : ''}
                             </span>
                           </span>
                           <span className="text-[#325099] text-xs transition-transform group-hover:translate-x-0.5">→</span>

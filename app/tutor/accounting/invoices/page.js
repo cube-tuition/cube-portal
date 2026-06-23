@@ -111,6 +111,7 @@ function InvoiceDashboardInner() {
   const [confirmUnsentId,   setConfirmUnsentId]   = useState(null) // invoice id pending unsent confirmation
   const [confirmPaidInv,    setConfirmPaidInv]    = useState(null) // invoice object pending paid confirmation
   const [sendModalInv,      setSendModalInv]      = useState(null)
+  const [reminderModalInv,  setReminderModalInv]  = useState(null)
   const [emailTemplate,     setEmailTemplate]     = useState('')
   const [emailSubjectTmpl,  setEmailSubjectTmpl]  = useState('')
   const [mainTab,           setMainTab]           = useState('invoices') // 'invoices' | 'credits' | 'template'
@@ -985,6 +986,23 @@ function InvoiceDashboardInner() {
                             <option value="paid">Paid</option>
                             <option value="overdue">Overdue</option>
                           </select>
+                          {inv.payment_status === 'overdue' && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => setReminderModalInv(inv)}
+                                disabled={!inv.parent_email || inv.status === 'draft' || inv.status === 'voided'}
+                                title={!inv.parent_email ? 'No email on file' : inv.status === 'draft' ? 'Approve invoice first' : 'Send an overdue-payment reminder'}
+                                className="text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#FEF3C7] text-[#92400E] border-[#FCD34D] hover:bg-[#FDE68A] disabled:opacity-40"
+                              >
+                                ⏰ {inv.reminder_sent_at ? 'Remind again' : 'Send reminder'}
+                              </button>
+                              {inv.reminder_sent_at && (
+                                <span className="text-[10px] text-[#92400E]/70" title="Last overdue reminder sent">
+                                  Reminded {fmtDate(inv.reminder_sent_at)}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1303,6 +1321,18 @@ function InvoiceDashboardInner() {
           onSent={(id) => {
             setSendModalInv(null)
             setInvoices(prev => prev.map(i => i.id === id ? { ...i, delivery_status: 'sent' } : i))
+          }}
+        />
+      )}
+      {reminderModalInv && (
+        <SendEmailModal
+          inv={reminderModalInv}
+          term={term}
+          reminder
+          onClose={() => setReminderModalInv(null)}
+          onSent={(id, reminderSentAt) => {
+            setReminderModalInv(null)
+            setInvoices(prev => prev.map(i => i.id === id ? { ...i, reminder_sent_at: reminderSentAt || new Date().toISOString() } : i))
           }}
         />
       )}

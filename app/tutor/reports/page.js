@@ -46,12 +46,14 @@ export default function ReportsLandingPage() {
       setTerms(t)
       setTermId(getCurrentTerm(t)?.id || t?.[0]?.id || null)
 
-      const { data: cls } = await supabase
+      const { data: clsRaw } = await supabase
         .from(T_CLASSES)
         .select('id, class_name, day_of_week, start_time, end_time, teacher, room')
-      setClasses(cls || [])
+      // 1:1 classes don't get term reports — exclude them from the list.
+      const cls = (clsRaw || []).filter(c => !/\b1\s*:\s*1\b/.test(c.class_name || ''))
+      setClasses(cls)
 
-      const ids = (cls || []).map(c => c.id)
+      const ids = cls.map(c => c.id)
       if (ids.length > 0) {
         const { data: links } = await supabase
           .from(T_ENROLMENTS)

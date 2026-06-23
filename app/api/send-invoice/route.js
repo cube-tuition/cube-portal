@@ -7,7 +7,7 @@ export async function POST(req) {
     const auth = await requireApiRole(req, ['admin', 'director'])
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-    const { invoice_id, email_to, subject, body, pdf_base64, pdf_filename } = await req.json()
+    const { invoice_id, email_to, subject, body, pdf_base64, pdf_filename, is_reminder } = await req.json()
 
     if (!invoice_id || !email_to) {
       return NextResponse.json({ error: 'Missing invoice_id or email_to' }, { status: 400 })
@@ -54,14 +54,18 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Email send failed', detail: err }, { status: 500 })
     }
 
-    // Mark invoice as sent
+    // An overdue reminder records the reminder timestamp (the invoice was already
+    // delivered); a first send marks the invoice as delivered.
     const sb = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
     )
-    await sb.from('invoices').update({ delivery_status: 'sent' }).eq('id', invoice_id)
+    const sentAt = new Date().toISOString()
+    await sb.from('invoices')
+      .update(is_reminder ? { reminder_sent_at: sentAt } : { delivery_status: 'sent' })
+      .eq('id', invoice_id)
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, reminder_sent_at: is_reminder ? sentAt : undefined })
   } catch (err) {
     console.error('[send-invoice] Error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
