@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { T_DROPIN_SIGNINS } from '../../../lib/tables'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 /*
  * /api/notify-booking
@@ -173,6 +174,7 @@ export async function POST(request) {
       body: JSON.stringify({
         from: fromEmail,
         to: [toEmail],
+        bcc: [PORTAL_BCC],
         subject: subjLine,
         html,
         text,

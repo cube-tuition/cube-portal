@@ -1,6 +1,6 @@
 'use client'
 import { authedFetch } from '../../../../lib/authedFetch'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
@@ -96,6 +96,33 @@ function buildEmailHtml(template, family, termName) {
       <div style="font-size:15px;">${paragraphs}</div>
     </div>
   </body></html>`
+}
+
+// ── Sent-status persistence ─────────────────────────────────────────────────
+// "Sent" results are shared across browsers/environments via portal_settings
+// (localStorage is only a per-browser cache — that's why localhost showed a
+// family as sent but the live portal didn't).
+const eotResultsKey = (termId) => `eot_results_${termId}`
+
+function mergeEotResults(a = [], b = []) {
+  const byEmail = new Map()
+  for (const r of [...a, ...b]) {
+    if (!r?.email) continue
+    const ex = byEmail.get(r.email)
+    if (!ex || (!ex.success && r.success)) byEmail.set(r.email, r) // prefer a successful send
+  }
+  return [...byEmail.values()]
+}
+
+async function saveEotResultsToDb(termId, results) {
+  if (!termId) return
+  try {
+    await supabase.from('portal_settings').upsert({
+      key: eotResultsKey(termId),
+      value: JSON.stringify(results || []),
+      updated_at: new Date().toISOString(),
+    })
+  } catch { /* non-fatal: localStorage still holds the cache */ }
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -236,19 +263,37 @@ export default function EndOfTermEmailPage() {
 
   useEffect(() => { loadStudents() }, [loadStudents])
 
-  // ── Persist + restore results per term ────────────────────────────────────
+  // ── Persist + restore results per term (DB-backed, shared across devices) ───
+  const loadedRef = useRef(false)
   useEffect(() => {
     if (!termId) return
-    try {
-      const saved = localStorage.getItem(`cube_eot_results_${termId}`)
-      setResults(saved ? JSON.parse(saved) : [])
-    } catch { setResults([]) }
+    loadedRef.current = false
+    let cancelled = false
+    ;(async () => {
+      let db = []
+      try {
+        const { data } = await supabase.from('portal_settings').select('value').eq('key', eotResultsKey(termId)).maybeSingle()
+        if (data?.value) db = JSON.parse(data.value) || []
+      } catch { /* fall back to local cache */ }
+      let local = []
+      try { local = JSON.parse(localStorage.getItem(`cube_eot_results_${termId}`) || '[]') || [] } catch {}
+      if (cancelled) return
+      const merged = mergeEotResults(db, local)
+      setResults(merged)
+      loadedRef.current = true
+      // One-time migration: push any browser-only sends up to the shared store.
+      if (merged.length > db.length) saveEotResultsToDb(termId, merged)
+    })()
+    return () => { cancelled = true }
   }, [termId])
 
   useEffect(() => {
     if (!resultsKey) return
     try { localStorage.setItem(resultsKey, JSON.stringify(results)) } catch {}
-  }, [results, resultsKey])
+    // Only write to the DB after the initial load, so an empty mount can't
+    // clobber previously-recorded sends.
+    if (termId && loadedRef.current) saveEotResultsToDb(termId, results)
+  }, [results, resultsKey, termId])
 
   // ── Upload PDF for a student ───────────────────────────────────────────────
   const uploadPDF = async (studentId, classId, file) => {
@@ -325,10 +370,11 @@ export default function EndOfTermEmailPage() {
     if (isBulk) {
       setSending(true)
       setError(null)
-      setResults([])
       try {
         const newResults = await sendToFamilies(fams)
-        setResults(newResults)
+        // Merge with prior sends so a partial "send unsent" batch never drops
+        // (or un-persists) families sent earlier.
+        setResults(prev => mergeEotResults(prev, newResults))
       } catch (e) {
         setError(e.message)
       } finally {

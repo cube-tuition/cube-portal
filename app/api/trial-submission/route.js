@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -177,6 +178,7 @@ export async function POST(req) {
           body: JSON.stringify({
             from:    'CUBE Portal <noreply@cubetuition.com.au>',
             to:      [adminEmail],
+            bcc:     [PORTAL_BCC],
             subject: `New free trial: ${studentName || 'Unknown'} (Year ${cleanYear || '?'}) — ${subjectListStr}`,
             text:    emailText,
           }),

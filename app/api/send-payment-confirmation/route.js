@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 /*
  * POST /api/send-payment-confirmation
@@ -129,6 +130,7 @@ export async function POST(req) {
       body: JSON.stringify({
         from:    'CUBE Tuition <admin@cubetuition.com.au>',
         to:      [parentEmail],
+        bcc:     [PORTAL_BCC],
         subject,
         text:    bodyText,
         html:    bodyHtml,

@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
 import { buildDiscountEmailHtml, mergeDiscountContent } from '../../../lib/discountEmail'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 /*
  * POST /api/send-discount-program-emails
@@ -51,6 +52,7 @@ export async function POST(request) {
       const { error: sendErr } = await resend.emails.send({
         from: `CUBE Tuition <${fromEmail}>`,
         to: [family.parent_email],
+        bcc: [PORTAL_BCC],
         subject,
         html: buildDiscountEmailHtml(family.parent_name, overrides),
       })

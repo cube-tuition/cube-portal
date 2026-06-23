@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 export async function POST(req) {
   try {
@@ -21,6 +22,7 @@ export async function POST(req) {
     const emailPayload = {
       from: 'CUBE Tuition <admin@cubetuition.com.au>',
       to:   [email_to],
+      bcc:  [PORTAL_BCC],
       subject: subject || 'Your CUBE Tuition Invoice',
       text: body.replace(/\*\*(.+?)\*\*/g, '$1'), // plain text fallback strips bold markers
       html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;max-width:600px">${

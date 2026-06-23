@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { randomUUID } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 // "Term 2 2026" → "26T2" for compact filenames; falls back to a safe slug.
 function termCode(termName = '') {
@@ -154,6 +155,7 @@ export async function POST(request) {
       const { data: sendData, error: sendErr } = await resend.emails.send({
         from:        `CUBE Tuition <${fromEmail}>`,
         to:          [family.parent_email],
+        bcc:         [PORTAL_BCC],
         subject,
         html:        toHtml(bodyText),
         attachments: attachments.length > 0 ? attachments : undefined,

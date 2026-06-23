@@ -1,4 +1,5 @@
 import { requireApiRole } from '../../../lib/apiAuth'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 /*
  * POST /api/notify-session-saved
@@ -80,7 +81,7 @@ export async function POST(req) {
   const resendRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: [to], subject, html }),
+    body: JSON.stringify({ from, to: [to], bcc: [PORTAL_BCC], subject, html }),
   })
   if (!resendRes.ok) {
     const t = await resendRes.text().catch(() => '')

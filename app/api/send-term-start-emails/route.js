@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 /*
  * POST /api/send-term-start-emails
@@ -238,6 +239,7 @@ export async function POST(request) {
       const { data: sendData, error: sendErr } = await resend.emails.send({
         from:        `CUBE Tuition <${fromEmail}>`,
         to:          [family.parent_email],
+        bcc:         [PORTAL_BCC],
         subject,
         html:        toHtml(bodyText, { termName: term_name }),
         attachments: attachments.length ? attachments : undefined,
