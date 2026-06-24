@@ -6,7 +6,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import {
-  T_QBANK_SUBJECTS, T_QBANK_TOPICS, T_QBANK_SKILLS,
+  T_QBANK_SUBJECTS, T_QBANK_TOPICS, T_QBANK_SUBTOPICS, T_QBANK_SKILLS,
 } from '../../../../lib/tables'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -18,23 +18,27 @@ export default function CategoriesPage() {
 
   const [subjects, setSubjects] = useState([])
   const [topics, setTopics] = useState([])
+  const [subtopics, setSubtopics] = useState([])
   const [skills, setSkills] = useState([])
   const [subjectId, setSubjectId] = useState('')
   const [topicId, setTopicId] = useState('')
+  const [subtopicId, setSubtopicId] = useState('')
 
   // new-row inputs
   const [newSubYear, setNewSubYear] = useState(7)
   const [newSubName, setNewSubName] = useState('')
   const [newTopic, setNewTopic] = useState('')
+  const [newSubtopic, setNewSubtopic] = useState('')
   const [newSkill, setNewSkill] = useState('')
 
   const reload = useCallback(async () => {
-    const [s, t, k] = await Promise.all([
+    const [s, t, sub, k] = await Promise.all([
       supabase.from(T_QBANK_SUBJECTS).select('*').order('year_level').order('sort_order').order('name'),
       supabase.from(T_QBANK_TOPICS).select('*').order('sort_order').order('name'),
+      supabase.from(T_QBANK_SUBTOPICS).select('*').order('sort_order').order('name'),
       supabase.from(T_QBANK_SKILLS).select('*').order('sort_order').order('name'),
     ])
-    setSubjects(s.data || []); setTopics(t.data || []); setSkills(k.data || [])
+    setSubjects(s.data || []); setTopics(t.data || []); setSubtopics(sub.data || []); setSkills(k.data || [])
   }, [])
 
   useEffect(() => {
@@ -45,7 +49,8 @@ export default function CategoriesPage() {
   }, [router, reload])
 
   const topicsForSubject = topics.filter((t) => t.subject_id === subjectId)
-  const skillsForTopic = skills.filter((s) => s.topic_id === topicId)
+  const subtopicsForTopic = subtopics.filter((st) => st.topic_id === topicId)
+  const skillsForSubtopic = skills.filter((s) => s.subtopic_id === subtopicId)
   const subjectsByYear = (y) => subjects.filter((s) => s.year_level === y)
 
   // ── Mutations ───────────────────────────────────────────────────────────────
@@ -59,9 +64,15 @@ export default function CategoriesPage() {
     await supabase.from(T_QBANK_TOPICS).insert({ subject_id: subjectId, name: newTopic.trim(), sort_order: topicsForSubject.length })
     setNewTopic(''); reload()
   }
+  const addSubtopic = async () => {
+    if (!newSubtopic.trim() || !topicId) return
+    await supabase.from(T_QBANK_SUBTOPICS).insert({ topic_id: topicId, name: newSubtopic.trim(), sort_order: subtopicsForTopic.length })
+    setNewSubtopic(''); reload()
+  }
   const addSkill = async () => {
-    if (!newSkill.trim() || !topicId) return
-    await supabase.from(T_QBANK_SKILLS).insert({ topic_id: topicId, name: newSkill.trim(), sort_order: skillsForTopic.length })
+    if (!newSkill.trim() || !subtopicId) return
+    // Skills carry both topic_id (kept for compat) and subtopic_id.
+    await supabase.from(T_QBANK_SKILLS).insert({ topic_id: topicId, subtopic_id: subtopicId, name: newSkill.trim(), sort_order: skillsForSubtopic.length })
     setNewSkill(''); reload()
   }
 
@@ -73,8 +84,9 @@ export default function CategoriesPage() {
     if (!confirm(`Delete "${label}"? This also removes everything inside it. Questions tagged to a deleted skill must be re-tagged first.`)) return
     const { error } = await supabase.from(table).delete().eq('id', id)
     if (error) { alert(error.message); return }
-    if (table === T_QBANK_SUBJECTS && id === subjectId) { setSubjectId(''); setTopicId('') }
-    if (table === T_QBANK_TOPICS && id === topicId) setTopicId('')
+    if (table === T_QBANK_SUBJECTS && id === subjectId) { setSubjectId(''); setTopicId(''); setSubtopicId('') }
+    if (table === T_QBANK_TOPICS && id === topicId) { setTopicId(''); setSubtopicId('') }
+    if (table === T_QBANK_SUBTOPICS && id === subtopicId) setSubtopicId('')
     reload()
   }
   const move = async (table, list, item, dir) => {
@@ -101,9 +113,9 @@ export default function CategoriesPage() {
       <div className="max-w-6xl mx-auto px-6 pt-8 pb-16">
         <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1">Categories</h1>
-        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic → Skill structure your questions are filed under.</p>
+        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic → Subtopic → Skill structure your questions are filed under.</p>
 
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid md:grid-cols-4 gap-4">
           {/* Subjects */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63] mb-2">Subjects</h2>
@@ -153,7 +165,7 @@ export default function CategoriesPage() {
                   {topicsForSubject.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No topics yet.</p>}
                   {topicsForSubject.map((t) => (
                     <Row key={t.id}>
-                      <button onClick={() => setTopicId(t.id)}
+                      <button onClick={() => { setTopicId(t.id); setSubtopicId('') }}
                         className={`flex-1 text-left text-sm ${topicId === t.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {t.name}
                       </button>
@@ -168,11 +180,43 @@ export default function CategoriesPage() {
             )}
           </div>
 
+          {/* Subtopics */}
+          <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
+            <h2 className="text-sm font-bold text-[#062E63] mb-2">Subtopics</h2>
+            {!topicId ? (
+              <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a topic →</p>
+            ) : (
+              <>
+                <div className="flex gap-1.5 mb-3">
+                  <input value={newSubtopic} onChange={(e) => setNewSubtopic(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addSubtopic()} placeholder="New subtopic…"
+                    className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
+                  <button onClick={addSubtopic} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
+                </div>
+                <div className="max-h-[60vh] overflow-y-auto">
+                  {subtopicsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No subtopics yet.</p>}
+                  {subtopicsForTopic.map((st) => (
+                    <Row key={st.id}>
+                      <button onClick={() => setSubtopicId(st.id)}
+                        className={`flex-1 text-left text-sm ${subtopicId === st.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                        {st.name}
+                      </button>
+                      <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, -1)}>↑</button>
+                      <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, 1)}>↓</button>
+                      <button className={editBtn} onClick={() => rename(T_QBANK_SUBTOPICS, st.id, prompt('Rename subtopic', st.name))}>edit</button>
+                      <button className={editBtn} onClick={() => remove(T_QBANK_SUBTOPICS, st.id, st.name)}>✕</button>
+                    </Row>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Skills */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63] mb-2">Skills</h2>
-            {!topicId ? (
-              <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a topic →</p>
+            {!subtopicId ? (
+              <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a subtopic →</p>
             ) : (
               <>
                 <div className="flex gap-1.5 mb-3">
@@ -182,12 +226,12 @@ export default function CategoriesPage() {
                   <button onClick={addSkill} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {skillsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No skills yet.</p>}
-                  {skillsForTopic.map((s) => (
+                  {skillsForSubtopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No skills yet.</p>}
+                  {skillsForSubtopic.map((s) => (
                     <Row key={s.id}>
                       <span className="flex-1 text-sm text-[#2A2035]">{s.name}</span>
-                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForTopic, s, -1)}>↑</button>
-                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForTopic, s, 1)}>↓</button>
+                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForSubtopic, s, -1)}>↑</button>
+                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForSubtopic, s, 1)}>↓</button>
                       <button className={editBtn} onClick={() => rename(T_QBANK_SKILLS, s.id, prompt('Rename skill', s.name))}>edit</button>
                       <button className={editBtn} onClick={() => remove(T_QBANK_SKILLS, s.id, s.name)}>✕</button>
                     </Row>

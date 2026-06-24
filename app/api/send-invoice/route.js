@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { PORTAL_BCC } from '../../../lib/emailConfig'
+import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 
 export async function POST(req) {
   try {
     const auth = await requireApiRole(req, ['admin', 'director'])
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-    const { invoice_id, email_to, subject, body, pdf_base64, pdf_filename, is_reminder } = await req.json()
+    const { invoice_id, email_to, subject, body, pdf_base64, pdf_filename, is_reminder, test } = await req.json()
 
     if (!invoice_id || !email_to) {
       return NextResponse.json({ error: 'Missing invoice_id or email_to' }, { status: 400 })
@@ -18,8 +18,9 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Email not configured' }, { status: 500 })
     }
 
-    // Build email payload
-    const emailPayload = {
+    // Build email payload (applyEmailTestMode redirects a test send to staff
+    // only, marks it [TEST], drops the family BCC and adds a TEST banner).
+    const emailPayload = applyEmailTestMode({
       from: 'CUBE Tuition <admin@cubetuition.com.au>',
       to:   [email_to],
       bcc:  [PORTAL_BCC],
@@ -39,7 +40,7 @@ export async function POST(req) {
           disposition: 'attachment',
         }
       ] : undefined,
-    }
+    }, test)
 
     const resendRes = await fetch('https://api.resend.com/emails', {
       method:  'POST',
@@ -54,6 +55,12 @@ export async function POST(req) {
       const err = await resendRes.text()
       console.error('[send-invoice] Resend error:', err)
       return NextResponse.json({ error: 'Email send failed', detail: err }, { status: 500 })
+    }
+
+    // A test send must NOT change the invoice's real delivery state — it never
+    // reached the family.
+    if (test) {
+      return NextResponse.json({ success: true, test: true })
     }
 
     // An overdue reminder records the reminder timestamp (the invoice was already

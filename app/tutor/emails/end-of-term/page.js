@@ -8,6 +8,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
+import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
 
 /*
  * End-of-Term Reports Email — /tutor/emails/end-of-term
@@ -333,23 +334,36 @@ export default function EndOfTermEmailPage() {
   const [sendingFamily, setSendingFamily] = useState(null) // email address of family being individually sent
   const [confirmSend,  setConfirmSend]  = useState(null)  // { families, label } | null — pending confirmation
 
-  const sendToFamilies = async (familiesToSend) => {
+  const sendToFamilies = async (familiesToSend, test = false) => {
+    const res = await authedFetch('/api/send-end-of-term-emails', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        term_id:   termId,
+        term_name: term?.name || '',
+        template,
+        families:  familiesToSend,
+        test,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Send failed')
+    return data.results || []
+  }
+
+  // Test send — delivers this family's exact email to CUBE staff only (marked
+  // TEST). Never touches the family's real "sent" status.
+  const [testingFamily, setTestingFamily] = useState(null)
+  const [testNote, setTestNote] = useState(null)
+  const handleTestOne = async (family) => {
+    setTestingFamily(family.parent_email); setError(null); setTestNote(null)
     try {
-      const res = await authedFetch('/api/send-end-of-term-emails', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          term_id:   termId,
-          term_name: term?.name || '',
-          template,
-          families:  familiesToSend,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Send failed')
-      return data.results || []
+      await sendToFamilies([family], true)
+      setTestNote(`Test for ${family.parent_name || family.parent_email} sent to ${TEST_RECIPIENT}.`)
     } catch (e) {
-      throw e
+      setError(e.message)
+    } finally {
+      setTestingFamily(null)
     }
   }
 
@@ -619,6 +633,14 @@ export default function EndOfTermEmailPage() {
                               👁 Preview
                             </button>
                             <button
+                              onClick={() => handleTestOne(f)}
+                              disabled={testingFamily === f.parent_email || isSendingThis || sending}
+                              title="Send this exact email to CUBE staff only (marked TEST)"
+                              className="text-[11px] font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] hover:bg-[#FEF3C7] px-3 py-1 rounded-full transition disabled:opacity-40"
+                            >
+                              {testingFamily === f.parent_email ? 'Testing…' : '🧪 Test'}
+                            </button>
+                            <button
                               onClick={() => handleSendOne(f)}
                               disabled={isSendingThis || sending}
                               className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1 rounded-full transition disabled:opacity-40"
@@ -638,6 +660,13 @@ export default function EndOfTermEmailPage() {
             {families.filter(f => !f.parent_email).length > 0 && (
               <div className="bg-[#FEF9C3] border border-[#FDE047] text-[#854D0E] text-xs font-medium px-4 py-3 rounded-xl">
                 ⚠ {families.filter(f => !f.parent_email).length} {families.filter(f => !f.parent_email).length === 1 ? 'family has' : 'families have'} no email address on file and will be skipped.
+              </div>
+            )}
+
+            {/* Test send confirmation */}
+            {testNote && (
+              <div className="bg-[#FFFBEB] border border-[#FDE68A] text-[#92400E] text-xs font-semibold px-4 py-3 rounded-xl">
+                🧪 {testNote}
               </div>
             )}
 

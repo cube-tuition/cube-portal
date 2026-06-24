@@ -48,6 +48,10 @@ export default function TutorHome() {
   const [currentTerm, setCurrentTerm] = useState(null)
   const [classes, setClasses] = useState([])
   const [enrollmentCounts, setEnrollmentCounts] = useState({})
+  // Today's panel is driven by ACTUAL lesson rows (regular + makeups), so it
+  // matches the live calendar — cancellations, reschedules and makeups included.
+  const [todayLessons, setTodayLessons] = useState([])
+  const [todayMakeups, setTodayMakeups] = useState([])
   const [unsavedSessions, setUnsavedSessions] = useState([])
   // (Admin unsaved-session tracking moved to /tutor/unsaved-sessions)
   const [authErr, setAuthErr] = useState(null)
@@ -114,6 +118,29 @@ export default function TutorHome() {
         const counts = {}
         for (const l of links || []) counts[l.class_id] = (counts[l.class_id] || 0) + 1
         setEnrollmentCounts(counts)
+      }
+
+      // Today's classes — pull the ACTUAL lesson rows for today so the panel
+      // mirrors the live calendar (cancellations gone, reschedules at their real
+      // time, makeups shown, moved 1:1 sources hidden). No schedule projection.
+      if (ids.length > 0) {
+        const todayIsoStr = isoDate(new Date())
+        const [{ data: regRows }, { data: mkRows }] = await Promise.all([
+          supabase
+            .from(T_LESSONS)
+            .select('id, class_id, lesson_date, start_time, end_time, room, status')
+            .eq('lesson_date', todayIsoStr)
+            .in('class_id', ids)
+            .is('makeup_student_id', null),
+          supabase
+            .from(T_LESSONS)
+            .select('id, class_id, lesson_date, start_time, end_time, room, makeup_source_lesson_id, students!makeup_student_id(full_name)')
+            .eq('lesson_date', todayIsoStr)
+            .eq('is_makeup', true)
+            .in('class_id', ids),
+        ])
+        setTodayLessons((regRows || []).filter(l => l.status !== 'cancelled'))
+        setTodayMakeups(mkRows || [])
       }
 
       // Unsaved-session checks moved to /tutor/unsaved-sessions (linked from
@@ -188,10 +215,47 @@ export default function TutorHome() {
   const classLabelMap = useMemo(() => buildClassLabelMap(classes), [classes])
 
   const todayName = DAY_ORDER[(new Date().getDay() + 6) % 7]
-  const todayClasses = useMemo(
-    () => weekRows.filter(r => r._day === todayName),
-    [weekRows, todayName]
-  )
+
+  // Built from real lesson rows (see fetch above) so it matches the live
+  // calendar exactly — not the recurring day_of_week schedule.
+  const todayClasses = useMemo(() => {
+    const byId = new Map(classes.map(c => [c.id, c]))
+    const isOneToOne = (c) => /\b1\s*:\s*1\b/.test(c?.class_name || '')
+    // A moved 1:1 leaves its original row in place but points a makeup at it;
+    // hide that original so the session only shows at its new time.
+    const movedSourceIds = new Set(
+      (todayMakeups || []).map(m => m.makeup_source_lesson_id).filter(Boolean)
+    )
+    const rows = []
+    for (const l of todayLessons) {
+      const cls = byId.get(l.class_id)
+      if (!cls) continue
+      if (movedSourceIds.has(l.id) && isOneToOne(cls)) continue
+      rows.push({
+        ...cls,
+        _key: `lesson-${l.id}`,
+        room: l.room || cls.room,
+        start_time: l.start_time || cls.start_time,
+        end_time: l.end_time || cls.end_time,
+      })
+    }
+    for (const m of todayMakeups) {
+      const cls = byId.get(m.class_id)
+      if (!cls) continue
+      const who = m.students?.full_name
+      rows.push({
+        ...cls,
+        _key: `makeup-${m.id}`,
+        _label: who ? `${cls.class_name} · ${who} (makeup)` : `${cls.class_name} (makeup)`,
+        _makeup: true,
+        room: m.room || cls.room,
+        start_time: m.start_time || cls.start_time,
+        end_time: m.end_time || cls.end_time,
+      })
+    }
+    rows.sort((a, b) => startMinutes(a.start_time) - startMinutes(b.start_time))
+    return rows
+  }, [classes, todayLessons, todayMakeups])
 
   if (authErr) return (
     <div className="min-h-screen flex items-center justify-center bg-white px-6">
@@ -275,14 +339,14 @@ export default function TutorHome() {
                   ) : (
                     <div className="divide-y divide-[#DEE7FF]/50 max-h-64 overflow-y-auto">
                       {todayClasses.map((c, i) => (
-                        <Link key={`${c.id}-${i}`} href={`/tutor/classes/${c.id}`}
+                        <Link key={c._key || `${c.id}-${i}`} href={`/tutor/classes/${c.id}`}
                           className="flex items-center gap-3 px-5 py-2.5 hover:bg-white transition group">
                           <span className="text-[11px] font-bold text-[#062E63] tabular-nums w-28 shrink-0 whitespace-nowrap">
                             {fmtTime(c.start_time)}–{fmtTime(c.end_time)}
                           </span>
                           <span className="flex-1 min-w-0">
                             <span className="block text-xs font-semibold text-[#2A2035] truncate">
-                              {(classLabelMap.get(c.id) || c.class_name || 'Untitled class')}
+                              {(c._label || classLabelMap.get(c.id) || c.class_name || 'Untitled class')}
                             </span>
                             <span className="block text-[10px] text-[#2A2035]/50">
                               {c.room ? `📍 ${c.room} · ` : ''}👥 {enrollmentCounts[c.id] || 0}{c.teacher ? ` · 👤 ${c.teacher}` : ''}
@@ -343,14 +407,14 @@ export default function TutorHome() {
               <div className="space-y-2">
                 {todayClasses.map((c, i) => (
                   <Link
-                    key={`${c.id}-${i}`}
+                    key={c._key || `${c.id}-${i}`}
                     href={`/tutor/classes/${c.id}`}
                     className="flex items-center gap-3 rounded-xl px-4 py-3 border border-[#DEE7FF] bg-[#F8FAFF] hover:border-[#BACBFF] hover:bg-white transition group"
                   >
                     <div className="w-1 h-10 rounded-full shrink-0 bg-[#062E63]" />
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm text-[#2A2035]">
-                        {(classLabelMap.get(c.id) || c.class_name || 'Untitled class')}
+                        {(c._label || classLabelMap.get(c.id) || c.class_name || 'Untitled class')}
                       </p>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11px] text-[#2A2035]/60">
                         <span>🕐 {fmtTime(c.start_time)}–{fmtTime(c.end_time)}</span>

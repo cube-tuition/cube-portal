@@ -29,6 +29,7 @@ const CONTENT_FIELDS = [
   ['Button note',                'ctaNote',          0],
 ]
 import { T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
+import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
 
 /*
  * Discount Program — /tutor/emails/discount-program
@@ -134,6 +135,22 @@ export default function DiscountProgramEmailPage() {
     finally { setTesting(false) }
   }
 
+  // Per-family test — sends THAT family's exact email to CUBE staff only (TEST).
+  const [testingKey, setTestingKey] = useState(null)
+  const sendTestOne = async (family) => {
+    setTestingKey(family.key); setError(null); setTestSentTo(null)
+    try {
+      const res = await fetch('/api/send-discount-program-emails', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, test: true, families: [{ parent_name: family.parent_name, parent_email: family.parent_email }] }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Test send failed')
+      setTestSentTo(`${TEST_RECIPIENT} (test for ${family.parent_name || family.parent_email})`)
+    } catch (e) { setError(e.message) }
+    finally { setTestingKey(null) }
+  }
+
   const sendAll = async () => {
     setConfirmSend(false); setSending(true); setError(null); setResults(null)
     try {
@@ -223,6 +240,15 @@ export default function DiscountProgramEmailPage() {
                         <span className="block text-xs font-semibold text-[#2A2035] truncate">{f.parent_name || <em className="text-[#2A2035]/40">No guardian email on file</em>}</span>
                         <span className="block text-[10px] text-[#2A2035]/45 truncate">{f.students.join(', ')}{f.parent_email ? ` · ${f.parent_email}` : ''}</span>
                       </span>
+                      {f.parent_email && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendTestOne(f) }}
+                          disabled={testingKey === f.key || sending}
+                          title="Send this exact email to CUBE staff only (marked TEST)"
+                          className="shrink-0 text-[10px] font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] hover:bg-[#FEF3C7] px-2.5 py-1 rounded-full transition disabled:opacity-40"
+                        >{testingKey === f.key ? 'Testing…' : '🧪 Test'}</button>
+                      )}
                     </label>
                   ))}
               </div>

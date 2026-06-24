@@ -2,7 +2,7 @@ import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { PORTAL_BCC } from '../../../lib/emailConfig'
+import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 
 /*
  * POST /api/send-term-start-emails
@@ -114,7 +114,7 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { term_id, term_name, term_dates, term_start, template, families } = await request.json()
+    const { term_id, term_name, term_dates, term_start, template, families, test } = await request.json()
 
     if (!families?.length) {
       return Response.json({ error: 'Missing families' }, { status: 400 })
@@ -236,14 +236,14 @@ export async function POST(request) {
         }
       }
 
-      const { data: sendData, error: sendErr } = await resend.emails.send({
+      const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from:        `CUBE Tuition <${fromEmail}>`,
         to:          [family.parent_email],
         bcc:         [PORTAL_BCC],
         subject,
         html:        toHtml(bodyText, { termName: term_name }),
         attachments: attachments.length ? attachments : undefined,
-      })
+      }, test))
 
       results.push({
         family:          family.parent_name,

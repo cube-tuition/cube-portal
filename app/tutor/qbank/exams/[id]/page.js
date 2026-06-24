@@ -77,6 +77,7 @@ export default function ExamBuilderPage() {
     if (!tax) return null
     return {
       skill: Object.fromEntries(tax.skills.map((s) => [s.id, s])),
+      subtopic: Object.fromEntries(tax.subtopics.map((st) => [st.id, st])),
       topic: Object.fromEntries(tax.topics.map((t) => [t.id, t])),
       subject: Object.fromEntries(tax.subjects.map((s) => [s.id, s])),
     }
@@ -85,6 +86,7 @@ export default function ExamBuilderPage() {
   const rubricById = useMemo(() => Object.fromEntries(rubrics.map((r) => [r.id, r])), [rubrics])
   const isEnglish = exam?.paper_type === 'english'
   const qTopicId = useCallback((q) => maps?.skill[q.skill_id]?.topic_id || q.topic_id, [maps])
+  const qSubtopicId = useCallback((q) => maps?.skill[q.skill_id]?.subtopic_id || q.subtopic_id, [maps])
 
   const yearLabel = exam?.year_label
   const subjectId = exam?.subject_id
@@ -151,11 +153,12 @@ export default function ExamBuilderPage() {
       const tId = qTopicId(q)
       if (scope.length && !scope.includes(tId)) return false
       if (slot.topic_id && tId !== slot.topic_id) return false
+      if (slot.subtopic_id && qSubtopicId(q) !== slot.subtopic_id) return false
       if (slot.skill_id && q.skill_id !== slot.skill_id) return false
       if (slot.difficulty && q.difficulty !== Number(slot.difficulty)) return false
       return true
     })
-  }, [questions, maps, exam, usedIds, qTopicId])
+  }, [questions, maps, exam, usedIds, qTopicId, qSubtopicId])
 
   // ── persistence ─────────────────────────────────────────────────────────────
   // Keep refs current so the autosave loop always reads the latest values.
@@ -395,7 +398,7 @@ export default function ExamBuilderPage() {
                       onCriteria={(f) => updateSlot(s._key, slot._key, f)}
                       onPick={(qid) => updateSlot(s._key, slot._key, { question_id: qid })}
                       onRemove={() => removeSlot(s._key, slot._key)}
-                      onNew={() => newQuestion({ secKey: s._key, slotKey: slot._key, topic_id: slot.topic_id, skill_id: slot.skill_id })}
+                      onNew={() => newQuestion({ secKey: s._key, slotKey: slot._key, topic_id: slot.topic_id, subtopic_id: slot.subtopic_id, skill_id: slot.skill_id })}
                       onRefresh={loadQuestions} onEdit={setEditQ}
                       dragging={dragSlot?.slotKey === slot._key}
                       onDragStart={() => setDragSlot({ secKey: s._key, slotKey: slot._key })}
@@ -447,7 +450,7 @@ export default function ExamBuilderPage() {
             </div>
             <p className="text-[11px] text-[#2A2035]/50 mb-4">Saved to the question bank and placed straight into this slot.</p>
             <QuestionEditor staffName={profile?.full_name}
-              defaults={{ topicId: newQ.topic_id, skillId: newQ.skill_id, audience: 'exam' }}
+              defaults={{ topicId: newQ.topic_id, subtopicId: newQ.subtopic_id, skillId: newQ.skill_id, audience: 'exam' }}
               onSaved={onNewQuestionSaved} onCancel={() => setNewQ(null)} />
           </div>
         </div>
@@ -482,7 +485,8 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
     finally { setSavingLib(false) }
   }
   const chosen = slot.question_id ? qById[slot.question_id] : null
-  const skillsForTopic = (tax && slot.topic_id) ? (tax.skillsByTopic[slot.topic_id] || []) : []
+  const subtopicsForTopic = (tax && slot.topic_id) ? (tax.subtopicsByTopic[slot.topic_id] || []) : []
+  const skillsForSubtopic = (tax && slot.subtopic_id) ? (tax.skillsBySubtopic[slot.subtopic_id] || []) : []
   const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
   // Per-paper working-line overrides for this slot. Map of part_label (or "_" for a
@@ -509,13 +513,17 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
           title="Drag to reorder"
           className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none -ml-0.5">⠿</span>
         <span className="text-sm font-bold text-[#062E63]">Q{n}</span>
-        <select value={slot.topic_id || ''} onChange={(e) => onCriteria({ topic_id: e.target.value || null, skill_id: null })} className={selCls}>
+        <select value={slot.topic_id || ''} onChange={(e) => onCriteria({ topic_id: e.target.value || null, subtopic_id: null, skill_id: null })} className={selCls}>
           <option value="">Any topic (in scope)</option>
           {scopeTopics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
-        <select value={slot.skill_id || ''} disabled={!slot.topic_id} onChange={(e) => onCriteria({ skill_id: e.target.value || null })} className={selCls}>
+        <select value={slot.subtopic_id || ''} disabled={!slot.topic_id} onChange={(e) => onCriteria({ subtopic_id: e.target.value || null, skill_id: null })} className={selCls}>
+          <option value="">Any subtopic</option>
+          {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+        </select>
+        <select value={slot.skill_id || ''} disabled={!slot.subtopic_id} onChange={(e) => onCriteria({ skill_id: e.target.value || null })} className={selCls}>
           <option value="">Any skill</option>
-          {skillsForTopic.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}
+          {skillsForSubtopic.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}
         </select>
         <select value={slot.difficulty || ''} onChange={(e) => onCriteria({ difficulty: e.target.value ? Number(e.target.value) : null })} className={selCls}>
           <option value="">Any difficulty</option>

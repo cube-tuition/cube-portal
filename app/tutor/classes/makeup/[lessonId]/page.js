@@ -152,7 +152,7 @@ export default function MakeupLessonPage() {
           .eq('student_id', studentId)
           .maybeSingle(),
         supabase.from(T_QUIZ_RESULTS)
-          .select('score, homework_grade, notes')
+          .select('score, homework_grade')
           .eq('student_id', studentId)
           .eq('quiz_date', row.lesson_date)
           .maybeSingle(),
@@ -232,7 +232,6 @@ export default function MakeupLessonPage() {
         max_score:       100,
         homework_grade:  isOneToOne ? null : (hw || null),
         quiz_date:       lesson.lesson_date,
-        notes:           notes.trim() || null,
       }, { onConflict: 'student_id,quiz_date,subject' })
       if (qzErr) { setSaveErr('Failed to save marks: ' + qzErr.message); setSaving(false); return }
     }

@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import {
   T_QBANK_QUESTIONS, T_QBANK_QUESTION_PARTS, T_QBANK_QUESTION_IMAGES,
-  T_QBANK_TOPICS, T_QBANK_SKILLS,
+  T_QBANK_TOPICS, T_QBANK_SUBTOPICS, T_QBANK_SKILLS,
 } from '../../lib/tables'
 import {
   fetchTaxonomy, yearsFromSubjects, uploadQbankImage, deleteQbankImage,
@@ -63,10 +63,11 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // Cascade selection
+  // Cascade selection: Year → Subject → Topic → Subtopic → Skill
   const [year, setYear] = useState('')
   const [subjectId, setSubjectId] = useState('')
   const [topicId, setTopicId] = useState('')
+  const [subtopicId, setSubtopicId] = useState('')
   const [skillId, setSkillId] = useState('')
 
   // Question fields
@@ -114,14 +115,18 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           if (q.correct_option) setCorrectOption(q.correct_option)
           if (q.criteria && typeof q.criteria === 'object') setCriteria(q.criteria)
 
-          // Prefill cascade from skill → topic → subject (skill is optional, so
-          // fall back to the question's own topic_id when there's no skill).
+          // Prefill cascade from skill → subtopic → topic → subject (skill is
+          // optional, so fall back to the question's own subtopic_id/topic_id).
           const skill = t.skills.find((s) => s.id === q.skill_id)
-          const topic = (skill && t.topics.find((tp) => tp.id === skill.topic_id))
+          const subtopic = (skill && t.subtopics.find((st) => st.id === skill.subtopic_id))
+            || t.subtopics.find((st) => st.id === q.subtopic_id)
+          const topic = (subtopic && t.topics.find((tp) => tp.id === subtopic.topic_id))
+            || (skill && t.topics.find((tp) => tp.id === skill.topic_id))
             || t.topics.find((tp) => tp.id === q.topic_id)
           const subject = topic && t.subjects.find((su) => su.id === topic.subject_id)
           if (subject) { setYear(String(subject.year_level)); setSubjectId(subject.id) }
           if (topic) setTopicId(topic.id)
+          if (subtopic) setSubtopicId(subtopic.id)
           if (skill) setSkillId(skill.id)
 
           const { data: pr } = await supabase.from(T_QBANK_QUESTION_PARTS)
@@ -148,8 +153,11 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
       } else if (defaults) {
         // Prefill the classification when opened from a builder (modal mode).
         if (defaults.audience) setAudience(defaults.audience)
-        let topic = defaults.topicId ? t.topics.find((tp) => tp.id === defaults.topicId) : null
         const skill = defaults.skillId ? t.skills.find((s) => s.id === defaults.skillId) : null
+        let subtopic = defaults.subtopicId ? t.subtopics.find((st) => st.id === defaults.subtopicId) : null
+        if (!subtopic && skill) subtopic = t.subtopics.find((st) => st.id === skill.subtopic_id) || null
+        let topic = defaults.topicId ? t.topics.find((tp) => tp.id === defaults.topicId) : null
+        if (!topic && subtopic) topic = t.topics.find((tp) => tp.id === subtopic.topic_id) || null
         let subject = topic ? t.subjects.find((su) => su.id === topic.subject_id) : null
         if (!subject && defaults.year && defaults.subjectName) {
           subject = t.subjects.find(
@@ -159,6 +167,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         if (subject) { setYear(String(subject.year_level)); setSubjectId(subject.id) }
         else if (defaults.year) setYear(String(defaults.year))
         if (topic) setTopicId(topic.id)
+        if (subtopic) setSubtopicId(subtopic.id)
         if (skill) setSkillId(skill.id)
       }
       setLoading(false)
@@ -178,12 +187,16 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     () => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []),
     [tax, subjectId],
   )
-  const skillsForTopic = useMemo(
-    () => (tax && topicId ? (tax.skillsByTopic[topicId] || []) : []),
+  const subtopicsForTopic = useMemo(
+    () => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []),
     [tax, topicId],
   )
+  const skillsForSubtopic = useMemo(
+    () => (tax && subtopicId ? (tax.skillsBySubtopic[subtopicId] || []) : []),
+    [tax, subtopicId],
+  )
 
-  // ── Create a new topic / skill inline from the dropdowns ────────────────────
+  // ── Create a new topic / subtopic / skill inline from the dropdowns ─────────
   const addTopic = async () => {
     const name = (window.prompt('New topic name:') || '').trim()
     if (!name) return
@@ -191,13 +204,23 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
       .insert({ subject_id: subjectId, name }).select('id').single()
     if (e) { setError(e.message || 'Could not create the topic.'); return }
     const t = await fetchTaxonomy(); setTax(t)
-    setTopicId(data.id); setSkillId('')
+    setTopicId(data.id); setSubtopicId(''); setSkillId('')
+  }
+  const addSubtopic = async () => {
+    const name = (window.prompt('New subtopic name:') || '').trim()
+    if (!name) return
+    const { data, error: e } = await supabase.from(T_QBANK_SUBTOPICS)
+      .insert({ topic_id: topicId, name }).select('id').single()
+    if (e) { setError(e.message || 'Could not create the subtopic.'); return }
+    const t = await fetchTaxonomy(); setTax(t)
+    setSubtopicId(data.id); setSkillId('')
   }
   const addSkill = async () => {
     const name = (window.prompt('New skill name:') || '').trim()
     if (!name) return
+    // Skills carry both topic_id (kept for compat) and subtopic_id.
     const { data, error: e } = await supabase.from(T_QBANK_SKILLS)
-      .insert({ topic_id: topicId, name }).select('id').single()
+      .insert({ topic_id: topicId, subtopic_id: subtopicId, name }).select('id').single()
     if (e) { setError(e.message || 'Could not create the skill.'); return }
     const t = await fetchTaxonomy(); setTax(t)
     setSkillId(data.id)
@@ -208,7 +231,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
 
   const handleSave = async () => {
     setError('')
-    if (!topicId) { setError('Pick a Year → Subject → Topic for this question. (Skill is optional.)'); return }
+    if (!topicId) { setError('Pick a Year → Subject → Topic for this question.'); return }
+    if (!subtopicId) { setError('Pick a Subtopic for this question. (Skill is optional.)'); return }
     if (!stem.trim()) { setError('Enter the question text.'); return }
     if (isMcq && options.filter((o) => o.latex.trim()).length < 2) {
       setError('Add at least two options for a multiple-choice question.'); return
@@ -217,6 +241,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     try {
       const payload = {
         skill_id: skillId || null,
+        subtopic_id: subtopicId,
         topic_id: topicId,
         qtype,
         stem_latex: stem,
@@ -334,11 +359,11 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
             <select value={year} className={inputCls}
-              onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSkillId('') }}>
+              onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSubtopicId(''); setSkillId('') }}>
               <option value="">—</option>
               {years.map((y) => <option key={y} value={y}>Year {y}</option>)}
             </select>
@@ -346,7 +371,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Subject</label>
             <select value={subjectId} disabled={!year} className={inputCls}
-              onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSkillId('') }}>
+              onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSubtopicId(''); setSkillId('') }}>
               <option value="">—</option>
               {subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
@@ -354,25 +379,34 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Topic</label>
             <select value={topicId} disabled={!subjectId} className={inputCls}
-              onChange={(e) => { if (e.target.value === '__new__') { addTopic(); return } setTopicId(e.target.value); setSkillId('') }}>
+              onChange={(e) => { if (e.target.value === '__new__') { addTopic(); return } setTopicId(e.target.value); setSubtopicId(''); setSkillId('') }}>
               <option value="">—</option>
               {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               {subjectId && <option value="__new__">＋ New topic…</option>}
             </select>
           </div>
           <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">Subtopic</label>
+            <select value={subtopicId} disabled={!topicId} className={inputCls}
+              onChange={(e) => { if (e.target.value === '__new__') { addSubtopic(); return } setSubtopicId(e.target.value); setSkillId('') }}>
+              <option value="">—</option>
+              {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+              {topicId && <option value="__new__">＋ New subtopic…</option>}
+            </select>
+          </div>
+          <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Skill <span className="text-[#2A2035]/30 normal-case">(optional)</span></label>
-            <select value={skillId} disabled={!topicId} className={inputCls}
+            <select value={skillId} disabled={!subtopicId} className={inputCls}
               onChange={(e) => { if (e.target.value === '__new__') { addSkill(); return } setSkillId(e.target.value) }}>
               <option value="">— None</option>
-              {skillsForTopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              {topicId && <option value="__new__">＋ New skill…</option>}
+              {skillsForSubtopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {subtopicId && <option value="__new__">＋ New skill…</option>}
             </select>
           </div>
         </div>
-        {topicId && skillsForTopic.length === 0 && (
+        {topicId && subtopicsForTopic.length === 0 && (
           <p className="text-[11px] text-[#EA580C] mt-2">
-            No skills under this topic yet — add some in <a className="underline" href="/tutor/qbank/categories">Categories</a>.
+            No subtopics under this topic yet — add one with “＋ New subtopic…” or in <a className="underline" href="/tutor/qbank/categories">Categories</a>.
           </p>
         )}
 

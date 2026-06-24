@@ -1,6 +1,6 @@
 import { Resend } from 'resend'
 import { buildDiscountEmailHtml, mergeDiscountContent } from '../../../lib/discountEmail'
-import { PORTAL_BCC } from '../../../lib/emailConfig'
+import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 
 /*
  * POST /api/send-discount-program-emails
@@ -26,8 +26,10 @@ export async function POST(request) {
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
     const subject   = mergeDiscountContent(overrides).subject
 
-    // ── Test mode: one email to the requesting director ──────────────────────
-    if (test) {
+    // ── Global test mode: one generic sample to the requesting director ──────
+    // (Per-family test sends pass `families` + `test` and fall through to the
+    // loop below, which redirects each to staff via applyEmailTestMode.)
+    if (test && !families?.length) {
       if (!testEmail) return Response.json({ error: 'Missing testEmail' }, { status: 400 })
       const { error } = await resend.emails.send({
         from: `CUBE Tuition <${fromEmail}>`,
@@ -49,13 +51,13 @@ export async function POST(request) {
         results.push({ family: family.parent_name, email: null, success: false, error: 'No email address' })
         continue
       }
-      const { error: sendErr } = await resend.emails.send({
+      const { error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from: `CUBE Tuition <${fromEmail}>`,
         to: [family.parent_email],
         bcc: [PORTAL_BCC],
         subject,
         html: buildDiscountEmailHtml(family.parent_name, overrides),
-      })
+      }, test))
       results.push({
         family:  family.parent_name,
         email:   family.parent_email,

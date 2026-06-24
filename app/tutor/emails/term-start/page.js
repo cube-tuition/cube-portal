@@ -9,6 +9,7 @@ import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
 import { fmtDate } from '../../../../lib/format'
+import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
 
 /*
  * Term Start Emails — /tutor/emails/term-start
@@ -270,7 +271,7 @@ function TermStartEmailPageInner() {
   }
 
   // ── Send helpers ──────────────────────────────────────────────────────────
-  const sendToFamilies = async (fams) => {
+  const sendToFamilies = async (fams, test = false) => {
     const res = await authedFetch('/api/send-term-start-emails', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -280,6 +281,7 @@ function TermStartEmailPageInner() {
         term_dates: termDates,
         term_start: fmtStartDate(term?.start_date),
         template,
+        test,
         families: fams.map(f => ({
           ...f,
           family_id:   f.family_id   || null,
@@ -290,6 +292,18 @@ function TermStartEmailPageInner() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Send failed')
     return data.results || []
+  }
+
+  // Test send — exact email to CUBE staff only (marked TEST); leaves the
+  // family's real "sent" status untouched.
+  const [testingFamily, setTestingFamily] = useState(null)
+  const [testNote, setTestNote] = useState(null)
+  const handleTestOne = async (family) => {
+    setTestingFamily(family.parent_email); setError(null); setTestNote(null)
+    try {
+      await sendToFamilies([family], true)
+      setTestNote(`Test for ${family.parent_name || family.parent_email} sent to ${TEST_RECIPIENT}.`)
+    } catch (e) { setError(e.message) } finally { setTestingFamily(null) }
   }
 
   const executeSend = async ({ families: fams, isBulk }) => {
@@ -471,6 +485,12 @@ function TermStartEmailPageInner() {
                               className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1 rounded-full transition"
                             >👁 Preview</button>
                             <button
+                              onClick={() => handleTestOne(f)}
+                              disabled={testingFamily === f.parent_email || isSendingThis || sending}
+                              title="Send this exact email to CUBE staff only (marked TEST)"
+                              className="text-[11px] font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] hover:bg-[#FEF3C7] px-3 py-1 rounded-full transition disabled:opacity-40"
+                            >{testingFamily === f.parent_email ? 'Testing…' : '🧪 Test'}</button>
+                            <button
                               onClick={() => handleSendOne(f)}
                               disabled={isSendingThis || sending}
                               className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1 rounded-full transition disabled:opacity-40"
@@ -483,6 +503,13 @@ function TermStartEmailPageInner() {
                 </div>
               )}
             </div>
+
+            {/* Test send confirmation */}
+            {testNote && (
+              <div className="bg-[#FFFBEB] border border-[#FDE68A] text-[#92400E] text-xs font-semibold px-4 py-3 rounded-xl">
+                🧪 {testNote}
+              </div>
+            )}
 
             {/* Families without email */}
             {families.filter(f => !f.parent_email).length > 0 && (

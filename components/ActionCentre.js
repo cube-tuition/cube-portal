@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { getAuthProfile } from '../lib/getProfile'
 import { runActionChecks } from '../lib/actionCentre'
 import { markCadenceDone } from '../lib/emailCadence'
+import { markPayrollDone } from '../lib/payrollAlerts'
 
 /*
  * ActionCentre — "what needs my attention" boxes for directors, shown at the
@@ -18,6 +19,7 @@ import { markCadenceDone } from '../lib/emailCadence'
 const SECTIONS = [
   { id: 'Operations', icon: '⚙️', title: 'Operations' },
   { id: 'Invoices',   icon: '🧾', title: 'Invoices' },
+  { id: 'Payroll',    icon: '💼', title: 'Payroll', clearText: 'No pay run due — bank reminders appear the Monday after each fortnight.' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
 ]
 
@@ -138,7 +140,10 @@ export default function ActionCentre({ authorized }) {
             section={section}
             items={items.filter(i => (i.section ?? 'Operations') === section.id)}
             loading={loading}
-            onDone={async ({ termId, rowKey }) => { if (termId) { await markCadenceDone(termId, rowKey); load() } }}
+            onDone={async (d) => {
+              if (d?.payrollKey) { await markPayrollDone(d.payrollKey); load() }
+              else if (d?.termId) { await markCadenceDone(d.termId, d.rowKey); load() }
+            }}
           />
         ))}
       </div>

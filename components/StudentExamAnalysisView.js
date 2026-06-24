@@ -115,7 +115,12 @@ export default function StudentExamAnalysisView({ studentName, rows = [], overal
 // Helper: build the view's props for one student from the exam analysis object.
 export function studentAnalysisRows(analysis, studentId) {
   const ps = analysis?.perStudent?.[studentId] || { topics: {}, awarded: 0, max: 0 }
-  const classByTopic = Object.fromEntries((analysis?.topics || []).map((t) => [t.topic, t.pct]))
+  // With ≤2 students the class average is an average of one other child — showing
+  // it would expose their result — so suppress it entirely for small cohorts.
+  const showClassAvg = (analysis?.studentCount ?? Infinity) > 2
+  const classByTopic = showClassAvg
+    ? Object.fromEntries((analysis?.topics || []).map((t) => [t.topic, t.pct]))
+    : {}
   const rows = (analysis?.orderedTopics || []).map((topic) => {
     const cell = ps.topics[topic]
     const studentPct = cell && cell.max ? Math.round((cell.awarded / cell.max) * 100) : null

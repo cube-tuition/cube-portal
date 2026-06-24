@@ -28,6 +28,7 @@ export default function GeneratePage() {
   const [year, setYear] = useState('')
   const [subjectId, setSubjectId] = useState('')
   const [topicId, setTopicId] = useState('')
+  const [subtopicId, setSubtopicId] = useState('')
   const [skillId, setSkillId] = useState('')
   const [difficulty, setDifficulty] = useState('')
   const [qtype, setQtype] = useState('')   // '' | 'mcq' | 'extended'
@@ -62,6 +63,7 @@ export default function GeneratePage() {
     if (!tax) return null
     return {
       skill: Object.fromEntries(tax.skills.map((s) => [s.id, s])),
+      subtopic: Object.fromEntries(tax.subtopics.map((st) => [st.id, st])),
       topic: Object.fromEntries(tax.topics.map((t) => [t.id, t])),
       subject: Object.fromEntries(tax.subjects.map((s) => [s.id, s])),
     }
@@ -70,15 +72,17 @@ export default function GeneratePage() {
   const labelFor = useCallback((q) => {
     if (!maps) return null
     const sk = maps.skill[q.skill_id]
-    const tp = (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
+    const stp = (sk && maps.subtopic[sk.subtopic_id]) || maps.subtopic[q.subtopic_id]
+    const tp = (stp && maps.topic[stp.topic_id]) || (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
     const su = tp && maps.subject[tp.subject_id]
-    return { skill: sk, topic: tp, subject: su }
+    return { skill: sk, subtopic: stp, topic: tp, subject: su }
   }, [maps])
 
   const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects) : []), [tax])
   const subjectsForYear = useMemo(() => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []), [tax, year])
   const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
-  const skillsForTopic = useMemo(() => (tax && topicId ? (tax.skillsByTopic[topicId] || []) : []), [tax, topicId])
+  const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
+  const skillsForSubtopic = useMemo(() => (tax && subtopicId ? (tax.skillsBySubtopic[subtopicId] || []) : []), [tax, subtopicId])
 
   const trayIds = useMemo(() => new Set(tray.map((q) => q.id)), [tray])
 
@@ -87,6 +91,7 @@ export default function GeneratePage() {
     return questions.filter((q) => {
       const l = labelFor(q)
       if (skillId && q.skill_id !== skillId) return false
+      if (subtopicId && l?.subtopic?.id !== subtopicId) return false
       if (topicId && l?.topic?.id !== topicId) return false
       if (subjectId && l?.subject?.id !== subjectId) return false
       if (year && String(l?.subject?.year_level) !== String(year)) return false
@@ -98,7 +103,7 @@ export default function GeneratePage() {
       }
       return true
     })
-  }, [questions, maps, labelFor, year, subjectId, topicId, skillId, difficulty, qtype, search])
+  }, [questions, maps, labelFor, year, subjectId, topicId, subtopicId, skillId, difficulty, qtype, search])
 
   const add = (q) => setTray((t) => (t.find((x) => x.id === q.id) ? t : [...t, q]))
   const removeFromTray = (id) => setTray((t) => t.filter((x) => x.id !== id))
@@ -203,21 +208,25 @@ export default function GeneratePage() {
           {/* ── Left: pick from bank ─────────────────────────────────────── */}
           <div>
             <div className="bg-white rounded-2xl border border-[#F0F4FF] p-3 flex flex-wrap items-center gap-2">
-              <select value={year} onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSkillId('') }} className={selCls}>
+              <select value={year} onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
                 <option value="">All years</option>
                 {years.map((y) => <option key={y} value={y}>Year {y}</option>)}
               </select>
-              <select value={subjectId} disabled={!year} onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSkillId('') }} className={selCls}>
+              <select value={subjectId} disabled={!year} onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
                 <option value="">All subjects</option>
                 {subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
-              <select value={topicId} disabled={!subjectId} onChange={(e) => { setTopicId(e.target.value); setSkillId('') }} className={selCls}>
+              <select value={topicId} disabled={!subjectId} onChange={(e) => { setTopicId(e.target.value); setSubtopicId(''); setSkillId('') }} className={selCls}>
                 <option value="">All topics</option>
                 {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              <select value={skillId} disabled={!topicId} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
+              <select value={subtopicId} disabled={!topicId} onChange={(e) => { setSubtopicId(e.target.value); setSkillId('') }} className={selCls}>
+                <option value="">All subtopics</option>
+                {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+              </select>
+              <select value={skillId} disabled={!subtopicId} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
                 <option value="">All skills</option>
-                {skillsForTopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {skillsForSubtopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
                 <option value="">Any difficulty</option>

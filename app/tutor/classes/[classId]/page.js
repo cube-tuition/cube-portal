@@ -281,6 +281,13 @@ export default function ClassOverviewPage() {
   )
 
   const isAdmin = staff?.role === 'admin'
+  // The class's own teacher can mark exams too (not just admins) — same first-name
+  // match used for booklet editing below.
+  const isClassTeacher = isAdmin || (
+    !!(cls.teacher || '').trim() &&
+    (cls.teacher || '').trim().split(' ')[0].toLowerCase() ===
+      (staff?.full_name || '').trim().split(' ')[0].toLowerCase()
+  )
   const col = subjectColor(inferSubject(cls))
   const currentWeek = weekDates.find(w => w.week === tab) || { week: tab, dates: [], lessons: [] }
 
@@ -428,7 +435,7 @@ export default function ClassOverviewPage() {
             termId={term.id}
             termNumber={term.term_number}
             roster={roster}
-            canEdit={isAdmin}
+            canEdit={isClassTeacher}
           />
         )}
         {tab === 'exams' && !term && (

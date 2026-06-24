@@ -2,7 +2,7 @@ import { Resend } from 'resend'
 import { randomUUID } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { PORTAL_BCC } from '../../../lib/emailConfig'
+import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 
 // "Term 2 2026" → "26T2" for compact filenames; falls back to a safe slug.
 function termCode(termName = '') {
@@ -84,7 +84,7 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { term_id, term_name, template, families } = await request.json()
+    const { term_id, term_name, template, families, test } = await request.json()
 
     if (!term_id || !families?.length) {
       return Response.json({ error: 'Missing term_id or families' }, { status: 400 })
@@ -152,7 +152,7 @@ export async function POST(request) {
       const subjectNames = firstNames.join(' & ')
       const subject = `${term_name} Report${count > 1 ? 's' : ''} — ${subjectNames} | CUBE Tuition`
 
-      const { data: sendData, error: sendErr } = await resend.emails.send({
+      const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from:        `CUBE Tuition <${fromEmail}>`,
         to:          [family.parent_email],
         bcc:         [PORTAL_BCC],
@@ -162,7 +162,7 @@ export async function POST(request) {
         // Unique per send so Gmail never threads a resend under the previous
         // email (which hides the body) — each one is a fresh, complete message.
         headers:     { 'X-Entity-Ref-ID': randomUUID() },
-      })
+      }, test))
 
       results.push({
         family:      family.parent_name,

@@ -94,6 +94,7 @@ export default function PayrollPage() {
   const [run, setRun] = useState(null)
   const [shifts, setShifts] = useState([])
   const [payMethods, setPayMethods] = useState({})   // tutor_id → pay_method (bank/cash)
+  const [cashTutors, setCashTutors] = useState([])   // [{id, full_name, cash_pay_weekday}] for the cash pay schedule
   const [payTab, setPayTab] = useState('bank')       // active pay-method tab
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -147,9 +148,11 @@ export default function PayrollPage() {
       const allTerms = termsData || []
       setTerms(allTerms)
 
-      // Pay method per tutor (bank vs cash split)
-      const { data: tutorRows } = await supabase.from(T_TUTORS).select('id, pay_method')
+      // Pay method per tutor (bank vs cash split) + cash pay-day schedule
+      const { data: tutorRows } = await supabase.from(T_TUTORS).select('id, full_name, pay_method, cash_pay_weekday')
       setPayMethods(Object.fromEntries((tutorRows || []).map(t => [t.id, t.pay_method])))
+      setCashTutors((tutorRows || []).filter(t => (t.pay_method || '').toLowerCase() === 'cash')
+        .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
 
       const { term, fortnight: f } = pickInitialTermFortnight(allTerms, isoDate(new Date()))
       setActiveTerm(term)
@@ -447,6 +450,8 @@ export default function PayrollPage() {
             ))}
           </div>
         )}
+
+        {payTab === 'cash' && <CashSchedulePanel tutors={cashTutors} shifts={shifts} onChange={setCashTutors} />}
 
         {[payGroups.find(g => g.id === payTab) ?? payGroups[0]].filter(Boolean).map(group => (
           <div key={group.id} className="mb-8">
@@ -751,6 +756,46 @@ function ShiftRow({ shift, editable, saving, onUpdate }) {
         <label className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold block">Amount</label>
         <p className="text-sm font-bold text-[#062E63] font-display">{fmtMoney(amount)}</p>
       </div>
+    </div>
+  )
+}
+
+// Cash pay schedule — set the recurring weekday each cash teacher is paid. After
+// each fortnight, the Action Centre raises a reminder on that day with the
+// amount owed (computed from their approved shifts).
+const WEEKDAYS = [{ v: 1, l: 'Monday' }, { v: 2, l: 'Tuesday' }, { v: 3, l: 'Wednesday' }, { v: 4, l: 'Thursday' }, { v: 5, l: 'Friday' }, { v: 6, l: 'Saturday' }, { v: 7, l: 'Sunday' }]
+
+function CashSchedulePanel({ tutors, shifts, onChange }) {
+  const amt = {}
+  for (const s of shifts || []) amt[s.tutor_id] = (amt[s.tutor_id] || 0) + Number(s.amount || 0)
+  const setDay = async (id, val) => {
+    const wd = val === '' ? null : Number(val)
+    onChange(prev => prev.map(t => (t.id === id ? { ...t, cash_pay_weekday: wd } : t)))
+    await supabase.from(T_TUTORS).update({ cash_pay_weekday: wd }).eq('id', id)
+  }
+  return (
+    <div className="mb-6 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
+      <div className="px-5 py-3 bg-[#F8FAFF] border-b border-[#DEE7FF]">
+        <p className="text-sm font-bold text-[#062E63]">🗓 Cash pay schedule</p>
+        <p className="text-[11px] text-[#325099]/60">Pick the weekday each cash teacher is paid. After every fortnight, a reminder appears in the Action Centre on that day with the amount to hand over.</p>
+      </div>
+      {tutors.length === 0 ? (
+        <p className="px-5 py-6 text-xs text-[#2A2035]/45">No cash teachers yet. Set a tutor’s pay method to “cash” in the database explorer to schedule them here.</p>
+      ) : (
+        <div className="divide-y divide-[#F0F4FF]">
+          {tutors.map(t => (
+            <div key={t.id} className="flex items-center gap-3 px-5 py-2.5">
+              <span className="flex-1 text-sm font-medium text-[#2A2035] truncate">{t.full_name}</span>
+              <span className="text-[11px] text-[#2A2035]/45 w-28 text-right tabular-nums">{amt[t.id] ? `${fmtMoney(amt[t.id])} this run` : '—'}</span>
+              <select value={t.cash_pay_weekday ?? ''} onChange={e => setDay(t.id, e.target.value)}
+                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#325099]">
+                <option value="">No pay day set</option>
+                {WEEKDAYS.map(d => <option key={d.v} value={d.v}>{d.l}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

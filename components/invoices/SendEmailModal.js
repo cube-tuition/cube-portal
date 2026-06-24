@@ -3,6 +3,7 @@ import { authedFetch } from '../../lib/authedFetch'
 import { useState } from 'react'
 import { fmtMoney, fmtDate } from '../../lib/format'
 import { generateInvoicePdf } from '../../lib/invoicePdf'
+import { TEST_RECIPIENT } from '../../lib/emailConfig'
 
 function daysOverdue(dueDate) {
   if (!dueDate) return 0
@@ -40,12 +41,17 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
     buildEmailBody(inv, reminder ? REMINDER_SUBJECT : (emailSubjectTemplate || 'Invoice for {{studentNames}} – {{term}}'), term?.name))
   const [body,     setBody]     = useState(() => buildEmailBody(inv, reminder ? REMINDER_BODY : emailTemplate, term?.name))
   const [sending,  setSending]  = useState(false)
+  const [testing,  setTesting]  = useState(false)
+  const [testNote, setTestNote] = useState(null)
   const [error,    setError]    = useState(null)
   const [tab,      setTab]      = useState('edit')
 
-  const handleSend = async () => {
+  // test=true → exact same email, but delivered to CUBE staff only (marked
+  // TEST), and the invoice's real "sent" status is left untouched.
+  const handleSend = async (test = false) => {
     if (!inv.parent_email) { setError('No email address on file for this family.'); return }
-    setSending(true); setError(null)
+    test ? setTesting(true) : setSending(true)
+    setError(null); setTestNote(null)
     try {
       const termDates = term ? `${fmtDate(term.start_date)} to ${fmtDate(term.end_date)}` : ''
       const doc = await generateInvoicePdf(inv, term?.name || '', termDates)
@@ -59,18 +65,22 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
       const res = await authedFetch('/api/send-invoice', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: inv.id, email_to: inv.parent_email, subject, body, pdf_base64, pdf_filename, is_reminder: reminder }),
+        body: JSON.stringify({ invoice_id: inv.id, email_to: inv.parent_email, subject, body, pdf_base64, pdf_filename, is_reminder: reminder, test }),
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
         throw new Error(e.error || 'Send failed')
       }
       const data = await res.json().catch(() => ({}))
-      onSent(inv.id, data.reminder_sent_at)
+      if (test) {
+        setTestNote(`Test sent to ${TEST_RECIPIENT}. The family was not emailed.`)
+      } else {
+        onSent(inv.id, data.reminder_sent_at)
+      }
     } catch (e) {
       setError(e.message)
     } finally {
-      setSending(false)
+      test ? setTesting(false) : setSending(false)
     }
   }
 
@@ -143,13 +153,19 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
             📎 Invoice PDF ({inv.invoice_number || 'invoice'}.pdf) will be generated and attached automatically.
           </p>
           {error && <p className="text-xs text-red-600">{error}</p>}
+          {testNote && <p className="text-xs font-semibold text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2">🧪 {testNote}</p>}
         </div>
 
         <div className="px-6 py-4 border-t border-[#DEE7FF] flex justify-end gap-2">
           <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2 rounded-full hover:border-[#325099] transition">
             Cancel
           </button>
-          <button onClick={handleSend} disabled={sending || !inv.parent_email}
+          <button onClick={() => handleSend(true)} disabled={sending || testing || !inv.parent_email}
+            title="Send this exact email to CUBE staff only (marked TEST)"
+            className="text-xs font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 rounded-full hover:bg-[#FEF3C7] transition disabled:opacity-40">
+            {testing ? 'Testing…' : '🧪 Test'}
+          </button>
+          <button onClick={() => handleSend(false)} disabled={sending || testing || !inv.parent_email}
             className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
             {sending ? 'Sending…' : (reminder ? '✉ Send Reminder' : '✉ Send Invoice')}
           </button>

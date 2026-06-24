@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from 'react'
 import { supabase } from '../lib/supabase'
 import { resolveAssignedExamId, loadExamItems, computeExamAnalysis } from '../lib/examMarking'
 import StudentExamAnalysisView, { studentAnalysisRows } from './StudentExamAnalysisView'
@@ -36,7 +36,8 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
   const [loading, setLoading] = useState(true)
   const [exam, setExam] = useState(null)        // { id, name }
   const [items, setItems] = useState([])        // [{ qid, n, section, topic, max, qtype, stem }]
-  const [marks, setMarks] = useState({})        // marks[studentId][qid] = awarded (string)
+  const [marks, setMarks] = useState({})        // marks[studentId][qid] = awarded total (string)
+  const [critMarks, setCritMarks] = useState({}) // critMarks[studentId][qid][criterionIndex] = mark (string)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
@@ -62,17 +63,24 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
 
         const { data: existing } = await supabase
           .from('exam_question_marks')
-          .select('student_id, question_id, awarded')
+          .select('student_id, question_id, awarded, criteria_marks')
           .eq('class_id', classId).eq('term_id', termId).eq('exam_id', examId)
         const mm = {}
+        const cm = {}
         for (const r of existing || []) {
           mm[r.student_id] = mm[r.student_id] || {}
           mm[r.student_id][r.question_id] = r.awarded == null ? '' : String(r.awarded)
+          if (r.criteria_marks && typeof r.criteria_marks === 'object') {
+            cm[r.student_id] = cm[r.student_id] || {}
+            cm[r.student_id][r.question_id] = Object.fromEntries(
+              Object.entries(r.criteria_marks).map(([k, v]) => [k, v == null ? '' : String(v)]),
+            )
+          }
         }
         if (alive) {
           skipNextSave.current = true   // loading marks shouldn't trigger an autosave
           setExam({ id: examId, name: examName || 'Exam' })
-          setItems(list); setMarks(mm)
+          setItems(list); setMarks(mm); setCritMarks(cm)
           setLoading(false)
         }
       } catch (e) { if (alive) { setError(e.message || 'Could not load the exam.'); setLoading(false) } }
@@ -81,6 +89,18 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
   }, [classId, termId, termNumber])
 
   const setMark = (sid, qid, v) => setMarks((m) => ({ ...m, [sid]: { ...(m[sid] || {}), [qid]: v } }))
+
+  // A rubric question's total is the sum of its per-criterion boxes (locked).
+  // Updating a box recomputes the question total stored in `marks`.
+  const setCrit = (sid, qid, idx, v) => {
+    const q = { ...(critMarks[sid]?.[qid] || {}) }
+    if (v === '') delete q[idx]; else q[idx] = v
+    const vals = Object.values(q).filter((x) => x !== '' && x != null)
+    const total = vals.length ? String(vals.reduce((s, x) => s + (Number(x) || 0), 0)) : ''
+    setCritMarks((prev) => ({ ...prev, [sid]: { ...(prev[sid] || {}), [qid]: q } }))
+    setMarks((m) => ({ ...m, [sid]: { ...(m[sid] || {}), [qid]: total } }))
+  }
+  const isRubric = (it) => Array.isArray(it.criteria) && it.criteria.length > 0
 
   // MCQ is binary — tap a cell to cycle: unmarked → correct (full marks) → incorrect (0) → unmarked.
   const cycleMcq = (sid, it) => {
@@ -105,9 +125,17 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
         for (const it of items) {
           const a = marks[st.id]?.[it.qid]
           if (a === '' || a == null) continue
+          // For rubric questions persist the per-criterion breakdown too.
+          let cMarks = null
+          if (isRubric(it)) {
+            const raw = critMarks[st.id]?.[it.qid] || {}
+            const entries = Object.entries(raw).filter(([, v]) => v !== '' && v != null)
+            cMarks = entries.length ? Object.fromEntries(entries.map(([k, v]) => [k, Number(v)])) : null
+          }
           ups.push({
             class_id: classId, term_id: termId, student_id: st.id, exam_id: exam.id, question_id: it.qid,
             awarded: Number(a),
+            criteria_marks: cMarks,
             max_marks: it.max, topic: it.topic, section: it.section,
             updated_at: new Date().toISOString(),
           })
@@ -120,7 +148,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       }
       setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch (e) { setError(e.message) } finally { setSaving(false) }
-  }, [exam, roster, items, marks, classId, termId])
+  }, [exam, roster, items, marks, critMarks, classId, termId])
 
   // Debounced autosave — marks persist as you mark; no manual save needed.
   useEffect(() => {
@@ -180,6 +208,9 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
   }
 
   const sections = [...new Set(items.map((it) => it.section))]
+  // With ≤2 students a "class average" is just (an average involving) one other
+  // child's mark, so hide every class-average display for small cohorts.
+  const hideClassAvg = roster.length <= 2
   const chartData = analysis.topics.map((t) => ({ name: t.topic, pct: t.pct ?? 0, fill: scoreColor(t.pct) }))
   const sid = selStudent || roster[0]?.id || ''
   const sidStudent = roster.find((s) => s.id === sid)
@@ -221,14 +252,16 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
                     {roster.map((st) => (
                       <th key={st.id} className="text-center font-semibold px-2 py-2 whitespace-nowrap">{firstName(st.full_name)}</th>
                     ))}
-                    <th className="text-center font-semibold px-2 py-2">Class&nbsp;avg</th>
+                    {!hideClassAvg && <th className="text-center font-semibold px-2 py-2">Class&nbsp;avg</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((it) => {
                     const cAvg = qClassAvg(it)
+                    const rubric = isRubric(it)
                     return (
-                      <tr key={it.qid} className="border-t border-[#F0F4FF]">
+                      <Fragment key={it.qid}>
+                      <tr className="border-t border-[#F0F4FF]">
                         <td className="px-3 py-2 sticky left-0 bg-white">
                           <span className="font-bold text-[#062E63]">Q{it.n}</span>
                           {it.stem && <span className="block text-[10px] text-[#2A2035]/40 max-w-[180px] truncate">{it.stem}</span>}
@@ -246,6 +279,18 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
                           const isMcq = it.qtype === 'mcq'
                           const correct = a !== '' && Number(a) === it.max
                           const over = a !== '' && Number(a) > it.max
+                          // Rubric question: total is locked — it's summed from the
+                          // criterion rows below.
+                          if (rubric) {
+                            const p = a === '' ? null : pct(Number(a), it.max)
+                            return (
+                              <td key={st.id} className="px-2 py-1.5 text-center align-top" title="Auto-summed from the criteria below">
+                                <span className="font-bold" style={{ color: a === '' ? '#9CA3AF' : scoreColor(p) }}>
+                                  {a === '' ? '–' : `${a}/${it.max}`}
+                                </span>
+                              </td>
+                            )
+                          }
                           if (!canEdit) {
                             return (
                               <td key={st.id} className="px-2 py-1.5 text-center align-top">
@@ -278,10 +323,46 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
                             </td>
                           )
                         })}
-                        <td className="px-2 py-2 text-center">
-                          <span className="text-xs font-bold" style={{ color: scoreColor(cAvg) }}>{cAvg == null ? '–' : `${cAvg}%`}</span>
-                        </td>
+                        {!hideClassAvg && (
+                          <td className="px-2 py-2 text-center">
+                            <span className="text-xs font-bold" style={{ color: scoreColor(cAvg) }}>{cAvg == null ? '–' : `${cAvg}%`}</span>
+                          </td>
+                        )}
                       </tr>
+
+                      {/* Rubric criterion rows — one box per criterion, per student. */}
+                      {rubric && it.criteria.map((c) => (
+                        <tr key={`${it.qid}-c${c.index}`} className="border-t border-[#F6F8FF] bg-[#FCFDFF]">
+                          <td className="px-3 py-1.5 sticky left-0 bg-[#FCFDFF]">
+                            <span
+                              className="block text-[11px] text-[#2A2035]/70 pl-4 max-w-[220px] truncate"
+                              title={c.cells ? c.cells.map((cell, bi) => `${c.max - bi}: ${cell}`).join('\n') : c.name}
+                            >↳ {c.name}</span>
+                          </td>
+                          <td className="px-2 py-1.5" />
+                          <td className="px-2 py-1.5 text-center text-[10px] text-[#2A2035]/40 font-semibold">/{c.max}</td>
+                          {roster.map((st) => {
+                            const cv = critMarks[st.id]?.[it.qid]?.[c.index] ?? ''
+                            const over = cv !== '' && Number(cv) > c.max
+                            if (!canEdit) {
+                              return (
+                                <td key={st.id} className="px-2 py-1 text-center align-top">
+                                  <span className="text-xs text-[#2A2035]/70">{cv === '' ? '–' : cv}</span>
+                                </td>
+                              )
+                            }
+                            return (
+                              <td key={st.id} className="px-2 py-1 text-center align-top">
+                                <input type="number" min="0" max={c.max} step="0.5" value={cv}
+                                  onChange={(e) => setCrit(st.id, it.qid, c.index, e.target.value)}
+                                  className={`${inputCls} ${over ? 'border-[#EF4444] text-[#EF4444]' : ''}`} />
+                              </td>
+                            )
+                          })}
+                          {!hideClassAvg && <td className="px-2 py-1" />}
+                        </tr>
+                      ))}
+                      </Fragment>
                     )
                   })}
                   {/* Section totals */}
@@ -295,7 +376,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
                         </td>
                       )
                     })}
-                    <td className="px-2 py-2" />
+                    {!hideClassAvg && <td className="px-2 py-2" />}
                   </tr>
                 </tbody>
               </table>
@@ -312,19 +393,21 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
           <p className="text-xs text-[#2A2035]/40 italic">Enter some marks above to see the topic breakdown.</p>
         ) : (
           <>
-            <div style={{ width: '100%', height: Math.max(180, analysis.topics.length * 38) }}>
-              <ResponsiveContainer>
-                <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#EEF2FB" />
-                  <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="pct" radius={[0, 6, 6, 0]}>
-                    {chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {!hideClassAvg && (
+              <div style={{ width: '100%', height: Math.max(180, analysis.topics.length * 38) }}>
+                <ResponsiveContainer>
+                  <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#EEF2FB" />
+                    <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Bar dataKey="pct" radius={[0, 6, 6, 0]}>
+                      {chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
 
             {/* Per-student topic table */}
             <div className="overflow-x-auto">
@@ -359,13 +442,15 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
                       </tr>
                     )
                   })}
-                  <tr className="border-t-2 border-[#DEE7FF] bg-[#FBFCFF]">
-                    <td className="px-2 py-2 font-bold text-[#062E63] sticky left-0 bg-[#FBFCFF]">Class avg</td>
-                    {analysis.topics.map((t) => (
-                      <td key={t.topic} className="px-2 py-2 text-center font-bold" style={{ color: scoreColor(t.pct) }}>{t.pct == null ? '–' : `${t.pct}%`}</td>
-                    ))}
-                    <td className="px-2 py-2 text-center font-bold" style={{ color: scoreColor(analysis.overall.pct) }}>{analysis.overall.pct == null ? '–' : `${analysis.overall.pct}%`}</td>
-                  </tr>
+                  {!hideClassAvg && (
+                    <tr className="border-t-2 border-[#DEE7FF] bg-[#FBFCFF]">
+                      <td className="px-2 py-2 font-bold text-[#062E63] sticky left-0 bg-[#FBFCFF]">Class avg</td>
+                      {analysis.topics.map((t) => (
+                        <td key={t.topic} className="px-2 py-2 text-center font-bold" style={{ color: scoreColor(t.pct) }}>{t.pct == null ? '–' : `${t.pct}%`}</td>
+                      ))}
+                      <td className="px-2 py-2 text-center font-bold" style={{ color: scoreColor(analysis.overall.pct) }}>{analysis.overall.pct == null ? '–' : `${analysis.overall.pct}%`}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
