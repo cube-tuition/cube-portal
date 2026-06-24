@@ -760,9 +760,9 @@ function ShiftRow({ shift, editable, saving, onUpdate }) {
   )
 }
 
-// Cash pay schedule — set the recurring weekday each cash teacher is paid. After
-// each fortnight, the Action Centre raises a reminder on that day with the
-// amount owed (computed from their approved shifts).
+// Cash pay schedule — set the recurring weekday each cash teacher is paid. Cash
+// is paid in the LAST week of each fortnight; the Action Centre raises a reminder
+// on that weekday with the amount owed (computed from their approved shifts).
 const WEEKDAYS = [{ v: 1, l: 'Monday' }, { v: 2, l: 'Tuesday' }, { v: 3, l: 'Wednesday' }, { v: 4, l: 'Thursday' }, { v: 5, l: 'Friday' }, { v: 6, l: 'Saturday' }, { v: 7, l: 'Sunday' }]
 
 function CashSchedulePanel({ tutors, shifts, onChange }) {

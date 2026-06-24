@@ -40,6 +40,7 @@ const ADMIN_GROUPS = [
       { label: 'Workbooks',       href: '/tutor/booklets/master',  icon: '📓' },
       { label: 'Questions',       href: '/tutor/qbank',            icon: '❓' },
       { label: 'Exams',           href: '/tutor/qbank/exams',      icon: '🧪' },
+      { label: 'Syllabus',        href: '/tutor/resources/syllabus', icon: '📚' },
     ],
   },
   {

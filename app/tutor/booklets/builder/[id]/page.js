@@ -11,6 +11,7 @@ import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
+import { fetchSyllabus } from '../../../../../lib/syllabus'
 
 // Standard year/subject options so metadata is consistent across booklets.
 // Topics are loaded per year+subject from the shared `topics` table. The stored
@@ -48,6 +49,7 @@ export default function BookletBuilderEditor() {
   const [newQOpen, setNewQOpen] = useState(false)   // create a new bank question, then drop it in as a block
   const [exporting, setExporting] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [chemSyllabus, setChemSyllabus] = useState([])   // master syllabus for this booklet's year (Chemistry)
 
   const bkRef = useRef(null)
   useEffect(() => { bkRef.current = bk })
@@ -77,10 +79,26 @@ export default function BookletBuilderEditor() {
       if (!profile || (profile.role !== 'admin' && profile.role !== 'tutor')) { router.push('/tutor'); return }
       setStaff(profile)
       const { data } = await supabase.from(T_BOOKLET_BUILDS).select('*').eq('id', id).single()
-      if (data) setBk({ ...data, blocks: Array.isArray(data.blocks) ? data.blocks : [] })
+      if (data) setBk({
+        ...data,
+        blocks: Array.isArray(data.blocks) ? data.blocks : [],
+        syllabus_points: Array.isArray(data.syllabus_points) ? data.syllabus_points : [],
+      })
       setLoading(false)
     })()
   }, [id, router])
+
+  // Load the master syllabus for this booklet's year (Chemistry only) so the
+  // Content tab can draw individual dotpoints from it.
+  useEffect(() => {
+    let active = true
+    if (bk?.subject === 'Chemistry' && bk?.year) {
+      fetchSyllabus('Chemistry', Number(bk.year)).then((m) => { if (active) setChemSyllabus(m) })
+    } else {
+      Promise.resolve().then(() => { if (active) setChemSyllabus([]) })
+    }
+    return () => { active = false }
+  }, [bk?.subject, bk?.year])
 
   // Debounced autosave (mirrors the exam builder).
   const save = useCallback(async () => {
@@ -90,9 +108,14 @@ export default function BookletBuilderEditor() {
       do {
         pendingRef.current = false
         const b = bkRef.current
+        // Booklet-level syllabus_points = union of every section's drawn dotpoints
+        // (drives the Syllabus page's auto coverage).
+        const allPoints = [...new Set((b.blocks || []).flatMap(bl => (bl.type === 'section' && Array.isArray(bl.syllabus_points)) ? bl.syllabus_points : []))]
         await supabase.from(T_BOOKLET_BUILDS).update({
           title: b.title, year: b.year ? Number(b.year) : null, subject: b.subject, topic: b.topic,
-          content: b.content ?? null, blocks: b.blocks, updated_at: new Date().toISOString(),
+          content: b.content ?? null, blocks: b.blocks,
+          syllabus_points: allPoints,
+          updated_at: new Date().toISOString(),
         }).eq('id', b.id)
       } while (pendingRef.current)
       setDirty(false)
@@ -323,15 +346,19 @@ export default function BookletBuilderEditor() {
     ? physicalPages
     : [{ breakId: null, auto: false, ids: contentBlocks.filter(b => b.type !== 'pagebreak').map(b => b.id) }]
 
-  // Chemistry "Content" tab: auto-compiled syllabus dot-points, grouped by the
-  // section headers in the content page (builder-only — never printed).
+  // Chemistry "Content" (summary) tab: the dotpoints each section header draws
+  // from the master list, compiled by section (builder overview). Each section
+  // block's `syllabus` text is generated from its drawn dotpoints.
   const chemSyllabusSections = contentBlocks
     .filter(b => b.type === 'section')
     .map(b => ({
       label: [b.number, b.title].filter(v => v != null && String(v).trim() !== '').join('. '),
-      points: String(b.syllabus || '').split('\n').map(l => l.replace(/^\s*[-•]\s*/, '').trim()).filter(Boolean),
+      lines: String(b.syllabus || '').split('\n').map(l => ({
+        sub: /^\s+/.test(l),
+        text: l.replace(/^\s*[-•]\s*/, '').trim(),
+      })).filter(l => l.text),
     }))
-    .filter(s => s.points.length)
+    .filter(s => s.lines.length)
 
   // One block card (drag handle, type badge, move/delete, editor). `list` is the
   // group the block belongs to so up/down can disable at the group's ends.
@@ -359,7 +386,7 @@ export default function BookletBuilderEditor() {
           <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
-      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} />
+      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} syllabus={chemSyllabus} />
     </div>
     )
   }
@@ -416,9 +443,10 @@ export default function BookletBuilderEditor() {
         </div>
       </div>
 
-      <div className="max-w-[1560px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[1fr_232px_600px] gap-6">
-        {/* Blocks column — the added building blocks */}
-        <div>
+      <div className="max-w-[1560px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_208px_minmax(0,560px)] gap-5">
+        {/* Blocks column — the added building blocks. min-w-0 lets this flexible
+            column compress instead of forcing the whole page to scroll sideways. */}
+        <div className="min-w-0">
           {/* Page tabs — Cover is automatic (page 1); Content + Homework are editable. */}
           <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
             {[{ id: 'content', label: 'Content page' }, { id: 'homework', label: 'Homework page' }, { id: 'revision', label: 'Revision Quiz' }, { id: 'summary', label: 'Content' }].map(s => (
@@ -501,17 +529,22 @@ export default function BookletBuilderEditor() {
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Booklet content</p>
               {isChem ? (
                 <>
-                  <p className="text-xs text-[#2A2035]/55 mb-3">Auto-compiled from the syllabus dot-points on each section header in the Content page, grouped by section. Updates as you edit sections — it doesn’t appear in the printed booklet.</p>
+                  <p className="text-xs text-[#2A2035]/55 mb-3">The syllabus dotpoints each section draws from the master <a href="/tutor/resources/syllabus" className="underline text-[#325099]">Syllabus</a> list, grouped by section header. Draw them per section on the <span className="font-semibold">Content page</span> (select a section block → “Syllabus dotpoints”). These print under each section header in the booklet.</p>
                   {chemSyllabusSections.length === 0 ? (
-                    <p className="text-xs text-[#2A2035]/40 italic">No syllabus dot-points yet — add them on the section headers in the Content page.</p>
+                    <p className="text-xs text-[#2A2035]/40 italic">No dotpoints drawn yet — add section headers on the Content page and draw dotpoints into each.</p>
                   ) : (
                     <div className="space-y-4">
                       {chemSyllabusSections.map((s, i) => (
                         <div key={i}>
                           {s.label && <p className="text-sm font-semibold text-[#062E63] mb-1">{s.label}</p>}
-                          <ul className="list-disc pl-6 space-y-1">
-                            {s.points.map((p, j) => <li key={j} className="text-sm text-[#2A2035]/80">{p}</li>)}
-                          </ul>
+                          <div className="space-y-1">
+                            {s.lines.map((l, j) => (
+                              <div key={j} className={`flex gap-2 text-sm text-[#2A2035]/80 ${l.sub ? 'pl-10' : 'pl-3'}`}>
+                                <span className="shrink-0">{l.sub ? '—' : '•'}</span>
+                                <span>{l.text}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -602,7 +635,7 @@ export default function BookletBuilderEditor() {
         </div>
 
         {/* Preview column */}
-        <div>
+        <div className="min-w-0">
           <div className="sticky top-[112px]">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Live preview</p>

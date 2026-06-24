@@ -2,6 +2,81 @@
 
 import { useState } from 'react'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
+import { selectedToSyllabusText, countSelected } from '../../lib/syllabus'
+
+/*
+ * SectionSyllabusPicker — draw syllabus dotpoints from the master list into a
+ * section header (Chemistry). Stores the selected ids on block.syllabus_points
+ * and regenerates block.syllabus (the printable band text) so the renderer shows
+ * them under the section header in the booklet.
+ */
+function SectionSyllabusPicker({ modules = [], block, onChange }) {
+  const [open, setOpen] = useState(false)
+  const selected = Array.isArray(block.syllabus_points) ? block.syllabus_points : []
+  const sset = new Set(selected)
+  const apply = (next) => {
+    const ids = [...next]
+    onChange({ syllabus_points: ids, syllabus: selectedToSyllabusText(modules, ids) })
+  }
+  const toggle = (id, on) => { const s = new Set(selected); if (on) s.add(id); else s.delete(id); apply(s) }
+  const toggleGroup = (main, on) => { const s = new Set(selected); for (const x of main.subs) { if (on) s.add(x.id); else s.delete(x.id) } apply(s) }
+  const count = countSelected(modules, sset)
+
+  if (!modules.length) {
+    return <p className="text-[11px] text-[#2A2035]/45">No master syllabus for this year yet — add it on the <a href="/tutor/resources/syllabus" className="underline">Syllabus</a> page.</p>
+  }
+  const cb = 'mt-0.5 shrink-0 accent-[#325099]'
+  return (
+    <div className="rounded-lg border border-[#DEE7FF] bg-[#FBFCFF]">
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-3 py-2">
+        <span className="text-[11px] font-semibold text-[#325099]">📚 Syllabus dotpoints{count > 0 && <span className="ml-1.5 text-[10px] font-bold text-[#16A34A]">· {count} drawn</span>}</span>
+        <span className="text-[10px] text-[#325099]/60">{open ? '▲ hide' : '▼ draw'}</span>
+      </button>
+      {open && (
+        <div className="max-h-72 overflow-y-auto px-3 pb-2 space-y-2 border-t border-[#F0F4FF]">
+          {modules.map(mod => (
+            <div key={mod.id}>
+              <p className="text-[11px] font-bold text-[#062E63] mt-1">{mod.name}</p>
+              {mod.topics.map(tp => (
+                <div key={tp.id} className="mb-1">
+                  <p className="text-[10px] font-semibold text-[#325099]">{tp.name}</p>
+                  {tp.dotpoints.map(dp => {
+                    if (dp.subs.length === 0) {
+                      return (
+                        <label key={dp.id} className="flex items-start gap-1.5 py-0.5 cursor-pointer">
+                          <input type="checkbox" className={cb} checked={sset.has(dp.id)} onChange={e => toggle(dp.id, e.target.checked)} />
+                          <span className="text-[12px] text-[#2A2035]">{dp.text}</span>
+                        </label>
+                      )
+                    }
+                    const all = dp.subs.every(s => sset.has(s.id))
+                    const some = dp.subs.some(s => sset.has(s.id))
+                    return (
+                      <div key={dp.id}>
+                        <label className="flex items-start gap-1.5 py-0.5 cursor-pointer">
+                          <input type="checkbox" className={cb} checked={all} ref={el => { if (el) el.indeterminate = some && !all }} onChange={e => toggleGroup(dp, e.target.checked)} />
+                          <span className="text-[12px] font-medium text-[#2A2035]">{dp.text}</span>
+                        </label>
+                        <div className="pl-5">
+                          {dp.subs.map(s => (
+                            <label key={s.id} className="flex items-start gap-1.5 py-0.5 cursor-pointer">
+                              <input type="checkbox" className={cb} checked={sset.has(s.id)} onChange={e => toggle(s.id, e.target.checked)} />
+                              <span className="text-[11px] text-[#2A2035]/80">{s.text}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /*
  * BlockEditor — inline editor for one booklet block. Renders the right fields
@@ -178,7 +253,7 @@ function TwoColField({ block, set }) {
   )
 }
 
-export default function BlockEditor({ block, onChange, isChem = false }) {
+export default function BlockEditor({ block, onChange, isChem = false, syllabus = [] }) {
   const set = (patch) => onChange({ ...block, ...patch })
 
   switch (block.type) {
@@ -189,11 +264,7 @@ export default function BlockEditor({ block, onChange, isChem = false }) {
             <div><label className={L}>No.</label><input className={I} value={block.number} onChange={e => set({ number: e.target.value })} placeholder="1" /></div>
             <div><label className={L}>Section title</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} /></div>
           </div>
-          {isChem && (
-            <div><label className={L}>Syllabus dot-points (“- ” for each point, $…$ maths, ⌘/Ctrl-B bold)</label>
-              <textarea className={TA} value={block.syllabus || ''} onChange={e => set({ syllabus: e.target.value })} onKeyDown={e => onTextKey(e, block.syllabus || '', v => set({ syllabus: v }))} placeholder={'- Investigate the role of activation energy, collisions and molecular orientation in collisions'} />
-            </div>
-          )}
+          {isChem && <SectionSyllabusPicker modules={syllabus} block={block} onChange={set} />}
         </div>
       )
     case 'subtopic':

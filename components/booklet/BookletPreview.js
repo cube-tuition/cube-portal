@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { coverHtml, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems } from '../../lib/bookletRender'
 
 /*
@@ -18,11 +18,31 @@ import { coverHtml, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems }
  */
 const PAGE_H = 1123  // A4 height @ 96dpi, matches lib/bookletExport
 
-export default function BookletPreview({ meta = {}, blocks = [], solutions = false, scale = 0.72 }) {
+const PAGE_W = 794   // A4 width @ 96dpi
+
+export default function BookletPreview({ meta = {}, blocks = [], solutions = false, scale: maxScale = 0.72 }) {
   const cover = coverHtml(meta, { solutions })
 
   // Paginated content: array of HTML strings, one per A4 content page.
   const [pages, setPages] = useState([])
+
+  // Scale the A4 page down to fit the available column width so the preview
+  // never needs horizontal scrolling (capped at maxScale).
+  const rootRef = useRef(null)
+  const [fit, setFit] = useState(maxScale)
+  useEffect(() => {
+    const parent = rootRef.current?.parentElement
+    if (!parent || typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(() => {
+      const cs = getComputedStyle(parent)
+      const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+      const avail = parent.clientWidth - pad
+      if (avail > 0) setFit(Math.min(maxScale, avail / PAGE_W))
+    })
+    ro.observe(parent)
+    return () => ro.disconnect()
+  }, [maxScale])
+  const scale = fit
 
   useEffect(() => {
     // Measure on the next frame so this isn't a synchronous setState in the
@@ -88,9 +108,9 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
   const pageStyle = { marginTop: 24, boxShadow: '0 1px 6px rgba(0,0,0,.12)' }
 
   return (
-    <div className="bk-root" style={{ width: 794 * scale }}>
+    <div ref={rootRef} className="bk-root" style={{ width: PAGE_W * scale }}>
       <style>{BOOKLET_CSS}</style>
-      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: 794 }}>
+      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: PAGE_W }}>
         {/* Cover */}
         <div className="bk-page" style={{ padding: 0, boxShadow: '0 1px 6px rgba(0,0,0,.12)' }}>
           <div dangerouslySetInnerHTML={{ __html: cover }} />
