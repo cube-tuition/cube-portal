@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import { buildDiscountEmailHtml, mergeDiscountContent } from '../../../lib/discountEmail'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
  * POST /api/send-discount-program-emails
@@ -18,6 +19,11 @@ import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 
 export async function POST(request) {
   try {
+    // Staff-only: this route sends mail from CUBE's verified domain, so it must
+    // never be callable anonymously (otherwise it's an open spam/phishing relay).
+    const auth = await requireApiRole(request, ['admin', 'director'])
+    if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
     const { families, test, testEmail, intro, content } = await request.json()
     // `content` = full editable-content overrides; `intro` kept for back-compat
     const overrides = content || (intro ? { intro } : {})

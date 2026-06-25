@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getValidToken } from '../../../../lib/xero'
+import { requireApiRole } from '../../../../lib/apiAuth'
 
 /**
  * GET /api/xero/items
@@ -7,8 +8,11 @@ import { getValidToken } from '../../../../lib/xero'
  * These are used to map portal courses to Xero line items, so Xero
  * handles the account code / tax type internally.
  */
-export async function GET() {
+export async function GET(request) {
   try {
+    const auth = await requireApiRole(request, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const { access_token, tenant_id } = await getValidToken()
 
     const res = await fetch('https://api.xero.com/api.xro/2.0/Items', {

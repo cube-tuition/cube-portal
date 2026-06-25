@@ -13,6 +13,7 @@ import { TABLE_META, dropdownOptions, columnLabel, columnTooltip, isRequired, de
 import { setUndoHandler, announceUndo } from '../../../lib/undo'
 import { useReferenceData } from '../../../lib/dbReference'
 import LinkedRecordBadge from '../../../components/db/LinkedRecordBadge'
+import LevelTestsView from '../../../components/db/LevelTestsView'
 import LinkedRecordPicker from '../../../components/db/LinkedRecordPicker'
 import RecordDetailPanel from '../../../components/db/RecordDetailPanel'
 
@@ -285,10 +286,10 @@ function getPkCol(cols) { return cols.includes('id') ? 'id' : null }
 
 const COLUMN_TYPES = ['text','integer','bigint','numeric','boolean','uuid','timestamp with time zone','date','jsonb']
 
-async function execDDL(token, sql) {
-  const res  = await fetch('/api/exec-ddl', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` }, body: JSON.stringify({ sql }) })
-  const body = await res.json()
-  if (!res.ok) throw new Error(body.error ?? 'DDL failed')
+// Schema editing has been removed for security (the arbitrary-SQL endpoint is
+// gone). Structural changes are done via migrations / the Supabase dashboard.
+async function execDDL() {
+  throw new Error('Schema editing is disabled. Add columns/tables via the Supabase dashboard or a migration.')
 }
 
 // ── Undo action descriptors ───────────────────────────────────────────────────
@@ -415,7 +416,7 @@ function CreateTableModal({ onClose, onCreated }) {
 }
 
 // ── Column Context Menu ───────────────────────────────────────────────────────
-function ColContextMenu({ x, y, col, isPk, isGuardian, onRename, onDelete, onHide, onClose }) {
+function ColContextMenu({ x, y, col, isPk, onHide, onClose }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -434,30 +435,12 @@ function ColContextMenu({ x, y, col, isPk, isGuardian, onRename, onDelete, onHid
       <p className="px-3 py-1 text-[9px] font-bold tracking-[0.2em] uppercase text-[#325099]/40 select-none truncate">{col}</p>
       <div className="border-t border-[#DEE7FF] my-1" />
       <button
-        onClick={onRename}
-        disabled={isPk}
-        className="w-full text-left px-3 py-2 text-sm text-[#2A2035] hover:bg-[#F0F4FF] transition flex items-center gap-2.5 disabled:opacity-30 disabled:cursor-not-allowed"
-      >
-        <span className="text-base leading-none">✏️</span>
-        <span className="font-medium">Rename</span>
-      </button>
-      <button
         onClick={onHide}
         disabled={isPk}
         className="w-full text-left px-3 py-2 text-sm text-[#2A2035] hover:bg-[#F0F4FF] transition flex items-center gap-2.5 disabled:opacity-30 disabled:cursor-not-allowed"
       >
         <span className="text-base leading-none">🙈</span>
         <span className="font-medium">Hide column</span>
-      </button>
-      <div className="border-t border-[#DEE7FF] my-1" />
-      <button
-        onClick={onDelete}
-        disabled={isPk || isGuardian}
-        className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-50 transition flex items-center gap-2.5 disabled:opacity-30 disabled:cursor-not-allowed"
-      >
-        <span className="text-base leading-none">🗑</span>
-        <span className="font-medium">Delete column</span>
-        {isGuardian && <span className="text-[9px] text-[#2A2035]/30 ml-auto">(parent table)</span>}
       </button>
     </div>
   )
@@ -1325,6 +1308,7 @@ export default function DatabasePage() {
   const [priceConfirm, setPriceConfirm] = useState(null) // { rowId, col, oldVal, newVal } | null
   // Drop-in sessions interface view
   const [dropinViewMode, setDropinViewMode]     = useState('data')   // 'data' | 'sessions'
+  const [lessonViewMode, setLessonViewMode]     = useState('lessons') // 'lessons' | 'level_tests'
   const [dropinSessions, setDropinSessions]     = useState([])
   const [dropinStudents, setDropinStudents]     = useState([])       // [{id, full_name}]
   const [loadingDropin, setLoadingDropin]       = useState(false)
@@ -1334,6 +1318,17 @@ export default function DatabasePage() {
   const [addSigninFor, setAddSigninFor]         = useState(null)     // session id | null
   // Airtable-style reference data (linked-record resolution) + generic record panel
   const refData = useReferenceData()
+  // Dropdown options for a cell, including dynamic lists sourced from reference
+  // tables. classes.teacher is a free-text name column (kept for backward compat
+  // with rollups / reports), but should be CHOSEN from the Tutors list rather
+  // than typed by hand — so we offer the tutor names as dropdown options.
+  const cellDropdownFor = useCallback((table, col) => {
+    if (table === T_CLASSES && col === 'teacher') {
+      const names = refData.options(T_TUTORS).map(o => o.label).filter(Boolean)
+      return names.length ? Array.from(new Set(names)) : null
+    }
+    return cellDropdown(table, col)
+  }, [refData])
   const [detailRecord, setDetailRecord] = useState(null)   // { realTable, row } | null
   // Lesson detail sidebar
   const [lessonSidebar, setLessonSidebar]   = useState(null)   // lesson row object | null
@@ -1478,6 +1473,13 @@ export default function DatabasePage() {
   const [showAddClassModal, setShowAddClassModal] = useState(false)
   const [newClassForm, setNewClassForm] = useState({ course_id: '', day_of_week: '', start_time: '', end_time: '' })
   const [coursesList, setCoursesList]   = useState([])
+  // Add Lesson modal (lessons table) — a student-based lesson that shows on the calendar.
+  const [showAddLessonModal, setShowAddLessonModal] = useState(false)
+  const [addLessonSaving, setAddLessonSaving]       = useState(false)
+  const [newLessonForm, setNewLessonForm] = useState({ lesson_type: 'level_test', level_test_build_ids: [], class_id: '', lesson_date: '', student_name: '', teacher_id: '', start_time: '', end_time: '', notes: '', room: '' })
+  const [ltPickerOpen, setLtPickerOpen] = useState(false)   // checkbox dropdown open state
+  const [levelTestsForLessons, setLevelTestsForLessons] = useState([])   // [{id, title, year, subject}] for the Level test link
+  const [classesForLessons, setClassesForLessons] = useState([])         // [{id, class_name, day_of_week, start_time, end_time, room}] for the Class link
   const [addClassSaving, setAddClassSaving] = useState(false)
   // Add Course modal (form driven by the courses columns in tableMeta)
   const [showAddCourseModal, setShowAddCourseModal] = useState(false)
@@ -1675,7 +1677,8 @@ export default function DatabasePage() {
             // Include enrolments assigned to this term's classes + unassigned (null class_id) trial enrolments
             q = q.or(`class_id.in.(${termClassIds.join(',')}),class_id.is.null`)
           } else {
-            q = q.in('class_id', termClassIds)
+            // Lessons: this term's class lessons + ad-hoc lessons (level tests / 1:1s, null class_id)
+            q = q.or(`class_id.in.(${termClassIds.join(',')}),class_id.is.null`)
           }
         }
       }
@@ -2223,6 +2226,111 @@ export default function DatabasePage() {
     }
     setAddClassSaving(false)
     setShowAddClassModal(false)
+  }
+
+  // ── Add Lesson modal ──────────────────────────────────────────────────────────
+  // A guided form for a student-based (1:1) lesson. It stores the student on
+  // makeup_student_id and the teacher on scheduled_teacher_id so the lesson shows
+  // up on the calendar's 1:1 overlay.
+  const openAddLessonModal = async (lessonType = 'level_test') => {
+    setNewLessonForm({ lesson_type: lessonType === 'class' ? 'class' : 'level_test', level_test_build_ids: [], class_id: '', lesson_date: '', student_name: '', teacher_id: '', start_time: '', end_time: '', notes: '', room: '' })
+    setLtPickerOpen(false)
+    setShowAddLessonModal(true)
+    setDeleteConfirm(null)
+    if (levelTestsForLessons.length === 0) {
+      const { data } = await supabase.from('booklet_builds')
+        .select('id, title, year, subject')
+        .eq('doc_type', 'level_test')
+        .order('updated_at', { ascending: false })
+      setLevelTestsForLessons(data || [])
+    }
+    if (classesForLessons.length === 0) {
+      const { data } = await supabase.from(T_CLASSES)
+        .select('id, class_name, day_of_week, start_time, end_time, room')
+        .order('class_name')
+      const labelMap = buildClassLabelMap(data || [])
+      setClassesForLessons((data || []).map(c => ({ ...c, label: labelMap.get(c.id) ?? c.class_name })))
+    }
+  }
+
+  // Picking a class auto-fills the time + room from its weekly schedule (editable).
+  const pickLessonClass = (classId) => {
+    const c = classesForLessons.find(x => String(x.id) === String(classId))
+    setNewLessonForm(p => ({
+      ...p,
+      class_id: classId,
+      start_time: c?.start_time ? String(c.start_time).slice(0, 5) : p.start_time,
+      end_time:   c?.end_time ? String(c.end_time).slice(0, 5) : p.end_time,
+      room:       c?.room ?? p.room,
+    }))
+  }
+
+  const lessonFormValid = (() => {
+    const f = newLessonForm
+    if (!f.lesson_date || !f.start_time) return false
+    if (f.lesson_type === 'class') return !!f.class_id
+    if (f.lesson_type === 'level_test') return !!(f.student_name.trim() && f.level_test_build_ids.length)
+    return !!(f.student_name.trim() && f.teacher_id)   // one_on_one
+  })()
+
+  const handleAddLesson = async () => {
+    if (!lessonFormValid) return
+    setAddLessonSaving(true)
+    const f = newLessonForm
+    const isLevelTest = f.lesson_type === 'level_test'
+    const isClass = f.lesson_type === 'class'
+    // A "Class" lesson is a normal class lesson (class_id set), stored exactly like
+    // generated ones — no lesson_type/student so it shows via the regular class path.
+    const payload = isClass ? {
+      class_id:    Number(f.class_id),
+      lesson_date: f.lesson_date,
+      start_time:  f.start_time,
+      end_time:    f.end_time || null,
+      room:        f.room?.trim() || null,
+      notes:       f.notes?.trim() || null,
+      status:      'scheduled',
+    } : {
+      lesson_type:          f.lesson_type || 'one_on_one',
+      level_test_build_ids: isLevelTest ? (f.level_test_build_ids.length ? f.level_test_build_ids : null) : null,
+      level_test_build_id:  isLevelTest ? (f.level_test_build_ids[0] || null) : null,
+      lesson_date:          f.lesson_date,
+      start_time:           f.start_time,
+      end_time:             f.end_time || null,
+      student_name:         f.student_name.trim() || null,
+      scheduled_teacher_id: isLevelTest ? null : (f.teacher_id || null),
+      is_makeup:            false,
+      room:                 f.room?.trim() || null,
+      notes:                f.notes?.trim() || null,
+      status:               'scheduled',
+    }
+    const { data, error } = await supabase.from(T_LESSONS).insert(payload).select().single()
+    if (error) { alert(`Add lesson failed: ${error.message}`); setAddLessonSaving(false); return }
+    if (isClass) {
+      // Reload so the class label (and week) is recomputed for the new row.
+      if (selectedTable === 'lessons') setReloadKey(k => k + 1)
+    } else {
+      const teacherName = isLevelTest ? null : (allStaffForLessons.find(s => s.id === f.teacher_id)?.full_name ?? null)
+      const enriched = { ...data, [LESSON_SCHED_TEACHER_COL]: teacherName }
+      if (selectedTable === 'lessons') {
+        setRows(prev => [enriched, ...prev])
+        if (columns.length === 0) setColumns(Object.keys(enriched))
+      }
+    }
+    setRowCounts(prev => ({ ...prev, lessons: (prev.lessons ?? 0) + 1 }))
+    pushUndo({ type: 'add_row', table: 'lessons', realTable: T_LESSONS, pkCol: 'id', rowId: data.id })
+    setAddLessonSaving(false)
+    setShowAddLessonModal(false)
+    // A level test opens straight into its marking page.
+    if (f.lesson_type === 'level_test') router.push(`/tutor/lessons/${data.id}`)
+  }
+
+  // Delete a level-test lesson (its marks cascade via the FK).
+  const handleDeleteLevelTest = async (lessonId) => {
+    const prevRows = rows
+    setRows(prev => prev.filter(r => r.id !== lessonId))
+    const { error } = await supabase.from(T_LESSONS).delete().eq('id', lessonId)
+    if (error) { alert(`Delete failed: ${error.message}`); setRows(prevRows); return }
+    setRowCounts(prev => ({ ...prev, lessons: Math.max(0, (prev.lessons ?? 1) - 1) }))
   }
 
   // ── Add Course modal ──────────────────────────────────────────────────────────
@@ -3171,6 +3279,8 @@ export default function DatabasePage() {
   // ── Filtered + sorted rows (search → filter conditions → sort rules) ───────
   const filteredRows = useMemo(() => {
     let out = rows
+    // Level tests live in their own "Level Tests" tab, so keep them out of the lessons grid.
+    if (selectedTable === T_LESSONS) out = out.filter(r => r.lesson_type !== 'level_test')
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       out = out.filter(r => Object.values(r).some(v => v !== null && String(v).toLowerCase().includes(q)))
@@ -3193,7 +3303,7 @@ export default function DatabasePage() {
       })
     }
     return out
-  }, [rows, search, filterCfg, sortRules])
+  }, [rows, search, filterCfg, sortRules, selectedTable])
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -3383,11 +3493,6 @@ export default function DatabasePage() {
             <p className="text-[9px] tracking-[0.35em] uppercase font-bold text-white/30 mb-0.5">Admin</p>
             <p className="text-sm font-bold text-white font-display">Database</p>
           </div>
-          <div className="px-3 pt-3 pb-1 shrink-0">
-            <button onClick={() => setShowCreateModal(true)} className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#325099]/30 hover:bg-[#325099]/50 text-white/70 hover:text-white text-[10px] font-bold tracking-[0.1em] uppercase transition">
-              <span className="text-sm leading-none">+</span> New Table
-            </button>
-          </div>
           <div className="flex-1 py-1 overflow-y-auto">
             {tableGroups.map(group => (
               <div key={group.label} className="mb-1">
@@ -3473,7 +3578,7 @@ export default function DatabasePage() {
         <main className="flex-1 flex flex-col overflow-hidden bg-white">
 
           {/* Toolbar */}
-          <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="min-w-0">
                 <p className="text-[9px] tracking-[0.25em] uppercase text-[#325099] font-bold">Table</p>
@@ -3486,7 +3591,7 @@ export default function DatabasePage() {
               {saving && <span className="text-[10px] font-semibold text-[#325099]/60 shrink-0 animate-pulse">Saving…</span>}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 justify-end">
               {/* Undo button removed — Ctrl/Cmd+Z (via GlobalUndo) drives handleUndo */}
               {undoing && <span className="text-[10px] font-semibold text-[#325099]/60 animate-pulse shrink-0">Undoing…</span>}
 
@@ -3529,7 +3634,7 @@ export default function DatabasePage() {
                     onClose={() => setFilterOpen(false)}
                     columns={columnOrder}
                     labelOf={(c) => columnLabel(VIRTUAL[selectedTable]?.realTable ?? selectedTable, c)}
-                    optionsFor={(c) => cellDropdown(selectedTable, c)}
+                    optionsFor={(c) => cellDropdownFor(selectedTable, c)}
                     cfg={filterCfg}
                     onChange={updateFilterCfg}
                   />
@@ -3562,6 +3667,12 @@ export default function DatabasePage() {
 
               {selectedTable === 'lessons' ? (
                 <>
+                  {/* Lessons / Level Tests tab toggle */}
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                    <button onClick={() => setLessonViewMode('lessons')} className={`px-3 py-1.5 text-xs font-semibold transition ${lessonViewMode === 'lessons' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Lessons</button>
+                    <button onClick={() => { setLessonViewMode('level_tests'); setLessonClassFilter('') }} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${lessonViewMode === 'level_tests' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>📝 Level Tests</button>
+                  </div>
+                  {lessonViewMode === 'lessons' && (
                   <select
                     value={lessonClassFilter}
                     onChange={e => setLessonClassFilter(e.target.value)}
@@ -3572,6 +3683,8 @@ export default function DatabasePage() {
                       <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
                     ))}
                   </select>
+                  )}
+                  {lessonViewMode === 'lessons' && (
                   <button
                     onClick={handleGenerateLessons}
                     disabled={!lessonClassFilter || generatingLessons || loading}
@@ -3580,8 +3693,9 @@ export default function DatabasePage() {
                   >
                     {generatingLessons ? '⟳ Generating…' : '⟳ Generate Lessons'}
                   </button>
-                  <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
-                    <span className="text-sm leading-none">+</span> Add Lesson
+                  )}
+                  <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    <span className="text-sm leading-none">+</span> {lessonViewMode === 'level_tests' ? 'Add Level Test' : 'Add Lesson'}
                   </button>
                 </>
               ) : selectedTable === T_STUDENTS ? (
@@ -4194,6 +4308,12 @@ export default function DatabasePage() {
                 </div>
                 </div>
               )
+            ) : selectedTable === T_LESSONS && lessonViewMode === 'level_tests' ? (
+              loading ? (
+                <div className="flex items-center justify-center h-full"><p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p></div>
+              ) : (
+                <LevelTestsView rows={rows.filter(r => r.lesson_type === 'level_test')} onOpen={(lid) => router.push(`/tutor/lessons/${lid}`)} onDelete={handleDeleteLevelTest} />
+              )
             ) : (selectedTable === T_PARENTS && guardianViewMode === 'families') ? null
             : (selectedTable === T_STUDENTS && studentViewMode === 'cards') ? null
             : loading ? (
@@ -4395,10 +4515,11 @@ export default function DatabasePage() {
                                          : isName ? (ri % 2 === 0 ? '#F0FDF4' : '#E8FAF0')
                                          : baseBg
 
-                          // For makeup lesson rows: derive week from lesson_date if week is null
+                          // Derive week from lesson_date when the stored week is blank
+                          // (makeups + ad-hoc/added lessons), so the week always matches the date.
                           const isMakeupRow = selectedTable === T_LESSONS && row.is_makeup
                           let makeupWeek = dv
-                          if (col === LESSON_WEEK_COL && isMakeupRow && makeupWeek === null && row.lesson_date && allTerms?.length) {
+                          if (col === LESSON_WEEK_COL && selectedTable === T_LESSONS && (makeupWeek === null || makeupWeek === '') && row.lesson_date && allTerms?.length) {
                             const ld = new Date(row.lesson_date + 'T00:00:00')
                             for (const t of allTerms) {
                               if (!t.start_date || !t.end_date) continue
@@ -4477,13 +4598,13 @@ export default function DatabasePage() {
                                 if (ek === 'date' && (editValue === '' || /^\d{4}-\d{2}-\d{2}$/.test(editValue))) return (
                                   <input ref={editInputRef} type="date" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
                                 )
-                                // Single-select dropdown (metadata or legacy map)
-                                if (cellDropdown(selectedTable, col)) return (
+                                // Single-select dropdown (metadata, dynamic ref list, or legacy map)
+                                if (cellDropdownFor(selectedTable, col)) return (
                                   <select ref={editInputRef} value={editValue} onChange={e => handleDropdownSave(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setEditingCell(null) }} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs cursor-pointer" style={{ width:w }}>
                                     <option value="">—</option>
                                     {/* keep the current (possibly legacy) value selectable so old rows still save */}
-                                    {editValue && !cellDropdown(selectedTable, col).includes(editValue) && <option value={editValue}>{editValue} (legacy)</option>}
-                                    {cellDropdown(selectedTable, col).map(o => <option key={o} value={o}>{o}</option>)}
+                                    {editValue && !cellDropdownFor(selectedTable, col).includes(editValue) && <option value={editValue}>{editValue} (legacy)</option>}
+                                    {cellDropdownFor(selectedTable, col).map(o => <option key={o} value={o}>{o}</option>)}
                                   </select>
                                 )
                                 // Plain text / number fallback
@@ -4990,6 +5111,195 @@ export default function DatabasePage() {
                 className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {addClassSaving ? 'Adding…' : 'Add Class'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* ── Add Lesson Modal ─────────────────────────────────────────────────── */}
+      {showAddLessonModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddLessonModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
+              <h2 className="text-base font-bold text-[#2A2035] font-display">{newLessonForm.lesson_type === 'class' ? 'Add Lesson' : 'Add Level Test'}</h2>
+              <p className="text-xs text-[#2A2035]/50 mt-0.5">{newLessonForm.lesson_type === 'class' ? 'Adds a lesson for a class on a specific date.' : 'Adds a level test for a student. Open it later to mark and send the report.'}</p>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 space-y-4">
+              {/* Student (first) — level tests are for one student */}
+              {newLessonForm.lesson_type !== 'class' && (
+              <div>
+                <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Student <span className="text-red-400">*</span></label>
+                <input
+                  type="text"
+                  value={newLessonForm.student_name}
+                  onChange={e => setNewLessonForm(p => ({ ...p, student_name: e.target.value }))}
+                  placeholder="Student name"
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                />
+              </div>
+              )}
+
+              {/* Level tests — multi-select checkbox dropdown */}
+              {newLessonForm.lesson_type === 'level_test' && (
+                <div>
+                  <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Level tests <span className="text-red-400">*</span></label>
+                  <div className="relative">
+                    <button type="button" onClick={() => setLtPickerOpen(o => !o)}
+                      className="w-full flex items-center justify-between gap-2 border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]">
+                      <span className={newLessonForm.level_test_build_ids.length ? 'text-[#2A2035]' : 'text-[#2A2035]/40'}>
+                        {newLessonForm.level_test_build_ids.length ? `${newLessonForm.level_test_build_ids.length} test${newLessonForm.level_test_build_ids.length > 1 ? 's' : ''} selected` : 'Select level test(s)…'}
+                      </span>
+                      <span className="text-[#325099]/60 text-[10px]">▾</span>
+                    </button>
+                    {ltPickerOpen && (
+                      <div className="absolute z-10 mt-1 w-full max-h-52 overflow-auto bg-white border border-[#DEE7FF] rounded-lg shadow-lg p-1">
+                        {levelTestsForLessons.length === 0 ? (
+                          <p className="text-[11px] text-[#2A2035]/40 px-2 py-2">No level tests yet — build one in Resources → Level Tests.</p>
+                        ) : levelTestsForLessons.map(lt => {
+                          const checked = newLessonForm.level_test_build_ids.includes(lt.id)
+                          return (
+                            <label key={lt.id} className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-[#F0F4FF] cursor-pointer">
+                              <input type="checkbox" checked={checked} className="mt-0.5 accent-[#325099]"
+                                onChange={() => setNewLessonForm(p => ({ ...p, level_test_build_ids: checked ? p.level_test_build_ids.filter(x => x !== lt.id) : [...p.level_test_build_ids, lt.id] }))} />
+                              <span className="text-sm text-[#2A2035] leading-snug">{lt.title}{lt.year ? ` · Yr ${lt.year}` : ''}{lt.subject ? ` · ${lt.subject}` : ''}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {newLessonForm.level_test_build_ids.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {newLessonForm.level_test_build_ids.map(id => {
+                        const lt = levelTestsForLessons.find(x => x.id === id)
+                        return (
+                          <span key={id} className="inline-flex items-center gap-1 text-[11px] font-semibold bg-[#EEF4FF] text-[#062E63] rounded-full pl-2.5 pr-1.5 py-0.5">
+                            {lt?.title || 'Test'}
+                            <button type="button" onClick={() => setNewLessonForm(p => ({ ...p, level_test_build_ids: p.level_test_build_ids.filter(x => x !== id) }))}
+                              className="text-[#062E63]/50 hover:text-[#062E63]">✕</button>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Class link (only for class lessons) */}
+              {newLessonForm.lesson_type === 'class' && (
+                <div>
+                  <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Class <span className="text-red-400">*</span></label>
+                  <select
+                    value={newLessonForm.class_id}
+                    onChange={e => pickLessonClass(e.target.value)}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                  >
+                    <option value="">Select a class…</option>
+                    {classesForLessons.map(c => (
+                      <option key={c.id} value={c.id}>{c.label || c.class_name}{c.day_of_week ? ` (${c.day_of_week})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Date */}
+              <div>
+                <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Date <span className="text-red-400">*</span></label>
+                <input
+                  type="date"
+                  value={newLessonForm.lesson_date}
+                  onChange={e => setNewLessonForm(p => ({ ...p, lesson_date: e.target.value }))}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                />
+              </div>
+
+              {/* Scheduled teacher — only for 1:1 lessons (classes use the class's teacher) */}
+              {newLessonForm.lesson_type === 'one_on_one' && (
+              <div>
+                <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Scheduled teacher <span className="text-red-400">*</span></label>
+                <select
+                  value={newLessonForm.teacher_id}
+                  onChange={e => setNewLessonForm(p => ({ ...p, teacher_id: e.target.value }))}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                >
+                  <option value="">Select a teacher…</option>
+                  {allStaffForLessons.map(s => (
+                    <option key={s.id} value={s.id}>{s.full_name}</option>
+                  ))}
+                </select>
+              </div>
+              )}
+
+              {/* Time */}
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Start time <span className="text-red-400">*</span></label>
+                  <input
+                    type="time"
+                    value={newLessonForm.start_time}
+                    onChange={e => setNewLessonForm(p => ({ ...p, start_time: e.target.value }))}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">End time</label>
+                  <input
+                    type="time"
+                    value={newLessonForm.end_time}
+                    onChange={e => setNewLessonForm(p => ({ ...p, end_time: e.target.value }))}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                  />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Notes</label>
+                <textarea
+                  rows={2}
+                  value={newLessonForm.notes}
+                  onChange={e => setNewLessonForm(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Optional notes for this lesson…"
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white resize-y focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                />
+              </div>
+
+              {/* Room */}
+              <div>
+                <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Room</label>
+                <input
+                  type="text"
+                  value={newLessonForm.room}
+                  onChange={e => setNewLessonForm(p => ({ ...p, room: e.target.value }))}
+                  placeholder="e.g. Room 2"
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                />
+              </div>
+
+              {!lessonFormValid && (
+                <p className="text-[11px] text-[#2A2035]/40">{newLessonForm.lesson_type === 'class' ? 'A class, date and start time are required.' : `Date, student, start time and ${newLessonForm.lesson_type === 'level_test' ? 'a level test' : 'a teacher'} are required.`}</p>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2">
+              <button
+                onClick={() => setShowAddLessonModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddLesson}
+                disabled={addLessonSaving || !lessonFormValid}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {addLessonSaving ? 'Adding…' : 'Add Lesson'}
               </button>
             </div>
           </div>

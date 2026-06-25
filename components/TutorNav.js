@@ -41,6 +41,7 @@ const ADMIN_GROUPS = [
       { label: 'Questions',       href: '/tutor/qbank',            icon: '❓' },
       { label: 'Exams',           href: '/tutor/qbank/exams',      icon: '🧪' },
       { label: 'Syllabus',        href: '/tutor/resources/syllabus', icon: '📚' },
+      { label: 'Level Tests',     href: '/tutor/resources/level-test', icon: '📝' },
     ],
   },
   {

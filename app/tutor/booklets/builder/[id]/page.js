@@ -12,6 +12,7 @@ import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
 import { fetchSyllabus } from '../../../../../lib/syllabus'
+import { buildSyllabusContent } from '../../../../../lib/bookletContent'
 
 // Standard year/subject options so metadata is consistent across booklets.
 // Topics are loaded per year+subject from the shared `topics` table. The stored
@@ -111,9 +112,12 @@ export default function BookletBuilderEditor() {
         // Booklet-level syllabus_points = union of every section's drawn dotpoints
         // (drives the Syllabus page's auto coverage).
         const allPoints = [...new Set((b.blocks || []).flatMap(bl => (bl.type === 'section' && Array.isArray(bl.syllabus_points)) ? bl.syllabus_points : []))]
+        // Chemistry: the content summary is generated from the sections' drawn
+        // dotpoints (section header + its points). Other subjects keep free text.
+        const contentVal = b.subject === 'Chemistry' ? buildSyllabusContent(b.blocks) : (b.content ?? null)
         await supabase.from(T_BOOKLET_BUILDS).update({
           title: b.title, year: b.year ? Number(b.year) : null, subject: b.subject, topic: b.topic,
-          content: b.content ?? null, blocks: b.blocks,
+          content: contentVal, blocks: b.blocks,
           syllabus_points: allPoints,
           updated_at: new Date().toISOString(),
         }).eq('id', b.id)
@@ -258,7 +262,8 @@ export default function BookletBuilderEditor() {
     const [m] = arr.splice(from, 1); arr.splice(to, 0, m); setBlocks(arr)
   }
 
-  const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title } : {}
+  const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title, docType: bk.doc_type || 'booklet', cover: bk.cover || null } : {}
+  const isLevelTest = bk?.doc_type === 'level_test'
 
   const openExport = async (solutions) => {
     setExporting(true)
@@ -291,7 +296,8 @@ export default function BookletBuilderEditor() {
       const filePaths = [studentPath, solutionsPath]
       const payload = {
         booklet_name: bk.title, year: Number(bk.year), subject: bk.subject,
-        topic: bk.topic || null, content: bk.content || null,
+        topic: bk.topic || null,
+        content: bk.subject === 'Chemistry' ? buildSyllabusContent(bk.blocks) : (bk.content || null),
         file_path: studentPath, file_paths: filePaths,
       }
       let bookletId = bk.booklet_id
@@ -398,7 +404,7 @@ export default function BookletBuilderEditor() {
       {/* Top bar */}
       <div className="sticky top-0 z-30 bg-white border-b border-[#DEE7FF]">
         <div className="max-w-[1500px] mx-auto px-5 py-3 flex items-center gap-3 flex-wrap">
-          <button onClick={() => router.push('/tutor/booklets/builder')} className="text-[#325099] text-sm hover:underline">← Booklets</button>
+          <button onClick={() => router.push(isLevelTest ? '/tutor/resources/level-test' : '/tutor/booklets/builder')} className="text-[#325099] text-sm hover:underline">{isLevelTest ? '← Level tests' : '← Booklets'}</button>
           <div className="flex-1 min-w-[200px] text-base font-semibold text-[#2A2035] px-2 py-1 truncate" title="Auto-formatted from Year · Subject · Booklet name">{formatBookletName(bk.year, bk.subject, bk.title)}</div>
           <span className="text-[11px] text-[#2A2035]/40">{saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}</span>
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
@@ -680,11 +686,13 @@ function bankToBlock(q) {
   if (q.qtype === 'mcq') {
     const opts = Array.isArray(q.options) ? q.options : []
     const options = ['A', 'B', 'C', 'D'].map((k, i) => ({ k, t: typeof opts[i] === 'string' ? opts[i] : (opts[i]?.text ?? '') }))
-    return { ...newBlock('mcq'), prompt: q.stem_latex || '', image: firstImg, options, answer: (q.correct_option || '').toString().toUpperCase().slice(0, 1), explanation: q.solution_latex || '', marks: q.marks ? String(q.marks) : '' }
+    // qbank_question_id keeps the link to the bank so level-test marking can draw
+    // the question's topic + marks for the topical analysis.
+    return { ...newBlock('mcq'), qbank_question_id: q.id, prompt: q.stem_latex || '', image: firstImg, options, answer: (q.correct_option || '').toString().toUpperCase().slice(0, 1), explanation: q.solution_latex || '', marks: q.marks ? String(q.marks) : '' }
   }
   const parts = (q.qbank_question_parts || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     .map(p => ({ prompt: p.prompt_latex || '', image: '', solution: p.solution_latex || '' }))
-  return { ...newBlock('question'), prompt: q.stem_latex || '', image: firstImg, marks: q.marks ? String(q.marks) : '', solution: q.solution_latex || '', solutionImage: firstSolImg, parts }
+  return { ...newBlock('question'), qbank_question_id: q.id, prompt: q.stem_latex || '', image: firstImg, marks: q.marks ? String(q.marks) : '', solution: q.solution_latex || '', solutionImage: firstSolImg, parts }
 }
 
 function BankPicker({ booklet, onClose, onPick }) {

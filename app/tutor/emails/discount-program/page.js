@@ -6,6 +6,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { buildDiscountEmailHtml, DEFAULT_DISCOUNT_CONTENT } from '../../../../lib/discountEmail'
+import { authedFetch } from '../../../../lib/authedFetch'
 
 const CONTENT_KEY = 'discount_email_content'
 
@@ -124,7 +125,7 @@ export default function DiscountProgramEmailPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const email = user?.email || profile?.email
       if (!email) throw new Error('Could not determine your email address.')
-      const res = await fetch('/api/send-discount-program-emails', {
+      const res = await authedFetch('/api/send-discount-program-emails', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ test: true, testEmail: email, content }),
       })
@@ -140,7 +141,7 @@ export default function DiscountProgramEmailPage() {
   const sendTestOne = async (family) => {
     setTestingKey(family.key); setError(null); setTestSentTo(null)
     try {
-      const res = await fetch('/api/send-discount-program-emails', {
+      const res = await authedFetch('/api/send-discount-program-emails', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, test: true, families: [{ parent_name: family.parent_name, parent_email: family.parent_email }] }),
       })
@@ -154,7 +155,7 @@ export default function DiscountProgramEmailPage() {
   const sendAll = async () => {
     setConfirmSend(false); setSending(true); setError(null); setResults(null)
     try {
-      const res = await fetch('/api/send-discount-program-emails', {
+      const res = await authedFetch('/api/send-discount-program-emails', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, families: selected.map(f => ({ parent_name: f.parent_name, parent_email: f.parent_email })) }),
       })

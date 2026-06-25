@@ -201,13 +201,15 @@ export default function TutorClassesPage() {
       const today2 = isoDate(new Date())
       const ahead = isoDate(addDays(new Date(), 42))
       const behind = isoDate(addDays(new Date(), -7))
-      const makeupQuery = supabase
+      let makeupQuery = supabase
         .from(T_LESSONS)
-        .select('id, lesson_date, start_time, end_time, room, class_id, makeup_student_id, makeup_source_lesson_id, students!makeup_student_id(full_name, year), classes(class_name)')
-        .eq('is_makeup', true)
+        .select('id, lesson_date, start_time, end_time, room, class_id, lesson_type, student_name, status, makeup_student_id, makeup_source_lesson_id, students!makeup_student_id(full_name, year), classes(class_name)')
+        .or('is_makeup.eq.true,makeup_student_id.not.is.null,lesson_type.not.is.null')
         .gte('lesson_date', behind)
         .lte('lesson_date', ahead)
-      if (!isAdmin || classView === 'mine') makeupQuery.eq('scheduled_teacher_id', staff.id)
+      // "My classes" view: own makeups, but always include unassigned overlay
+      // lessons (e.g. level tests, which have no teacher).
+      if (!isAdmin || classView === 'mine') makeupQuery = makeupQuery.or(`scheduled_teacher_id.eq.${staff.id},scheduled_teacher_id.is.null`)
       const { data: makeupRows } = await makeupQuery
       setMakeupSessions((makeupRows || []).map(r => ({ dateISO: r.lesson_date, lesson: r })))
 
@@ -431,16 +433,19 @@ export default function TutorClassesPage() {
         isSub: true,
       })
     }
-    // Inject makeup 1:1 sessions for this tutor
+    // Inject makeup 1:1 + ad-hoc (1:1 / level test) sessions
     for (const { dateISO, lesson } of makeupSessions) {
       const weekISODates = weekDays.map(d => isoDate(d))
       if (!weekISODates.includes(dateISO)) continue
+      if (lesson.status === 'cancelled') continue
       if (!map.has(dateISO)) map.set(dateISO, [])
-      const studentName = lesson.students?.full_name || 'Student'
+      const studentName = lesson.students?.full_name || lesson.student_name || 'Student'
+      const isLevelTest = lesson.lesson_type === 'level_test'
+      const prefix = isLevelTest ? 'Level Test' : (lesson.makeup_source_lesson_id ? '1:1 Makeup' : '1:1')
       // Build a synthetic cls-like object for the pill renderer
       const syntheticCls = {
         id: `makeup-${lesson.id}`,
-        class_name: `1:1 Makeup · ${studentName}`,
+        class_name: `${prefix} · ${studentName}`,
         start_time: lesson.start_time,
         end_time: lesson.end_time,
         room: lesson.room,
@@ -453,6 +458,8 @@ export default function TutorClassesPage() {
         dayName: '',
         cls: syntheticCls,
         isMakeup: true,
+        isLevelTest,
+        lessonId: lesson.id,
         lesson,
         studentName,
       })
@@ -1213,6 +1220,8 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                   const subColor   = isDropin ? '#0F766E99' : isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
                   const pillHref = isDropin
                     ? '/tutor/dropin'
+                    : s.isLevelTest
+                    ? `/tutor/lessons/${s.lessonId}`
                     : isMakeup
                     ? `/tutor/classes/makeup/${s.lesson?.id}`
                     : href

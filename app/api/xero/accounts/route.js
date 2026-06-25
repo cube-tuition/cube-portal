@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server'
 import { getValidToken } from '../../../../lib/xero'
+import { requireApiRole } from '../../../../lib/apiAuth'
 
 /**
  * GET /api/xero/accounts
  * Returns Xero chart-of-accounts entries suitable for invoice line item mapping.
  * Filters to REVENUE + SALES account types and adds tax types.
  */
-export async function GET() {
+export async function GET(request) {
   try {
+    const auth = await requireApiRole(request, ['admin', 'director'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
     const { access_token, tenant_id } = await getValidToken()
 
     const res = await fetch('https://api.xero.com/api.xro/2.0/Accounts', {

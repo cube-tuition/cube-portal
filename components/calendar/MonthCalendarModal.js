@@ -56,11 +56,15 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
         regular = (data || []).filter(l => l.status !== 'cancelled')
       }
 
+      // 1:1 overlay: real makeups (is_makeup) plus any student-based lesson added
+      // via the database explorer (makeup_student_id set, not a class lesson).
       let mq = supabase.from('lessons')
-        .select('id, lesson_date, start_time, makeup_source_lesson_id, students!makeup_student_id(full_name), classes(class_name)')
-        .eq('is_makeup', true)
+        .select('id, lesson_date, start_time, status, lesson_type, student_name, makeup_source_lesson_id, students!makeup_student_id(full_name), classes(class_name)')
+        .or('is_makeup.eq.true,makeup_student_id.not.is.null,lesson_type.not.is.null')
         .gte('lesson_date', minISO).lte('lesson_date', maxISO)
-      if (mineOnly && staffId) mq = mq.eq('scheduled_teacher_id', staffId)
+      // "My classes" view: show the viewer's own makeups, but always include
+      // unassigned overlay lessons (e.g. level tests, which have no teacher).
+      if (mineOnly && staffId) mq = mq.or(`scheduled_teacher_id.eq.${staffId},scheduled_teacher_id.is.null`)
       const { data: makeups } = await mq
       const movedSrc = new Set((makeups || []).map(m => m.makeup_source_lesson_id).filter(Boolean))
 
@@ -73,9 +77,14 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
         push(l.lesson_date, { id: `l-${l.id}`, name: c.class_name, time: l.start_time, sort: startMin(l.start_time), makeup: false, color: pickSubjectColor(c.class_name) })
       }
       for (const m of (makeups || [])) {
-        const sn = m.students?.full_name || 'Student'
+        if (m.status === 'cancelled') continue
+        const sn = m.students?.full_name || m.student_name || 'Student'
         const subjName = m.classes?.class_name || ''
-        push(m.lesson_date, { id: `m-${m.id}`, name: `1:1 Makeup · ${sn}`, time: m.start_time, sort: startMin(m.start_time), makeup: true, color: pickSubjectColor(subjName) })
+        // A genuine makeup points back at a source lesson; an ad-hoc 1:1 added in
+        // the explorer does not, so label it simply "1:1".
+        const isLevelTest = m.lesson_type === 'level_test'
+        const prefix = isLevelTest ? 'Level Test' : (m.makeup_source_lesson_id ? '1:1 Makeup' : '1:1')
+        push(m.lesson_date, { id: `m-${m.id}`, lessonId: m.id, levelTest: isLevelTest, name: `${prefix} · ${sn}`, time: m.start_time, sort: startMin(m.start_time), makeup: true, color: pickSubjectColor(subjName) })
       }
       for (const k of Object.keys(map)) map[k].sort((a, b) => a.sort - b.sort)
       if (!cancelled) { setByDate(map); setLoading(false) }
@@ -132,13 +141,22 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
                     <div key={dISO} className={`min-h-[104px] border border-[#EEF2FF] p-1.5 ${inMonth ? 'bg-white' : 'bg-[#FAFBFF]'} ${holiday && inMonth ? 'bg-[#FBF7FF]' : ''}`}>
                       <div className={`text-[11px] font-semibold mb-1 ${isToday ? 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#062E63] text-white' : inMonth ? 'text-[#2A2035]' : 'text-[#2A2035]/30'}`}>{day.getDate()}</div>
                       <div className="space-y-1">
-                        {pills.map(p => (
-                          <div key={p.id} title={`${p.name}${p.time ? ' · ' + fmtTime(p.time) : ''}`}
-                            style={{ background: p.color?.bg || '#EEF4FF', color: p.color?.fg || '#325099', borderLeft: p.makeup ? `3px solid ${p.color?.fg || '#6B21A8'}` : 'none' }}
-                            className="text-[10px] leading-tight rounded px-1.5 py-0.5 truncate">
-                            {p.time ? <span className="font-semibold mr-1">{fmtTime(p.time)}</span> : null}{p.name}
-                          </div>
-                        ))}
+                        {pills.map(p => {
+                          const style = { background: p.color?.bg || '#EEF4FF', color: p.color?.fg || '#325099', borderLeft: p.makeup ? `3px solid ${p.color?.fg || '#6B21A8'}` : 'none' }
+                          const inner = <>{p.time ? <span className="font-semibold mr-1">{fmtTime(p.time)}</span> : null}{p.name}</>
+                          const title = `${p.name}${p.time ? ' · ' + fmtTime(p.time) : ''}${p.levelTest ? ' · click to mark' : ''}`
+                          return p.levelTest ? (
+                            <a key={p.id} href={`/tutor/lessons/${p.lessonId}`} title={title} style={style}
+                              className="block text-[10px] leading-tight rounded px-1.5 py-0.5 truncate hover:underline">
+                              {inner}
+                            </a>
+                          ) : (
+                            <div key={p.id} title={title} style={style}
+                              className="text-[10px] leading-tight rounded px-1.5 py-0.5 truncate">
+                              {inner}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )

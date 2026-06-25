@@ -1,7 +1,15 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { coverHtml, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems } from '../../lib/bookletRender'
+import { coverHtml, levelTestCoverHtml, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems } from '../../lib/bookletRender'
+
+// Right-hand footer label for a doc. Level tests read "Year N Level test".
+function footerLabelFor(meta, { homework, quiz } = {}) {
+  if (meta?.docType === 'level_test') return `${meta.year ? `Year ${meta.year} ` : ''}Level test`
+  if (quiz) return 'Mathematics Revision Quiz'
+  if (homework) return 'Mathematics Homework'
+  return 'Mathematics Booklet'
+}
 
 /*
  * BookletPreview — live, on-screen render of a booklet using the SAME renderer
@@ -21,7 +29,9 @@ const PAGE_H = 1123  // A4 height @ 96dpi, matches lib/bookletExport
 const PAGE_W = 794   // A4 width @ 96dpi
 
 export default function BookletPreview({ meta = {}, blocks = [], solutions = false, scale: maxScale = 0.72 }) {
-  const cover = coverHtml(meta, { solutions })
+  const cover = meta.docType === 'level_test'
+    ? levelTestCoverHtml(meta, { solutions })
+    : coverHtml(meta, { solutions })
 
   // Paginated content: array of HTML strings, one per A4 content page.
   const [pages, setPages] = useState([])
@@ -130,7 +140,7 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
             <div key={i} className="bk-page" style={pageStyle}>
               <div className="bk-watermark" dangerouslySetInnerHTML={{ __html: WATERMARK_SVG }} />
               <div className="bk-content" dangerouslySetInnerHTML={{ __html: pg.html }} />
-              <div dangerouslySetInnerHTML={{ __html: footerHtml(i + 2, pg.quiz ? 'Mathematics Revision Quiz' : pg.homework ? 'Mathematics Homework' : 'Mathematics Booklet') }} />
+              <div dangerouslySetInnerHTML={{ __html: footerHtml(i + 2, footerLabelFor(meta, { quiz: pg.quiz, homework: pg.homework })) }} />
             </div>
           ))
         )}

@@ -7,6 +7,7 @@ import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
 import { fmtTime } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
+import BookletContentView from '../../../components/booklet/BookletContentView'
 
 const SUBJECTS_BY_YEAR = {
   11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
@@ -45,9 +46,7 @@ function ContentModal({ booklet, onClose }) {
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
         </div>
         <div className="overflow-y-auto flex-1 px-6 py-5">
-          {booklet.content
-            ? <p className="text-sm text-[#2A2035] whitespace-pre-wrap leading-relaxed">{booklet.content}</p>
-            : <p className="text-sm text-[#2A2035]/40 text-center py-8">No content listed for this booklet yet.</p>}
+          <BookletContentView text={booklet.content} />
         </div>
       </div>
     </div>

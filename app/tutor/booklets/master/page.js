@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import BookletContentView from '../../../../components/booklet/BookletContentView'
+import { buildSyllabusContent } from '../../../../lib/bookletContent'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -1106,19 +1108,26 @@ export default function MasterDatabasePage() {
               <button onClick={() => setViewContent(null)} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
             </div>
             <div className="overflow-y-auto flex-1 px-6 py-5">
-              {viewContent.content ? (
-                <p className="text-sm text-[#2A2035] whitespace-pre-wrap leading-relaxed">{viewContent.content}</p>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-sm text-[#2A2035]/40">No content listed for this booklet yet.</p>
-                  <button
-                    onClick={() => { setEditingBooklet(viewContent); setViewContent(null) }}
-                    className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
-                  >
-                    Add content →
-                  </button>
-                </div>
-              )}
+              {(() => {
+                // Chemistry content is generated live from the sections' drawn
+                // syllabus dotpoints; other subjects show their saved summary.
+                const text = viewContent.subject === 'Chemistry'
+                  ? (buildSyllabusContent(viewContent.blocks) || viewContent.content)
+                  : viewContent.content
+                return (text && text.trim()) ? (
+                  <BookletContentView text={text} />
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-[#2A2035]/40">No content listed for this booklet yet.</p>
+                    <button
+                      onClick={() => { setEditingBooklet(viewContent); setViewContent(null) }}
+                      className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
+                    >
+                      Add content →
+                    </button>
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </div>

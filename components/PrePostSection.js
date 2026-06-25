@@ -227,6 +227,9 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
   // ── Class averages (for charts) ───────────────────────────────────────────
   const classAvg = useMemo(() => {
     if (topics.length === 0 || roster.length === 0) return { pre: null, post: null, byTopic: { pre: [], post: [] } }
+    // Privacy: with ≤2 students a "class average" reveals the only other child's
+    // score, so suppress it entirely (matches the exam analysis convention).
+    if (roster.length <= 2) return { pre: null, post: null, byTopic: { pre: topics.map(() => null), post: topics.map(() => null) } }
     const avg = (mode) => {
       const totals = roster.map(s => studentTotal(s.id, mode)).filter(v => v != null)
       return totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : null
@@ -663,9 +666,12 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
   const expPrePct  = expectedPre  != null && totalMarks > 0 ? Math.round((Number(expectedPre)  / totalMarks) * 100) : null
   const expPostPct = expectedPost != null && totalMarks > 0 ? Math.round((Number(expectedPost) / totalMarks) * 100) : null
   const hasExpected = expPrePct != null || expPostPct != null
+  // Class average is suppressed for small cohorts (≤2 students) — in that case
+  // classAvg.pre/post are null and we drop the bar, legend and title entirely.
+  const hasClassAvg = classAvg && (classAvg.pre != null || classAvg.post != null)
   const totalChartData = [
-    { name: 'Pre test',  'Score': hasPreData  ? safePct(preTotal,  totalMarks) : 0, 'Class avg': classAvg.pre  != null ? safePct(classAvg.pre,  totalMarks) : 0, 'Expected': expPrePct },
-    { name: 'Post test', 'Score': hasPostData ? safePct(postTotal, totalMarks) : 0, 'Class avg': classAvg.post != null ? safePct(classAvg.post, totalMarks) : 0, 'Expected': expPostPct },
+    { name: 'Pre test',  'Score': hasPreData  ? safePct(preTotal,  totalMarks) : 0, 'Class avg': hasClassAvg && classAvg.pre  != null ? safePct(classAvg.pre,  totalMarks) : null, 'Expected': expPrePct },
+    { name: 'Post test', 'Score': hasPostData ? safePct(postTotal, totalMarks) : 0, 'Class avg': hasClassAvg && classAvg.post != null ? safePct(classAvg.post, totalMarks) : null, 'Expected': expPostPct },
   ]
   return (
     <div className="space-y-6">
@@ -709,9 +715,12 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
       </div>
       </div>
 
-      {/* Totals vs class average — centred on its own row */}
+      {/* Totals vs class average — centred on its own row.
+          Class average is hidden for small cohorts (≤2 students). */}
       <div className="md:max-w-[calc(50%-12px)] md:mx-auto">
-        <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">{fn}: Pre/Post test vs Class Average (Total)</p>
+        <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">
+          {fn}: Pre/Post test {hasClassAvg ? 'vs Class Average ' : ''}(Total)
+        </p>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={totalChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#EEF4FF" />
@@ -720,11 +729,11 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
             <Tooltip content={<ChartTooltip />} />
             <Legend content={<FixedLegend items={[
               { label: `${fn}'s score`, color: SCORE_GREEN },
-              { label: 'Class average', color: AVG_COLOR },
+              ...(hasClassAvg ? [{ label: 'Class average', color: AVG_COLOR }] : []),
               ...(hasExpected ? [{ label: 'Expected', color: EXP_COLOR }] : []),
             ]} />} />
             <Bar dataKey="Score"     fill={SCORE_GREEN} name={`${fn}'s score`} radius={[3,3,0,0]} unit="%" />
-            <Bar dataKey="Class avg" fill={AVG_COLOR}  name="Class average" radius={[3,3,0,0]} unit="%" />
+            {hasClassAvg && <Bar dataKey="Class avg" fill={AVG_COLOR}  name="Class average" radius={[3,3,0,0]} unit="%" />}
             {hasExpected && <Bar dataKey="Expected" fill={EXP_COLOR} name="Expected" radius={[3,3,0,0]} unit="%" />}
           </BarChart>
         </ResponsiveContainer>
@@ -755,6 +764,15 @@ export async function loadPrePostForReport(classId, termId, roster = []) {
   }
   const topics = testRow.topics || []
   const totalMarks = topics.reduce((s, t) => s + (Number(t.marks) || 0), 0)
+  // Privacy: with ≤2 students a class average reveals the only other child's
+  // score, so don't compute/show it (matches the exam analysis convention).
+  if (roster.length <= 2) {
+    return {
+      topics, totalMarks, scores: scoresMap,
+      classAvg: { pre: null, post: null, byTopic: { pre: topics.map(() => null), post: topics.map(() => null) } },
+      expectedPre: testRow.expected_pre ?? null, expectedPost: testRow.expected_post ?? null,
+    }
+  }
   const studentTotal = (sid, mode) => {
     const filled = (scoresMap[sid]?.[mode] || []).filter(s => s != null && s !== '')
     return filled.length ? filled.reduce((a, b) => a + Number(b), 0) : null

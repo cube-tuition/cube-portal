@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { formatTermLabel } from '../../../lib/terms'
-import { T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
+import { T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
 
 // tutors.pay_method → payment group. Anything unrecognised lands in 'unset'.
 function payMethodGroup(pm) {
@@ -95,6 +95,7 @@ export default function PayrollPage() {
   const [shifts, setShifts] = useState([])
   const [payMethods, setPayMethods] = useState({})   // tutor_id → pay_method (bank/cash)
   const [cashTutors, setCashTutors] = useState([])   // [{id, full_name, cash_pay_weekday}] for the cash pay schedule
+  const [cashPaid, setCashPaid] = useState({})       // tutor_id → cash_pay_status row (this run)
   const [payTab, setPayTab] = useState('bank')       // active pay-method tab
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -124,6 +125,13 @@ export default function PayrollPage() {
         .order('start_time', { ascending: true })
       if (shErr) throw shErr
       setShifts(sh || [])
+
+      // Which cash tutors have already been marked paid for this run
+      const { data: cps } = await supabase
+        .from(T_CASH_PAY_STATUS)
+        .select('*')
+        .eq('pay_run_id', pr.id)
+      setCashPaid(Object.fromEntries((cps || []).map(r => [r.tutor_id, r])))
     } catch (e) {
       setError(e.message || String(e))
     } finally {
@@ -215,6 +223,64 @@ export default function PayrollPage() {
       alert('Save failed: ' + (e.message || String(e)))
     } finally {
       setSavingId(null)
+    }
+  }
+
+  // Mark a cash tutor as paid for this run → records an outflow in the cash log
+  // and remembers the link so it can be reversed. `amount` is their cash total
+  // for the current fortnight.
+  const markCashPaid = async (tutor, amount) => {
+    if (!run || !activeTerm) return
+    const owed = Math.abs(Number(amount) || 0)
+    const firstName = (tutor.full_name || '').split(' ')[0] || (tutor.full_name || 'Tutor')
+    const termLabel = activeTerm.name || formatTermLabel(activeTerm)
+    const fnLabel   = FORTNIGHT_LABELS[fortnight - 1] || ''
+    const description = `${firstName} - ${termLabel} ${fnLabel}`.trim()
+    try {
+      // 1) Add the cash log outflow row
+      const { data: logRow, error: e1 } = await supabase
+        .from(T_CASH_LOG)
+        .insert({
+          date: isoDate(new Date()),
+          direction: 'outflow',
+          type: 'wages',
+          description,
+          amount: -owed,
+          term_id: activeTerm.id,
+        })
+        .select('id')
+        .single()
+      if (e1) throw e1
+      // 2) Record the paid status, linked to the log row for clean reversal
+      const { data: st, error: e2 } = await supabase
+        .from(T_CASH_PAY_STATUS)
+        .insert({ pay_run_id: run.id, tutor_id: tutor.id, amount: owed, cash_log_id: logRow.id })
+        .select('*')
+        .single()
+      if (e2) {
+        await supabase.from(T_CASH_LOG).delete().eq('id', logRow.id) // roll back orphaned log row
+        throw e2
+      }
+      setCashPaid(prev => ({ ...prev, [tutor.id]: st }))
+    } catch (e) {
+      alert('Could not mark as paid: ' + (e.message || String(e)))
+    }
+  }
+
+  // Undo a cash payment → delete the auto-created cash log row and the status.
+  const markCashUnpaid = async (tutor) => {
+    const st = cashPaid[tutor.id]
+    if (!st) return
+    try {
+      if (st.cash_log_id != null) {
+        const { error: e1 } = await supabase.from(T_CASH_LOG).delete().eq('id', st.cash_log_id)
+        if (e1) throw e1
+      }
+      const { error: e2 } = await supabase.from(T_CASH_PAY_STATUS).delete().eq('id', st.id)
+      if (e2) throw e2
+      setCashPaid(prev => { const n = { ...prev }; delete n[tutor.id]; return n })
+    } catch (e) {
+      alert('Could not mark as unpaid: ' + (e.message || String(e)))
     }
   }
 
@@ -451,7 +517,7 @@ export default function PayrollPage() {
           </div>
         )}
 
-        {payTab === 'cash' && <CashSchedulePanel tutors={cashTutors} shifts={shifts} onChange={setCashTutors} />}
+        {payTab === 'cash' && <CashSchedulePanel tutors={cashTutors} shifts={shifts} onChange={setCashTutors} paid={cashPaid} onMarkPaid={markCashPaid} onMarkUnpaid={markCashUnpaid} canPay={!!run} />}
 
         {[payGroups.find(g => g.id === payTab) ?? payGroups[0]].filter(Boolean).map(group => (
           <div key={group.id} className="mb-8">
@@ -765,7 +831,8 @@ function ShiftRow({ shift, editable, saving, onUpdate }) {
 // on that weekday with the amount owed (computed from their approved shifts).
 const WEEKDAYS = [{ v: 1, l: 'Monday' }, { v: 2, l: 'Tuesday' }, { v: 3, l: 'Wednesday' }, { v: 4, l: 'Thursday' }, { v: 5, l: 'Friday' }, { v: 6, l: 'Saturday' }, { v: 7, l: 'Sunday' }]
 
-function CashSchedulePanel({ tutors, shifts, onChange }) {
+function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, onMarkUnpaid, canPay = true }) {
+  const [busyId, setBusyId] = useState(null)
   const amt = {}
   for (const s of shifts || []) amt[s.tutor_id] = (amt[s.tutor_id] || 0) + Number(s.amount || 0)
   const setDay = async (id, val) => {
@@ -773,27 +840,53 @@ function CashSchedulePanel({ tutors, shifts, onChange }) {
     onChange(prev => prev.map(t => (t.id === id ? { ...t, cash_pay_weekday: wd } : t)))
     await supabase.from(T_TUTORS).update({ cash_pay_weekday: wd }).eq('id', id)
   }
+  const togglePaid = async (t) => {
+    setBusyId(t.id)
+    try {
+      if (paid[t.id]) await onMarkUnpaid?.(t)
+      else await onMarkPaid?.(t, amt[t.id] || 0)
+    } finally {
+      setBusyId(null)
+    }
+  }
   return (
     <div className="mb-6 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
       <div className="px-5 py-3 bg-[#F8FAFF] border-b border-[#DEE7FF]">
         <p className="text-sm font-bold text-[#062E63]">🗓 Cash pay schedule</p>
-        <p className="text-[11px] text-[#325099]/60">Pick the weekday each cash teacher is paid. After every fortnight, a reminder appears in the Action Centre on that day with the amount to hand over.</p>
+        <p className="text-[11px] text-[#325099]/60">Pick the weekday each cash teacher is paid. When you hand over the cash, hit <span className="font-semibold">Mark paid</span> — it records the outflow in the Cash Log automatically. Marking unpaid removes that log row.</p>
       </div>
       {tutors.length === 0 ? (
         <p className="px-5 py-6 text-xs text-[#2A2035]/45">No cash teachers yet. Set a tutor’s pay method to “cash” in the database explorer to schedule them here.</p>
       ) : (
         <div className="divide-y divide-[#F0F4FF]">
-          {tutors.map(t => (
+          {tutors.map(t => {
+            const isPaid = !!paid[t.id]
+            const owed   = amt[t.id] || 0
+            const busy   = busyId === t.id
+            return (
             <div key={t.id} className="flex items-center gap-3 px-5 py-2.5">
               <span className="flex-1 text-sm font-medium text-[#2A2035] truncate">{t.full_name}</span>
-              <span className="text-[11px] text-[#2A2035]/45 w-28 text-right tabular-nums">{amt[t.id] ? `${fmtMoney(amt[t.id])} this run` : '—'}</span>
+              <span className="text-[11px] text-[#2A2035]/45 w-28 text-right tabular-nums">{owed ? `${fmtMoney(owed)} this run` : '—'}</span>
               <select value={t.cash_pay_weekday ?? ''} onChange={e => setDay(t.id, e.target.value)}
                 className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#325099]">
                 <option value="">No pay day set</option>
                 {WEEKDAYS.map(d => <option key={d.v} value={d.v}>{d.l}</option>)}
               </select>
+              <button
+                onClick={() => togglePaid(t)}
+                disabled={busy || !canPay || (!isPaid && owed <= 0)}
+                title={isPaid ? 'Remove the cash log entry and mark unpaid' : owed <= 0 ? 'Nothing owed this run' : 'Record this cash payment in the Cash Log'}
+                className={`w-32 shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                  isPaid
+                    ? 'bg-[#D1FAE5] text-[#065F46] border-[#A7F3D0] hover:bg-[#FEE2E2] hover:text-[#991B1B] hover:border-[#FCA5A5]'
+                    : 'bg-[#062E63] text-white border-[#062E63] hover:bg-[#325099]'
+                }`}
+              >
+                {busy ? '…' : isPaid ? '✓ Paid · undo' : '💵 Mark paid'}
+              </button>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
