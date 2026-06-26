@@ -527,7 +527,7 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
         </select>
         <select value={slot.difficulty || ''} onChange={(e) => onCriteria({ difficulty: e.target.value ? Number(e.target.value) : null })} className={selCls}>
           <option value="">Any difficulty</option>
-          {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+          {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
         </select>
         <span className="text-[11px] text-[#2A2035]/40 ml-auto">{matches.length} match{matches.length === 1 ? '' : 'es'}</span>
         <button onClick={onRemove} title="Remove this question" className="text-[12px] text-[#2A2035]/30 hover:text-[#DC2626]">✕</button>

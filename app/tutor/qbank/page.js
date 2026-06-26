@@ -25,8 +25,8 @@ export default function QuestionBankPage() {
   const [usageMap, setUsageMap] = useState({})
 
   // filters
+  const [activeSubject, setActiveSubject] = useState('Maths')   // master subject tab
   const [year, setYear] = useState('')
-  const [subjectId, setSubjectId] = useState('')
   const [topicId, setTopicId] = useState('')
   const [subtopicId, setSubtopicId] = useState('')
   const [skillId, setSkillId] = useState('')
@@ -74,37 +74,52 @@ export default function QuestionBankPage() {
   }, [maps])
 
   // filter dropdown lists
-  const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects) : []), [tax])
-  const subjectsForYear = useMemo(() => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []), [tax, year])
+  // Years available for the active subject only (e.g. Chemistry → 11, 12).
+  const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects.filter((s) => s.name === activeSubject)) : []), [tax, activeSubject])
+  // Active subject tab + year resolves to a specific subject row (topics are per year).
+  const subjectId = useMemo(() => {
+    if (!tax || !year) return ''
+    const s = tax.subjects.find((su) => su.name === activeSubject && String(su.year_level) === String(year))
+    return s?.id || ''
+  }, [tax, year, activeSubject])
+  // Question counts per master subject (for the tab badges).
+  const subjectCounts = useMemo(() => {
+    const c = { Maths: 0, English: 0, Chemistry: 0 }
+    for (const q of questions) { const n = labelFor(q)?.subject?.name; if (n && n in c) c[n] += 1 }
+    return c
+  }, [questions, labelFor])
   const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
   const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
   const skillsForSubtopic = useMemo(() => (tax && subtopicId ? (tax.skillsBySubtopic[subtopicId] || []) : []), [tax, subtopicId])
 
-  // apply filters
-  const filtered = useMemo(() => {
+  // Questions matching every filter EXCEPT the Used/Unused tab. Drives both the
+  // list and the usage-tab counts, so the counts reflect the active subject/filters.
+  const scoped = useMemo(() => {
     if (!maps) return []
     return questions.filter((q) => {
       const l = labelFor(q)
-      if (!l?.topic) return !year && !subjectId && !topicId && !subtopicId && !skillId  // fully untagged: only when no filter
+      // Each master tab shows its own subject; untagged questions have no subject.
+      if (l.subject?.name !== activeSubject) return false
       if (skillId && q.skill_id !== skillId) return false
       if (subtopicId && l.subtopic?.id !== subtopicId) return false
       if (topicId && l.topic?.id !== topicId) return false
-      if (subjectId && l.subject?.id !== subjectId) return false
       if (year && String(l.subject?.year_level) !== String(year)) return false
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
       if (qtype && q.qtype !== qtype) return false
-      if (usageTab !== 'all') {
-        const used = (usageMap[q.id]?.count || 0) > 0
-        if (usageTab === 'used' && !used) return false
-        if (usageTab === 'unused' && used) return false
-      }
       if (search.trim()) {
         const hay = `${q.stem_latex} ${q.solution_latex}`.toLowerCase()
         if (!hay.includes(search.toLowerCase())) return false
       }
       return true
     })
-  }, [questions, maps, labelFor, year, subjectId, topicId, subtopicId, skillId, difficulty, qtype, search, usageTab, usageMap])
+  }, [questions, maps, labelFor, activeSubject, year, topicId, subtopicId, skillId, difficulty, qtype, search])
+
+  // apply the Used/Unused tab on top of the scoped set
+  const filtered = useMemo(() => scoped.filter((q) => {
+    if (usageTab === 'all') return true
+    const used = (usageMap[q.id]?.count || 0) > 0
+    return usageTab === 'used' ? used : !used
+  }), [scoped, usageTab, usageMap])
 
   const handleDelete = async (q) => {
     if (!confirm('Delete this question permanently?')) return
@@ -113,8 +128,8 @@ export default function QuestionBankPage() {
     loadQuestions()
   }
 
-  const clearFilters = () => { setYear(''); setSubjectId(''); setTopicId(''); setSubtopicId(''); setSkillId(''); setDifficulty(''); setQtype(''); setSearch('') }
-  const hasFilter = year || subjectId || topicId || subtopicId || skillId || difficulty || qtype || search
+  const clearFilters = () => { setYear(''); setTopicId(''); setSubtopicId(''); setSkillId(''); setDifficulty(''); setQtype(''); setSearch('') }
+  const hasFilter = year || topicId || subtopicId || skillId || difficulty || qtype || search
 
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
@@ -138,18 +153,24 @@ export default function QuestionBankPage() {
           </div>
         </div>
 
+        {/* Master subject tabs */}
+        <div className="flex gap-1 mt-6 border-b border-[#DEE7FF]">
+          {['Maths', 'English', 'Chemistry'].map((s) => (
+            <button key={s} onClick={() => { setActiveSubject(s); setYear(''); setTopicId(''); setSubtopicId(''); setSkillId('') }}
+              className={`px-5 py-2.5 text-sm font-bold border-b-2 -mb-px transition ${activeSubject === s ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+              {s} <span className="text-[11px] font-normal">({subjectCounts[s] || 0})</span>
+            </button>
+          ))}
+        </div>
+
         {/* Filters */}
-        <div className="mt-5 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">
-          <select value={year} onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
+        <div className="mt-4 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">
+          <select value={year} onChange={(e) => { setYear(e.target.value); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
             <option value="">All years</option>
             {years.map((y) => <option key={y} value={y}>Year {y}</option>)}
           </select>
-          <select value={subjectId} disabled={!year} onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
-            <option value="">All subjects</option>
-            {subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
           <select value={topicId} disabled={!subjectId} onChange={(e) => { setTopicId(e.target.value); setSubtopicId(''); setSkillId('') }} className={selCls}>
-            <option value="">All topics</option>
+            <option value="">{activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}</option>
             {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <select value={subtopicId} disabled={!topicId} onChange={(e) => { setSubtopicId(e.target.value); setSkillId('') }} className={selCls}>
@@ -162,7 +183,7 @@ export default function QuestionBankPage() {
           </select>
           <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
             <option value="">Any difficulty</option>
-            {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+            {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
           </select>
           <select value={qtype} onChange={(e) => setQtype(e.target.value)} className={selCls}>
             <option value="">All types</option>
@@ -177,8 +198,8 @@ export default function QuestionBankPage() {
         {/* Used / Unused tabs */}
         <div className="flex gap-1 mt-5 border-b border-[#DEE7FF]">
           {(() => {
-            const usedCount = questions.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
-            const tabs = [['all', 'All', questions.length], ['used', 'Used', usedCount], ['unused', 'Unused', questions.length - usedCount]]
+            const usedCount = scoped.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
+            const tabs = [['all', 'All', scoped.length], ['used', 'Used', usedCount], ['unused', 'Unused', scoped.length - usedCount]]
             return tabs.map(([v, lbl, n]) => (
               <button key={v} onClick={() => setUsageTab(v)}
                 className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${usageTab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
@@ -210,7 +231,7 @@ export default function QuestionBankPage() {
                     {DIFFICULTY_LABELS[q.difficulty]}
                   </span>
                   {q.qtype === 'mcq' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">MCQ</span>}
-                  {q.audience === 'exam' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">Exam only</span>}
+                  {q.audience === 'exam' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">CUBE</span>}
                   {q.audience === 'student' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#DCFCE7] text-[#166534]">Students</span>}
                   {q.audience === 'both' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#475569]">Both</span>}
                   <UsageBadge usage={usageMap[q.id]} />

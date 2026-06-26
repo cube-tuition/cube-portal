@@ -962,7 +962,7 @@ function SessionModal({ session, onClose, onSaved }) {
   const [err, setErr] = useState('')
 
   useEffect(() => {
-    supabase.from('tutors').select('id, full_name').order('full_name').then(({ data }) => setTutorsList(data || []))
+    supabase.from('tutors').select('id, full_name').eq('active', true).order('full_name').then(({ data }) => setTutorsList(data || []))
   }, [])
 
   const toggleSubject = s => setForm(f => ({
@@ -1327,6 +1327,8 @@ export default function DatabasePage() {
       const names = refData.options(T_TUTORS).map(o => o.label).filter(Boolean)
       return names.length ? Array.from(new Set(names)) : null
     }
+    // tutors.active is a boolean column, but presented as an Active/Inactive picker.
+    if (table === T_TUTORS && col === 'active') return ['Active', 'Inactive']
     return cellDropdown(table, col)
   }, [refData])
   const [detailRecord, setDetailRecord] = useState(null)   // { realTable, row } | null
@@ -1497,6 +1499,7 @@ export default function DatabasePage() {
   // Tables where rows have a direct or indirect term_id relationship
   const TERM_SCOPED = useMemo(() => new Set([T_CLASSES, T_ENROLMENTS, T_LESSONS, T_INVOICES]), [])
   const [dbTermFilter, setDbTermFilter] = useState(null) // term id | null = all terms
+  const [tutorStatusTab, setTutorStatusTab] = useState('active') // tutors view: 'active' | 'inactive' | 'all'
 
   // Search
   const [search, setSearch] = useState('')
@@ -2011,6 +2014,11 @@ export default function DatabasePage() {
     if (col === pkCol || isNameCol(col)) return
     setDeleteConfirm(null); setContextMenu(null)
     setEditingCell({ rowId, col })
+    // tutors.active (boolean) is edited via an Active/Inactive dropdown.
+    if (selectedTable === T_TUTORS && col === 'active') {
+      setEditValue(currentVal === false || currentVal === 'false' ? 'Inactive' : 'Active')
+      return
+    }
     setEditValue(currentVal === null || currentVal === undefined ? '' : String(currentVal))
   }
 
@@ -2074,7 +2082,9 @@ export default function DatabasePage() {
     if (!editingCell) return
     const { rowId, col } = editingCell
     setEditingCell(null); setSaving(true)
-    const newVal = String(value ?? '').trim() === '' ? null : String(value).trim()
+    let newVal = String(value ?? '').trim() === '' ? null : String(value).trim()
+    // tutors.active is stored as a boolean even though the picker shows Active/Inactive.
+    if (selectedTable === T_TUTORS && col === 'active') newVal = value === 'Active'
     const prevRows = rows
     const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
     if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return }
@@ -2166,8 +2176,12 @@ export default function DatabasePage() {
     const vConfig   = VIRTUAL[selectedTable]
     const realTable = vConfig?.realTable ?? selectedTable
     const payload   = { ...(vConfig?.defaultRow ?? {}) }
-    // Auto-fill term_id for new classes rows
-    if (selectedTable === 'classes' && currentTermId) payload.term_id = currentTermId
+    // Auto-fill term_id for new classes rows — use the term selected in the Term
+    // filter so rows land in the term you're viewing; fall back to current term.
+    if (selectedTable === 'classes') {
+      const targetTerm = dbTermFilter || currentTermId
+      if (targetTerm) payload.term_id = targetTerm
+    }
     for (const [k, v] of Object.entries(newRowData)) {
       if (k === pkCol || isGuardianCol(k) || k === TERM_NAME_COL || k === COURSE_NAME_COL || k === LESSON_CLASS_COL || k === LESSON_WEEK_COL || k === LESSON_MAIN_TEACHER_COL || k === LESSON_SCHED_TEACHER_COL) continue
       payload[k] = v === '' ? null : v
@@ -2212,7 +2226,7 @@ export default function DatabasePage() {
       day_of_week: newClassForm.day_of_week,
       start_time:  newClassForm.start_time,
       end_time:    newClassForm.end_time,
-      term_id:     currentTermId || null,
+      term_id:     dbTermFilter || currentTermId || null,
     }
     const { data, error } = await supabase.from(T_CLASSES).insert(payload).select().single()
     if (!error && data) {
@@ -2379,7 +2393,7 @@ export default function DatabasePage() {
       }
       if (allStaffForLessons.length === 0) {
         const [{ data: tutors }, { data: directors }] = await Promise.all([
-          supabase.from(T_TUTORS).select('id, full_name').order('full_name'),
+          supabase.from(T_TUTORS).select('id, full_name').eq('active', true).order('full_name'),
           supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
         ])
         const combined = [
@@ -3281,6 +3295,11 @@ export default function DatabasePage() {
     let out = rows
     // Level tests live in their own "Level Tests" tab, so keep them out of the lessons grid.
     if (selectedTable === T_LESSONS) out = out.filter(r => r.lesson_type !== 'level_test')
+    // Tutors view: Active / Inactive / All tabs.
+    if (selectedTable === T_TUTORS && tutorStatusTab !== 'all') {
+      const wantActive = tutorStatusTab === 'active'
+      out = out.filter(r => (r.active !== false) === wantActive)
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       out = out.filter(r => Object.values(r).some(v => v !== null && String(v).toLowerCase().includes(q)))
@@ -3303,7 +3322,7 @@ export default function DatabasePage() {
       })
     }
     return out
-  }, [rows, search, filterCfg, sortRules, selectedTable])
+  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab])
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -3662,6 +3681,21 @@ export default function DatabasePage() {
                       <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {/* Active / Inactive tabs — tutors only */}
+              {selectedTable === T_TUTORS && (
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                  {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
+                    <button
+                      key={v}
+                      onClick={() => setTutorStatusTab(v)}
+                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${tutorStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -4644,6 +4678,9 @@ export default function DatabasePage() {
                                 )
                                 if (ftype === 'boolean') {
                                   const on = dv === 'true'
+                                  if (selectedTable === T_TUTORS && col === 'active') {
+                                    return <div className="px-3 py-1.5"><span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${on ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>{on ? 'Active' : 'Inactive'}</span></div>
+                                  }
                                   return <div className="px-3 py-1.5"><span className={`inline-flex items-center gap-1 text-[11px] font-medium ${on ? 'text-emerald-700' : 'text-[#2A2035]/45'}`}>{on ? '☑ Yes' : '☐ No'}</span></div>
                                 }
                                 if (ftype === 'email') return (

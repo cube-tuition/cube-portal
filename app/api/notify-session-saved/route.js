@@ -1,5 +1,4 @@
 import { requireApiRole } from '../../../lib/apiAuth'
-import { PORTAL_BCC } from '../../../lib/emailConfig'
 
 /*
  * POST /api/notify-session-saved
@@ -33,7 +32,7 @@ export async function POST(req) {
 
   if (!process.env.RESEND_API_KEY) return Response.json({ ok: false, skipped: 'email not configured' })
 
-  const to = process.env.SESSION_EMAIL_TO || 'admin@cubetuition.com.au'
+  const to = 'cubehsctuition@gmail.com'   // all saved-session notifications go here
   const from = process.env.RESEND_FROM_EMAIL || 'CUBE Tuition <admin@cubetuition.com.au>'
 
   const { className, date, week, markedBy, hasRq = true, notes = {}, students = [] } = body || {}
@@ -81,7 +80,7 @@ export async function POST(req) {
   const resendRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: [to], bcc: [PORTAL_BCC], subject, html }),
+    body: JSON.stringify({ from, to: [to], subject, html }),
   })
   if (!resendRes.ok) {
     const t = await resendRes.text().catch(() => '')

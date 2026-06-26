@@ -1,5 +1,6 @@
 'use client'
 import LatexContent from './LatexContent'
+import { onTextKey } from '../../lib/textShortcuts'
 
 /*
  * LatexField — a labelled textarea with a live KaTeX preview underneath.
@@ -19,6 +20,7 @@ export default function LatexField({
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => onTextKey(e, value, onChange)}
         placeholder={placeholder}
         rows={rows}
         className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-mono text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white resize-y"
@@ -26,7 +28,7 @@ export default function LatexField({
       <div className="mt-1.5 rounded-xl border border-dashed border-[#DEE7FF] bg-[#F8FAFF] px-3 py-2 min-h-[2.25rem]">
         <span className="text-[10px] uppercase tracking-wide text-[#2A2035]/30 mr-2">Preview</span>
         {value?.trim()
-          ? <LatexContent text={value} className="text-sm text-[#2A2035]" />
+          ? <LatexContent rich text={value} className="text-sm text-[#2A2035]" />
           : <span className="text-xs text-[#2A2035]/30 italic">…</span>}
       </div>
     </div>

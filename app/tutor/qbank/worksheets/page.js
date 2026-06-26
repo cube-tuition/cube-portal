@@ -375,7 +375,7 @@ export default function AdditionalQuestionsPage() {
               </select>
               <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
                 <option value="">Any difficulty</option>
-                {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+                {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
               </select>
               <select value={qtype} onChange={(e) => setQtype(e.target.value)} className={selCls}>
                 <option value="">All types</option>

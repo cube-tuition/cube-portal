@@ -51,6 +51,7 @@ const ADMIN_GROUPS = [
       { label: 'Drop-ins',      href: '/tutor/dropin',               icon: '☕' },
       { label: 'Emails',        href: '/tutor/emails',               icon: '✉️'  },
       { label: 'Reports',       href: '/tutor/reports',              icon: '📊' },
+      { label: 'Timetable',     href: '/tutor/admin/timetable',      icon: '🗓️' },
       { label: 'Transition',    href: '/tutor/transition',           icon: '🔄' },
       { label: 'Trials',        href: '/tutor/trials',               icon: '🧪' },
     ],

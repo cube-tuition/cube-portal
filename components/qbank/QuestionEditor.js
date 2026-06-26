@@ -11,9 +11,44 @@ import {
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, MCQ_LABELS, fetchQuestionUsage,
   defaultCriterion, TOP_CRITERION,
 } from '../../lib/qbank'
+import { fetchSyllabus } from '../../lib/syllabus'
 import LatexField from './LatexField'
 import ImageManager from './ImageManager'
 import UsageBadge from './UsageBadge'
+
+// A scrollable checklist for multi-select tags, optionally grouped.
+// groups: [{ key, label, options: [{ id, name }] }]
+function MultiChecklist({ label, groups, selected, onToggle, empty }) {
+  const sel = new Set(selected)
+  return (
+    <div>
+      {label ? <label className="text-[11px] font-semibold text-[#2A2035]/50">{label}{selected.length ? ` · ${selected.length} selected` : ''}</label> : null}
+      <div className="mt-1 border border-[#DEE7FF] rounded-xl bg-white max-h-52 overflow-auto p-2 space-y-2">
+        {groups.length === 0 ? (
+          <p className="text-[11px] text-[#2A2035]/40 px-1 py-2">{empty}</p>
+        ) : groups.map((g) => (
+          <div key={g.key}>
+            {g.label ? <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-1 mb-1">{g.label}</p> : null}
+            {g.options.map((o) => (
+              <div key={o.id}>
+                <label className="flex items-start gap-2 px-1 py-1 rounded hover:bg-[#F0F4FF] cursor-pointer">
+                  <input type="checkbox" className="mt-0.5 accent-[#325099]" checked={sel.has(o.id)} onChange={() => onToggle(o.id)} />
+                  <span className="text-[13px] text-[#2A2035] leading-snug">{o.name}</span>
+                </label>
+                {o.subs?.length ? (
+                  <ul className="ml-7 mb-1 space-y-0.5">
+                    {o.subs.map((s, i) => <li key={i} className="text-[11px] text-[#2A2035]/45 leading-snug list-disc list-inside">{s}</li>)}
+                  </ul>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+const toggleId = (setter) => (id) => setter((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]))
 
 const blankPart = (i) => ({
   _key: Math.random().toString(36).slice(2),
@@ -63,18 +98,21 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // Cascade selection: Year → Subject → Topic → Subtopic → Skill
+  // Cascade selection: Subject → Year → Topic/Module → Subtopic → Skill
+  const [subjectName, setSubjectName] = useState('')
   const [year, setYear] = useState('')
-  const [subjectId, setSubjectId] = useState('')
   const [topicId, setTopicId] = useState('')
-  const [subtopicId, setSubtopicId] = useState('')
-  const [skillId, setSkillId] = useState('')
+  const [subtopicIds, setSubtopicIds] = useState([])   // many subtopics (Maths/English)
+  const [skillIds, setSkillIds] = useState([])         // many skills (independent dimension)
+  const [dotpointIds, setDotpointIds] = useState([])   // many syllabus dotpoints (Chemistry)
+  const [chemSyllabus, setChemSyllabus] = useState([]) // modules→topics→dotpoints for the year
+  const [dpModuleTab, setDpModuleTab] = useState(null) // active module tab in the dotpoint picker
 
   // Question fields
   const [qtype, setQtype] = useState('extended')   // 'extended' | 'mcq'
   const [stem, setStem] = useState('')
   const [solution, setSolution] = useState('')
-  const [difficulty, setDifficulty] = useState(3)
+  const [difficulty, setDifficulty] = useState(2)
   const [marks, setMarks] = useState('')
   const [audience, setAudience] = useState('both')   // 'exam' | 'student' | 'both'
   const [isMulti, setIsMulti] = useState(false)
@@ -103,7 +141,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           setQtype(q.qtype || 'extended')
           setStem(q.stem_latex || '')
           setSolution(q.solution_latex || '')
-          setDifficulty(q.difficulty || 3)
+          setDifficulty(q.difficulty || 2)
           setMarks(q.marks ?? '')
           setAudience(q.audience || 'exam')
           setIsMulti(q.is_multipart)
@@ -124,10 +162,19 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             || (skill && t.topics.find((tp) => tp.id === skill.topic_id))
             || t.topics.find((tp) => tp.id === q.topic_id)
           const subject = topic && t.subjects.find((su) => su.id === topic.subject_id)
-          if (subject) { setYear(String(subject.year_level)); setSubjectId(subject.id) }
+          if (subject) { setSubjectName(subject.name); setYear(String(subject.year_level)) }
           if (topic) setTopicId(topic.id)
-          if (subtopic) setSubtopicId(subtopic.id)
-          if (skill) setSkillId(skill.id)
+          // Multi tags from the join tables (fall back to legacy single columns).
+          const [{ data: stRows }, { data: skRows }, { data: dpRows }] = await Promise.all([
+            supabase.from('qbank_question_subtopics').select('subtopic_id').eq('question_id', questionId),
+            supabase.from('qbank_question_skills').select('skill_id').eq('question_id', questionId),
+            supabase.from('qbank_question_dotpoints').select('dotpoint_id').eq('question_id', questionId),
+          ])
+          const stIds = (stRows || []).map((r) => r.subtopic_id)
+          const skIds = (skRows || []).map((r) => r.skill_id)
+          setSubtopicIds(stIds.length ? stIds : (subtopic ? [subtopic.id] : []))
+          setSkillIds(skIds.length ? skIds : (skill ? [skill.id] : []))
+          setDotpointIds((dpRows || []).map((r) => r.dotpoint_id))
 
           const { data: pr } = await supabase.from(T_QBANK_QUESTION_PARTS)
             .select('*').eq('question_id', questionId).order('sort_order')
@@ -164,11 +211,11 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             (su) => String(su.year_level) === String(defaults.year) && su.name === defaults.subjectName,
           ) || null
         }
-        if (subject) { setYear(String(subject.year_level)); setSubjectId(subject.id) }
-        else if (defaults.year) setYear(String(defaults.year))
+        if (subject) { setSubjectName(subject.name); setYear(String(subject.year_level)) }
+        else { if (defaults.subjectName) setSubjectName(defaults.subjectName); if (defaults.year) setYear(String(defaults.year)) }
         if (topic) setTopicId(topic.id)
-        if (subtopic) setSubtopicId(subtopic.id)
-        if (skill) setSkillId(skill.id)
+        if (subtopic) setSubtopicIds([subtopic.id])
+        if (skill) setSkillIds([skill.id])
       }
       setLoading(false)
     })()
@@ -177,53 +224,105 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, questionId])
 
+  // Load the whole-year syllabus dotpoints for Chemistry (drawn from the master list).
+  useEffect(() => {
+    let alive = true
+    if (subjectName === 'Chemistry' && year) {
+      fetchSyllabus('Chemistry', Number(year)).then((m) => { if (alive) setChemSyllabus(m) })
+    } else {
+      Promise.resolve().then(() => { if (alive) setChemSyllabus([]) })
+    }
+    return () => { alive = false }
+  }, [subjectName, year])
+
   // ── Derived dropdown lists ──────────────────────────────────────────────────
-  const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects) : []), [tax])
-  const subjectsForYear = useMemo(
-    () => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []),
-    [tax, year],
+  // Distinct subject names (Maths / English / Chemistry) for the subject selector.
+  const subjectNames = useMemo(() => (tax ? [...new Set(tax.subjects.map((s) => s.name))] : []), [tax])
+  // Years available for the chosen subject (e.g. Chemistry → 11, 12).
+  const years = useMemo(
+    () => (tax && subjectName ? yearsFromSubjects(tax.subjects.filter((s) => s.name === subjectName)) : []),
+    [tax, subjectName],
   )
+  // Subject + year resolves to the specific subject row that owns the topics/modules.
+  const subjectId = useMemo(() => {
+    if (!tax || !subjectName || !year) return ''
+    return tax.subjects.find((s) => s.name === subjectName && String(s.year_level) === String(year))?.id || ''
+  }, [tax, subjectName, year])
   const topicsForSubject = useMemo(
     () => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []),
     [tax, subjectId],
   )
-  const subtopicsForTopic = useMemo(
-    () => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []),
-    [tax, topicId],
+  const isChem = subjectName === 'Chemistry'   // Chemistry calls topics "Modules"
+  // Subtopics across the whole subject+year, grouped by topic (subtopics can come
+  // from any topic, not just the chosen one).
+  const subtopicGroups = useMemo(() => {
+    if (!tax || !subjectId) return []
+    return (tax.topicsBySubject[subjectId] || [])
+      .map((t) => ({ key: t.id, label: t.name, options: (tax.subtopicsByTopic[t.id] || []).map((st) => ({ id: st.id, name: st.name })) }))
+      .filter((g) => g.options.length)
+  }, [tax, subjectId])
+  // Skills across the subject+year (independent dimension).
+  const skillGroups = useMemo(() => {
+    if (!tax || !subjectId) return []
+    const tIds = new Set((tax.topicsBySubject[subjectId] || []).map((t) => t.id))
+    const opts = tax.skills.filter((s) => tIds.has(s.topic_id)).map((s) => ({ id: s.id, name: s.name }))
+    return opts.length ? [{ key: 'skills', label: '', options: opts }] : []
+  }, [tax, subjectId])
+  // Chemistry dotpoints are browsed by module tab. The active module's dotpoints
+  // are grouped by topic within the checklist.
+  const activeModule = useMemo(
+    () => chemSyllabus.find((m) => m.id === dpModuleTab) || chemSyllabus[0] || null,
+    [chemSyllabus, dpModuleTab],
   )
-  const skillsForSubtopic = useMemo(
-    () => (tax && subtopicId ? (tax.skillsBySubtopic[subtopicId] || []) : []),
-    [tax, subtopicId],
-  )
+  // Only the MAIN dotpoint is selectable; its sub-dotpoints show beneath it as
+  // read-only context.
+  const activeModuleGroups = useMemo(() => (activeModule
+    ? activeModule.topics
+      .map((t) => ({ key: t.id, label: t.name, options: t.dotpoints.map((d) => ({ id: d.id, name: d.text, subs: (d.subs || []).map((s) => s.text) })) }))
+      .filter((g) => g.options.length)
+    : []), [activeModule])
+  // How many main dotpoints are selected within each module (for the tab badges).
+  const dpCountByModule = useMemo(() => {
+    const sel = new Set(dotpointIds)
+    const out = {}
+    for (const m of chemSyllabus) {
+      let n = 0
+      for (const t of m.topics) for (const d of t.dotpoints) if (sel.has(d.id)) n++
+      out[m.id] = n
+    }
+    return out
+  }, [chemSyllabus, dotpointIds])
 
   // ── Create a new topic / subtopic / skill inline from the dropdowns ─────────
   const addTopic = async () => {
-    const name = (window.prompt('New topic name:') || '').trim()
+    const name = (window.prompt(isChem ? 'New module name:' : 'New topic name:') || '').trim()
     if (!name) return
     const { data, error: e } = await supabase.from(T_QBANK_TOPICS)
       .insert({ subject_id: subjectId, name }).select('id').single()
     if (e) { setError(e.message || 'Could not create the topic.'); return }
     const t = await fetchTaxonomy(); setTax(t)
-    setTopicId(data.id); setSubtopicId(''); setSkillId('')
+    setTopicId(data.id)
   }
   const addSubtopic = async () => {
+    if (!topicId) { setError('Pick a Topic/Module first to add a subtopic under it.'); return }
     const name = (window.prompt('New subtopic name:') || '').trim()
     if (!name) return
     const { data, error: e } = await supabase.from(T_QBANK_SUBTOPICS)
       .insert({ topic_id: topicId, name }).select('id').single()
     if (e) { setError(e.message || 'Could not create the subtopic.'); return }
     const t = await fetchTaxonomy(); setTax(t)
-    setSubtopicId(data.id); setSkillId('')
+    setSubtopicIds((ids) => [...ids, data.id])
   }
   const addSkill = async () => {
+    if (!topicId) { setError('Pick a Topic/Module first to add a skill.'); return }
     const name = (window.prompt('New skill name:') || '').trim()
     if (!name) return
-    // Skills carry both topic_id (kept for compat) and subtopic_id.
+    // Skills carry topic_id (required); subtopic_id is optional (skills are independent).
     const { data, error: e } = await supabase.from(T_QBANK_SKILLS)
-      .insert({ topic_id: topicId, subtopic_id: subtopicId, name }).select('id').single()
+      .insert({ topic_id: topicId, subtopic_id: subtopicIds[0] || null, name }).select('id').single()
     if (e) { setError(e.message || 'Could not create the skill.'); return }
     const t = await fetchTaxonomy(); setTax(t)
-    setSkillId(data.id)
+    setSkillIds((ids) => [...ids, data.id])
   }
 
   // ── Save ────────────────────────────────────────────────────────────────────
@@ -231,8 +330,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
 
   const handleSave = async () => {
     setError('')
-    if (!topicId) { setError('Pick a Year → Subject → Topic for this question.'); return }
-    if (!subtopicId) { setError('Pick a Subtopic for this question. (Skill is optional.)'); return }
+    if (!topicId) { setError(`Pick a Subject → Year → ${isChem ? 'Module' : 'Topic'} for this question.`); return }
     if (!stem.trim()) { setError('Enter the question text.'); return }
     if (isMcq && options.filter((o) => o.latex.trim()).length < 2) {
       setError('Add at least two options for a multiple-choice question.'); return
@@ -240,8 +338,9 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     setSaving(true)
     try {
       const payload = {
-        skill_id: skillId || null,
-        subtopic_id: subtopicId,
+        // Single columns kept for back-compat (analysis/legacy) = first selected.
+        skill_id: skillIds[0] || null,
+        subtopic_id: isChem ? null : (subtopicIds[0] || null),
         topic_id: topicId,
         qtype,
         stem_latex: stem,
@@ -285,6 +384,19 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           if (e) throw e
         }
       }
+
+      // Multi tags: replace the join rows wholesale.
+      const replaceJoin = async (table, col, ids) => {
+        await supabase.from(table).delete().eq('question_id', qid)
+        const uniq = [...new Set(ids)]
+        if (uniq.length) {
+          const { error: e } = await supabase.from(table).insert(uniq.map((v) => ({ question_id: qid, [col]: v })))
+          if (e) throw e
+        }
+      }
+      await replaceJoin('qbank_question_subtopics', 'subtopic_id', isChem ? [] : subtopicIds)
+      await replaceJoin('qbank_question_skills', 'skill_id', skillIds)
+      await replaceJoin('qbank_question_dotpoints', 'dotpoint_id', isChem ? dotpointIds : [])
 
       // Images: delete removed (stem + solution), upload new with their role
       const removedAll = [...removedImageIds, ...removedSolutionImageIds]
@@ -359,62 +471,92 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">Subject</label>
+            <select value={subjectName} className={inputCls}
+              onChange={(e) => { setSubjectName(e.target.value); setYear(''); setTopicId(''); setSubtopicIds([]); setSkillIds([]); setDotpointIds([]) }}>
+              <option value="">—</option>
+              {subjectNames.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
-            <select value={year} className={inputCls}
-              onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSubtopicId(''); setSkillId('') }}>
+            <select value={year} disabled={!subjectName} className={inputCls}
+              onChange={(e) => { setYear(e.target.value); setTopicId(''); setSubtopicIds([]); setSkillIds([]); setDotpointIds([]) }}>
               <option value="">—</option>
               {years.map((y) => <option key={y} value={y}>Year {y}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-[11px] font-semibold text-[#2A2035]/50">Subject</label>
-            <select value={subjectId} disabled={!year} className={inputCls}
-              onChange={(e) => { setSubjectId(e.target.value); setTopicId(''); setSubtopicId(''); setSkillId('') }}>
-              <option value="">—</option>
-              {subjectsForYear.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-[#2A2035]/50">Topic</label>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50">{isChem ? 'Module' : 'Topic'}</label>
             <select value={topicId} disabled={!subjectId} className={inputCls}
-              onChange={(e) => { if (e.target.value === '__new__') { addTopic(); return } setTopicId(e.target.value); setSubtopicId(''); setSkillId('') }}>
+              onChange={(e) => { if (e.target.value === '__new__') { addTopic(); return } setTopicId(e.target.value) }}>
               <option value="">—</option>
               {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              {subjectId && <option value="__new__">＋ New topic…</option>}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-[#2A2035]/50">Subtopic</label>
-            <select value={subtopicId} disabled={!topicId} className={inputCls}
-              onChange={(e) => { if (e.target.value === '__new__') { addSubtopic(); return } setSubtopicId(e.target.value); setSkillId('') }}>
-              <option value="">—</option>
-              {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
-              {topicId && <option value="__new__">＋ New subtopic…</option>}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold text-[#2A2035]/50">Skill <span className="text-[#2A2035]/30 normal-case">(optional)</span></label>
-            <select value={skillId} disabled={!subtopicId} className={inputCls}
-              onChange={(e) => { if (e.target.value === '__new__') { addSkill(); return } setSkillId(e.target.value) }}>
-              <option value="">— None</option>
-              {skillsForSubtopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              {subtopicId && <option value="__new__">＋ New skill…</option>}
+              {subjectId && <option value="__new__">{isChem ? '＋ New module…' : '＋ New topic…'}</option>}
             </select>
           </div>
         </div>
-        {topicId && subtopicsForTopic.length === 0 && (
-          <p className="text-[11px] text-[#EA580C] mt-2">
-            No subtopics under this topic yet — add one with “＋ New subtopic…” or in <a className="underline" href="/tutor/qbank/categories">Categories</a>.
-          </p>
-        )}
+
+        {/* Many-to-many tags */}
+        <div className="grid sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            {isChem ? (
+              <div>
+                <label className="text-[11px] font-semibold text-[#2A2035]/50">Syllabus dotpoints{dotpointIds.length ? ` · ${dotpointIds.length} selected` : ''}</label>
+                {chemSyllabus.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1 mb-1.5">
+                    {chemSyllabus.map((m) => {
+                      const on = (activeModule?.id) === m.id
+                      const n = dpCountByModule[m.id] || 0
+                      return (
+                        <button key={m.id} type="button" onClick={() => setDpModuleTab(m.id)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${on ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
+                          {m.name}{n > 0 && <span className={`ml-1 ${on ? 'text-white/70' : 'text-[#2A2035]/40'}`}>({n})</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                <MultiChecklist
+                  label=""
+                  groups={activeModuleGroups}
+                  selected={dotpointIds}
+                  onToggle={toggleId(setDotpointIds)}
+                  empty={subjectId ? 'No syllabus dotpoints for this module yet — add them on the Syllabus page.' : 'Pick a subject and year first.'}
+                />
+              </div>
+            ) : (
+              <>
+                <MultiChecklist
+                  label="Subtopics"
+                  groups={subtopicGroups}
+                  selected={subtopicIds}
+                  onToggle={toggleId(setSubtopicIds)}
+                  empty={subjectId ? 'No subtopics yet — add one below or in Categories.' : 'Pick a subject and year first.'}
+                />
+                {topicId && <button type="button" onClick={addSubtopic} className="mt-1 text-[11px] font-semibold text-[#325099] hover:underline">＋ New subtopic</button>}
+              </>
+            )}
+          </div>
+          <div>
+            <MultiChecklist
+              label="Skills"
+              groups={skillGroups}
+              selected={skillIds}
+              onToggle={toggleId(setSkillIds)}
+              empty={subjectId ? 'No skills yet — add one below.' : 'Pick a subject and year first.'}
+            />
+            {topicId && <button type="button" onClick={addSkill} className="mt-1 text-[11px] font-semibold text-[#325099] hover:underline">＋ New skill</button>}
+          </div>
+        </div>
 
         <div className="flex flex-wrap items-end gap-4 mt-4">
           <div>
             <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Difficulty</label>
             <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((d) => (
+              {[1, 2, 3, 4].map((d) => (
                 <button key={d} type="button" onClick={() => setDifficulty(d)}
                   title={DIFFICULTY_LABELS[d]}
                   className="w-8 h-8 rounded-lg text-xs font-bold border transition"
@@ -445,7 +587,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         <div className="mt-4">
           <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Available for</label>
           <div className="inline-flex rounded-xl border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
-            {[['exam', 'Exams only'], ['student', 'Students only'], ['both', 'Both']].map(([v, lbl]) => (
+            {[['exam', 'CUBE'], ['student', 'Students only'], ['both', 'Both']].map(([v, lbl]) => (
               <button key={v} type="button" onClick={() => setAudience(v)}
                 className={`px-3.5 py-1.5 transition ${audience === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
                 {lbl}
@@ -453,9 +595,9 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             ))}
           </div>
           <p className="text-[10px] text-[#2A2035]/40 mt-1">
-            {audience === 'exam' ? 'Only selectable in the exam builder — hidden from student practice.'
+            {audience === 'exam' ? 'CUBE only — used in workbooks, additional questions and exams; hidden from the student-facing question bank.'
               : audience === 'student' ? 'Only available in student practice — never pulled into exams.'
-              : 'Available in both the exam builder and student practice.'}
+              : 'Available in both CUBE materials and student practice.'}
           </p>
         </div>
       </section>

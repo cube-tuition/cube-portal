@@ -251,7 +251,7 @@ function TutorCard({ tutor, color, avail, onCellClick }) {
 
       {mySlots.length === 0 ? (
         <p className="text-[11px] text-[#325099]/30 italic">
-          Tutor hasn't set their availability yet.
+          Tutor hasn&apos;t set their availability yet.
         </p>
       ) : (
         <div className="space-y-2.5">
@@ -305,7 +305,7 @@ export default function AllAvailabilitiesPage() {
     ;(async () => {
       setLoading(true)
       const [{ data: tutorRows }, { data: availRows }] = await Promise.all([
-        supabase.from('tutors').select('id, full_name').order('full_name'),
+        supabase.from('tutors').select('id, full_name').eq('active', true).order('full_name'),
         supabase.from('teacher_availability').select('tutor_id, day_of_week, slot_time'),
       ])
       setTutors(tutorRows || [])
