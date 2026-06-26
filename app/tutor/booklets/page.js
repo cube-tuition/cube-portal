@@ -5,7 +5,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
-import { fmtTime } from '../../../lib/format'
+import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
 import BookletContentView from '../../../components/booklet/BookletContentView'
 
@@ -26,9 +26,10 @@ const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' 
 const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry' || s === 'Physics' ? '#F0FDF4' : '#F5F3FF'
 
 const bookletLabel = (b) => {
-  if (!b?.year) return b?.booklet_name ?? ''
+  if (!b?.year) return fmtWorkbookCode(b?.booklet_name, b?.subject)
   const code = SUBJECT_CODE[b.subject] || (b.subject || '')[0] || ''
-  return `${b.year}.${code}. ${b.booklet_name}`
+  // Chemistry names like "M3W2" display as "M3L2" (Chemistry counts in Lessons).
+  return `${b.year}.${code}. ${fmtWorkbookCode(b.booklet_name, b.subject)}`
 }
 
 // Read-only modal that shows what's inside a booklet (its content field), so
@@ -122,7 +123,7 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <div>
             <h2 className="text-sm font-bold text-[#062E63]">Assign to week</h2>
-            <p className="text-[10px] text-[#2A2035]/40 mt-0.5">{className} · Term {term}, Week {week}</p>
+            <p className="text-[10px] text-[#2A2035]/40 mt-0.5">{className} · Term {term}, {weekLabel(subject, week)}</p>
           </div>
           <button onClick={onClose} disabled={!!saving} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
         </div>
@@ -258,7 +259,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                       <div className="h-[3px] w-full" style={{ background: accentColor }} />
                       <div className="px-3 pt-2 pb-1.5">
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accentColor }}>Wk {week}</span>
+                          <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accentColor }}>{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
                           {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
                         </div>
                         <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
@@ -297,7 +298,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                     className="group w-full border border-dashed border-[#DEE7FF] rounded-xl overflow-hidden bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF] transition text-left">
                     <div className="h-[3px] w-full bg-[#EEF2FB]" />
                     <div className="px-3 pt-2 pb-2.5">
-                      <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5 text-[#A9B4CC] group-hover:text-[#325099] transition">Wk {week}</span>
+                      <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5 text-[#A9B4CC] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
                       <p className="text-[11px] font-semibold text-[#2A2035]/30 group-hover:text-[#325099]/60 transition">+ assign booklet</p>
                     </div>
                   </button>
@@ -563,7 +564,7 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) 
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <div>
             <h2 className="text-sm font-bold text-[#062E63]">Assign to week</h2>
-            <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} {subject} · Term {term}, Week {week}</p>
+            <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} {subject} · Term {term}, {weekLabel(subject, week)}</p>
           </div>
           <button onClick={onClose} disabled={!!assigning} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
         </div>
@@ -905,7 +906,7 @@ export default function BookletsPage() {
                                     className="text-[9px] font-bold uppercase tracking-widest"
                                     style={{ color: accentColor }}
                                   >
-                                    Week {week}
+                                    {weekLabel(activeSub, week)}
                                   </span>
                                   {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
                                 </div>
@@ -960,7 +961,7 @@ export default function BookletsPage() {
                               <span
                                 className="text-[9px] font-bold uppercase tracking-widest text-[#A9B4CC] group-hover:text-[#325099] transition"
                               >
-                                Wk {week}
+                                {isChemistry(activeSub) ? 'Ln' : 'Wk'} {week}
                               </span>
                               <p className="text-[12px] font-semibold text-[#2A2035]/30 group-hover:text-[#325099]/60 transition leading-snug">
                                 + assign booklet

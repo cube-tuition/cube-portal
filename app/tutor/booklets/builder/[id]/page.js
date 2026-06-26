@@ -31,8 +31,10 @@ const SUBJECT_CODE = {
 }
 const subjectCode = (s) => SUBJECT_CODE[s] || (s || '')[0]?.toUpperCase() || ''
 // Standardised display name: "X.Y. Name" (year . subject-code . name).
+// Chemistry names like "M3W2" display as "M3L2" (Chemistry counts in Lessons).
 const formatBookletName = (year, subject, name) => {
-  const base = (name || '').trim() || 'Untitled booklet'
+  let base = (name || '').trim() || 'Untitled booklet'
+  if (/chem/i.test(String(subject || ''))) base = base.replace(/^(M\d+)W(\d+)$/i, '$1L$2')
   return (year && subject) ? `${year}.${subjectCode(subject)}. ${base}` : base
 }
 

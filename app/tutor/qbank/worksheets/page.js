@@ -8,9 +8,10 @@ import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
 import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage } from '../../../../lib/qbank'
-import { exportWorksheet } from '../../../../lib/qbankWorksheet'
+import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
+import DocLivePreview from '../../../../components/qbank/DocLivePreview'
 
 /*
  * Additional Questions — /tutor/qbank/worksheets
@@ -249,6 +250,11 @@ export default function AdditionalQuestionsPage() {
     [tray],
   )
 
+  // Live preview (shares the worksheet exporter; toggle worksheet vs answer key).
+  const [previewAnswers, setPreviewAnswers] = useState(false)
+  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers: previewAnswers }), [title, subtitle, tray, includeMarks, previewAnswers])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, q: tray.map((q) => q.id) }), [title, subtitle, includeMarks, previewAnswers, tray])
+
   const doExport = async (answers) => {
     if (!tray.length) return
     setBusy(answers ? 'answers' : 'worksheet')
@@ -322,7 +328,28 @@ export default function AdditionalQuestionsPage() {
 
         {/* ── Editor ───────────────────────────────────────────────────────── */}
         {selectedId && (
-        <div className="grid lg:grid-cols-2 gap-5">
+        <>
+        {/* Top bar — worksheet name (left) + downloads, like the workbook builder */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-xl border border-[#DEE7FF] px-4 py-2.5 mb-4">
+          <div className="min-w-0">
+            <p className="text-[9px] tracking-[0.25em] uppercase text-[#325099] font-bold">Worksheet</p>
+            <p className="text-base font-bold text-[#062E63] truncate">
+              {title || 'Untitled worksheet'}
+              <span className="text-[#2A2035]/40 font-medium">{tray.length ? ` · ${tray.length} question${tray.length === 1 ? '' : 's'}` : ''}{includeMarks && totalMarks > 0 ? ` · ${totalMarks} marks` : ''}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => doExport(false)} disabled={!tray.length || busy}
+              className="px-4 py-2 rounded-lg bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
+              {busy === 'worksheet' ? 'Building…' : '↓ Worksheet PDF'}
+            </button>
+            <button onClick={() => doExport(true)} disabled={!tray.length || busy}
+              className="px-4 py-2 rounded-lg border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40">
+              {busy === 'answers' ? 'Building…' : '↓ Solutions PDF'}
+            </button>
+          </div>
+        </div>
+        <div className="grid lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-5 items-start">
           {/* Left: pick from bank */}
           <div>
             <div className="bg-white rounded-2xl border border-[#F0F4FF] p-3 flex flex-wrap items-center gap-2">
@@ -402,17 +429,7 @@ export default function AdditionalQuestionsPage() {
                 </label>
                 <span className="text-xs text-[#2A2035]/50">{tray.length} question{tray.length === 1 ? '' : 's'}{includeMarks && totalMarks > 0 ? ` · ${totalMarks} marks` : ''}</span>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => doExport(false)} disabled={!tray.length || busy}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
-                  {busy === 'worksheet' ? 'Building…' : 'Worksheet PDF'}
-                </button>
-                <button onClick={() => doExport(true)} disabled={!tray.length || busy}
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40">
-                  {busy === 'answers' ? 'Building…' : 'Answer key PDF'}
-                </button>
-              </div>
-              <p className="text-[10px] text-[#2A2035]/40">Changes save automatically.</p>
+              <p className="text-[10px] text-[#2A2035]/40">Changes save automatically · download from the bar above.</p>
             </div>
 
             <div className="mt-3 space-y-2 max-h-[58vh] overflow-y-auto pr-1">
@@ -462,7 +479,22 @@ export default function AdditionalQuestionsPage() {
               })}
             </div>
           </div>
+
+          {/* Live preview column */}
+          <div className="hidden xl:block sticky top-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Live preview</p>
+              <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
+                <button onClick={() => setPreviewAnswers(false)} className={`px-2.5 py-1 font-semibold ${!previewAnswers ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Worksheet</button>
+                <button onClick={() => setPreviewAnswers(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${previewAnswers ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Answers</button>
+              </div>
+            </div>
+            {tray.length === 0
+              ? <div className="bg-[#E9EDF6] rounded-xl p-6 text-center text-xs text-[#2A2035]/40">Add questions to see a preview.</div>
+              : <DocLivePreview render={renderPreview} signature={previewSig} scale={0.62} />}
+          </div>
         </div>
+        </>
         )}
       </div>
       {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
