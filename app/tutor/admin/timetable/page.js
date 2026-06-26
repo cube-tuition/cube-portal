@@ -5,7 +5,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
 import {
-  T_CLASSES, T_COURSES, T_TUTORS, T_ADMINS, T_TEACHER_AVAILABILITY, T_ENROLMENTS,
+  T_CLASSES, T_COURSES, T_TUTORS, T_ADMINS, T_TEACHER_AVAILABILITY, T_ENROLMENTS, T_TERMS,
 } from '../../../../lib/tables'
 import TutorNav from '../../../../components/TutorNav'
 
@@ -425,6 +425,20 @@ export default function TimetablePage() {
     return evs
   }
 
+  // ── Publish to website ──────────────────────────────────────────────────────────
+  const selectedTerm = terms.find(t => t.id === termId)
+  const togglePublish = async () => {
+    if (!selectedTerm) return
+    const next = !selectedTerm.published_on_website
+    if (next && !confirm(`Publish ${formatTermLabel(selectedTerm)}'s timetable to the public website?\n\nGroup classes for this term will become visible at cubetuition.com.au/timetable.`)) return
+    setTerms(prev => prev.map(t => t.id === termId ? { ...t, published_on_website: next } : t))
+    const { error } = await supabase.from(T_TERMS).update({ published_on_website: next }).eq('id', termId)
+    if (error) {
+      setTerms(prev => prev.map(t => t.id === termId ? { ...t, published_on_website: !next } : t))
+      alert(`Could not update: ${error.message}`)
+    }
+  }
+
   // ── Mutations (all write to the classes table) ──────────────────────────────────
   const openEdit = (row) => setEditing({ ...row, tutor_id: resolveTutorId(row.teacher) })
 
@@ -535,6 +549,17 @@ export default function TimetablePage() {
             >
               {terms.map(t => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
             </select>
+            <button
+              onClick={togglePublish}
+              title="Show this term's timetable on the public website"
+              className={`text-sm font-semibold rounded-xl px-4 py-2 border transition ${
+                selectedTerm?.published_on_website
+                  ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                  : 'bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099]'
+              }`}
+            >
+              {selectedTerm?.published_on_website ? '🌐 Published to website' : 'Publish to website'}
+            </button>
           </div>
         </div>
 
