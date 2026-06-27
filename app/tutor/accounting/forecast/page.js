@@ -70,25 +70,26 @@ function WaterfallChart({ s }) {
 
   const colourOf = t => t === 'positive' ? '#325099' : t === 'negative' ? '#EF4444' : t === 'total-pos' ? '#10B981' : '#EF4444'
 
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (!active || !payload?.length) return null
-    const step = steps.find(s => s.name === label)
-    if (!step) return null
-    return (
-      <div className="bg-white border border-[#DEE7FF] rounded-xl px-3 py-2 shadow text-xs">
-        <p className="font-semibold text-[#062E63] mb-1">{label}</p>
-        <p className="text-[#325099]">{step.type === 'negative' ? '−' : '+'}{fmt(step.value)}</p>
-      </div>
-    )
-  }
-
   return (
     <ResponsiveContainer width="100%" height={260}>
       <ComposedChart data={steps} margin={{ top: 16, right: 16, left: 10, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke="#EEF4FF" />
         <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#325099' }} axisLine={false} tickLine={false} />
         <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={48} />
-        <Tooltip content={<CustomTooltip />} cursor={{ fill: '#F0F4FF' }} />
+        <Tooltip
+          cursor={{ fill: '#F0F4FF' }}
+          content={({ active, payload, label }) => {
+            if (!active || !payload?.length) return null
+            const step = steps.find(s => s.name === label)
+            if (!step) return null
+            return (
+              <div className="bg-white border border-[#DEE7FF] rounded-xl px-3 py-2 shadow text-xs">
+                <p className="font-semibold text-[#062E63] mb-1">{label}</p>
+                <p className="text-[#325099]">{step.type === 'negative' ? '−' : '+'}{fmt(step.value)}</p>
+              </div>
+            )
+          }}
+        />
         {/* Transparent spacer — lifts the coloured bar to the right position */}
         <Bar dataKey="offset" stackId="wf" fill="transparent" isAnimationActive={false} />
         {/* Coloured value bar */}
@@ -112,24 +113,25 @@ function ClassProfitChart({ rows }) {
       income: Math.round(c.termIncome),
     }))
 
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (!active || !payload?.length) return null
-    return (
-      <div className="bg-white border border-[#DEE7FF] rounded-xl px-3 py-2 shadow text-xs space-y-0.5">
-        <p className="font-semibold text-[#062E63] mb-1">{label}</p>
-        <p className="text-[#325099]">Income: {fmt(payload[0]?.payload?.income)}</p>
-        <p className={payload[0]?.value >= 0 ? 'text-emerald-600' : 'text-red-500'}>Profit: {fmt(payload[0]?.value)}</p>
-      </div>
-    )
-  }
-
   return (
     <ResponsiveContainer width="100%" height={Math.max(200, sorted.length * 28)}>
       <BarChart data={sorted} layout="vertical" margin={{ top: 0, right: 60, left: 0, bottom: 0 }}>
         <CartesianGrid horizontal={false} stroke="#EEF4FF" />
         <XAxis type="number" tickFormatter={v => `$${(v/1000).toFixed(1)}k`} tick={{ fontSize: 10, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
         <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 11, fill: '#325099' }} axisLine={false} tickLine={false} />
-        <Tooltip content={<CustomTooltip />} cursor={{ fill: '#F0F4FF' }} />
+        <Tooltip
+          cursor={{ fill: '#F0F4FF' }}
+          content={({ active, payload, label }) => {
+            if (!active || !payload?.length) return null
+            return (
+              <div className="bg-white border border-[#DEE7FF] rounded-xl px-3 py-2 shadow text-xs space-y-0.5">
+                <p className="font-semibold text-[#062E63] mb-1">{label}</p>
+                <p className="text-[#325099]">Income: {fmt(payload[0]?.payload?.income)}</p>
+                <p className={payload[0]?.value >= 0 ? 'text-emerald-600' : 'text-red-500'}>Profit: {fmt(payload[0]?.value)}</p>
+              </div>
+            )
+          }}
+        />
         <Bar dataKey="profit" radius={[0, 4, 4, 0]} isAnimationActive={false}>
           {sorted.map((c, i) => <Cell key={i} fill={c.profit >= 0 ? '#10B981' : '#EF4444'} />)}
           <LabelList dataKey="profit" position="right" formatter={v => `$${(v/1000).toFixed(1)}k`} style={{ fontSize: 10, fill: '#062E63', fontWeight: 600 }} />
@@ -194,12 +196,6 @@ export default function ForecastPage() {
   const [addEntryModal,    setAddEntryModal]     = useState(false)
   const [entryForm,        setEntryForm]         = useState({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
   const [entrySaving,      setEntrySaving]       = useState(false)
-  const [wagesModal,       setWagesModal]        = useState(false)
-  const [wagesWeekFrom,    setWagesWeekFrom]     = useState('1')
-  const [wagesWeekTo,      setWagesWeekTo]       = useState('2')
-  const [wagesPulling,     setWagesPulling]      = useState(false)
-  const [wagesPreview,     setWagesPreview]      = useState([])
-  const [wagesPreviewLoading, setWagesPreviewLoading] = useState(false)
 
   // ── Load terms ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -626,63 +622,6 @@ export default function ForecastPage() {
     setCashLog(prev => prev.filter(e => e.id !== id))
   }
 
-  // Load wages preview when wages modal opens / week range changes
-  useEffect(() => {
-    if (!wagesModal || !termId) return
-    const term = terms.find(t => t.id === termId)
-    if (!term?.start_date) return
-    setWagesPreviewLoading(true)
-    ;(async () => {
-      const wFrom = parseInt(wagesWeekFrom) || 1
-      const wTo   = parseInt(wagesWeekTo)   || wFrom
-      const termStart = new Date(term.start_date + 'T00:00:00')
-      const dateFrom  = new Date(termStart); dateFrom.setDate(termStart.getDate() + (wFrom - 1) * 7)
-      const dateTo    = new Date(termStart); dateTo.setDate(termStart.getDate() + wTo * 7 - 1)
-      const fromIso = dateFrom.toISOString().slice(0, 10)
-      const toIso   = dateTo.toISOString().slice(0, 10)
-
-      const cashTutorIds = tutors.filter(t => t.pay_method === 'cash').map(t => t.id)
-      if (!cashTutorIds.length) { setWagesPreview([]); setWagesPreviewLoading(false); return }
-
-      const { data: shifts } = await supabase.from('shifts')
-        .select('tutor_id, hours, rate_snapshot')
-        .in('tutor_id', cashTutorIds)
-        .gte('work_date', fromIso)
-        .lte('work_date', toIso)
-
-      const totals = {}
-      for (const s of shifts || []) {
-        const pay = Number(s.hours || 0) * Number(s.rate_snapshot || 0)
-        totals[s.tutor_id] = (totals[s.tutor_id] || 0) + pay
-      }
-      const preview = Object.entries(totals).map(([tid, pay]) => {
-        const tutor = tutors.find(t => t.id === tid)
-        const firstName = tutor?.full_name?.split(' ')[0] || 'Unknown'
-        const termLabel = term.name || `Term ${term.term_number} ${term.year}`
-        const weekLabel = wFrom === wTo ? `W${wFrom}` : `W${wFrom}–W${wTo}`
-        return { tutor_id: tid, name: firstName, pay: Math.round(pay * 100) / 100,
-          description: `${firstName} - ${termLabel} ${weekLabel}` }
-      }).filter(p => p.pay > 0)
-      setWagesPreview(preview)
-      setWagesPreviewLoading(false)
-    })()
-  }, [wagesModal, wagesWeekFrom, wagesWeekTo, termId, terms, tutors])
-
-  const handlePullWages = async () => {
-    if (!wagesPreview.length) return
-    setWagesPulling(true)
-    const term = terms.find(t => t.id === termId)
-    const today = new Date().toISOString().slice(0, 10)
-    const rows = wagesPreview.map(p => ({
-      date: today, direction: 'outflow', type: 'wages',
-      description: p.description, amount: -p.pay, term_id: term?.id || null,
-    }))
-    const { error: err } = await supabase.from('cash_log').insert(rows)
-    setWagesPulling(false)
-    if (err) { setError(err.message); return }
-    setWagesModal(false)
-    loadCashLog()
-  }
 
   // ── Class table (shared between live and play) ───────────────────────────────
   function ClassTable({ rows, editable = false, onChange, hideStudents = false }) {
@@ -1038,7 +977,7 @@ export default function ForecastPage() {
                       </div>
                       <p className="text-[10px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold mb-2">Actual spend vs forecast</p>
                       {actualOut === 0 ? (
-                        <p className="text-[11px] text-[#2A2035]/40">No outflows recorded in the cash log for this term yet — pull wages in via the Cash Log tab to track actuals against the {fmt(summary.totalExpenses)} forecast.</p>
+                        <p className="text-[11px] text-[#2A2035]/40">No outflows recorded in the cash log for this term yet — add entries in the Cash Log tab to track actuals against the {fmt(summary.totalExpenses)} forecast.</p>
                       ) : (
                         <div className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3.5 py-3">
                           <div className="flex items-baseline justify-between mb-1.5">
@@ -1403,10 +1342,6 @@ export default function ForecastPage() {
                   <p className="text-xs text-[#325099]/60 mt-0.5">Track all cash inflows and outflows</p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => setWagesModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">
-                    ⚙ Pull Teacher Wages
-                  </button>
                   <button onClick={() => { setAddEntryModal(true); setEntryForm({ date: new Date().toISOString().slice(0,10), direction: 'inflow', type: 'invoice', description: '', amount: '' }) }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
                     + Add Entry
@@ -1551,65 +1486,6 @@ export default function ForecastPage() {
           )
         })()}
 
-        {/* Pull Teacher Wages Modal */}
-        {wagesModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-bold text-[#062E63]">Pull Teacher Wages</h2>
-                <button onClick={() => setWagesModal(false)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
-              </div>
-              <p className="text-xs text-[#325099]/60">Generates cash outflow entries for all cash-paid teachers based on their approved shifts in the selected week range.</p>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 space-y-1">
-                  <label className="text-xs font-semibold text-[#325099]">From Week</label>
-                  <select value={wagesWeekFrom} onChange={e => setWagesWeekFrom(e.target.value)}
-                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
-                    {Array.from({ length: 10 }, (_, i) => i + 1).map(w => <option key={w} value={w}>W{w}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1 space-y-1">
-                  <label className="text-xs font-semibold text-[#325099]">To Week</label>
-                  <select value={wagesWeekTo} onChange={e => setWagesWeekTo(e.target.value)}
-                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
-                    {Array.from({ length: 10 }, (_, i) => i + 1).map(w => <option key={w} value={w}>W{w}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {/* Preview */}
-              <div className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl p-3">
-                <p className="text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-2">Preview</p>
-                {wagesPreviewLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-[#325099]/50"><div className="w-3.5 h-3.5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /> Calculating…</div>
-                ) : wagesPreview.length === 0 ? (
-                  <p className="text-xs text-[#325099]/40">No cash-paid teachers with shifts in this period.</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {wagesPreview.map(p => (
-                      <div key={p.tutor_id} className="flex justify-between text-xs">
-                        <span className="text-[#062E63]">{p.description}</span>
-                        <span className="font-semibold text-red-600">−{fmt(p.pay)}</span>
-                      </div>
-                    ))}
-                    <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1.5 mt-1.5">
-                      <span>Total</span>
-                      <span className="text-red-600">−{fmt(wagesPreview.reduce((s, p) => s + p.pay, 0))}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                <button onClick={() => setWagesModal(false)} className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-                <button onClick={handlePullWages} disabled={wagesPulling || wagesPreview.length === 0}
-                  className="flex-1 px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
-                  {wagesPulling ? 'Adding…' : `Add ${wagesPreview.length} Entr${wagesPreview.length === 1 ? 'y' : 'ies'}`}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
