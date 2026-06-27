@@ -39,9 +39,8 @@ const ADMIN_GROUPS = [
       { label: 'Curriculum',      href: '/tutor/booklets',         icon: '📖' },
       { label: 'Workbooks',       href: '/tutor/booklets/master',  icon: '📓' },
       { label: 'Questions',       href: '/tutor/qbank',            icon: '❓' },
-      { label: 'Exams',           href: '/tutor/qbank/exams',      icon: '🧪' },
+      { label: 'Exams',           href: '/tutor/resources/tests',  icon: '🧪' },
       { label: 'Syllabus',        href: '/tutor/resources/syllabus', icon: '📚' },
-      { label: 'Level Tests',     href: '/tutor/resources/level-test', icon: '📝' },
     ],
   },
   {
