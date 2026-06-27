@@ -355,8 +355,6 @@ export default function ExamBuilderPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Marks limit</label>
                         <input type="number" min="0" value={s.marks_limit ?? ''} onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" /></div>
-                      <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Allow about</label>
-                        <input value={s.allow_time || ''} onChange={(e) => updateSection(s._key, { allow_time: e.target.value })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" /></div>
                     </div>
                   </div>
                 ))}

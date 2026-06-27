@@ -88,12 +88,16 @@ export default function BookletBuilderEditor() {
       if (data) {
         // Pre-test names are always auto-generated from their term ("{YY}T{term}
         // Pre-test") — regenerate on load so the name is never blank/stale.
+        // Level-test names are always just "Level Test" (the subject + year are
+        // prepended by formatBookletName) — there's no manual name input.
         let title = data.title
         if (data.doc_type === 'pre_test' && data.term_id) {
           const { data: term } = await supabase.from(T_TERMS).select('year, term_number').eq('id', data.term_id).maybeSingle()
           if (term?.year != null && term?.term_number != null) {
             title = `${String(term.year).slice(-2)}T${term.term_number} Pre-test`
           }
+        } else if (data.doc_type === 'level_test') {
+          title = 'Level Test'
         }
         setBk({
           ...data,
@@ -445,7 +449,9 @@ export default function BookletBuilderEditor() {
   const paletteCard = (
     <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
       <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">{isExamStyle ? 'Add questions' : 'Add a block'}</p>
-      {activeSection === 'content' && isPreTest ? (
+      {activeSection === 'content' && isExamStyle ? (
+        /* Exam-style docs (level tests + pre-tests) are question-only — no text /
+           callout / layout blocks, just questions from the bank or new ones. */
         <div className="flex flex-col gap-1.5">
           <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
           <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
@@ -552,8 +558,8 @@ export default function BookletBuilderEditor() {
                 placeholder="Week #"
                 className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
             </div>
-          ) : isPreTest ? (
-            /* Pre-test names are generated automatically — no manual name input. */
+          ) : isPreTest || isLevelTest ? (
+            /* Pre-test and level-test names are fixed automatically — no manual name input. */
             null
           ) : (
             <input value={bk.title || ''} onChange={e => mutate({ title: e.target.value })}
@@ -597,8 +603,9 @@ export default function BookletBuilderEditor() {
             <div className="mb-4">{paletteCard}</div>
           )}
           {/* Page tabs — Cover is automatic (page 1); Content + Homework are editable.
-              Pre-tests are a single page of questions, so they have no page tabs. */}
-          {!isPreTest && (
+              Exam-style docs (level tests + pre-tests) are a single page of
+              questions, so they have no page tabs. */}
+          {!isExamStyle && (
             <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
               {[{ id: 'content', label: 'Content page' }, { id: 'homework', label: 'Homework page' }, { id: 'revision', label: 'Revision Quiz' }, { id: 'summary', label: 'Content' }].map(s => (
                 <button key={s.id} onClick={() => { setActiveSection(s.id); setSelectedBlockId(null) }}
