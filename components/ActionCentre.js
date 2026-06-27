@@ -110,6 +110,20 @@ export default function ActionCentre({ authorized }) {
     })
   }, [authorized])
 
+  // Re-run the checks when the tab regains focus, so figures (e.g. the cash pay
+  // amount) can't lag behind live data after shifts are entered elsewhere. The
+  // Action Centre is otherwise a one-shot snapshot taken on mount.
+  useEffect(() => {
+    if (!visible) return undefined
+    const refresh = () => { if (document.visibilityState === 'visible') load() }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [visible])
+
   if (!visible) return null
 
   const totalReds = items.filter(i => i.severity === 'red').length
