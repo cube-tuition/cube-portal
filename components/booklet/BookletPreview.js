@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { coverHtml, levelTestCoverHtml, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems } from '../../lib/bookletRender'
+import { coverHtml, levelTestCoverHtml, testTotalMarks, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems } from '../../lib/bookletRender'
 
 // Right-hand footer label for a doc. Level tests read "Year N Level test".
 function footerLabelFor(meta, { homework, quiz } = {}) {
+  if (meta?.docType === 'pre_test') return `${meta.year ? `Year ${meta.year} ` : ''}Pre-test`
   if (meta?.docType === 'level_test') return `${meta.year ? `Year ${meta.year} ` : ''}Level test`
   if (quiz) return 'Mathematics Revision Quiz'
   if (homework) return 'Mathematics Homework'
@@ -29,8 +30,8 @@ const PAGE_H = 1123  // A4 height @ 96dpi, matches lib/bookletExport
 const PAGE_W = 794   // A4 width @ 96dpi
 
 export default function BookletPreview({ meta = {}, blocks = [], solutions = false, scale: maxScale = 0.72 }) {
-  const cover = meta.docType === 'level_test'
-    ? levelTestCoverHtml(meta, { solutions })
+  const cover = (meta.docType === 'level_test' || meta.docType === 'pre_test')
+    ? levelTestCoverHtml(meta, { solutions, totalMarks: testTotalMarks(blocks) })
     : coverHtml(meta, { solutions })
 
   // Paginated content: array of HTML strings, one per A4 content page.
