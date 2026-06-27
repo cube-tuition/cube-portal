@@ -600,22 +600,50 @@ export default function TimetablePage() {
     liveSnapshot.current = null
   }
 
-  // Push the open draft's arrangement onto the live classes (explicit, optional).
+  // Push the open draft's arrangement onto the live classes. Guarded by a
+  // two-step confirmation (impact summary + type-to-confirm) since it overwrites
+  // the real timetable and can't be undone.
   const applyToLive = async () => {
-    if (!confirm('Apply this draft to the LIVE timetable? Real classes will be updated to match the draft.')) return
-    setApplying(true)
     const live = new Map((liveSnapshot.current || []).map(e => [e.id, e]))
     const curIds = new Set(entries.map(e => e.id))
-    const failures = []
-    for (const e of entries) {
+    // Work out the real impact up front so the prompts can show it.
+    const updates = entries.filter(e => {
       const o = live.get(e.id)
-      if (!o || !FIELDS.some(f => o[f] !== e[f])) continue
+      return o && FIELDS.some(f => o[f] !== e[f])
+    })
+    const deletions = (liveSnapshot.current || []).filter(o => !curIds.has(o.id))
+    if (updates.length === 0 && deletions.length === 0) {
+      alert('This draft already matches the live timetable — nothing to apply.')
+      return
+    }
+
+    const termLabel = selectedTerm ? formatTermLabel(selectedTerm) : 'this term'
+    const draftName = drafts.find(d => d.id === draftId)?.name || 'this draft'
+
+    // Step 1 — confirm, with the actual numbers.
+    const summary =
+      `Apply "${draftName}" to the LIVE ${termLabel} timetable?\n\n` +
+      `• ${updates.length} class${updates.length === 1 ? '' : 'es'} will be updated\n` +
+      (deletions.length ? `• ${deletions.length} class${deletions.length === 1 ? '' : 'es'} will be DELETED\n` : '') +
+      `\nThis changes the real timetable and cannot be undone.`
+    if (!confirm(summary)) return
+
+    // Step 2 — type-to-confirm (second factor).
+    const PHRASE = 'APPLY'
+    const typed = prompt(`Final confirmation — type ${PHRASE} (in capitals) to push this draft to the live timetable:`)
+    if ((typed || '').trim() !== PHRASE) {
+      alert('Apply cancelled — the confirmation text didn’t match.')
+      return
+    }
+
+    setApplying(true)
+    const failures = []
+    for (const e of updates) {
       const patch = Object.fromEntries(FIELDS.map(f => [f, e[f]]))
       const { error } = await supabase.from(T_CLASSES).update(patch).eq('id', e.id)
       if (error) failures.push(`${e.class_name || 'Class'}: ${error.message}`)
     }
-    for (const o of (liveSnapshot.current || [])) {
-      if (curIds.has(o.id)) continue
+    for (const o of deletions) {
       const { error } = await supabase.from(T_CLASSES).delete().eq('id', o.id)
       if (error) failures.push(`${o.class_name || 'Class'} (delete): ${error.message}`)
     }
@@ -625,7 +653,7 @@ export default function TimetablePage() {
     liveSnapshot.current = data || []
     alert(failures.length
       ? `Applied with some issues:\n\n${failures.join('\n')}`
-      : 'Draft applied to the live timetable.')
+      : `Draft applied to the live timetable — ${updates.length} updated${deletions.length ? `, ${deletions.length} deleted` : ''}.`)
   }
 
   const onColumnDrop = (day) => (ev) => {
