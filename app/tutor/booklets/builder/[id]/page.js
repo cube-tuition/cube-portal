@@ -1,16 +1,17 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
-import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS } from '../../../../../lib/tables'
+import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../../../../lib/tables'
 import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, BOOKLET_CSS } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
+import { fetchTaxonomy } from '../../../../../lib/qbank'
 import { fetchSyllabus } from '../../../../../lib/syllabus'
 import { buildSyllabusContent } from '../../../../../lib/bookletContent'
 
@@ -53,6 +54,8 @@ export default function BookletBuilderEditor() {
   const [exporting, setExporting] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [chemSyllabus, setChemSyllabus] = useState([])   // master syllabus for this booklet's year (Chemistry)
+  const [tax, setTax] = useState(null)                   // qbank taxonomy (for the test topic scope)
+  useEffect(() => { fetchTaxonomy().then(setTax) }, [])
 
   const bkRef = useRef(null)
   useEffect(() => { bkRef.current = bk })
@@ -82,11 +85,24 @@ export default function BookletBuilderEditor() {
       if (!profile || (profile.role !== 'admin' && profile.role !== 'tutor')) { router.push('/tutor'); return }
       setStaff(profile)
       const { data } = await supabase.from(T_BOOKLET_BUILDS).select('*').eq('id', id).single()
-      if (data) setBk({
-        ...data,
-        blocks: Array.isArray(data.blocks) ? data.blocks : [],
-        syllabus_points: Array.isArray(data.syllabus_points) ? data.syllabus_points : [],
-      })
+      if (data) {
+        // Pre-test names are always auto-generated from their term ("{YY}T{term}
+        // Pre-test") — regenerate on load so the name is never blank/stale.
+        let title = data.title
+        if (data.doc_type === 'pre_test' && data.term_id) {
+          const { data: term } = await supabase.from(T_TERMS).select('year, term_number').eq('id', data.term_id).maybeSingle()
+          if (term?.year != null && term?.term_number != null) {
+            title = `${String(term.year).slice(-2)}T${term.term_number} Pre-test`
+          }
+        }
+        setBk({
+          ...data,
+          title,
+          blocks: Array.isArray(data.blocks) ? data.blocks : [],
+          syllabus_points: Array.isArray(data.syllabus_points) ? data.syllabus_points : [],
+        })
+        if (title !== data.title) setDirty(true)  // persist the corrected name
+      }
       setLoading(false)
     })()
   }, [id, router])
@@ -121,6 +137,7 @@ export default function BookletBuilderEditor() {
           title: b.title, year: b.year ? Number(b.year) : null, subject: b.subject, topic: b.topic,
           content: contentVal, blocks: b.blocks,
           syllabus_points: allPoints,
+          qbank_topic_ids: Array.isArray(b.qbank_topic_ids) ? b.qbank_topic_ids : null,
           updated_at: new Date().toISOString(),
         }).eq('id', b.id)
       } while (pendingRef.current)
@@ -192,6 +209,23 @@ export default function BookletBuilderEditor() {
 
   const mutate = (patch) => { setBk(b => ({ ...b, ...patch })); setDirty(true) }
   const setBlocks = (blocks) => mutate({ blocks })
+
+  // Topic scope for a test: the qbank topics for this build's subject + year.
+  const bkSubject = bk?.subject
+  const bkYear = bk?.year
+  const scopeTopics = useMemo(() => {
+    if (!tax || !bkSubject) return []
+    const fam = subjectFamily(bkSubject)
+    const subjIds = new Set((tax.subjects || [])
+      .filter(s => subjectFamily(s.name) === fam && (bkYear == null || Number(s.year_level) === Number(bkYear)))
+      .map(s => s.id))
+    return (tax.topics || []).filter(t => subjIds.has(t.subject_id))
+  }, [tax, bkSubject, bkYear])
+  const toggleTestTopic = (tid) => {
+    const set = new Set(bk.qbank_topic_ids || [])
+    set.has(tid) ? set.delete(tid) : set.add(tid)
+    mutate({ qbank_topic_ids: [...set] })
+  }
 
   // Each block carries a section ('content' | 'homework' | 'revision'). Homework
   // blocks also carry hwGroup ('foundational' | 'developmental'). Legacy blocks
@@ -266,6 +300,15 @@ export default function BookletBuilderEditor() {
 
   const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title, docType: bk.doc_type || 'booklet', cover: bk.cover || null } : {}
   const isLevelTest = bk?.doc_type === 'level_test'
+  const isPreTest = bk?.doc_type === 'pre_test'
+  // Exam-style docs (level tests + pre-tests) use a two-column layout: one big
+  // left column (palette folded in + questions) and the live preview on the right.
+  const isExamStyle = isLevelTest || isPreTest
+  const back = isPreTest
+    ? { href: '/tutor/resources/tests?tab=pre-tests', label: '← Pre-tests' }
+    : isLevelTest
+      ? { href: '/tutor/resources/tests?tab=level-tests', label: '← Level tests' }
+      : { href: '/tutor/booklets/builder', label: '← Booklets' }
 
   const openExport = async (solutions) => {
     setExporting(true)
@@ -399,6 +442,72 @@ export default function BookletBuilderEditor() {
     )
   }
 
+  const paletteCard = (
+    <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
+      <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">{isExamStyle ? 'Add questions' : 'Add a block'}</p>
+      {activeSection === 'content' && isPreTest ? (
+        <div className="flex flex-col gap-1.5">
+          <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+          <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+        </div>
+      ) : activeSection === 'content' ? (
+        <div className="space-y-3">
+          {BLOCK_GROUPS.map(g => (
+            <div key={g}>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">{g}</p>
+              <div className="flex flex-col gap-1.5">
+                {BLOCK_TYPES.filter(t => t.group === g).map(t => (
+                  <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+                    <span className="mr-1.5">{t.icon}</span>{t.label}
+                  </button>
+                ))}
+                {g === 'Questions' && (
+                  <>
+                    <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+                    <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : activeSection === 'homework' ? (
+        <div className="space-y-2.5">
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">Adding to</p>
+            <div className="flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
+              {HW_GROUPS.map((g, gi) => (
+                <button key={g.id} onClick={() => setActiveHwGroup(g.id)}
+                  className={`flex-1 px-2 py-1 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {HW_BLOCK_TYPES.map(t => (
+              <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+                <span className="mr-1.5">{t.icon}</span>{t.label}
+              </button>
+            ))}
+            <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+            <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {HW_BLOCK_TYPES.map(t => (
+            <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+              <span className="mr-1.5">{t.icon}</span>{t.label}
+            </button>
+          ))}
+          <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+          <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} />
@@ -406,7 +515,7 @@ export default function BookletBuilderEditor() {
       {/* Top bar */}
       <div className="sticky top-0 z-30 bg-white border-b border-[#DEE7FF]">
         <div className="max-w-[1500px] mx-auto px-5 py-3 flex items-center gap-3 flex-wrap">
-          <button onClick={() => router.push(isLevelTest ? '/tutor/resources/level-test' : '/tutor/booklets/builder')} className="text-[#325099] text-sm hover:underline">{isLevelTest ? '← Level tests' : '← Booklets'}</button>
+          <button onClick={() => router.push(back.href)} className="text-[#325099] text-sm hover:underline">{back.label}</button>
           <div className="flex-1 min-w-[200px] text-base font-semibold text-[#2A2035] px-2 py-1 truncate" title="Auto-formatted from Year · Subject · Booklet name">{formatBookletName(bk.year, bk.subject, bk.title)}</div>
           <span className="text-[11px] text-[#2A2035]/40">{saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}</span>
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
@@ -443,6 +552,9 @@ export default function BookletBuilderEditor() {
                 placeholder="Week #"
                 className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
             </div>
+          ) : isPreTest ? (
+            /* Pre-test names are generated automatically — no manual name input. */
+            null
           ) : (
             <input value={bk.title || ''} onChange={e => mutate({ title: e.target.value })}
               placeholder="Booklet name (e.g. Algebra)"
@@ -451,19 +563,51 @@ export default function BookletBuilderEditor() {
         </div>
       </div>
 
-      <div className="max-w-[1560px] mx-auto px-5 py-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_208px_minmax(0,560px)] gap-5">
+      <div className={`max-w-[1560px] mx-auto px-5 py-5 grid grid-cols-1 gap-5 ${isExamStyle ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,600px)]' : 'lg:grid-cols-[minmax(0,1fr)_208px_minmax(0,560px)]'}`}>
         {/* Blocks column — the added building blocks. min-w-0 lets this flexible
             column compress instead of forcing the whole page to scroll sideways. */}
         <div className="min-w-0">
-          {/* Page tabs — Cover is automatic (page 1); Content + Homework are editable. */}
-          <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
-            {[{ id: 'content', label: 'Content page' }, { id: 'homework', label: 'Homework page' }, { id: 'revision', label: 'Revision Quiz' }, { id: 'summary', label: 'Content' }].map(s => (
-              <button key={s.id} onClick={() => { setActiveSection(s.id); setSelectedBlockId(null) }}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition ${activeSection === s.id ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
-                {s.label}
-              </button>
-            ))}
-          </div>
+          {/* Exam-style docs: choose which topics the test covers, then fold the
+              question palette into the top of this column. */}
+          {isExamStyle && (
+            <div className="mb-4 bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Topics in this test</p>
+              {!bk.subject || !bk.year ? (
+                <p className="text-xs text-[#2A2035]/40 italic">Set a subject and year first.</p>
+              ) : scopeTopics.length === 0 ? (
+                <p className="text-xs text-[#2A2035]/40 italic">No topics for this subject/year.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {scopeTopics.map(t => {
+                    const on = (bk.qbank_topic_ids || []).includes(t.id)
+                    return (
+                      <button key={t.id} onClick={() => toggleTestTopic(t.id)}
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition ${on ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/60 border-[#DEE7FF] hover:border-[#325099]'}`}>
+                        {t.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="text-[10px] text-[#2A2035]/40 mt-2">The question bank below shows only these topics. Leave all off to allow any topic for the year.</p>
+            </div>
+          )}
+          {/* Exam-style docs fold the question palette into the top of this column. */}
+          {isExamStyle && activeSection !== 'summary' && (
+            <div className="mb-4">{paletteCard}</div>
+          )}
+          {/* Page tabs — Cover is automatic (page 1); Content + Homework are editable.
+              Pre-tests are a single page of questions, so they have no page tabs. */}
+          {!isPreTest && (
+            <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
+              {[{ id: 'content', label: 'Content page' }, { id: 'homework', label: 'Homework page' }, { id: 'revision', label: 'Revision Quiz' }, { id: 'summary', label: 'Content' }].map(s => (
+                <button key={s.id} onClick={() => { setActiveSection(s.id); setSelectedBlockId(null) }}
+                  className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition ${activeSection === s.id ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Add palette — sticky so it stays reachable as the block list grows.
               The page-coloured band starts higher than the card (top-[96px] +
@@ -574,73 +718,14 @@ export default function BookletBuilderEditor() {
           )}
         </div>
 
-        {/* Palette column — all the add-block buttons in a vertical row */}
-        <div>
-          {activeSection !== 'summary' && (
-            <div className="sticky top-[96px]">
-              <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
-                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Add a block</p>
-                {activeSection === 'content' ? (
-                  <div className="space-y-3">
-                    {BLOCK_GROUPS.map(g => (
-                      <div key={g}>
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">{g}</p>
-                        <div className="flex flex-col gap-1.5">
-                          {BLOCK_TYPES.filter(t => t.group === g).map(t => (
-                            <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
-                              <span className="mr-1.5">{t.icon}</span>{t.label}
-                            </button>
-                          ))}
-                          {g === 'Questions' && (
-                            <>
-                              <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-                              <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : activeSection === 'homework' ? (
-                  <div className="space-y-2.5">
-                    {/* Homework: questions + writing only, no boxes/headings */}
-                    <div>
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">Adding to</p>
-                      <div className="flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
-                        {HW_GROUPS.map((g, gi) => (
-                          <button key={g.id} onClick={() => setActiveHwGroup(g.id)}
-                            className={`flex-1 px-2 py-1 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
-                            {g.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {HW_BLOCK_TYPES.map(t => (
-                        <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
-                          <span className="mr-1.5">{t.icon}</span>{t.label}
-                        </button>
-                      ))}
-                      <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-                      <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {/* Revision quiz: questions + writing only, single flat list */}
-                    {HW_BLOCK_TYPES.map(t => (
-                      <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
-                        <span className="mr-1.5">{t.icon}</span>{t.label}
-                      </button>
-                    ))}
-                    <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-                    <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Palette column (booklets only) — exam-style docs fold it into the left column. */}
+        {!isExamStyle && (
+          <div>
+            {activeSection !== 'summary' && (
+              <div className="sticky top-[96px]">{paletteCard}</div>
+            )}
+          </div>
+        )}
 
         {/* Preview column */}
         <div className="min-w-0">
@@ -693,12 +778,26 @@ function bankToBlock(q) {
     return { ...newBlock('mcq'), qbank_question_id: q.id, prompt: q.stem_latex || '', image: firstImg, options, answer: (q.correct_option || '').toString().toUpperCase().slice(0, 1), explanation: q.solution_latex || '', marks: q.marks ? String(q.marks) : '' }
   }
   const parts = (q.qbank_question_parts || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-    .map(p => ({ prompt: p.prompt_latex || '', image: '', solution: p.solution_latex || '' }))
-  return { ...newBlock('question'), qbank_question_id: q.id, prompt: q.stem_latex || '', image: firstImg, marks: q.marks ? String(q.marks) : '', solution: q.solution_latex || '', solutionImage: firstSolImg, parts }
+    .map(p => ({ prompt: p.prompt_latex || '', image: '', solution: p.solution_latex || '', marks: p.marks != null ? String(p.marks) : '' }))
+  // Carry the bank question's marks so the pre-test total is auto-calculated:
+  // multipart questions sum their parts, single questions use their own marks.
+  const partTotal = parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
+  const marks = partTotal > 0 ? String(partTotal) : (q.marks != null ? String(q.marks) : '')
+  return { ...newBlock('question'), qbank_question_id: q.id, prompt: q.stem_latex || '', image: firstImg, marks, solution: q.solution_latex || '', solutionImage: firstSolImg, parts }
+}
+
+// Group a subject name into a family so "Maths" matches Adv/Ext/Standard Maths.
+const subjectFamily = (s) => {
+  const v = (s || '').toLowerCase()
+  if (/chem/.test(v)) return 'chem'
+  if (/eng|eald/.test(v)) return 'eng'
+  if (/math/.test(v)) return 'math'
+  return v.trim()
 }
 
 function BankPicker({ booklet, onClose, onPick }) {
   const [qs, setQs] = useState(null)
+  const [tax, setTax] = useState(null)
   const [search, setSearch] = useState('')
   const [qtype, setQtype] = useState('')
 
@@ -706,11 +805,43 @@ function BankPicker({ booklet, onClose, onPick }) {
     supabase.from(T_QBANK_QUESTIONS)
       .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
       .then(({ data }) => setQs(data || []))
+    fetchTaxonomy().then(setTax)
   }, [])
 
+  // Resolve each question's subject via skill/subtopic/topic → subject.
+  const maps = useMemo(() => {
+    if (!tax) return null
+    return {
+      skill: Object.fromEntries((tax.skills || []).map(s => [s.id, s])),
+      subtopic: Object.fromEntries((tax.subtopics || []).map(s => [s.id, s])),
+      topic: Object.fromEntries((tax.topics || []).map(t => [t.id, t])),
+      subject: Object.fromEntries((tax.subjects || []).map(s => [s.id, s])),
+    }
+  }, [tax])
+  const qTopicId = useCallback((q) => {
+    if (!maps) return null
+    return maps.skill[q.skill_id]?.topic_id || maps.subtopic[q.subtopic_id]?.topic_id || q.topic_id || null
+  }, [maps])
+  const qSubject = useCallback((q) => (maps ? maps.subject[maps.topic[qTopicId(q)]?.subject_id] || null : null), [maps, qTopicId])
+
+  const targetFam = subjectFamily(booklet?.subject)
+  // Tests (level/pre) also restrict to the chosen year level.
+  const isTest = booklet?.doc_type === 'pre_test' || booklet?.doc_type === 'level_test'
+  const targetYear = isTest && booklet?.year != null ? Number(booklet.year) : null
+  // If specific topics are chosen for the test, only pull from those.
+  const targetTopics = Array.isArray(booklet?.qbank_topic_ids) && booklet.qbank_topic_ids.length
+    ? new Set(booklet.qbank_topic_ids) : null
   const filtered = (qs || []).filter(q => {
     if (qtype && q.qtype !== qtype) return false
     if (search && !((q.stem_latex || '').toLowerCase().includes(search.toLowerCase()))) return false
+    // Only pull from the chosen subject's (and, for tests, year's + topics') bank.
+    if ((targetFam || targetYear != null || targetTopics) && maps) {
+      const subj = qSubject(q)
+      if (!subj) return false
+      if (targetFam && subjectFamily(subj.name) !== targetFam) return false
+      if (targetYear != null && Number(subj.year_level) !== targetYear) return false
+      if (targetTopics && !targetTopics.has(qTopicId(q))) return false
+    }
     return true
   }).slice(0, 80)
 
