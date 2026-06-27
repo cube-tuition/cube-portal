@@ -8,6 +8,7 @@ import {
   T_CLASSES, T_COURSES, T_TUTORS, T_ADMINS, T_TEACHER_AVAILABILITY, T_ENROLMENTS, T_TERMS,
 } from '../../../../lib/tables'
 import TutorNav from '../../../../components/TutorNav'
+import { listDrafts, createDraft, loadDraft, saveDraft, renameDraft, deleteDraft } from '../../../../lib/timetableDrafts'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const DAY_START = 8          // 8:00 am — top of the grid
@@ -35,6 +36,7 @@ const GREY = { bg: '#F1F3F7', text: '#5B6477', border: '#D4D9E3' }
 // Fixed colour overrides for specific staff (by lower-cased full name).
 const COLOR_OVERRIDES = {
   'ryan park': { bg: '#CBD9F7', text: '#1E40AF', border: '#A9C0EF' },  // pastel cornflower blue
+  'kevin park': { bg: '#BCE5CB', text: '#066B45', border: '#92D3AC' },  // slightly darker pastel green
 }
 
 // ── Time helpers ────────────────────────────────────────────────────────────────
@@ -262,6 +264,17 @@ export default function TimetablePage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null)  // class being edited | null
   const dragId = useRef(null)
+  // Draft mode — a persistent, independent scratch plan (table: timetable_drafts).
+  // Editing a draft never touches the live `classes`; you Save it and resume later,
+  // and only "Apply to live" pushes the arrangement onto real classes.
+  const [draftMode, setDraftMode]   = useState(false)
+  const [draftDirty, setDraftDirty] = useState(false)  // unsaved edits in the open draft
+  const [applying, setApplying]     = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [drafts, setDrafts]         = useState([])     // [{ id, name, updated_at }] for this term
+  const [draftId, setDraftId]       = useState('')     // the open draft
+  const liveSnapshot = useRef(null)  // live entries captured on entering draft (for exit + apply diff)
+  const [hiddenIds, setHiddenIds]   = useState(() => new Set())  // cards hidden in the open draft
 
   // Auth
   useEffect(() => {
@@ -310,7 +323,12 @@ export default function TimetablePage() {
   // Classes for the selected term
   useEffect(() => {
     if (!termId) return
-    ;(async () => { setLoading(true); await loadClasses(termId); setLoading(false) })()
+    ;(async () => {
+      // Switching terms leaves draft mode (drafts are per-term) and reloads live.
+      setDraftMode(false); setDraftDirty(false); setHiddenIds(new Set())
+      setDraftId(''); setDrafts([]); liveSnapshot.current = null
+      setLoading(true); await loadClasses(termId); setLoading(false)
+    })()
   }, [termId])
 
   const courseLabel = (id) => {
@@ -355,7 +373,9 @@ export default function TimetablePage() {
 
   // ── Derived: placed rows + clash + availability flags ───────────────────────────
   const decorated = useMemo(() => {
-    const rows = entries.filter(isPlaced).map(e => ({
+    // Hidden cards are "parked" — exclude them so they don't trigger clash or
+    // availability warnings (and the warning can't point at an invisible card).
+    const rows = entries.filter(e => isPlaced(e) && !hiddenIds.has(e.id)).map(e => ({
       ...e,
       s: parseTime(e.start_time),
       e: parseTime(e.end_time),
@@ -393,7 +413,7 @@ export default function TimetablePage() {
     }
     return { rows, clash, offAvail }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, avail, nameToId])
+  }, [entries, avail, nameToId, hiddenIds])
 
   // Weekly hours per tutor (+ unassigned) from placed classes.
   const hoursByTutor = useMemo(() => {
@@ -411,7 +431,7 @@ export default function TimetablePage() {
 
   // Lane layout per day for side-by-side overlaps.
   const layoutForDay = (day) => {
-    const evs = decorated.rows.filter(r => r.day_of_week === day).sort((a, b) => a.s - b.s || a.e - b.e)
+    const evs = decorated.rows.filter(r => r.day_of_week === day && !hiddenIds.has(r.id)).sort((a, b) => a.s - b.s || a.e - b.e)
     const laneEnds = []
     evs.forEach(ev => {
       let lane = laneEnds.findIndex(end => end <= ev.s)
@@ -455,7 +475,8 @@ export default function TimetablePage() {
     }
     if (editing.id) {
       setEntries(prev => prev.map(e => e.id === editing.id ? { ...e, ...payload } : e))
-      await supabase.from(T_CLASSES).update(payload).eq('id', editing.id)
+      if (draftMode) setDraftDirty(true)            // draft: local only, saved on Apply
+      else await supabase.from(T_CLASSES).update(payload).eq('id', editing.id)
     } else {
       const { data } = await supabase.from(T_CLASSES).insert({ ...payload, term_id: termId }).select(CLASS_COLS).single()
       if (data) setEntries(prev => [...prev, data])
@@ -469,12 +490,20 @@ export default function TimetablePage() {
     const patch = { day_of_week: null, start_time: null, end_time: null }
     setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e))
     setEditing(null)
+    if (draftMode) { setDraftDirty(true); return }  // draft: local only, saved on Apply
     await supabase.from(T_CLASSES).update(patch).eq('id', id)
   }
 
   // Delete the class outright.
   const deleteClass = async () => {
     const id = editing.id
+    if (draftMode) {
+      // Draft: remove locally; the actual DB delete happens on Apply (and is
+      // reversible via Discard until then).
+      setEntries(prev => prev.filter(e => e.id !== id))
+      setEditing(null); setDraftDirty(true)
+      return
+    }
     if (!confirm('Delete this class from the database entirely? This cannot be undone.')) return
     setEditing(null)
     const { error } = await supabase.from(T_CLASSES).delete().eq('id', id)
@@ -489,7 +518,114 @@ export default function TimetablePage() {
     const start = Math.max(DAY_START * 60, Math.min(startMin, DAY_END * 60 - dur))
     const patch = { day_of_week: day, start_time: toHHMM(start), end_time: toHHMM(start + dur) }
     setEntries(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x))
+    if (draftMode) { setDraftDirty(true); return }   // draft: local only, no DB write
     await supabase.from(T_CLASSES).update(patch).eq('id', id)
+  }
+
+  // ── Draft mode (persistent, independent of the live timetable) ──────────────
+  const FIELDS = ['course_id', 'class_name', 'teacher', 'room', 'day_of_week', 'start_time', 'end_time']
+
+  const openDraft = async (id) => {
+    const d = await loadDraft(id)
+    if (!d) return
+    setDraftId(id)
+    setEntries(d.entries)
+    setHiddenIds(new Set(d.hidden_ids))
+    setDraftDirty(false)
+  }
+
+  // Enter draft: remember the live board, load this term's drafts, then open the
+  // most recent — creating one seeded from the live timetable if none exist.
+  const enterDraft = async () => {
+    liveSnapshot.current = entries
+    setHiddenIds(new Set()); setDraftDirty(false)
+    let list = await listDrafts(termId)
+    if (list.length === 0) {
+      const created = await createDraft({ termId, name: 'Draft 1', entries, hiddenIds: [], createdBy: profile?.id })
+      list = [created]
+    }
+    setDrafts(list)
+    setDraftMode(true)
+    await openDraft(list[0].id)
+  }
+
+  const switchDraft = async (id) => {
+    if (draftDirty && !confirm('Switch drafts? Unsaved changes in the current draft will be lost.')) return
+    await openDraft(id)
+  }
+
+  const newDraft = async () => {
+    // Seed a new draft from the live timetable so you start from the real layout.
+    const created = await createDraft({
+      termId, name: `Draft ${drafts.length + 1}`,
+      entries: liveSnapshot.current || entries, hiddenIds: [], createdBy: profile?.id,
+    })
+    setDrafts(prev => [created, ...prev])
+    await openDraft(created.id)
+  }
+
+  const saveDraftNow = async () => {
+    if (!draftId) return
+    setSavingDraft(true)
+    try {
+      await saveDraft(draftId, { entries, hiddenIds: [...hiddenIds] })
+      setDraftDirty(false)
+      setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, updated_at: new Date().toISOString() } : d))
+    } catch (e) { alert('Could not save draft: ' + (e.message || e)) }
+    setSavingDraft(false)
+  }
+
+  const renameDraftNow = async () => {
+    const cur = drafts.find(d => d.id === draftId)
+    const name = prompt('Draft name:', cur?.name || 'Untitled draft')
+    if (name == null) return
+    const clean = name.trim() || 'Untitled draft'
+    await renameDraft(draftId, clean)
+    setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, name: clean } : d))
+  }
+
+  const removeDraft = async () => {
+    if (!draftId) return
+    if (!confirm('Delete this draft? This only removes the saved plan — no real classes are affected.')) return
+    await deleteDraft(draftId)
+    const remaining = drafts.filter(d => d.id !== draftId)
+    setDrafts(remaining)
+    if (remaining.length) await openDraft(remaining[0].id)
+    else exitDraft()
+  }
+
+  const exitDraft = () => {
+    setDraftMode(false); setDraftId(''); setDraftDirty(false); setHiddenIds(new Set())
+    if (liveSnapshot.current) setEntries(liveSnapshot.current)
+    liveSnapshot.current = null
+  }
+
+  // Push the open draft's arrangement onto the live classes (explicit, optional).
+  const applyToLive = async () => {
+    if (!confirm('Apply this draft to the LIVE timetable? Real classes will be updated to match the draft.')) return
+    setApplying(true)
+    const live = new Map((liveSnapshot.current || []).map(e => [e.id, e]))
+    const curIds = new Set(entries.map(e => e.id))
+    const failures = []
+    for (const e of entries) {
+      const o = live.get(e.id)
+      if (!o || !FIELDS.some(f => o[f] !== e[f])) continue
+      const patch = Object.fromEntries(FIELDS.map(f => [f, e[f]]))
+      const { error } = await supabase.from(T_CLASSES).update(patch).eq('id', e.id)
+      if (error) failures.push(`${e.class_name || 'Class'}: ${error.message}`)
+    }
+    for (const o of (liveSnapshot.current || [])) {
+      if (curIds.has(o.id)) continue
+      const { error } = await supabase.from(T_CLASSES).delete().eq('id', o.id)
+      if (error) failures.push(`${o.class_name || 'Class'} (delete): ${error.message}`)
+    }
+    setApplying(false)
+    // Refresh the live snapshot so a later apply diffs against what now exists.
+    const { data } = await supabase.from(T_CLASSES).select(CLASS_COLS).eq('term_id', termId)
+    liveSnapshot.current = data || []
+    alert(failures.length
+      ? `Applied with some issues:\n\n${failures.join('\n')}`
+      : 'Draft applied to the live timetable.')
   }
 
   const onColumnDrop = (day) => (ev) => {
@@ -538,7 +674,9 @@ export default function TimetablePage() {
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Timetable Planner</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
-              Arrange this term&apos;s classes onto the week. Drag to reschedule — every change saves to the class.
+              {draftMode
+                ? 'Draft plan — edits save to this draft only and never touch the live timetable until you “Apply to live”.'
+                : 'Arrange this term’s classes onto the week. Drag to reschedule — every change saves to the class.'}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -549,17 +687,66 @@ export default function TimetablePage() {
             >
               {terms.map(t => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
             </select>
-            <button
-              onClick={togglePublish}
-              title="Show this term's timetable on the public website"
-              className={`text-sm font-semibold rounded-xl px-4 py-2 border transition ${
-                selectedTerm?.published_on_website
-                  ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                  : 'bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099]'
-              }`}
-            >
-              {selectedTerm?.published_on_website ? '🌐 Published to website' : 'Publish to website'}
-            </button>
+
+            {/* Drafts — saved, independent plans; nothing touches live until "Apply to live" */}
+            {!draftMode ? (
+              <button
+                onClick={enterDraft}
+                title="Open a saved draft plan (or start one). Edits never touch the live timetable."
+                className="text-sm font-semibold rounded-xl px-4 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition"
+              >
+                ✏️ Drafts
+              </button>
+            ) : (
+              <>
+                <select
+                  value={draftId}
+                  onChange={e => switchDraft(e.target.value)}
+                  title="Choose a draft plan"
+                  className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] max-w-[170px]"
+                >
+                  {drafts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+                <button onClick={newDraft} title="New draft (seeded from the live timetable)"
+                  className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition">+ New</button>
+                <button onClick={renameDraftNow} title="Rename this draft"
+                  className="text-sm rounded-xl px-2.5 py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition">✎</button>
+                {hiddenIds.size > 0 && (
+                  <button onClick={() => { setHiddenIds(new Set()); setDraftDirty(true) }}
+                    title="Show all cards hidden in this draft"
+                    className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition">
+                    Show {hiddenIds.size} hidden
+                  </button>
+                )}
+                <button onClick={saveDraftNow} disabled={savingDraft || !draftDirty}
+                  className="text-sm font-semibold rounded-xl px-4 py-2 border bg-[#325099] text-white border-[#325099] hover:bg-[#062E63] transition disabled:opacity-50">
+                  {savingDraft ? 'Saving…' : draftDirty ? 'Save draft' : 'Saved ✓'}
+                </button>
+                <button onClick={applyToLive} disabled={applying}
+                  title="Push this draft onto the live timetable"
+                  className="text-sm font-semibold rounded-xl px-4 py-2 border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 transition disabled:opacity-50">
+                  {applying ? 'Applying…' : 'Apply to live'}
+                </button>
+                <button onClick={removeDraft} title="Delete this draft plan"
+                  className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#B23A3A] border-[#F3C0C0] hover:bg-[#FFF5F5] transition">Delete</button>
+                <button onClick={exitDraft} title="Leave drafts and return to the live timetable"
+                  className="text-sm font-semibold rounded-xl px-4 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition">Exit</button>
+              </>
+            )}
+
+            {!draftMode && (
+              <button
+                onClick={togglePublish}
+                title="Show this term's timetable on the public website"
+                className={`text-sm font-semibold rounded-xl px-4 py-2 border transition ${
+                  selectedTerm?.published_on_website
+                    ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                    : 'bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099]'
+                }`}
+              >
+                {selectedTerm?.published_on_website ? '🌐 Published to website' : 'Publish to website'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -682,6 +869,14 @@ export default function TimetablePage() {
                               boxShadow: isClash ? '0 0 0 1px #ef4444' : isOff ? '0 0 0 1px #f59e0b' : undefined,
                             }}
                           >
+                            {draftMode && (
+                              <button
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); setHiddenIds(prev => { const n = new Set(prev); n.add(ev.id); return n }); setDraftDirty(true) }}
+                                title="Hide from this draft (doesn’t delete the class)"
+                                className="absolute top-0.5 right-0.5 z-10 w-4 h-4 flex items-center justify-center rounded bg-white/70 text-[#5B6477] hover:bg-white hover:text-[#B23A3A] text-[11px] leading-none"
+                              >×</button>
+                            )}
                             <p className="text-[11px] font-bold leading-tight truncate" style={{ color: col.text }}>
                               {isClash && '⚠ '}{title}
                             </p>
@@ -705,7 +900,9 @@ export default function TimetablePage() {
         )}
 
         <p className="text-[11px] text-[#325099]/40 mt-4 text-center">
-          Drag cards to reschedule · click a card to edit · changes save to the class instantly
+          {draftMode
+            ? 'Draft plan — drag to move, click a card to edit, × to hide. Save draft to keep it; Apply to live to push it onto the real timetable.'
+            : 'Drag cards to reschedule · click a card to edit · changes save to the class instantly'}
         </p>
       </div>
     </div>
