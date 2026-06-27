@@ -19,6 +19,16 @@ const YEARS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 const SUBJECT_VALUE = { Mathematics: 'Maths' }
 const SUBJECT_LABEL = { Maths: 'Mathematics' }
 
+// Subject → short code for the "X.C. Level Test" display name (mirrors the
+// booklet builder's SUBJECT_CODE map). Level tests are always titled
+// "Level Test"; the card shows it prefixed with year + subject code.
+const SUBJECT_CODE = { Maths: 'M', English: 'ET', Chemistry: 'C', Science: 'S' }
+const subjectCode = (s) => SUBJECT_CODE[s] || (s || '')[0]?.toUpperCase() || ''
+const levelTestDisplayName = (t) => {
+  const code = subjectCode(t.subject)
+  return (t.year && code) ? `${t.year}.${code}. Level Test` : (t.title || 'Untitled level test')
+}
+
 const DEFAULT_COVER = {
   instructions: [
     'Working time – 60 minutes',
@@ -136,7 +146,7 @@ export default function LevelTestsPanel({ profile }) {
             <div key={t.id} className="flex items-center gap-3 px-5 md:px-6 py-4">
               <span className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#062E63] flex items-center justify-center text-base shrink-0">📝</span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#2A2035] truncate">{t.title || 'Untitled level test'}</p>
+                <p className="text-sm font-semibold text-[#2A2035] truncate">{levelTestDisplayName(t)}</p>
                 <p className="text-[11px] text-[#2A2035]/50 truncate">
                   {t.year ? `Year ${t.year} · ` : ''}{t.subject || 'Mathematics'}{t.updated_at ? ` · Updated ${fmtDate(t.updated_at)}` : ''}
                 </p>
