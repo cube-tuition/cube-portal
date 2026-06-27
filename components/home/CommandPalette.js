@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { T_STUDENTS, T_CLASSES, T_INVOICES } from '../../lib/tables'
 import { fmtMoney } from '../../lib/format'
+import { fetchAllTerms, getCurrentTerm } from '../../lib/terms'
 
 /*
  * CommandPalette — a ⌘K / Ctrl-K quick-jump and lookup for directors. Searches
@@ -49,9 +50,14 @@ export default function CommandPalette() {
     if (!open || data) return
     let cancelled = false
     ;(async () => {
+      // Scope class search to the current term so the same course running in
+      // multiple terms doesn't appear as duplicate results.
+      const curTerm = getCurrentTerm(await fetchAllTerms())
+      let classesQuery = supabase.from(T_CLASSES).select('id, class_name, day_of_week, start_time, teacher, room')
+      if (curTerm) classesQuery = classesQuery.eq('term_id', curTerm.id)
       const [s, c, i] = await Promise.all([
         supabase.from(T_STUDENTS).select('id, full_name, year, school, status'),
-        supabase.from(T_CLASSES).select('id, class_name, day_of_week, start_time, teacher, room'),
+        classesQuery,
         supabase.from(T_INVOICES).select('id, invoice_number, total, status, payment_status').neq('status', 'voided'),
       ])
       if (cancelled) return

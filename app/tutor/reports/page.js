@@ -45,10 +45,24 @@ export default function ReportsLandingPage() {
       const t = await fetchAllTerms()
       setTerms(t)
       setTermId(getCurrentTerm(t)?.id || t?.[0]?.id || null)
+      // Classes load in the term-scoped effect below (re-runs when termId changes).
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
+  // Load classes + rosters for the SELECTED term only, re-running whenever the
+  // term changes. Without the term filter the same course shows once per term
+  // (e.g. Term 2 + Term 3), which is the duplicate-class bug.
+  useEffect(() => {
+    if (!termId) return
+    let alive = true
+    ;(async () => {
+      setLoading(true)
       const { data: clsRaw } = await supabase
         .from(T_CLASSES)
         .select('id, class_name, day_of_week, start_time, end_time, teacher, room')
+        .eq('term_id', termId)
+      if (!alive) return
       // 1:1 classes don't get term reports — exclude them from the list.
       const cls = (clsRaw || []).filter(c => !/\b1\s*:\s*1\b/.test(c.class_name || ''))
       setClasses(cls)
@@ -59,6 +73,7 @@ export default function ReportsLandingPage() {
           .from(T_ENROLMENTS)
           .select('class_id, students (id, full_name, school, year)')
           .in('class_id', ids)
+        if (!alive) return
         const map = {}
         for (const l of links || []) {
           if (!l.students) continue
@@ -66,12 +81,13 @@ export default function ReportsLandingPage() {
           map[l.class_id].push(l.students)
         }
         setRosters(map)
+      } else {
+        setRosters({})
       }
-
       setLoading(false)
     })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => { alive = false }
+  }, [termId])
 
   // When term changes, fetch how many comments have been written for each class
   useEffect(() => {
