@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { listExams, createExam, deleteExam } from '../../lib/qbankExams'
+import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 
 /*
  * Exams list — the body of the old /tutor/qbank/exams page, with no page chrome
@@ -14,22 +15,41 @@ export default function ExamsPanel({ profile }) {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [tab, setTab] = useState('maths')   // 'maths' | 'english'
+  const [terms, setTerms] = useState([])
+  const [termId, setTermId] = useState('')
 
   const reload = useCallback(() => listExams().then((d) => { setExams(d); setLoading(false) }), [])
   useEffect(() => { reload() }, [reload])
 
+  // Load terms once and default to the current term, so the list is scoped to a
+  // single term (an exam stores its term as the term number, e.g. "2").
+  useEffect(() => {
+    fetchAllTerms().then((all) => {
+      setTerms(all)
+      const cur = getCurrentTerm(all)
+      setTermId(cur?.id || all[0]?.id || '')
+    })
+  }, [])
+
+  const selTerm = terms.find((t) => t.id === termId)
+  const selTermNum = selTerm?.term_number != null ? String(selTerm.term_number) : null
+  const matchesTerm = (e) => {
+    if (!selTermNum) return true
+    return String(e.term ?? '').match(/\d+/)?.[0] === selTermNum
+  }
+
   const handleNew = async () => {
     setCreating(true)
     try {
-      const id = await createExam(profile?.full_name, tab)
+      const id = await createExam(profile?.full_name, tab, selTermNum)
       router.push(`/tutor/qbank/exams/${id}`)
     } catch (e) { alert('Could not create exam: ' + (e.message || e)); setCreating(false) }
   }
 
   const isEnglish = (e) => e.paper_type === 'english'
-  const shown = exams.filter((e) => (tab === 'english' ? isEnglish(e) : !isEnglish(e)))
-  const mathsN = exams.filter((e) => !isEnglish(e)).length
-  const englishN = exams.filter(isEnglish).length
+  const shown = exams.filter((e) => (tab === 'english' ? isEnglish(e) : !isEnglish(e)) && matchesTerm(e))
+  const mathsN = exams.filter((e) => !isEnglish(e) && matchesTerm(e)).length
+  const englishN = exams.filter((e) => isEnglish(e) && matchesTerm(e)).length
 
   const handleDelete = async (id, title) => {
     if (!confirm(`Delete "${title}"? This cannot be undone.`)) return
@@ -46,14 +66,23 @@ export default function ExamsPanel({ profile }) {
 
   return (
     <div>
-      <div className="flex items-center justify-end gap-3 mb-4">
-        {tab === 'english' && (
-          <Link href="/tutor/qbank/rubrics" className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-2 hover:bg-white transition">📊 Marking rubrics</Link>
-        )}
-        <button onClick={handleNew} disabled={creating}
-          className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
-          {creating ? 'Creating…' : `+ New ${tab === 'english' ? 'English' : 'Maths'} exam`}
-        </button>
+      <div className="flex items-center gap-3 mb-4">
+        <select
+          value={termId}
+          onChange={(e) => setTermId(e.target.value)}
+          className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+        >
+          {terms.map((t) => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
+        </select>
+        <div className="ml-auto flex items-center gap-3">
+          {tab === 'english' && (
+            <Link href="/tutor/qbank/rubrics" className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-2 hover:bg-white transition">📊 Marking rubrics</Link>
+          )}
+          <button onClick={handleNew} disabled={creating}
+            className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
+            {creating ? 'Creating…' : `+ New ${tab === 'english' ? 'English' : 'Maths'} exam`}
+          </button>
+        </div>
       </div>
 
       {/* Maths / English folders */}
