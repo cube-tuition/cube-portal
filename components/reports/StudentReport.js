@@ -80,7 +80,10 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
     for (let w = 1; w <= 10; w++) {
       const att  = attByWeek.get(w)
       const quiz = quizByWeek.get(w)
-      const score = quiz?.score != null && quiz?.max_score
+      const noRq = rqByWeek[w] === false   // class had no revision quiz this week
+      // Suppress the score for no-RQ weeks so the trend line doesn't plot a
+      // point (matches the table/stats, which already exclude these weeks).
+      const score = !noRq && quiz?.score != null && quiz?.max_score
         ? Math.round((quiz.score / quiz.max_score) * 100) : null
       // Treat a cancelled lesson as an absence on the trend/report.
       const status = att?.status === 'cancelled' ? 'absent' : (att?.status || null)
@@ -91,7 +94,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
         // the chart's Cell), so absences show as a red band rather than nothing.
         attended: status ? 1 : null,
         status, hw, hwNum: hw ? HW_NUMERIC[hw] || null : null,
-        noRq: rqByWeek[w] === false,   // class had no revision quiz this week
+        noRq,   // class had no revision quiz this week
       })
     }
     return out
