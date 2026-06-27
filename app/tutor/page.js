@@ -52,6 +52,9 @@ export default function TutorHome() {
   // matches the live calendar — cancellations, reschedules and makeups included.
   const [todayLessons, setTodayLessons] = useState([])
   const [todayMakeups, setTodayMakeups] = useState([])
+  // Today's lessons that have been moved to a makeup on ANY other day — hidden
+  // so a relocated 1:1 only shows on its new date.
+  const [movedAwayIds, setMovedAwayIds] = useState([])
   const [unsavedSessions, setUnsavedSessions] = useState([])
   // (Admin unsaved-session tracking moved to /tutor/unsaved-sessions)
   const [authErr, setAuthErr] = useState(null)
@@ -69,25 +72,31 @@ export default function TutorHome() {
       setStaff(profile)
 
       const terms = await fetchAllTerms()
-      setCurrentTerm(getCurrentTerm(terms))
+      const term = getCurrentTerm(terms)
+      setCurrentTerm(term)
 
       // Classes — admin sees all, tutor sees their own:
       //   1. Classes where they are the main teacher (matched by first name)
       //   2. Classes where they are scheduled_teacher_id on any lesson this term
+      // Scoped to the current term so the A/B/C class labels only compare
+      // classes within one term — otherwise the same course in Term 2 and
+      // Term 3 counts as two "siblings" and every class gets lettered.
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0]
       let primaryClasses = []
       if (isAdmin) {
-        const { data } = await supabase.from(T_CLASSES).select('*')
+        let q = supabase.from(T_CLASSES).select('*')
+        if (term) q = q.eq('term_id', term.id)
+        const { data } = await q
         primaryClasses = data || []
       } else {
-        // Fetch by main teacher name
-        const { data: ownCls } = await supabase
-          .from(T_CLASSES).select('*').ilike('teacher', firstName + '%')
+        // Fetch by main teacher name (current term only)
+        let q = supabase.from(T_CLASSES).select('*').ilike('teacher', firstName + '%')
+        if (term) q = q.eq('term_id', term.id)
+        const { data: ownCls } = await q
         primaryClasses = ownCls || []
 
         // Also fetch classes where this tutor is a scheduled_teacher this term
-        const term = getCurrentTerm(terms)
         if (term) {
           const { data: subLessons } = await supabase
             .from(T_LESSONS)
@@ -141,11 +150,25 @@ export default function TutorHome() {
         ])
         setTodayLessons((regRows || []).filter(l => l.status !== 'cancelled'))
         setTodayMakeups(mkRows || [])
+
+        // A 1:1 moved to another day leaves its original (today's) row in place
+        // with a makeup elsewhere pointing back at it. Find those so we can hide
+        // the original — even when the makeup is on a different date.
+        const todayRegIds = (regRows || []).map(l => l.id)
+        if (todayRegIds.length) {
+          const { data: awayRows } = await supabase
+            .from(T_LESSONS)
+            .select('makeup_source_lesson_id')
+            .in('makeup_source_lesson_id', todayRegIds)
+          setMovedAwayIds([...new Set((awayRows || []).map(r => r.makeup_source_lesson_id).filter(Boolean))])
+        } else {
+          setMovedAwayIds([])
+        }
       }
 
       // Unsaved-session checks moved to /tutor/unsaved-sessions (linked from
       // the Action Centre's attendance row).
-      const term = getCurrentTerm(terms)
+      // (`term` is already computed above.)
 
       // Unsaved sessions — tutors only (not admin)
       if (!isAdmin && term && primaryClasses.length > 0) {
@@ -223,9 +246,10 @@ export default function TutorHome() {
     const isOneToOne = (c) => /\b1\s*:\s*1\b/.test(c?.class_name || '')
     // A moved 1:1 leaves its original row in place but points a makeup at it;
     // hide that original so the session only shows at its new time.
-    const movedSourceIds = new Set(
-      (todayMakeups || []).map(m => m.makeup_source_lesson_id).filter(Boolean)
-    )
+    const movedSourceIds = new Set([
+      ...(todayMakeups || []).map(m => m.makeup_source_lesson_id).filter(Boolean),
+      ...movedAwayIds,
+    ])
     const rows = []
     for (const l of todayLessons) {
       const cls = byId.get(l.class_id)
@@ -255,7 +279,7 @@ export default function TutorHome() {
     }
     rows.sort((a, b) => startMinutes(a.start_time) - startMinutes(b.start_time))
     return rows
-  }, [classes, todayLessons, todayMakeups])
+  }, [classes, todayLessons, todayMakeups, movedAwayIds])
 
   if (authErr) return (
     <div className="min-h-screen flex items-center justify-center bg-white px-6">

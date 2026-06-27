@@ -2774,6 +2774,25 @@ export default function DatabasePage() {
     const target = moveOptions.find(o => o.id === moveTargetId)
     if (!target) { setMakeupSaving(false); return }
 
+    // ── Guard: don't "move" a student into a session they already attend ──
+    // If the student is an enrolled member of the target session's class, they
+    // already attend it — moving them there is redundant and double-books them.
+    // A move is only valid into a sibling section they are NOT enrolled in.
+    {
+      const { data: enr } = await supabase
+        .from(T_ENROLMENTS)
+        .select('id')
+        .eq('student_id', makeupStudent.id)
+        .eq('class_id', target.class_id)
+        .in('status', ['active', 'trial'])
+        .maybeSingle()
+      if (enr) {
+        alert(`${makeupStudent.full_name} is already enrolled in ${target.classes?.class_name || 'that class'}, so they already attend that session — a makeup move would double-book them.\n\nIf they aren't attending the original session, use "Cancel this lesson" instead to mark it as absent and apply a credit.`)
+        setMakeupSaving(false)
+        return
+      }
+    }
+
     // 1. Mark student as 'makeup' on the original lesson
     const { error: err1 } = await supabase.from(T_ATTENDANCE).upsert({
       student_id: makeupStudent.id, class_id: lessonSidebar.class_id,
@@ -2840,6 +2859,38 @@ export default function DatabasePage() {
   const saveMakeupOneToOne = useCallback(async () => {
     if (!makeupStudent || !lessonSidebar || !oneToOneDate) return
     setMakeupSaving(true)
+
+    // ── Guard: don't create a makeup into a session the student already attends ──
+    // A makeup only makes sense when the student is MISSING a class and needs to
+    // catch it elsewhere. If they're an enrolled member of this class and it
+    // already runs on the chosen date, a makeup would just double-book them
+    // (this is exactly what produced the bogus Emily/Emma rows). In that case
+    // the correct action is "Cancel this lesson" (absence + credit), not a makeup.
+    {
+      const { data: clashLesson } = await supabase
+        .from(T_LESSONS)
+        .select('id')
+        .eq('class_id', lessonSidebar.class_id)
+        .eq('lesson_date', oneToOneDate)
+        .eq('is_makeup', false)
+        .limit(1)
+        .maybeSingle()
+      if (clashLesson) {
+        const { data: enr } = await supabase
+          .from(T_ENROLMENTS)
+          .select('id')
+          .eq('student_id', makeupStudent.id)
+          .eq('class_id', lessonSidebar.class_id)
+          .in('status', ['active', 'trial'])
+          .maybeSingle()
+        if (enr) {
+          alert(`${makeupStudent.full_name} is already enrolled in this class and it runs on ${oneToOneDate}, so a makeup isn't needed — it would double-book them.\n\nIf they aren't attending the original session, use "Cancel this lesson" instead to mark it as absent and apply a credit.`)
+          setMakeupSaving(false)
+          return
+        }
+      }
+    }
+
     // Look up week number from an existing lesson on the same date
     const { data: weekRef } = await supabase
       .from(T_LESSONS)
