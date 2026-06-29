@@ -644,6 +644,18 @@ export default function TimetablePage() {
     setDraftDirty(true)
   }
 
+  // Student check — non-archived students not placed in any class in this draft.
+  const [showUnassigned, setShowUnassigned]   = useState(false)
+  const [unassignedQuery, setUnassignedQuery] = useState('')
+  const unassignedStudents = useMemo(() => {
+    if (!draftMode) return []
+    const assigned = new Set()
+    for (const e of entries) for (const sid of (e.student_ids || [])) assigned.add(sid)
+    return allStudents
+      .filter(s => !assigned.has(s.id))
+      .sort((a, b) => (Number(a.year) || 0) - (Number(b.year) || 0) || (a.full_name || '').localeCompare(b.full_name || ''))
+  }, [draftMode, entries, allStudents])
+
   // ── Draft mode (persistent, independent of the live timetable) ──────────────
   const FIELDS = ['course_id', 'class_name', 'teacher', 'room', 'day_of_week', 'start_time', 'end_time']
 
@@ -883,6 +895,54 @@ export default function TimetablePage() {
         )
       })()}
 
+      {showUnassigned && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowUnassigned(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-[28rem] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-[#EEF2FB]">
+              <div>
+                <p className="text-lg font-bold text-[#062E63]">Unassigned students</p>
+                <p className="text-xs text-[#325099]/60 mt-0.5">
+                  {unassignedStudents.length} student{unassignedStudents.length === 1 ? '' : 's'} not in any class in this draft
+                </p>
+              </div>
+              <button onClick={() => setShowUnassigned(false)} className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none">✕</button>
+            </div>
+            {unassignedStudents.length === 0 ? (
+              <p className="text-sm text-emerald-700 px-6 py-10 text-center">✓ Every student is assigned to a class.</p>
+            ) : (
+              <>
+                <div className="px-6 py-3 border-b border-[#EEF2FB]">
+                  <input
+                    value={unassignedQuery}
+                    onChange={e => setUnassignedQuery(e.target.value)}
+                    placeholder="Search by name…"
+                    className="w-full border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-[#325099]"
+                  />
+                </div>
+                <div className="overflow-y-auto px-6 py-3">
+                  {(() => {
+                    const q = unassignedQuery.trim().toLowerCase()
+                    const list = q ? unassignedStudents.filter(s => (s.full_name || '').toLowerCase().includes(q)) : unassignedStudents
+                    return list.length === 0 ? (
+                      <p className="text-sm text-[#325099]/40 py-6 text-center">No matches.</p>
+                    ) : (
+                      <div>
+                        {list.map(s => (
+                          <div key={s.id} className="flex items-center justify-between text-sm py-1.5 border-b border-[#F4F7FF] last:border-0">
+                            <span className="text-[#062E63]">{s.full_name}</span>
+                            <span className="text-xs text-[#325099]/50">{s.year ? `Year ${s.year}` : '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="max-w-[1400px] mx-auto px-6 pt-10 pb-24">
         {/* Header */}
         <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
@@ -933,6 +993,15 @@ export default function TimetablePage() {
                     Show {hiddenIds.size} hidden
                   </button>
                 )}
+                <button onClick={() => setShowUnassigned(true)}
+                  title="Students in the database not assigned to any class in this draft"
+                  className={`text-sm font-semibold rounded-xl px-3 py-2 border transition ${
+                    unassignedStudents.length
+                      ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                      : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                  }`}>
+                  {unassignedStudents.length ? `⚠ ${unassignedStudents.length} unassigned` : '✓ All assigned'}
+                </button>
                 <button onClick={saveDraftNow} disabled={savingDraft || !draftDirty}
                   className="text-sm font-semibold rounded-xl px-4 py-2 border bg-[#325099] text-white border-[#325099] hover:bg-[#062E63] transition disabled:opacity-50">
                   {savingDraft ? 'Saving…' : draftDirty ? 'Save draft' : 'Saved ✓'}
