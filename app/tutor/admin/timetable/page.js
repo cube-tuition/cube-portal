@@ -70,7 +70,7 @@ function isPlaced(c) {
 }
 
 // ── Edit / add modal ─────────────────────────────────────────────────────────────
-function ClassModal({ entry, courses, tutors, onClose, onSave, onRemove, onDelete,
+function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRemove, onDelete,
                       draftMode = false, studentsById = {}, allStudents = [], otherClasses = [],
                       onAddStudent, onRemoveStudent, onMoveStudent }) {
   const [stuQuery, setStuQuery] = useState('')  // add-student typeahead (draft mode)
@@ -162,12 +162,15 @@ function ClassModal({ entry, courses, tutors, onClose, onSave, onRemove, onDelet
             </div>
             <div>
               <label className="text-xs font-semibold text-[#062E63]">Room</label>
-              <input
+              <select
                 value={form.room}
                 onChange={e => set('room', e.target.value)}
-                placeholder="e.g. Room 1"
                 className="mt-1 w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#325099]"
-              />
+              >
+                <option value="">— none —</option>
+                {rooms.map(r => <option key={r} value={r}>{r}</option>)}
+                {form.room && !rooms.includes(form.room) && <option value={form.room}>{form.room}</option>}
+              </select>
             </div>
           </div>
 
@@ -327,6 +330,7 @@ export default function TimetablePage() {
   const [courses, setCourses] = useState([])
   const [tutors, setTutors]   = useState([])    // tutors + directors (everyone who can teach)
   const [allStudents, setAllStudents] = useState([])  // {id, full_name, year} — for draft roster editing
+  const [rooms, setRooms] = useState([])  // distinct room names across all classes (dropdown options)
   // Live enrolment baseline per class (class_id → [student_id]) captured on
   // entering a draft, so Apply can diff the draft roster against what's live.
   const liveRosters = useRef({})
@@ -359,18 +363,23 @@ export default function TimetablePage() {
   useEffect(() => {
     if (!profile) return
     ;(async () => {
-      const [allTerms, { data: courseRows }, { data: tutorRows }, { data: directorRows }, { data: availRows }, { data: studentRows }] = await Promise.all([
+      const [allTerms, { data: courseRows }, { data: tutorRows }, { data: directorRows }, { data: availRows }, { data: studentRows }, { data: roomRows }] = await Promise.all([
         fetchAllTerms(),
         supabase.from(T_COURSES).select('id, course_name, course_code').order('course_name'),
         supabase.from(T_TUTORS).select('id, full_name').eq('active', true).order('full_name'),
         supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
         supabase.from(T_TEACHER_AVAILABILITY).select('tutor_id, day_of_week, slot_time'),
         supabase.from(T_STUDENTS).select('id, full_name, year').neq('status', 'archived').order('full_name'),
+        supabase.from(T_CLASSES).select('room'),
       ])
       setTerms(allTerms)
       setCourses(courseRows || [])
       setTutors([...(tutorRows || []), ...(directorRows || [])])
       setAllStudents(studentRows || [])
+      // Distinct, naturally-sorted room names for the class room dropdown.
+      const roomSet = [...new Set((roomRows || []).map(r => (r.room || '').trim()).filter(Boolean))]
+      roomSet.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      setRooms(roomSet)
       const am = {}
       for (const r of availRows || []) {
         const min = parseTime(r.slot_time)
@@ -858,6 +867,7 @@ export default function TimetablePage() {
             entry={modalEntry}
             courses={courses}
             tutors={tutors}
+            rooms={rooms}
             draftMode={draftMode}
             studentsById={studentsById}
             allStudents={allStudents}
