@@ -9,6 +9,7 @@ import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
 import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
+import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey } from '../../../../lib/emailOverrides'
 
 /*
  * End-of-Term Reports Email — /tutor/emails/end-of-term
@@ -65,18 +66,26 @@ function fillTemplate(template, vars) {
     .replace(/\[date\]/gi,              vars.followupDate  || followupDate())
 }
 
-function buildEmailHtml(template, family, termName) {
-  const firstNames   = family.students.map(s => s.student_name.split(' ')[0])
+// Resolve a family's plain-text body from a template (placeholders filled).
+// Students are de-duplicated by id so a child in two classes isn't repeated —
+// matching what the send route does. Used for the preview, the per-family
+// editor pre-fill, and the email HTML.
+function resolvedBody(template, family, termName) {
+  const unique       = family.students.filter((s, i, a) => a.findIndex(x => x.student_id === s.student_id) === i)
+  const firstNames   = unique.map(s => s.student_name.split(' ')[0])
   const count        = firstNames.length
-  const studentNames = formatNames(firstNames)
-  const bodyText = fillTemplate(template, {
+  return fillTemplate(template, {
     parentName:   family.parent_name || 'there',
     termName,
-    studentNames,
+    studentNames: formatNames(firstNames),
     possessive:   'their',
     theyHave:     'they have',
     plural:       count > 1 ? 's' : '',
   })
+}
+
+function buildEmailHtml(template, family, termName) {
+  const bodyText = resolvedBody(template, family, termName)
   const escaped = bodyText
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const paragraphs = escaped
@@ -157,6 +166,13 @@ export default function EndOfTermEmailPage() {
   const [sending,      setSending]      = useState(false)
   const [error,        setError]        = useState(null)
   const [previewFamily, setPreviewFamily] = useState(null) // family object to preview, or null
+
+  // Per-family personalised email bodies: { [familyKey]: body }. Loaded from the
+  // DB per term so they're shared across staff/devices.
+  const [overrides,     setOverrides]     = useState({})
+  const [editFamily,    setEditFamily]    = useState(null) // family being edited, or null
+  const [editBody,      setEditBody]      = useState('')
+  const [savingOverride, setSavingOverride] = useState(false)
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -320,6 +336,12 @@ export default function EndOfTermEmailPage() {
     return Object.values(map)
   }, [students])
 
+  // Load per-family personalised bodies for the selected term. (loadEmailOverrides
+  // resolves to {} when there's no term, so the set happens off the effect body.)
+  useEffect(() => {
+    loadEmailOverrides(termId, 'end_of_term').then(setOverrides)
+  }, [termId])
+
   // ── Derived counts ─────────────────────────────────────────────────────────
   const term = terms.find(t => t.id === termId)
   const uploadedCount = students.filter(s => uploads[`${s.student_id}_${s.class_id}`]?.exists).length
@@ -342,13 +364,41 @@ export default function EndOfTermEmailPage() {
         term_id:   termId,
         term_name: term?.name || '',
         template,
-        families:  familiesToSend,
+        // Attach each family's personalised body (if any) so the route uses it.
+        families:  familiesToSend.map(f => ({ ...f, custom_body: overrides[familyKey(f)] || null })),
         test,
       }),
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Send failed')
     return data.results || []
+  }
+
+  // ── Per-family email personalisation ────────────────────────────────────────
+  const openEditor = (family) => {
+    const key = familyKey(family)
+    setEditFamily(family)
+    setEditBody(overrides[key] ?? resolvedBody(template, family, term?.name || ''))
+  }
+  const saveEditor = async () => {
+    if (!editFamily) return
+    const key = familyKey(editFamily)
+    setSavingOverride(true); setError(null)
+    const { error: err } = await saveEmailOverride(termId, 'end_of_term', key, editBody, profile?.full_name)
+    setSavingOverride(false)
+    if (err) { setError(err.message); return }
+    setOverrides(prev => ({ ...prev, [key]: editBody }))
+    setEditFamily(null)
+  }
+  const resetEditor = async () => {
+    if (!editFamily) return
+    const key = familyKey(editFamily)
+    setSavingOverride(true); setError(null)
+    const { error: err } = await deleteEmailOverride(termId, 'end_of_term', key)
+    setSavingOverride(false)
+    if (err) { setError(err.message); return }
+    setOverrides(prev => { const next = { ...prev }; delete next[key]; return next })
+    setEditFamily(null)
   }
 
   // Test send — delivers this family's exact email to CUBE staff only (marked
@@ -626,11 +676,22 @@ export default function EndOfTermEmailPage() {
                             </span>
                           )}
                           <div className="flex gap-1.5">
+                            {overrides[familyKey(f)] && (
+                              <span title="This family has a personalised email" className="text-[11px] font-semibold text-[#6D28D9] border border-[#DDD6FE] bg-[#F5F3FF] px-2.5 py-1 rounded-full self-center">
+                                ✦ Personalised
+                              </span>
+                            )}
                             <button
                               onClick={() => setPreviewFamily(f)}
                               className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1 rounded-full transition"
                             >
                               👁 Preview
+                            </button>
+                            <button
+                              onClick={() => openEditor(f)}
+                              className="text-[11px] font-semibold text-[#6D28D9] border border-[#DDD6FE] bg-white hover:bg-[#F5F3FF] px-3 py-1 rounded-full transition"
+                            >
+                              ✎ Edit
                             </button>
                             <button
                               onClick={() => handleTestOne(f)}
@@ -761,7 +822,7 @@ export default function EndOfTermEmailPage() {
             {/* Rendered email */}
             <div className="flex-1 overflow-auto">
               <iframe
-                srcDoc={buildEmailHtml(template, previewFamily, term?.name || '')}
+                srcDoc={buildEmailHtml(overrides[familyKey(previewFamily)] || template, previewFamily, term?.name || '')}
                 className="w-full border-0"
                 style={{ minHeight: '500px' }}
                 title="Email preview"
@@ -782,6 +843,63 @@ export default function EndOfTermEmailPage() {
               >
                 ✉ Send this email
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Per-family email editor ── */}
+      {editFamily && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={e => e.target === e.currentTarget && !savingOverride && setEditFamily(null)}
+        >
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4 border-b border-[#EEF1F9]">
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-[#062E63]">Personalise email</h2>
+                <p className="text-sm font-semibold text-[#2A2035] mt-0.5 truncate">
+                  {editFamily.parent_name || editFamily.parent_email}
+                  <span className="text-[#2A2035]/50 font-normal"> · {editFamily.students.map(s => s.student_name.split(' ')[0]).filter((v, i, a) => a.indexOf(v) === i).join(', ')}</span>
+                </p>
+                <p className="text-[11px] text-[#2A2035]/50 mt-1">Edits the full body for this family only. The CUBE header, subject and attached reports are unchanged.</p>
+              </div>
+              <button onClick={() => !savingOverride && setEditFamily(null)} className="text-[#325099]/50 hover:text-[#325099] text-xl leading-none shrink-0">✕</button>
+            </div>
+            <div className="px-6 py-4 overflow-y-auto">
+              <textarea
+                value={editBody}
+                onChange={e => setEditBody(e.target.value)}
+                rows={16}
+                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm leading-relaxed text-[#2A2035] focus:outline-none focus:border-[#325099] resize-y font-mono"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-[#EEF1F9]">
+              <button
+                onClick={resetEditor}
+                disabled={savingOverride || !overrides[familyKey(editFamily)]}
+                title={overrides[familyKey(editFamily)] ? 'Discard this family’s personalisation and use the standard template' : 'No personalisation saved yet'}
+                className="text-xs font-semibold text-red-500 border border-[#FCA5A5] bg-white hover:bg-[#FEF2F2] px-3 py-1.5 rounded-full transition disabled:opacity-40"
+              >
+                ↺ Reset to template
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setEditBody(resolvedBody(template, editFamily, term?.name || ''))}
+                  disabled={savingOverride}
+                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 rounded-full transition disabled:opacity-40"
+                >
+                  Reload template text
+                </button>
+                <button onClick={() => setEditFamily(null)} disabled={savingOverride} className="text-xs font-semibold text-[#325099] px-3 py-1.5 disabled:opacity-40">Cancel</button>
+                <button
+                  onClick={saveEditor}
+                  disabled={savingOverride || !editBody.trim()}
+                  className="text-sm font-semibold bg-[#062E63] text-white px-5 py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40"
+                >
+                  {savingOverride ? 'Saving…' : 'Save personalisation'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

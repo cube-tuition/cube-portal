@@ -140,7 +140,9 @@ export async function POST(request) {
         ? firstNames[0]
         : firstNames.slice(0, -1).join(', ') + ' and ' + firstNames.slice(-1)
 
-      const bodyText = fillTemplate(template, {
+      // A family with a personalised body uses it verbatim (its placeholders are
+      // already resolved); otherwise fall back to the shared template.
+      const bodyText = fillTemplate(family.custom_body || template, {
         parentName:   family.parent_name || 'there',
         termName:     term_name,
         studentNames,
