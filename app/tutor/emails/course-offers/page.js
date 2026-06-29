@@ -25,7 +25,7 @@ import {
  */
 
 const BLANK = () => ({
-  name: 'Untitled offer', email_subject: '', body: DEFAULT_OFFER_BODY,
+  name: 'Untitled offer', email_subject: '', body: DEFAULT_OFFER_BODY, offer_highlight: '',
   year_levels: [], requires_subjects: [], excludes_subjects: [],
 })
 
@@ -56,6 +56,7 @@ export default function CourseOffersPage() {
     setCurrentId(o.id)
     setDraft({
       name: o.name || 'Untitled offer', email_subject: o.email_subject || '', body: o.body || DEFAULT_OFFER_BODY,
+      offer_highlight: o.offer_highlight || '',
       year_levels: o.year_levels || [], requires_subjects: o.requires_subjects || [], excludes_subjects: o.excludes_subjects || [],
     })
     setDirty(false); setUnchecked(new Set()); setResults(null); setTestSentTo(null)
@@ -167,13 +168,13 @@ export default function CourseOffersPage() {
   const noEmailCount = matchingFamilies.filter(f => !f.parent_email).length
 
   const previewHtml = useMemo(
-    () => buildCourseOfferEmailHtml(draft.body, { parentName: selected[0]?.parent_name || 'there', studentNames: selected[0]?.student_names || 'your child' }),
-    [draft.body, selected])
+    () => buildCourseOfferEmailHtml(draft.body, { parentName: selected[0]?.parent_name || 'there', studentNames: selected[0]?.student_names || 'your child' }, draft.offer_highlight),
+    [draft.body, draft.offer_highlight, selected])
 
   // ── Send ─────────────────────────────────────────────────────────────────────
   const post = (payload) => authedFetch('/api/send-course-offer-emails', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subject: draft.email_subject, body: draft.body, ...payload }),
+    body: JSON.stringify({ subject: draft.email_subject, body: draft.body, highlight: draft.offer_highlight, ...payload }),
   })
   const sendTest = async () => {
     setTesting(true); setError(null); setTestSentTo(null)
@@ -273,6 +274,10 @@ export default function CourseOffersPage() {
               {/* Content */}
               <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Email content</p>
+                <label className="block text-[11px] font-semibold text-[#325099] mb-1">★ Special offer <span className="font-normal text-[#325099]/50">— shown as a highlighted banner at the top</span></label>
+                <input value={draft.offer_highlight} onChange={e => setField('offer_highlight', e.target.value)}
+                  placeholder="e.g. 20% off your first term of Chemistry"
+                  className="w-full border border-[#FDE68A] bg-[#FFFBEB] rounded-xl px-3 py-2 text-sm mb-4 font-semibold text-[#92400E] focus:outline-none focus:border-[#F59E0B]" />
                 <label className="block text-[11px] font-semibold text-[#325099] mb-1">Subject line</label>
                 <input value={draft.email_subject} onChange={e => setField('email_subject', e.target.value)}
                   placeholder="e.g. A great fit for {{student_names}} — try Chemistry this term"

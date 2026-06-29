@@ -22,7 +22,7 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { subject, body, families, test, testEmail } = await request.json()
+    const { subject, body, highlight, families, test, testEmail } = await request.json()
     if (!subject || !body) return Response.json({ error: 'Missing subject or body' }, { status: 400 })
 
     const resend    = new Resend(process.env.RESEND_API_KEY)
@@ -35,7 +35,7 @@ export async function POST(request) {
         from: `CUBE Tuition <${fromEmail}>`,
         to: [testEmail],
         subject: `[TEST] ${subject}`,
-        html: buildCourseOfferEmailHtml(body, { parentName: 'there', studentNames: 'your child' }),
+        html: buildCourseOfferEmailHtml(body, { parentName: 'there', studentNames: 'your child' }, highlight),
       })
       if (error) return Response.json({ error: error.message }, { status: 500 })
       return Response.json({ test: true, sent: testEmail })
@@ -54,7 +54,7 @@ export async function POST(request) {
         to:   [family.parent_email],
         bcc:  [PORTAL_BCC],
         subject,
-        html: buildCourseOfferEmailHtml(body, { parentName: family.parent_name, studentNames: family.student_names }),
+        html: buildCourseOfferEmailHtml(body, { parentName: family.parent_name, studentNames: family.student_names }, highlight),
       }, test))
       results.push({
         family:  family.parent_name,
