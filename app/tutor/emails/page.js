@@ -32,6 +32,13 @@ const CAMPAIGNS = [
     description: 'Marketing email introducing the referral program ($50 for both families), multi-course and sibling discounts. Preview, test-send, then send to all active families.',
     badge:       'Marketing',
   },
+  {
+    href:        '/tutor/emails/course-offers',
+    icon:        '📣',
+    title:       'Course Offers',
+    description: 'Promote a course to a targeted cohort — e.g. Maths to English-only students, or Chemistry to Year 10. Save reusable offers with an audience filter and editable pitch, then preview, test, and send.',
+    badge:       'Marketing',
+  },
 ]
 
 export default function EmailsHub() {
