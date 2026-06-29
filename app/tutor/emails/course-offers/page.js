@@ -274,10 +274,10 @@ export default function CourseOffersPage() {
               {/* Content */}
               <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Email content</p>
-                <label className="block text-[11px] font-semibold text-[#325099] mb-1">★ Special offer <span className="font-normal text-[#325099]/50">— shown as a highlighted banner at the top</span></label>
+                <label className="block text-[11px] font-semibold text-[#325099] mb-1">Special offer this term <span className="font-normal text-[#325099]/50">— shown in a callout box · supports **bold**</span></label>
                 <input value={draft.offer_highlight} onChange={e => setField('offer_highlight', e.target.value)}
-                  placeholder="e.g. 20% off your first term of Chemistry"
-                  className="w-full border border-[#FDE68A] bg-[#FFFBEB] rounded-xl px-3 py-2 text-sm mb-4 font-semibold text-[#92400E] focus:outline-none focus:border-[#F59E0B]" />
+                  placeholder="e.g. **50%** off the first term for this course"
+                  className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm mb-4 focus:outline-none focus:border-[#325099]" />
                 <label className="block text-[11px] font-semibold text-[#325099] mb-1">Subject line</label>
                 <input value={draft.email_subject} onChange={e => setField('email_subject', e.target.value)}
                   placeholder="e.g. A great fit for {{student_names}} — try Chemistry this term"
