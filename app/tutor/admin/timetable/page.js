@@ -5,7 +5,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
 import {
-  T_CLASSES, T_COURSES, T_TUTORS, T_ADMINS, T_TEACHER_AVAILABILITY, T_ENROLMENTS, T_TERMS,
+  T_CLASSES, T_COURSES, T_TUTORS, T_ADMINS, T_TEACHER_AVAILABILITY, T_ENROLMENTS, T_TERMS, T_STUDENTS,
 } from '../../../../lib/tables'
 import TutorNav from '../../../../components/TutorNav'
 import { listDrafts, createDraft, loadDraft, saveDraft, renameDraft, deleteDraft } from '../../../../lib/timetableDrafts'
@@ -70,7 +70,10 @@ function isPlaced(c) {
 }
 
 // ── Edit / add modal ─────────────────────────────────────────────────────────────
-function ClassModal({ entry, courses, tutors, onClose, onSave, onRemove, onDelete }) {
+function ClassModal({ entry, courses, tutors, onClose, onSave, onRemove, onDelete,
+                      draftMode = false, studentsById = {}, allStudents = [], otherClasses = [],
+                      onAddStudent, onRemoveStudent, onMoveStudent }) {
+  const [stuQuery, setStuQuery] = useState('')  // add-student typeahead (draft mode)
   const [form, setForm] = useState(() => ({
     course_id : entry.course_id ?? '',
     class_name: entry.class_name ?? '',
@@ -83,10 +86,11 @@ function ClassModal({ entry, courses, tutors, onClose, onSave, onRemove, onDelet
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const isNew = !entry.id
 
-  // Enrolled students for this class (current roster — not yet ended).
+  // Enrolled students for this class (current roster — not yet ended). In draft
+  // mode the roster comes from entry.student_ids instead (edited locally).
   const [students, setStudents] = useState(entry.id ? null : [])
   useEffect(() => {
-    if (!entry.id) return
+    if (!entry.id || draftMode) return
     let active = true
     ;(async () => {
       const { data } = await supabase.from(T_ENROLMENTS)
@@ -100,7 +104,7 @@ function ClassModal({ entry, courses, tutors, onClose, onSave, onRemove, onDelet
       setStudents(list)
     })()
     return () => { active = false }
-  }, [entry.id])
+  }, [entry.id, draftMode])
 
   return (
     <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={onClose}>
@@ -192,7 +196,70 @@ function ClassModal({ entry, courses, tutors, onClose, onSave, onRemove, onDelet
           </div>
         </div>
 
-        {!isNew && (
+        {!isNew && draftMode && (() => {
+          const roster = (entry.student_ids || [])
+            .map(id => ({ id, name: studentsById[id]?.full_name || 'Unknown student', year: studentsById[id]?.year }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+          const inClass = new Set(entry.student_ids || [])
+          const q = stuQuery.trim().toLowerCase()
+          const matches = q
+            ? allStudents.filter(s => !inClass.has(s.id) && (s.full_name || '').toLowerCase().includes(q)).slice(0, 8)
+            : []
+          return (
+            <div className="mt-4 pt-4 border-t border-[#EEF2FB]">
+              <p className="text-xs font-semibold text-[#062E63] mb-2">
+                Students <span className="text-[#325099]/50 font-normal">({roster.length})</span>
+                <span className="text-[#325099]/40 font-normal"> · draft — applied on “Apply to live”</span>
+              </p>
+              {roster.length === 0 ? (
+                <p className="text-xs text-[#325099]/40 italic mb-2">No students in this class yet.</p>
+              ) : (
+                <div className="space-y-1 mb-2">
+                  {roster.map(s => (
+                    <div key={s.id} className="flex items-center gap-2 text-xs">
+                      <span className="flex-1 truncate text-[#325099]">{s.name}{s.year ? ` · ${s.year}` : ''}</span>
+                      {otherClasses.length > 0 && (
+                        <select
+                          value=""
+                          onChange={e => { if (e.target.value) onMoveStudent(s.id, Number(e.target.value)) }}
+                          className="text-[11px] border border-[#DEE7FF] rounded-lg px-1.5 py-0.5 bg-white text-[#325099] max-w-[8rem]"
+                          title="Move to another class"
+                        >
+                          <option value="">Move to…</option>
+                          {otherClasses.map(c => <option key={c.id} value={c.id}>{c.class_name}</option>)}
+                        </select>
+                      )}
+                      <button onClick={() => onRemoveStudent(s.id)} className="text-red-400 hover:text-red-600" title="Remove from class">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="relative">
+                <input
+                  value={stuQuery}
+                  onChange={e => setStuQuery(e.target.value)}
+                  placeholder="+ Add student — type a name"
+                  className="w-full border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]"
+                />
+                {matches.length > 0 && (
+                  <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-[#DEE7FF] rounded-xl shadow-lg max-h-44 overflow-y-auto">
+                    {matches.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => { onAddStudent(s.id); setStuQuery('') }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-[#325099] hover:bg-[#F0F4FF]"
+                      >
+                        {s.full_name}{s.year ? ` · ${s.year}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
+        {!isNew && !draftMode && (
           <div className="mt-4 pt-4 border-t border-[#EEF2FB]">
             <p className="text-xs font-semibold text-[#062E63] mb-2">
               Students {students ? <span className="text-[#325099]/50 font-normal">({students.length})</span> : ''}
@@ -259,6 +326,10 @@ export default function TimetablePage() {
   const [termId, setTermId]   = useState('')
   const [courses, setCourses] = useState([])
   const [tutors, setTutors]   = useState([])    // tutors + directors (everyone who can teach)
+  const [allStudents, setAllStudents] = useState([])  // {id, full_name, year} — for draft roster editing
+  // Live enrolment baseline per class (class_id → [student_id]) captured on
+  // entering a draft, so Apply can diff the draft roster against what's live.
+  const liveRosters = useRef({})
   const [avail, setAvail]     = useState({})    // tutorId -> { day -> Set(slotMin) }
   const [entries, setEntries] = useState([])    // class rows for the selected term
   const [loading, setLoading] = useState(true)
@@ -288,16 +359,18 @@ export default function TimetablePage() {
   useEffect(() => {
     if (!profile) return
     ;(async () => {
-      const [allTerms, { data: courseRows }, { data: tutorRows }, { data: directorRows }, { data: availRows }] = await Promise.all([
+      const [allTerms, { data: courseRows }, { data: tutorRows }, { data: directorRows }, { data: availRows }, { data: studentRows }] = await Promise.all([
         fetchAllTerms(),
         supabase.from(T_COURSES).select('id, course_name, course_code').order('course_name'),
         supabase.from(T_TUTORS).select('id, full_name').eq('active', true).order('full_name'),
         supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
         supabase.from(T_TEACHER_AVAILABILITY).select('tutor_id, day_of_week, slot_time'),
+        supabase.from(T_STUDENTS).select('id, full_name, year').neq('status', 'archived').order('full_name'),
       ])
       setTerms(allTerms)
       setCourses(courseRows || [])
       setTutors([...(tutorRows || []), ...(directorRows || [])])
+      setAllStudents(studentRows || [])
       const am = {}
       for (const r of availRows || []) {
         const min = parseTime(r.slot_time)
@@ -522,14 +595,57 @@ export default function TimetablePage() {
     await supabase.from(T_CLASSES).update(patch).eq('id', id)
   }
 
+  // ── Draft roster editing (next-term planning) ───────────────────────────────
+  // Each draft entry carries a `student_ids` array. Edits stay in the draft and
+  // are reconciled onto real enrolments only on Apply to live.
+  const studentsById = useMemo(() => {
+    const m = {}
+    for (const s of allStudents) m[s.id] = s
+    return m
+  }, [allStudents])
+
+  // Active enrolment roster (class_id → [student_id]) for the given classes.
+  const loadLiveRosters = async (ents) => {
+    const ids = ents.map(e => e.id).filter(Boolean)
+    if (!ids.length) return {}
+    const { data } = await supabase.from(T_ENROLMENTS)
+      .select('class_id, student_id, status, ended_at')
+      .in('class_id', ids)
+    const map = {}
+    for (const r of data || []) {
+      if (r.ended_at || r.status === 'disenrol' || !r.student_id) continue
+      ;(map[r.class_id] ||= []).push(r.student_id)
+    }
+    return map
+  }
+
+  const setRoster = (classId, updater) => {
+    setEntries(prev => prev.map(e => e.id === classId ? { ...e, student_ids: updater(e.student_ids || []) } : e))
+    setDraftDirty(true)
+  }
+  const addStudentToClass      = (classId, sid) => setRoster(classId, ids => ids.includes(sid) ? ids : [...ids, sid])
+  const removeStudentFromClass = (classId, sid) => setRoster(classId, ids => ids.filter(x => x !== sid))
+  const moveStudent = (sid, fromId, toId) => {
+    if (!toId || fromId === toId) return
+    setEntries(prev => prev.map(e => {
+      if (e.id === fromId) return { ...e, student_ids: (e.student_ids || []).filter(x => x !== sid) }
+      if (e.id === toId)   return { ...e, student_ids: (e.student_ids || []).includes(sid) ? e.student_ids : [...(e.student_ids || []), sid] }
+      return e
+    }))
+    setDraftDirty(true)
+  }
+
   // ── Draft mode (persistent, independent of the live timetable) ──────────────
   const FIELDS = ['course_id', 'class_name', 'teacher', 'room', 'day_of_week', 'start_time', 'end_time']
 
   const openDraft = async (id) => {
     const d = await loadDraft(id)
     if (!d) return
+    const rosters = liveRosters.current || {}
     setDraftId(id)
-    setEntries(d.entries)
+    // Saved drafts carry their own student_ids; older drafts (pre-roster) fall
+    // back to the live roster so nothing looks empty.
+    setEntries((d.entries || []).map(e => ({ ...e, student_ids: e.student_ids ?? rosters[e.id] ?? [] })))
     setHiddenIds(new Set(d.hidden_ids))
     setDraftDirty(false)
   }
@@ -537,11 +653,17 @@ export default function TimetablePage() {
   // Enter draft: remember the live board, load this term's drafts, then open the
   // most recent — creating one seeded from the live timetable if none exist.
   const enterDraft = async () => {
-    liveSnapshot.current = entries
+    // Capture the live enrolment baseline, then seed every entry's draft roster
+    // from it so roster edits start from the real classes.
+    const rosters = await loadLiveRosters(entries)
+    liveRosters.current = rosters
+    const seeded = entries.map(e => ({ ...e, student_ids: rosters[e.id] || [] }))
+    liveSnapshot.current = seeded
+    setEntries(seeded)
     setHiddenIds(new Set()); setDraftDirty(false)
     let list = await listDrafts(termId)
     if (list.length === 0) {
-      const created = await createDraft({ termId, name: 'Draft 1', entries, hiddenIds: [], createdBy: profile?.id })
+      const created = await createDraft({ termId, name: 'Draft 1', entries: seeded, hiddenIds: [], createdBy: profile?.id })
       list = [created]
     }
     setDrafts(list)
@@ -612,20 +734,37 @@ export default function TimetablePage() {
       return o && FIELDS.some(f => o[f] !== e[f])
     })
     const deletions = (liveSnapshot.current || []).filter(o => !curIds.has(o.id))
-    if (updates.length === 0 && deletions.length === 0) {
+
+    // Roster changes vs the live enrolment baseline. Only reconcile classes that
+    // still exist in the draft (a deleted class handles its own enrolments).
+    const baseline = liveRosters.current || {}
+    const rosterAdds = []     // { class_id, student_id } — enrol / re-activate
+    const rosterRemoves = []  // { class_id, student_id } — disenrol
+    for (const e of entries) {
+      if (!e.id) continue
+      const want = new Set(e.student_ids || [])
+      const have = new Set(baseline[e.id] || [])
+      for (const sid of want) if (!have.has(sid)) rosterAdds.push({ class_id: e.id, student_id: sid })
+      for (const sid of have) if (!want.has(sid)) rosterRemoves.push({ class_id: e.id, student_id: sid })
+    }
+
+    if (updates.length === 0 && deletions.length === 0 && rosterAdds.length === 0 && rosterRemoves.length === 0) {
       alert('This draft already matches the live timetable — nothing to apply.')
       return
     }
 
     const termLabel = selectedTerm ? formatTermLabel(selectedTerm) : 'this term'
     const draftName = drafts.find(d => d.id === draftId)?.name || 'this draft'
+    const plural = (n, s = 's') => (n === 1 ? '' : s)
 
     // Step 1 — confirm, with the actual numbers.
     const summary =
       `Apply "${draftName}" to the LIVE ${termLabel} timetable?\n\n` +
-      `• ${updates.length} class${updates.length === 1 ? '' : 'es'} will be updated\n` +
-      (deletions.length ? `• ${deletions.length} class${deletions.length === 1 ? '' : 'es'} will be DELETED\n` : '') +
-      `\nThis changes the real timetable and cannot be undone.`
+      `• ${updates.length} class${plural(updates.length, 'es')} will be updated\n` +
+      (deletions.length ? `• ${deletions.length} class${plural(deletions.length, 'es')} will be DELETED\n` : '') +
+      (rosterAdds.length ? `• ${rosterAdds.length} student${plural(rosterAdds.length)} will be enrolled\n` : '') +
+      (rosterRemoves.length ? `• ${rosterRemoves.length} student${plural(rosterRemoves.length)} will be removed from a class\n` : '') +
+      `\nThis changes the real timetable and enrolments, and cannot be undone.`
     if (!confirm(summary)) return
 
     // Step 2 — type-to-confirm (second factor).
@@ -647,13 +786,39 @@ export default function TimetablePage() {
       const { error } = await supabase.from(T_CLASSES).delete().eq('id', o.id)
       if (error) failures.push(`${o.class_name || 'Class'} (delete): ${error.message}`)
     }
+    // Enrol added students (re-activating a prior enrolment rather than
+    // duplicating it), then disenrol removed ones.
+    for (const a of rosterAdds) {
+      const name = studentsById[a.student_id]?.full_name || 'student'
+      const { data: existing } = await supabase.from(T_ENROLMENTS)
+        .select('id').eq('class_id', a.class_id).eq('student_id', a.student_id).limit(1)
+      const { error } = existing?.length
+        ? await supabase.from(T_ENROLMENTS).update({ status: 'active', ended_at: null, end_reason: null }).eq('id', existing[0].id)
+        : await supabase.from(T_ENROLMENTS).insert({ class_id: a.class_id, student_id: a.student_id, status: 'active' })
+      if (error) failures.push(`Enrol ${name}: ${error.message}`)
+    }
+    for (const r of rosterRemoves) {
+      const name = studentsById[r.student_id]?.full_name || 'student'
+      const { error } = await supabase.from(T_ENROLMENTS)
+        .update({ status: 'disenrol' })
+        .eq('class_id', r.class_id).eq('student_id', r.student_id).neq('status', 'disenrol')
+      if (error) failures.push(`Remove ${name}: ${error.message}`)
+    }
     setApplying(false)
-    // Refresh the live snapshot so a later apply diffs against what now exists.
+    // Refresh the live snapshot + roster baseline so a later apply diffs against
+    // what now exists.
     const { data } = await supabase.from(T_CLASSES).select(CLASS_COLS).eq('term_id', termId)
     liveSnapshot.current = data || []
+    liveRosters.current = await loadLiveRosters(data || [])
+    const bits = [
+      `${updates.length} updated`,
+      deletions.length ? `${deletions.length} deleted` : '',
+      rosterAdds.length ? `${rosterAdds.length} enrolled` : '',
+      rosterRemoves.length ? `${rosterRemoves.length} removed` : '',
+    ].filter(Boolean)
     alert(failures.length
       ? `Applied with some issues:\n\n${failures.join('\n')}`
-      : `Draft applied to the live timetable — ${updates.length} updated${deletions.length ? `, ${deletions.length} deleted` : ''}.`)
+      : `Draft applied to the live timetable — ${bits.join(', ')}.`)
   }
 
   const onColumnDrop = (day) => (ev) => {
@@ -684,17 +849,29 @@ export default function TimetablePage() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
 
-      {editing && (
-        <ClassModal
-          entry={editing}
-          courses={courses}
-          tutors={tutors}
-          onClose={() => setEditing(null)}
-          onSave={saveEntry}
-          onRemove={removeFromTimetable}
-          onDelete={deleteClass}
-        />
-      )}
+      {editing && (() => {
+        // Keep the modal's roster in sync with live draft edits.
+        const liveEntry  = entries.find(e => e.id === editing.id)
+        const modalEntry = liveEntry ? { ...editing, student_ids: liveEntry.student_ids } : editing
+        return (
+          <ClassModal
+            entry={modalEntry}
+            courses={courses}
+            tutors={tutors}
+            draftMode={draftMode}
+            studentsById={studentsById}
+            allStudents={allStudents}
+            otherClasses={entries.filter(e => e.id && e.id !== editing.id).map(e => ({ id: e.id, class_name: e.class_name }))}
+            onAddStudent={(sid) => addStudentToClass(editing.id, sid)}
+            onRemoveStudent={(sid) => removeStudentFromClass(editing.id, sid)}
+            onMoveStudent={(sid, toId) => moveStudent(sid, editing.id, toId)}
+            onClose={() => setEditing(null)}
+            onSave={saveEntry}
+            onRemove={removeFromTimetable}
+            onDelete={deleteClass}
+          />
+        )
+      })()}
 
       <div className="max-w-[1400px] mx-auto px-6 pt-10 pb-24">
         {/* Header */}
