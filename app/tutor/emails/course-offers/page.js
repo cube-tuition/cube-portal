@@ -282,7 +282,7 @@ export default function CourseOffersPage() {
                 <input value={draft.email_subject} onChange={e => setField('email_subject', e.target.value)}
                   placeholder="e.g. A great fit for {{student_names}} — try Chemistry this term"
                   className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm mb-4 focus:outline-none focus:border-[#325099]" />
-                <label className="block text-[11px] font-semibold text-[#325099] mb-1">Body <span className="font-normal text-[#325099]/50">· placeholders: {'{{parent_name}}'}, {'{{student_names}}'} · **bold**</span></label>
+                <label className="block text-[11px] font-semibold text-[#325099] mb-1">Body <span className="font-normal text-[#325099]/50">· {'{{parent_name}}'}, {'{{student_names}}'} · {'{{special_offer}}'} = where the offer box appears · **bold**</span></label>
                 <textarea value={draft.body} onChange={e => setField('body', e.target.value)} rows={16}
                   className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm leading-relaxed font-mono focus:outline-none focus:border-[#325099] resize-y" />
               </section>
