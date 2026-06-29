@@ -362,21 +362,6 @@ export default function AccountingDashboard() {
           </p>
         </div>
 
-        {/* Row 1: act now / overdue / upcoming */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-          <Panel icon="🚨" title="Act now" badge={board.actNow.length || '✓'} badgeCls={board.actNow.length ? SEV.red.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
-            {board.actNow.length === 0 ? <Empty msg="Nothing needs immediate action." /> :
-              <div className="divide-y divide-[#F0F4FF]">{board.actNow.map((it, i) => <AlertRow key={i} item={it} onTask={taskFromAlert} />)}</div>}
-          </Panel>
-          <Panel icon="⏰" title="Overdue" badge={board.overdue.length || '✓'} badgeCls={board.overdue.length ? SEV.red.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
-            {board.overdue.length === 0 ? <Empty msg="Nothing overdue. Keep it that way." /> :
-              <div className="divide-y divide-[#F0F4FF]">{board.overdue.map((it, i) => <AlertRow key={i} item={it} onTask={taskFromAlert} />)}</div>}
-          </Panel>
-          <Panel icon="📅" title="Coming up (35 days)" badge={board.upcoming.length || '✓'} badgeCls={board.upcoming.length ? SEV.amber.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
-            {board.upcoming.length === 0 ? <Empty msg="No deadlines inside 35 days." /> :
-              <div className="divide-y divide-[#F0F4FF]">{board.upcoming.map((it, i) => <AlertRow key={i} item={it} onTask={taskFromAlert} />)}</div>}
-          </Panel>
-        </div>
 
         {/* Row 2: missing / review */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
