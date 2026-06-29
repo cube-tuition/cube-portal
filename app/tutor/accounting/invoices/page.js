@@ -822,22 +822,17 @@ function InvoiceDashboardInner() {
                         <div className="shrink-0 text-right space-y-1.5">
                           <p className="text-lg font-bold text-[#062E63]">{fmtMoney(total)}</p>
                           <p className="text-[10px] text-[#325099]/50">inc GST · due {fmtDate(inv.due_date)}</p>
-                          {/* Cash / Bank toggle — affects GST calculation in forecast */}
-                          <div className="flex items-center justify-end gap-1">
-                            {['bank', 'cash'].map(method => (
-                              <button key={method}
-                                onClick={async () => {
-                                  setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, payment_method: method } : i))
-                                  await supabase.from('invoices').update({ payment_method: method }).eq('id', inv.id)
-                                }}
-                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition ${
-                                  (inv.payment_method || 'bank') === method
-                                    ? 'bg-[#EEF4FF] border-[#325099]/30 text-[#325099]'
-                                    : 'bg-transparent border-[#DEE7FF] text-[#325099]/30 hover:text-[#325099]/60'
-                                }`}>
-                                {method === 'cash' ? '💵 Cash' : '🏦 Bank'}
-                              </button>
-                            ))}
+                          {/* Payment method — inherited from the family (set per student
+                              in the database). Read-only here to keep one source of truth. */}
+                          <div className="flex items-center justify-end">
+                            <span title="Set on the student in the database — a family invoice is cash if any member is cash"
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                                (inv.payment_method || 'bank') === 'cash'
+                                  ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                  : 'bg-[#EEF4FF] border-[#325099]/30 text-[#325099]'
+                              }`}>
+                              {(inv.payment_method || 'bank') === 'cash' ? '💵 Cash' : '🏦 Bank'}
+                            </span>
                           </div>
                         </div>
                       </div>
