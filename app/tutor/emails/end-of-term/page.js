@@ -9,7 +9,8 @@ import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
 import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
-import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey } from '../../../../lib/emailOverrides'
+import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey,
+         loadReportExclusions, setReportExcluded, reportKey } from '../../../../lib/emailOverrides'
 
 /*
  * End-of-Term Reports Email — /tutor/emails/end-of-term
@@ -174,6 +175,10 @@ export default function EndOfTermEmailPage() {
   const [editBody,      setEditBody]      = useState('')
   const [savingOverride, setSavingOverride] = useState(false)
 
+  // Excluded reports: Set<"studentId_classId"> — these reports are NOT attached
+  // when emailing the family. Loaded per term from the DB.
+  const [excludedReports, setExcludedReports] = useState(() => new Set())
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -336,11 +341,36 @@ export default function EndOfTermEmailPage() {
     return Object.values(map)
   }, [students])
 
-  // Load per-family personalised bodies for the selected term. (loadEmailOverrides
-  // resolves to {} when there's no term, so the set happens off the effect body.)
+  // Load per-family personalised bodies + per-report exclusions for the term.
+  // (Both resolve to empty when there's no term, so the set happens off the
+  // effect body and doesn't trip the set-state-in-effect rule.)
   useEffect(() => {
     loadEmailOverrides(termId, 'end_of_term').then(setOverrides)
+    loadReportExclusions(termId).then(setExcludedReports)
   }, [termId])
+
+  // Report inclusion helpers.
+  const isExcluded       = (s) => excludedReports.has(reportKey(s.student_id, s.class_id))
+  const includedStudents = (f) => f.students.filter(s => !isExcluded(s))
+  const toggleReport = async (s) => {
+    const key = reportKey(s.student_id, s.class_id)
+    const nowExcluded = !excludedReports.has(key)
+    setExcludedReports(prev => {
+      const next = new Set(prev)
+      if (nowExcluded) next.add(key); else next.delete(key)
+      return next
+    })
+    const { error: err } = await setReportExcluded(termId, s.student_id, s.class_id, nowExcluded, profile?.full_name)
+    if (err) {
+      setError(err.message)
+      // Roll back the optimistic toggle on failure.
+      setExcludedReports(prev => {
+        const next = new Set(prev)
+        if (nowExcluded) next.delete(key); else next.add(key)
+        return next
+      })
+    }
+  }
 
   // ── Derived counts ─────────────────────────────────────────────────────────
   const term = terms.find(t => t.id === termId)
@@ -350,13 +380,20 @@ export default function EndOfTermEmailPage() {
   // Per-STUDENT "not yet sent" list. Family grouping can hide students with no
   // family/parent email, so we track unsent reports at the student level too.
   const sentEmails = new Set(results.filter(r => r.success).map(r => r.email))
-  const unsentStudents = students.filter(s => !(s.parent_email && sentEmails.has(s.parent_email)))
+  // Excluded reports are intentionally not sent — keep them out of the
+  // "not yet sent" warning.
+  const unsentStudents = students.filter(s => !isExcluded(s) && !(s.parent_email && sentEmails.has(s.parent_email)))
 
   // ── Send emails ───────────────────────────────────────────────────────────
   const [sendingFamily, setSendingFamily] = useState(null) // email address of family being individually sent
   const [confirmSend,  setConfirmSend]  = useState(null)  // { families, label } | null — pending confirmation
 
   const sendToFamilies = async (familiesToSend, test = false) => {
+    // Drop excluded reports, and any family left with no reports to send.
+    const payloadFamilies = familiesToSend
+      .map(f => ({ ...f, students: includedStudents(f), custom_body: overrides[familyKey(f)] || null }))
+      .filter(f => f.students.length > 0)
+    if (payloadFamilies.length === 0) throw new Error('No reports selected to send for this family.')
     const res = await authedFetch('/api/send-end-of-term-emails', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -364,8 +401,7 @@ export default function EndOfTermEmailPage() {
         term_id:   termId,
         term_name: term?.name || '',
         template,
-        // Attach each family's personalised body (if any) so the route uses it.
-        families:  familiesToSend.map(f => ({ ...f, custom_body: overrides[familyKey(f)] || null })),
+        families:  payloadFamilies,
         test,
       }),
     })
@@ -378,7 +414,7 @@ export default function EndOfTermEmailPage() {
   const openEditor = (family) => {
     const key = familyKey(family)
     setEditFamily(family)
-    setEditBody(overrides[key] ?? resolvedBody(template, family, term?.name || ''))
+    setEditBody(overrides[key] ?? resolvedBody(template, { ...family, students: includedStudents(family) }, term?.name || ''))
   }
   const saveEditor = async () => {
     if (!editFamily) return
@@ -452,7 +488,8 @@ export default function EndOfTermEmailPage() {
 
   const handleSend = () => {
     const term = terms.find(t => t.id === termId)
-    const unsentFamilies = familiesWithEmail.filter(f => !results.find(r => r.email === f.parent_email && r.success))
+    const unsentFamilies = familiesWithEmail.filter(f =>
+      includedStudents(f).length > 0 && !results.find(r => r.email === f.parent_email && r.success))
     if (!unsentFamilies.length) return
     setConfirmSend({
       families: unsentFamilies,
@@ -619,7 +656,9 @@ export default function EndOfTermEmailPage() {
                     return aSent - bSent
                   }).map((f, i) => {
                     const sentResult      = results.find(r => r.email === f.parent_email)
-                    const allPDFs         = f.students.every(s => uploads[`${s.student_id}_${s.class_id}`]?.exists)
+                    const included        = includedStudents(f)
+                    const noneIncluded    = included.length === 0
+                    const allPDFs         = !noneIncluded && included.every(s => uploads[`${s.student_id}_${s.class_id}`]?.exists)
                     const isSendingThis   = sendingFamily === f.parent_email
                     // Build family label — deduplicate by student_id first
                     const uniqueStudents  = f.students.filter((s, idx, arr) => arr.findIndex(x => x.student_id === s.student_id) === idx)
@@ -639,20 +678,28 @@ export default function EndOfTermEmailPage() {
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {f.students.map(s => {
                               const pdfReady = uploads[`${s.student_id}_${s.class_id}`]?.exists
+                              const excluded = isExcluded(s)
                               return (
-                                <span
+                                <button
                                   key={`${s.student_id}_${s.class_id}`}
-                                  className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                                    pdfReady
-                                      ? 'bg-[#D1FAE5] text-[#065F46]'
-                                      : 'bg-[#FEE2E2] text-red-700'
+                                  onClick={() => toggleReport(s)}
+                                  title={excluded ? 'Excluded — click to include this report in the email' : 'Included — click to leave this report out of the email'}
+                                  className={`text-[11px] font-medium px-2 py-0.5 rounded-full border transition ${
+                                    excluded
+                                      ? 'bg-[#F3F4F6] text-[#9CA3AF] border-[#E5E7EB] line-through'
+                                      : pdfReady
+                                        ? 'bg-[#D1FAE5] text-[#065F46] border-transparent hover:border-[#34D399]'
+                                        : 'bg-[#FEE2E2] text-red-700 border-transparent hover:border-red-300'
                                   }`}
                                 >
-                                  {pdfReady ? '✓' : '✗'} {s.student_name.split(' ')[0]} · {s.class_name}
-                                </span>
+                                  {excluded ? '🚫' : pdfReady ? '✓' : '✗'} {s.student_name.split(' ')[0]} · {s.class_name}
+                                </button>
                               )
                             })}
                           </div>
+                          {noneIncluded && (
+                            <p className="text-[11px] text-[#9A3412] mt-1.5">All reports excluded — this family won’t be emailed.</p>
+                          )}
                         </div>
                         <div className="flex-shrink-0 flex flex-col items-end gap-2">
                           {sentResult ? (
@@ -668,11 +715,13 @@ export default function EndOfTermEmailPage() {
                             )
                           ) : (
                             <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                              allPDFs
-                                ? 'bg-[#EEF3FF] text-[#325099]'
-                                : 'bg-[#FEE2E2] text-red-600'
+                              noneIncluded
+                                ? 'bg-[#F3F4F6] text-[#9CA3AF]'
+                                : allPDFs
+                                  ? 'bg-[#EEF3FF] text-[#325099]'
+                                  : 'bg-[#FEE2E2] text-red-600'
                             }`}>
-                              {allPDFs ? `${f.students.length} PDF${f.students.length > 1 ? 's' : ''} ready` : 'PDFs missing'}
+                              {noneIncluded ? 'No reports selected' : allPDFs ? `${included.length} PDF${included.length > 1 ? 's' : ''} ready` : 'PDFs missing'}
                             </span>
                           )}
                           <div className="flex gap-1.5">
@@ -695,7 +744,7 @@ export default function EndOfTermEmailPage() {
                             </button>
                             <button
                               onClick={() => handleTestOne(f)}
-                              disabled={testingFamily === f.parent_email || isSendingThis || sending}
+                              disabled={testingFamily === f.parent_email || isSendingThis || sending || noneIncluded}
                               title="Send this exact email to CUBE staff only (marked TEST)"
                               className="text-[11px] font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] hover:bg-[#FEF3C7] px-3 py-1 rounded-full transition disabled:opacity-40"
                             >
@@ -703,7 +752,7 @@ export default function EndOfTermEmailPage() {
                             </button>
                             <button
                               onClick={() => handleSendOne(f)}
-                              disabled={isSendingThis || sending}
+                              disabled={isSendingThis || sending || noneIncluded}
                               className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1 rounded-full transition disabled:opacity-40"
                             >
                               {isSendingThis ? 'Sending…' : sentResult?.success ? '↺ Resend' : '✉ Send'}
@@ -822,7 +871,7 @@ export default function EndOfTermEmailPage() {
             {/* Rendered email */}
             <div className="flex-1 overflow-auto">
               <iframe
-                srcDoc={buildEmailHtml(overrides[familyKey(previewFamily)] || template, previewFamily, term?.name || '')}
+                srcDoc={buildEmailHtml(overrides[familyKey(previewFamily)] || template, { ...previewFamily, students: includedStudents(previewFamily) }, term?.name || '')}
                 className="w-full border-0"
                 style={{ minHeight: '500px' }}
                 title="Email preview"
@@ -885,7 +934,7 @@ export default function EndOfTermEmailPage() {
               </button>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setEditBody(resolvedBody(template, editFamily, term?.name || ''))}
+                  onClick={() => setEditBody(resolvedBody(template, { ...editFamily, students: includedStudents(editFamily) }, term?.name || ''))}
                   disabled={savingOverride}
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 rounded-full transition disabled:opacity-40"
                 >
