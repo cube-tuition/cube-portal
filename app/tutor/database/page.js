@@ -268,6 +268,10 @@ const CELL_BADGE_COLORS = {
     'disenrol':   'bg-gray-100 text-gray-500 border border-gray-200',
     'quit trial': 'bg-gray-100 text-gray-500 border border-gray-200',
   },
+  [`${T_STUDENTS}:is_active`]: {
+    'Active':   'bg-emerald-100 text-emerald-800 border border-emerald-200',
+    'Inactive': 'bg-rose-100 text-rose-700 border border-rose-200',
+  },
   [`${T_ENROLMENTS}:status`]: {
     'active':         'bg-emerald-100 text-emerald-800 border border-emerald-200',
     'trial':          'bg-amber-100 text-amber-800 border border-amber-200',
@@ -1500,6 +1504,7 @@ export default function DatabasePage() {
   const TERM_SCOPED = useMemo(() => new Set([T_CLASSES, T_ENROLMENTS, T_LESSONS, T_INVOICES]), [])
   const [dbTermFilter, setDbTermFilter] = useState(null) // term id | null = all terms
   const [tutorStatusTab, setTutorStatusTab] = useState('active') // tutors view: 'active' | 'inactive' | 'all'
+  const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
 
   // Search
   const [search, setSearch] = useState('')
@@ -3351,6 +3356,14 @@ export default function DatabasePage() {
       const wantActive = tutorStatusTab === 'active'
       out = out.filter(r => (r.active !== false) === wantActive)
     }
+    // Students view: Active / Inactive / All tabs (by is_active, falling back to status).
+    if (selectedTable === T_STUDENTS && studentStatusTab !== 'all') {
+      const wantActive = studentStatusTab === 'active'
+      out = out.filter(r => {
+        const isActive = r.is_active != null ? r.is_active === 'Active' : ['active', 'trial'].includes(r.status)
+        return isActive === wantActive
+      })
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       out = out.filter(r => Object.values(r).some(v => v !== null && String(v).toLowerCase().includes(q)))
@@ -3373,7 +3386,7 @@ export default function DatabasePage() {
       })
     }
     return out
-  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab])
+  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab])
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -3750,6 +3763,21 @@ export default function DatabasePage() {
                 </div>
               )}
 
+              {/* Active / Inactive tabs — students only */}
+              {selectedTable === T_STUDENTS && (
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                  {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
+                    <button
+                      key={v}
+                      onClick={() => setStudentStatusTab(v)}
+                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${studentStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {selectedTable === 'lessons' ? (
                 <>
                   {/* Lessons / Level Tests tab toggle */}
@@ -3892,9 +3920,13 @@ export default function DatabasePage() {
                 </div>
               ) : (() => {
                 const q = studentCardsSearch.trim().toLowerCase()
-                const filtered = q
+                let filtered = q
                   ? studentCardsData.filter(s => (s.full_name||'').toLowerCase().includes(q) || (s.email||'').toLowerCase().includes(q) || (s.year||'').includes(q))
                   : studentCardsData
+                if (studentStatusTab !== 'all') {
+                  const wantActive = studentStatusTab === 'active'
+                  filtered = filtered.filter(s => ['active', 'trial'].includes(s.status) === wantActive)
+                }
                 const selected = filtered.find(s => s.id === studentCardsSelected) ?? null
                 const selectedParent = selected ? (studentCardsParents[selected.id] ?? null) : null
                 return (

@@ -369,7 +369,7 @@ export default function TimetablePage() {
         supabase.from(T_TUTORS).select('id, full_name').eq('active', true).order('full_name'),
         supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
         supabase.from(T_TEACHER_AVAILABILITY).select('tutor_id, day_of_week, slot_time'),
-        supabase.from(T_STUDENTS).select('id, full_name, year').neq('status', 'archived').order('full_name'),
+        supabase.from(T_STUDENTS).select('id, full_name, year, status').order('full_name'),
         supabase.from(T_CLASSES).select('room'),
       ])
       setTerms(allTerms)
@@ -651,8 +651,11 @@ export default function TimetablePage() {
     if (!draftMode) return []
     const assigned = new Set()
     for (const e of entries) for (const sid of (e.student_ids || [])) assigned.add(sid)
+    // Only current students belong in the pool — disenrolled / quit-trial students
+    // (status not active/trial) are no longer assignable.
+    const ACTIVE = new Set(['active', 'trial'])
     return allStudents
-      .filter(s => !assigned.has(s.id))
+      .filter(s => ACTIVE.has(s.status) && !assigned.has(s.id))
       .sort((a, b) => (Number(a.year) || 0) - (Number(b.year) || 0) || (a.full_name || '').localeCompare(b.full_name || ''))
   }, [draftMode, entries, allStudents])
 
