@@ -334,6 +334,15 @@ export default function ReportPage() {
       </div>
 
       <style jsx global>{`
+        /* Each report page is a fixed A4-proportioned sheet (height grows only if
+           content overflows), so the footer can sit at the very bottom of the page
+           — pushed down by its mt-auto — instead of right after the content. */
+        .report-page {
+          display: flex;
+          flex-direction: column;
+          aspect-ratio: 210 / 297;
+        }
+
         @media print {
           @page { size: A4; margin: 10mm; }
 

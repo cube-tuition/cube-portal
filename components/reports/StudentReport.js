@@ -123,11 +123,30 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
     return { avgRq, attPct, attTotal, hwMode, hwTotal, scoredCount: scored.length }
   }, [quizzes, attendance, rqByWeek])
 
+  // Each report page is rasterised to one A4 image and clipped if it overflows,
+  // so a long teacher comment pushes the pre/post bar charts off the bottom of
+  // page 1. When the comment is long AND there are charts to show, give the
+  // pre/post section its own page — the later pages are unaffected.
+  const commentText = (comment || '').trim()
+  const estCommentLines = commentText
+    ? commentText.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 95)), 0)
+    : 0
+  // Only this student's OWN pre/post charts make the section tall enough to risk
+  // overflowing page 1. A student with no pre/post data just shows a small
+  // "no data" box that always fits, so it must never get its own page —
+  // regardless of whether the class as a whole has data (prepost.classAvg).
+  const ppScores = prepost?.scores?.[student.id]
+  const studentHasPrePost =
+    (ppScores?.pre  || []).some(v => v != null && v !== '') ||
+    (ppScores?.post || []).some(v => v != null && v !== '')
+  const prePostOwnPage = estCommentLines > 5 && studentHasPrePost && !!prepost?.classAvg
+  const totalPages = prePostOwnPage ? 3 : 2
+
   const reportHeader = (pageNum) => (
     <header className="flex items-start justify-between gap-4 border-b border-[#DEE7FF] pb-4 mb-5">
       <div className="min-w-0">
         <p className="text-[10px] tracking-[0.3em] uppercase font-semibold font-display mb-1" style={{ color: col.fg }}>
-          End-of-term report · {term ? formatTermLabel(term) : ''} · Page {pageNum} of 2
+          End-of-term report · {term ? formatTermLabel(term) : ''} · Page {pageNum} of {totalPages}
         </p>
         <h1 className="text-2xl font-bold text-[#2A2035] font-display leading-tight">
           {student.full_name || 'Unknown student'}
@@ -145,11 +164,86 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
   )
 
   const pageFooter = (
-    <footer className="mt-6 pt-3 border-t border-[#DEE7FF] flex items-center justify-between text-[10px] text-[#2A2035]/50">
+    <footer className="mt-auto pt-3 border-t border-[#DEE7FF] flex items-center justify-between text-[10px] text-[#2A2035]/50">
       <span>CUBE Tuition · Chatswood</span>
       <span>{cls.class_name} · {term ? formatTermLabel(term) : ''}</span>
     </footer>
   )
+
+  // The Pre / Post Test section — rendered inline on page 1 normally, or on its
+  // own page when the teacher comment is long (see prePostOwnPage above).
+  const prePostBlock = (() => {
+    const topics     = prepost?.topics || []
+    const totalMarks = prepost?.totalMarks || 0
+    const studentPP  = prepost?.scores?.[student.id]
+    const preScores  = studentPP?.pre  || []
+    const postScores = studentPP?.post || []
+    const hasPreData  = preScores.some(s => s != null && s !== '')
+    const hasPostData = postScores.some(s => s != null && s !== '')
+    // Did the post-test actually run for the class? (some classmate has a
+    // post mark) — so a blank post mark here means this student was
+    // absent, not that marks simply haven't been entered yet.
+    const classHasPost = Object.values(prepost?.scores || {})
+      .some(s => (s?.post || []).some(v => v != null && v !== ''))
+    const preTotal   = hasPreData  ? preScores.reduce((a, b) => a + (b != null ? Number(b) : 0), 0) : null
+    const postTotal  = hasPostData ? postScores.reduce((a, b) => a + (b != null ? Number(b) : 0), 0) : null
+    const prePct     = preTotal  != null && totalMarks ? Math.round((preTotal  / totalMarks) * 100) : null
+    const postPct    = postTotal != null && totalMarks ? Math.round((postTotal / totalMarks) * 100) : null
+    const improvement = prePct != null && postPct != null ? postPct - prePct : null
+
+    return (
+      <section>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-1 h-4 rounded-full" style={{ background: col.fg }} />
+          <h2 className="text-[12px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Pre / Post Test</h2>
+        </div>
+        <p className="text-[11px] text-[#2A2035]/55 leading-relaxed mb-3 -mt-1">
+          The same short diagnostic test is given at the start and again at the end of the term. Comparing the two shows how much your child has improved across each topic over the term.
+        </p>
+        {!prepost || (!hasPreData && !hasPostData) ? (
+          <div className="rounded-xl border border-[#E8EDF8] bg-[#F9FAFD] px-4 py-3">
+            <p className="text-[11px] text-[#2A2035]/35 italic">No pre/post test data recorded for this term.</p>
+          </div>
+        ) : (
+          <>
+          <div className="rounded-xl border border-[#E8EDF8] overflow-hidden">
+            <div className="grid grid-cols-3 divide-x divide-[#E8EDF8]">
+              <div className="px-4 py-3 bg-[#FEF2F2]">
+                <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#EF4444]/70 mb-1">Pre-test</p>
+                <p className="text-xl font-bold text-[#EF4444] tabular-nums">{prePct != null ? `${prePct}%` : '—'}</p>
+                {preTotal != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">{preTotal} / {totalMarks} marks</p>}
+              </div>
+              <div className="px-4 py-3 bg-[#EFF6FF]">
+                <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#325099]/70 mb-1">Post-test</p>
+                <p className="text-xl font-bold text-[#325099] tabular-nums">{postPct != null ? `${postPct}%` : '—'}</p>
+                {postTotal != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">{postTotal} / {totalMarks} marks</p>}
+              </div>
+              <div className={`px-4 py-3 ${improvement == null ? 'bg-[#F9FAFD]' : improvement >= 0 ? 'bg-[#F0FDF4]' : 'bg-[#FFF7ED]'}`}>
+                <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#2A2035]/50 mb-1">Improvement</p>
+                <p className="text-xl font-bold tabular-nums" style={{ color: improvement == null ? '#9CA3AF' : improvement >= 0 ? '#10B981' : '#F59E0B' }}>
+                  {improvement == null ? '—' : `${improvement >= 0 ? '+' : ''}${improvement}pp`}
+                </p>
+                {improvement != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">percentage points</p>}
+              </div>
+            </div>
+          </div>
+          {!hasPostData && classHasPost && (
+            <p className="text-[11px] text-[#2A2035]/55 italic mt-2">
+              Post-test mark not recorded — the student was absent for the post-test.
+            </p>
+          )}
+          {prepost?.classAvg && (
+            <div className="mt-4">
+              <PrePostCharts student={student} topics={topics} totalMarks={totalMarks}
+                scoresMap={prepost.scores} classAvg={prepost.classAvg}
+                expectedPre={prepost.expectedPre} expectedPost={prepost.expectedPost} />
+            </div>
+          )}
+          </>
+        )}
+      </section>
+    )
+  })()
 
   return (
     <div id={`student-report-${student.id}`}>
@@ -224,76 +318,24 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
             </div>
           </section>
 
-          {(() => {
-            const topics     = prepost?.topics || []
-            const totalMarks = prepost?.totalMarks || 0
-            const studentPP  = prepost?.scores?.[student.id]
-            const preScores  = studentPP?.pre  || []
-            const postScores = studentPP?.post || []
-            const hasPreData  = preScores.some(s => s != null && s !== '')
-            const hasPostData = postScores.some(s => s != null && s !== '')
-            const preTotal   = hasPreData  ? preScores.reduce((a, b) => a + (b != null ? Number(b) : 0), 0) : null
-            const postTotal  = hasPostData ? postScores.reduce((a, b) => a + (b != null ? Number(b) : 0), 0) : null
-            const prePct     = preTotal  != null && totalMarks ? Math.round((preTotal  / totalMarks) * 100) : null
-            const postPct    = postTotal != null && totalMarks ? Math.round((postTotal / totalMarks) * 100) : null
-            const improvement = prePct != null && postPct != null ? postPct - prePct : null
-
-            return (
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="w-1 h-4 rounded-full" style={{ background: col.fg }} />
-                  <h2 className="text-[12px] font-bold tracking-[0.25em] uppercase" style={{ color: col.fg }}>Pre / Post Test</h2>
-                </div>
-                <p className="text-[11px] text-[#2A2035]/55 leading-relaxed mb-3 -mt-1">
-                  The same short diagnostic test is given at the start and again at the end of the term. Comparing the two shows how much your child has improved across each topic over the term.
-                </p>
-                {!prepost || (!hasPreData && !hasPostData) ? (
-                  <div className="rounded-xl border border-[#E8EDF8] bg-[#F9FAFD] px-4 py-3">
-                    <p className="text-[11px] text-[#2A2035]/35 italic">No pre/post test data recorded for this term.</p>
-                  </div>
-                ) : (
-                  <>
-                  <div className="rounded-xl border border-[#E8EDF8] overflow-hidden">
-                    <div className="grid grid-cols-3 divide-x divide-[#E8EDF8]">
-                      <div className="px-4 py-3 bg-[#FEF2F2]">
-                        <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#EF4444]/70 mb-1">Pre-test</p>
-                        <p className="text-xl font-bold text-[#EF4444] tabular-nums">{prePct != null ? `${prePct}%` : '—'}</p>
-                        {preTotal != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">{preTotal} / {totalMarks} marks</p>}
-                      </div>
-                      <div className="px-4 py-3 bg-[#EFF6FF]">
-                        <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#325099]/70 mb-1">Post-test</p>
-                        <p className="text-xl font-bold text-[#325099] tabular-nums">{postPct != null ? `${postPct}%` : '—'}</p>
-                        {postTotal != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">{postTotal} / {totalMarks} marks</p>}
-                      </div>
-                      <div className={`px-4 py-3 ${improvement == null ? 'bg-[#F9FAFD]' : improvement >= 0 ? 'bg-[#F0FDF4]' : 'bg-[#FFF7ED]'}`}>
-                        <p className="text-[9px] font-bold tracking-[0.2em] uppercase text-[#2A2035]/50 mb-1">Improvement</p>
-                        <p className="text-xl font-bold tabular-nums" style={{ color: improvement == null ? '#9CA3AF' : improvement >= 0 ? '#10B981' : '#F59E0B' }}>
-                          {improvement == null ? '—' : `${improvement >= 0 ? '+' : ''}${improvement}pp`}
-                        </p>
-                        {improvement != null && <p className="text-[9px] text-[#2A2035]/50 mt-0.5">percentage points</p>}
-                      </div>
-                    </div>
-                  </div>
-                  {prepost?.classAvg && (
-                    <div className="mt-4">
-                      <PrePostCharts student={student} topics={topics} totalMarks={totalMarks}
-                        scoresMap={prepost.scores} classAvg={prepost.classAvg}
-                        expectedPre={prepost.expectedPre} expectedPost={prepost.expectedPost} />
-                    </div>
-                  )}
-                  </>
-                )}
-              </section>
-            )
-          })()}
+          {!prePostOwnPage && prePostBlock}
         </div>
 
         {pageFooter}
       </article>
 
-      {/* ── PAGE 2: Class tracker + Exam analytics ── */}
+      {/* ── Pre / Post Test on its own page (long teacher comment only) ── */}
+      {prePostOwnPage && (
+        <article className="report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 mb-4">
+          {reportHeader(2)}
+          {prePostBlock}
+          {pageFooter}
+        </article>
+      )}
+
+      {/* ── FINAL PAGE: Class tracker + Exam analytics ── */}
       <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 ${isLast ? '' : 'mb-8'}`}>
-        {reportHeader(2)}
+        {reportHeader(totalPages)}
 
         <section className="mb-6">
           <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-1">Revision quiz trend</h2>

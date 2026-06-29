@@ -717,7 +717,7 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
 
       {/* Totals vs class average — centred on its own row.
           Class average is hidden for small cohorts (≤2 students). */}
-      <div className="md:max-w-[calc(50%-12px)] md:mx-auto">
+      <div className="md:max-w-[calc(50%_-_12px)] md:mx-auto">
         <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">
           {fn}: Pre/Post test {hasClassAvg ? 'vs Class Average ' : ''}(Total)
         </p>
