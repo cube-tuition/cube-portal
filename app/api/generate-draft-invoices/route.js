@@ -61,7 +61,7 @@ export async function POST(req) {
     const studentIds = [...new Set(enrolments.map(e => e.student_id))]
 
     const [{ data: students }, { data: guardians }] = await Promise.all([
-      sb.from('students').select('id, full_name, family_id').in('id', studentIds),
+      sb.from('students').select('id, full_name, family_id, payment_method').in('id', studentIds),
       sb.from('guardians').select('student_id, full_name, email, phone').in('student_id', studentIds),
     ])
 
@@ -208,6 +208,10 @@ export async function POST(req) {
         }
       }
 
+      // Family payment method: cash if ANY family member is set to cash, else bank.
+      const paymentMethod = family.enrolments.some(e => studMap[e.student_id]?.payment_method === 'cash')
+        ? 'cash' : 'bank'
+
       const { error: insErr, data: newInvoice } = await sb.from('invoices').insert({
         term_id:              term_id,
         family_id:            family.family_id,
@@ -216,6 +220,7 @@ export async function POST(req) {
         reference_code:       referenceCode,
         status:               'draft',
         payment_status:       'unpaid',
+        payment_method:       paymentMethod,
         subtotal:             total,
         sibling_discount:     siblingDiscount,
         multi_course_discount: multiCourseDiscount,

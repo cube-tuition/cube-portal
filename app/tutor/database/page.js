@@ -272,6 +272,10 @@ const CELL_BADGE_COLORS = {
     'Active':   'bg-emerald-100 text-emerald-800 border border-emerald-200',
     'Inactive': 'bg-rose-100 text-rose-700 border border-rose-200',
   },
+  [`${T_STUDENTS}:payment_method`]: {
+    'bank': 'bg-blue-100 text-blue-800 border border-blue-200',
+    'cash': 'bg-amber-100 text-amber-800 border border-amber-200',
+  },
   [`${T_ENROLMENTS}:status`]: {
     'active':         'bg-emerald-100 text-emerald-800 border border-emerald-200',
     'trial':          'bg-amber-100 text-amber-800 border border-amber-200',
