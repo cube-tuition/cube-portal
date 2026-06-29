@@ -142,9 +142,12 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
   const prePostOwnPage = estCommentLines > 5 && studentHasPrePost && !!prepost?.classAvg
 
   // Exam analytics (the "areas doing well / areas to improve" breakdown) goes on
-  // its own page when there's exam data, so the revision-quiz-trend section above
-  // it can't push it off the bottom of the page and clip it.
-  const hasExam        = !!(examData && examData.perStudent)
+  // its own page when this student has exam marks, so the revision-quiz-trend
+  // section above it can't push it off the bottom of the page and clip it.
+  // The section is omitted entirely when no exam mark is recorded for the
+  // student (overall.max === 0) — including when no exam was assigned at all.
+  const examRows       = (examData && examData.perStudent) ? studentAnalysisRows(examData, student.id) : null
+  const hasExam        = !!(examRows && examRows.overall?.max > 0)
   const revisionPageNo = prePostOwnPage ? 3 : 2
   const examPageNo     = revisionPageNo + 1
   const totalPages     = hasExam ? examPageNo : revisionPageNo
@@ -484,36 +487,25 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
           </table>
         </section>
 
-        {!hasExam && (
-          <section className="mb-6">
-            <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-3">Exam analytics</h2>
-            <p className="text-xs text-[#2A2035]/40 italic">No exam assigned to this class for the term.</p>
-          </section>
-        )}
-
         {pageFooter}
       </article>
 
-      {/* ── Exam analytics page (only when there's exam data, so the "areas doing
-          well / to improve" breakdown is never clipped) ── */}
+      {/* ── Exam analytics page — only when this student has exam marks, so the
+          "areas doing well / to improve" breakdown is never clipped, and the
+          section is dropped entirely when there's no mark to show ── */}
       {hasExam && (
         <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 ${isLast ? '' : 'mb-8'}`}>
           {reportHeader(examPageNo)}
           <section className="mb-6">
             <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-3">Exam analytics</h2>
-            {(() => {
-              const d = studentAnalysisRows(examData, student.id)
-              return (
-                <StudentExamAnalysisView
-                  studentName={student.full_name}
-                  rows={d.rows}
-                  overall={d.overall}
-                  sections={d.sections}
-                  strengths={d.strengths}
-                  weaknesses={d.weaknesses}
-                />
-              )
-            })()}
+            <StudentExamAnalysisView
+              studentName={student.full_name}
+              rows={examRows.rows}
+              overall={examRows.overall}
+              sections={examRows.sections}
+              strengths={examRows.strengths}
+              weaknesses={examRows.weaknesses}
+            />
           </section>
           {pageFooter}
         </article>
