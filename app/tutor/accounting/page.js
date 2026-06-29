@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { DUE_DATES, daysUntil } from '../../../lib/complianceDates'
+import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
 
 /*
  * Accounting Dashboard — /tutor/accounting
@@ -98,6 +99,10 @@ export default function AccountingDashboard() {
   const [payRuns, setPayRuns] = useState([])
   const [cashLast, setCashLast] = useState(null)      // latest cash_log date
   const [cashTerm, setCashTerm] = useState({ inflow: 0, outflow: 0 })
+  // Termly cash snapshot: income from cash-marked invoices vs projected pay for
+  // cash-paid teachers (full-term forecast).
+  const [cashIncome, setCashIncome] = useState(0)
+  const [cashTeacherPay, setCashTeacherPay] = useState({ total: 0, perTutor: [], missingRate: [] })
   const [noPrice, setNoPrice] = useState(0)           // active enrolments without price (current term)
   const [noEmailFamilies, setNoEmailFamilies] = useState(0)
   const [complianceDone, setComplianceDone] = useState({})
@@ -115,9 +120,9 @@ export default function AccountingDashboard() {
     const cur = getCurrentTerm(allTerms)
     setTerm(cur)
 
-    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, tasksRes, dirRes] = await Promise.all([
+    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, tasksRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes] = await Promise.all([
       supabase.from('invoices')
-        .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status')
+        .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status, payment_method')
         .neq('status', 'voided'),
       supabase.from('shifts').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
       supabase.from('pay_runs').select('*').order('period_end', { ascending: false }).limit(4),
@@ -129,6 +134,10 @@ export default function AccountingDashboard() {
       supabase.from('portal_settings').select('value').eq('key', COMPLIANCE_DONE_KEY).maybeSingle(),
       supabase.from('ops_tasks').select('*').order('status').order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
       supabase.from('directors').select('full_name'),
+      cur ? supabase.from('classes').select('id, class_name, teacher, start_time, end_time, course_id, term_id').eq('term_id', cur.id) : { data: [] },
+      supabase.from('tutors').select('id, full_name, pay_method'),
+      supabase.from('current_tutor_rates').select('tutor_id, year_band, mode, hourly_rate'),
+      supabase.from('courses').select('id, delivery_mode'),
     ])
 
     setInvoices(invRes.data || [])
@@ -141,6 +150,17 @@ export default function AccountingDashboard() {
       else ct.outflow += Math.abs(Number(r.amount || 0))
     }
     setCashTerm(ct)
+
+    // Termly cash income — non-voided invoices for this term marked as cash.
+    setCashIncome((invRes.data || [])
+      .filter(i => cur && i.term_id === cur.id && i.payment_method === 'cash')
+      .reduce((s, i) => s + Number(i.total || 0), 0))
+    // Termly cash expenses — projected full-term pay for cash-paid teachers.
+    const courseModes = Object.fromEntries((coursesRes.data || []).map(c => [c.id, c.delivery_mode]))
+    setCashTeacherPay(projectedTeacherPay(classesRes.data || [], {
+      tutors: tutorsRes.data || [], rateMatrix: ratesRes.data || [], courseModes,
+    }, { payMethod: 'cash' }))
+
     setNoPrice((enrolRes.data || []).length)
     const emailed = new Set((guardRes.data || []).filter(g => g.email).map(g => String(g.student_id)))
     setNoEmailFamilies((studRes.data || []).filter(s => !emailed.has(s.id)).length)
@@ -306,6 +326,40 @@ export default function AccountingDashboard() {
               <p className="text-[10px] text-[#2A2035]/45">{sub}</p>
             </div>
           ))}
+        </div>
+
+        {/* Termly cash snapshot — cash income vs projected cash teacher pay */}
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-bold text-[#062E63]">💵 Term cash snapshot{term ? ` · ${formatTermLabel(term)}` : ''}</p>
+            <Link href="/tutor/accounting/forecast" className="text-[11px] font-semibold text-[#325099] hover:underline">Full forecast →</Link>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              ['Cash income', fmtMoney(cashIncome), 'cash-marked invoices this term', '#047857'],
+              ['Cash expenses', fmtMoney(cashTeacherPay.total), 'est. teacher pay (cash, full term)', '#B23A3A'],
+              ['Net cash', `${cashIncome - cashTeacherPay.total < 0 ? '−' : ''}${fmtMoney(cashIncome - cashTeacherPay.total)}`, 'income − teacher pay', cashIncome - cashTeacherPay.total >= 0 ? '#047857' : '#B23A3A'],
+            ].map(([l, v, sub, color]) => (
+              <div key={l} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-4 py-3">
+                <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{l}</p>
+                <p className="text-xl font-bold mt-0.5" style={{ color }}>{v}</p>
+                <p className="text-[10px] text-[#2A2035]/45">{sub}</p>
+              </div>
+            ))}
+          </div>
+          {(cashTeacherPay.perTutor.length > 0 || cashTeacherPay.missingRate.length > 0) && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#2A2035]/55">
+              {cashTeacherPay.perTutor.map(t => (
+                <span key={t.id}>{(t.name || '').split(' ')[0]}: <strong className="text-[#062E63]">{fmtMoney(t.amount)}</strong></span>
+              ))}
+              {cashTeacherPay.missingRate.length > 0 && (
+                <span className="text-amber-700">⚠ {cashTeacherPay.missingRate.length} cash class{cashTeacherPay.missingRate.length === 1 ? '' : 'es'} missing a rate (excluded)</span>
+              )}
+            </div>
+          )}
+          <p className="text-[10px] text-[#2A2035]/40 mt-2">
+            Income = invoices marked “cash” for this term. Expenses = projected full-term pay (lesson hours × rate × {LESSONS_PER_TERM} lessons) for tutors paid in cash; super excluded.
+          </p>
         </div>
 
         {/* Row 1: act now / overdue / upcoming */}
