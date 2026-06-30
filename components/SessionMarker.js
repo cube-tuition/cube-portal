@@ -77,6 +77,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const [saveError, setSaveError] = useState(null)
   const [isLocked, setIsLocked] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
+  const [savedBy, setSavedBy] = useState(null)   // staff who last saved this session
   const [armed, setArmed] = useState(false)
   const [showValidation, setShowValidation] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -204,11 +205,12 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       for (const s of students) seed[s.id] = {}
       let anyPriorData = false
       let latestSavedAt = null
+      let latestSavedBy = null
 
       if (studentIds.length > 0) {
         const { data: attRows } = await supabase
           .from(T_ATTENDANCE)
-          .select('student_id, status, notes, trial_feedback, created_at')
+          .select('student_id, status, notes, trial_feedback, created_at, saved_by, saved_at')
           .eq('class_id', classId)
           .eq('session_date', dateISO)
           .in('student_id', studentIds)
@@ -221,7 +223,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             trialFeedback: a.trial_feedback || '',
           }
           anyPriorData = true
-          if (a.created_at && (!latestSavedAt || a.created_at > latestSavedAt)) latestSavedAt = a.created_at
+          const ts = a.saved_at || a.created_at
+          if (ts && (!latestSavedAt || ts > latestSavedAt)) { latestSavedAt = ts; latestSavedBy = a.saved_by || null }
         }
 
         if (weekLabel) {
@@ -246,6 +249,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       setMarks(seed)
       setIsLocked(anyPriorData)
       setSavedAt(latestSavedAt)
+      setSavedBy(latestSavedBy)
 
       // History (term-wide)
       const hist = {}
@@ -358,6 +362,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             status: m.attendance || 'present',
             notes: hasComment ? m.comment.trim() : null,
             trial_feedback: hasTrialFeedback ? m.trialFeedback.trim() : null,
+            saved_by: staff?.full_name || null,
+            saved_at: new Date().toISOString(),
           }
           const { error } = existingId
             ? await supabase.from(T_ATTENDANCE).update(payload).eq('id', existingId)
@@ -442,6 +448,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       setSaveStatus('saved')
       setIsLocked(true)
       setSavedAt(new Date().toISOString())
+      setSavedBy(staff?.full_name || null)
 
       // Fire-and-forget: email an admin inbox a full breakdown of the saved
       // session. Never blocks the save; any failure is logged only.
@@ -747,7 +754,7 @@ function MarkTable({
             <span className="text-base">🔒</span>
             <span className="font-semibold">Session saved &mdash; read only.</span>
             {savedAt && (
-              <span className="text-[#065F46]/70 hidden sm:inline">Last saved {fmtSavedAt(savedAt)}</span>
+              <span className="text-[#065F46]/70 hidden sm:inline">Last saved {fmtSavedAt(savedAt)}{savedBy ? ` by ${savedBy}` : ''}</span>
             )}
           </div>
         </div>
