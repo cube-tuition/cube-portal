@@ -95,7 +95,7 @@ function defaultWidth(col) { return PRESET_WIDTHS[col] ?? DEFAULT_WIDTH }
 // (legacy fallback — lib/tableMeta.js is now the primary source)
 const CELL_DROPDOWNS = {
   [`${T_STUDENTS}:year`]:        ['5','6','7','8','9','10','11','12'],
-  [`${T_STUDENTS}:status`]:      ['active','trial','disenrol','quit trial'],
+  [`${T_STUDENTS}:status`]:      ['active','pending','trial','inactive'],
   [`${T_ATTENDANCE}:status`]:    ['present','late','absent','makeup'],
   [`${T_ENROLMENTS}:status`]:    ['active','trial','trial complete','disenrol'],
 }
@@ -263,14 +263,10 @@ function FilterPanel({ anchorRef, onClose, columns, labelOf, optionsFor, cfg, on
 // Coloured pill badges for specific table:column values
 const CELL_BADGE_COLORS = {
   [`${T_STUDENTS}:status`]: {
-    'active':     'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    'trial':      'bg-amber-100 text-amber-800 border border-amber-200',
-    'disenrol':   'bg-gray-100 text-gray-500 border border-gray-200',
-    'quit trial': 'bg-gray-100 text-gray-500 border border-gray-200',
-  },
-  [`${T_STUDENTS}:is_active`]: {
-    'Active':   'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    'Inactive': 'bg-rose-100 text-rose-700 border border-rose-200',
+    'active':   'bg-emerald-100 text-emerald-800 border border-emerald-200',
+    'pending':  'bg-blue-100 text-blue-800 border border-blue-200',
+    'trial':    'bg-amber-100 text-amber-800 border border-amber-200',
+    'inactive': 'bg-rose-100 text-rose-700 border border-rose-200',
   },
   [`${T_STUDENTS}:payment_method`]: {
     'bank': 'bg-blue-100 text-blue-800 border border-blue-200',
@@ -3361,13 +3357,9 @@ export default function DatabasePage() {
       const wantActive = tutorStatusTab === 'active'
       out = out.filter(r => (r.active !== false) === wantActive)
     }
-    // Students view: Active / Inactive / All tabs (by is_active, falling back to status).
+    // Students view: status tabs (active / pending / trial / inactive / all).
     if (selectedTable === T_STUDENTS && studentStatusTab !== 'all') {
-      const wantActive = studentStatusTab === 'active'
-      out = out.filter(r => {
-        const isActive = r.is_active != null ? r.is_active === 'Active' : ['active', 'trial'].includes(r.status)
-        return isActive === wantActive
-      })
+      out = out.filter(r => r.status === studentStatusTab)
     }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -3768,10 +3760,10 @@ export default function DatabasePage() {
                 </div>
               )}
 
-              {/* Active / Inactive tabs — students only */}
+              {/* Status tabs — students only */}
               {selectedTable === T_STUDENTS && (
                 <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                  {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
+                  {[['active', 'Active'], ['pending', 'Pending'], ['trial', 'Trial'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setStudentStatusTab(v)}
@@ -3929,8 +3921,7 @@ export default function DatabasePage() {
                   ? studentCardsData.filter(s => (s.full_name||'').toLowerCase().includes(q) || (s.email||'').toLowerCase().includes(q) || (s.year||'').includes(q))
                   : studentCardsData
                 if (studentStatusTab !== 'all') {
-                  const wantActive = studentStatusTab === 'active'
-                  filtered = filtered.filter(s => ['active', 'trial'].includes(s.status) === wantActive)
+                  filtered = filtered.filter(s => s.status === studentStatusTab)
                 }
                 const selected = filtered.find(s => s.id === studentCardsSelected) ?? null
                 const selectedParent = selected ? (studentCardsParents[selected.id] ?? null) : null
@@ -3975,7 +3966,10 @@ export default function DatabasePage() {
                                     {s.year && <SDBadge text={`Yr ${s.year}`} cls={yearBadgeColor(s.year)} />}
                                     {enrolCount > 0 && <SDBadge text={`${enrolCount} class${enrolCount === 1 ? '' : 'es'}`} cls="bg-[#DEE7FF] text-[#062E63]" />}
                                     {s.gender && <SDBadge text={s.gender} cls="bg-[#FCE7F3] text-[#9D174D]" />}
-                                    {s.status && s.status !== 'active' && <SDBadge text={s.status} cls={s.status === 'trial' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-gray-100 text-gray-500 border border-gray-200'} />}
+                                    {s.status && s.status !== 'active' && <SDBadge text={s.status} cls={
+                                      s.status === 'trial'   ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                      : s.status === 'pending' ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                      : 'bg-rose-100 text-rose-700 border border-rose-200'} />}
                                   </div>
                                   <p className="text-[11px] text-[#2A2035]/55 mt-0.5 truncate">{s.email || '—'}</p>
                                   <div className="flex items-center gap-3 mt-0.5 text-[10px] text-[#2A2035]/40">
@@ -4025,14 +4019,15 @@ export default function DatabasePage() {
                                   className="text-[11px] font-bold rounded-lg px-2.5 py-1 border focus:outline-none focus:ring-2 focus:ring-[#325099]/20 cursor-pointer transition"
                                   style={
                                     (selected.status || 'active') === 'active' ? { background:'#D1FAE5', color:'#065F46', borderColor:'#6EE7B7' } :
+                                    selected.status === 'pending'               ? { background:'#DBEAFE', color:'#1E40AF', borderColor:'#93C5FD' } :
                                     selected.status === 'trial'                 ? { background:'#FEF3C7', color:'#92400E', borderColor:'#FDE68A' } :
-                                    { background:'#F3F4F6', color:'#6B7280', borderColor:'#D1D5DB' }
+                                    { background:'#FFE4E6', color:'#9F1239', borderColor:'#FDA4AF' }
                                   }
                                 >
                                   <option value="active">Active</option>
+                                  <option value="pending">Pending</option>
                                   <option value="trial">Trial</option>
-                                  <option value="disenrol">Disenrol</option>
-                                  <option value="quit trial">Quit trial</option>
+                                  <option value="inactive">Inactive</option>
                                 </select>
                               </div>
                               {/* Guardian card */}
