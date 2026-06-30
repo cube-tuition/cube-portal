@@ -4728,6 +4728,23 @@ export default function DatabasePage() {
                                     {cellDropdownFor(selectedTable, col).map(o => <option key={o} value={o}>{o}</option>)}
                                   </select>
                                 )
+                                // Long text → roomy textarea (Enter = newline, ⌘/Ctrl+Enter or blur = save)
+                                if (ek === 'longtext') return (
+                                  <textarea
+                                    ref={editInputRef}
+                                    value={editValue}
+                                    onChange={e => setEditValue(e.target.value)}
+                                    onBlur={handleCellSave}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Escape') { e.preventDefault(); setEditingCell(null) }
+                                      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleCellSave() }
+                                    }}
+                                    rows={5}
+                                    placeholder="Notes…"
+                                    className="w-full px-3 py-2 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs resize-y align-top"
+                                    style={{ width: w }}
+                                  />
+                                )
                                 // Plain text / number fallback
                                 return (
                                   <input ref={editInputRef} type="text" inputMode={ek === 'number' || ek === 'currency' || ek === 'percent' ? 'decimal' : undefined} value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-3 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
