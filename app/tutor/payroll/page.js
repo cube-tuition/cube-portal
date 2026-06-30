@@ -52,6 +52,13 @@ const fmtDateLong = (s) => {
   const d = new Date(s + 'T00:00:00')
   return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 }
+const addDaysIso = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoDate(d) }
+// Super-guarantee quarter (= calendar quarter: Jul–Sep, Oct–Dec, Jan–Mar, Apr–Jun) containing a date.
+const sgQuarterBounds = (iso) => {
+  const d = new Date((iso || isoDate(new Date())) + 'T00:00:00')
+  const qm = Math.floor(d.getMonth() / 3) * 3
+  return { start: isoDate(new Date(d.getFullYear(), qm, 1)), end: isoDate(new Date(d.getFullYear(), qm + 3, 0)) }
+}
 
 // Compute (start, end) ISO dates for fortnight n (1..5) of a term.
 function fortnightDates(term, idx) {
@@ -104,6 +111,7 @@ export default function PayrollPage() {
   const [addForm, setAddForm] = useState({ tutor_id: '', work_date: '', hours: '1', rate: '', notes: '' })
   const [adding, setAdding] = useState(false)
   const [emailByTutor, setEmailByTutor] = useState({})   // tutor_id → email (for payslips)
+  const [quarterGrossByTutor, setQuarterGrossByTutor] = useState({})  // tutor_id → gross this SG quarter
   const [sendingPayslips, setSendingPayslips] = useState(false)
   const [payslipResults, setPayslipResults] = useState(null)
   const [payslipNote, setPayslipNote] = useState(null)
@@ -141,6 +149,16 @@ export default function PayrollPage() {
         .order('start_time', { ascending: true })
       if (shErr) throw shErr
       setShifts(sh || [])
+
+      // Quarter-to-date gross per tutor (SG quarter containing this run) — for the
+      // payslip's "Super YTD this quarter" line.
+      const q = sgQuarterBounds(pr.period_end)
+      const { data: qsh } = await supabase
+        .from(T_PAY_RUN_SHIFTS).select('tutor_id, amount')
+        .gte('work_date', q.start).lte('work_date', q.end)
+      const qg = {}
+      for (const s of qsh || []) qg[s.tutor_id] = (qg[s.tutor_id] || 0) + Number(s.amount || 0)
+      setQuarterGrossByTutor(qg)
 
       // Which cash tutors have already been marked paid for this run
       const { data: cps } = await supabase
@@ -390,8 +408,10 @@ export default function PayrollPage() {
     const gross = g.shifts.reduce((a, s) => a + Number(s.amount || 0), 0)
     const hours = g.shifts.reduce((a, s) => a + Number(s.hours || 0), 0)
     const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
+    const superYtd    = payMethod !== 'cash' ? (Number(quarterGrossByTutor[tutorId] || 0) * SUPER_RATE) : 0
     const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${FORTNIGHT_LABELS[fortnight - 1] || ''} (${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
-    return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, payMethod, shifts, hours, gross, superAmount, total: gross + superAmount }
+    const paymentDate = run?.period_start ? fmtDateLong(addDaysIso(run.period_start, 14)) : null
+    return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, paymentDate, payMethod, shifts, hours, gross, superAmount, superYtd, total: gross + superAmount }
   }
 
   const buildPayslips = async () => {
