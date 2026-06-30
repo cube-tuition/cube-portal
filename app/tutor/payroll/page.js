@@ -107,6 +107,10 @@ export default function PayrollPage() {
   const [sendingPayslips, setSendingPayslips] = useState(false)
   const [payslipResults, setPayslipResults] = useState(null)
   const [payslipNote, setPayslipNote] = useState(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewIdx, setPreviewIdx] = useState(0)
+  const [previewPdfUrl, setPreviewPdfUrl] = useState(null)
+  const [previewBusy, setPreviewBusy] = useState(false)
   const [cashPaid, setCashPaid] = useState({})       // tutor_id → cash_pay_status row (this run)
   const [payTab, setPayTab] = useState('bank')       // active pay-method tab
   const [loading, setLoading] = useState(true)
@@ -375,29 +379,55 @@ export default function PayrollPage() {
   }
 
   // ── Payslips — one per tutor for this run (PDF + email summary) ──────────────
+  const payslipDataFor = (g) => {
+    const tutorId   = g.shifts[0]?.tutor_id
+    const payMethod = (payMethods[tutorId] || 'bank').toLowerCase()
+    const shifts = g.shifts.map(s => ({
+      date: fmtDate(s.work_date),
+      description: (s.notes || '').replace(/^Auto:\s*/, '') || `(${s.kind})`,
+      hours: Number(s.hours || 0), rate: s.rate_snapshot, amount: Number(s.amount || 0),
+    }))
+    const gross = g.shifts.reduce((a, s) => a + Number(s.amount || 0), 0)
+    const hours = g.shifts.reduce((a, s) => a + Number(s.hours || 0), 0)
+    const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
+    const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${FORTNIGHT_LABELS[fortnight - 1] || ''} (${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
+    return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, payMethod, shifts, hours, gross, superAmount, total: gross + superAmount }
+  }
+
   const buildPayslips = async () => {
-    const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${FORTNIGHT_LABELS[fortnight - 1] || ''} (${fmtDate(run.period_start)}–${fmtDate(run.period_end)})`
     const out = []
     for (const g of byTutor) {
-      const tutorId   = g.shifts[0]?.tutor_id
-      const payMethod = (payMethods[tutorId] || 'bank').toLowerCase()
-      const shifts = g.shifts.map(s => ({
-        date: fmtDate(s.work_date),
-        description: (s.notes || '').replace(/^Auto:\s*/, '') || `(${s.kind})`,
-        hours: Number(s.hours || 0), rate: s.rate_snapshot, amount: Number(s.amount || 0),
-      }))
-      const gross = g.shifts.reduce((a, s) => a + Number(s.amount || 0), 0)
-      const hours = g.shifts.reduce((a, s) => a + Number(s.hours || 0), 0)
-      const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
-      const data = { tutorName: g.name, periodLabel, payMethod, shifts, hours, gross, superAmount, total: gross + superAmount }
+      const data = payslipDataFor(g)
       const pdf_base64 = await buildPayslipPdfBase64(data)
       out.push({
-        name: g.name, email: emailByTutor[tutorId] || null,
-        subject: payslipSubject(periodLabel), body: buildPayslipEmailHtml(data),
-        pdf_base64, pdf_filename: `${(g.name || 'tutor').replace(/[^a-z0-9]+/gi, '_')}_payslip.pdf`,
+        name: data.tutorName, email: data.email,
+        subject: payslipSubject(data.periodLabel), body: buildPayslipEmailHtml(data),
+        pdf_base64, pdf_filename: `${(data.tutorName || 'tutor').replace(/[^a-z0-9]+/gi, '_')}_payslip.pdf`,
       })
     }
     return out
+  }
+
+  // Generate + show one tutor's payslip PDF in the preview modal.
+  const loadPreview = async (idx) => {
+    const g = byTutor[idx]
+    if (!g) return
+    setPreviewBusy(true)
+    try {
+      const b64   = await buildPayslipPdfBase64(payslipDataFor(g))
+      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+      const url   = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+      setPreviewPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url })
+    } catch (e) {
+      alert('Preview failed: ' + (e.message || String(e)))
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+  const openPreview = () => { setPreviewOpen(true); setPreviewIdx(0); loadPreview(0) }
+  const closePreview = () => {
+    setPreviewOpen(false)
+    setPreviewPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null })
   }
 
   const sendPayslips = async (test) => {
@@ -792,6 +822,10 @@ export default function PayrollPage() {
               )}
               {(run?.status === 'approved' || run?.status === 'exported' || run?.status === 'paid') && (
                 <>
+                  <button onClick={openPreview} disabled={sendingPayslips || !byTutor.length}
+                    className="text-sm font-semibold text-[#325099] bg-white border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-50">
+                    👁 Preview
+                  </button>
                   <button onClick={() => sendPayslips(false)} disabled={sendingPayslips}
                     className="text-sm font-semibold text-white bg-[#325099] hover:bg-[#062E63] px-4 py-2 rounded-full transition disabled:opacity-50">
                     {sendingPayslips ? 'Sending…' : `📄 Send payslips (${byTutor.length})`}
@@ -839,6 +873,44 @@ export default function PayrollPage() {
           </p>
         </div>
       </footer>
+
+      {previewOpen && byTutor[previewIdx] && (() => {
+        const data = payslipDataFor(byTutor[previewIdx])
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={closePreview}>
+            <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[#DEE7FF]">
+                <div className="flex items-center gap-3 min-w-0">
+                  <p className="text-sm font-bold text-[#062E63] shrink-0">Payslip preview</p>
+                  <select value={previewIdx}
+                    onChange={e => { const i = Number(e.target.value); setPreviewIdx(i); loadPreview(i) }}
+                    className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm bg-white max-w-[200px]">
+                    {byTutor.map((g, i) => <option key={i} value={i}>{g.name}</option>)}
+                  </select>
+                  <span className="text-xs text-[#2A2035]/45 truncate hidden sm:inline">
+                    {data.email || 'no email'} · {fmtMoney(data.total)}
+                  </span>
+                </div>
+                <button onClick={closePreview} className="text-[#325099]/40 hover:text-[#325099] text-xl leading-none">✕</button>
+              </div>
+              <div className="overflow-y-auto p-4 space-y-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-[#325099]/60 font-semibold mb-1">PDF payslip (attached)</p>
+                  {previewBusy ? (
+                    <p className="text-sm text-[#2A2035]/40 py-12 text-center animate-pulse">Generating…</p>
+                  ) : previewPdfUrl ? (
+                    <iframe title="payslip-pdf" src={previewPdfUrl} className="w-full h-[55vh] border border-[#DEE7FF] rounded-xl bg-white" />
+                  ) : null}
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-[#325099]/60 font-semibold mb-1">Email body</p>
+                  <iframe title="payslip-email" srcDoc={buildPayslipEmailHtml(data)} className="w-full h-64 border border-[#DEE7FF] rounded-xl bg-white" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
