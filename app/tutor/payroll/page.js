@@ -95,6 +95,10 @@ export default function PayrollPage() {
   const [shifts, setShifts] = useState([])
   const [payMethods, setPayMethods] = useState({})   // tutor_id → pay_method (bank/cash)
   const [cashTutors, setCashTutors] = useState([])   // [{id, full_name, cash_pay_weekday}] for the cash pay schedule
+  const [allTutors, setAllTutors] = useState([])     // every tutor — for the "add shift" picker
+  const [addOpen, setAddOpen] = useState(false)      // add-shift form open
+  const [addForm, setAddForm] = useState({ tutor_id: '', work_date: '', hours: '1', rate: '', notes: '' })
+  const [adding, setAdding] = useState(false)
   const [cashPaid, setCashPaid] = useState({})       // tutor_id → cash_pay_status row (this run)
   const [payTab, setPayTab] = useState('bank')       // active pay-method tab
   const [loading, setLoading] = useState(true)
@@ -159,6 +163,7 @@ export default function PayrollPage() {
       // Pay method per tutor (bank vs cash split) + cash pay-day schedule
       const { data: tutorRows } = await supabase.from(T_TUTORS).select('id, full_name, pay_method, cash_pay_weekday')
       setPayMethods(Object.fromEntries((tutorRows || []).map(t => [t.id, t.pay_method])))
+      setAllTutors((tutorRows || []).slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
       setCashTutors((tutorRows || []).filter(t => (t.pay_method || '').toLowerCase() === 'cash')
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
 
@@ -223,6 +228,57 @@ export default function PayrollPage() {
       alert('Save failed: ' + (e.message || String(e)))
     } finally {
       setSavingId(null)
+    }
+  }
+
+  // Remove a shift from the pay run (only while it's 'open'). Undoable.
+  const deleteShift = async (id) => {
+    const before = shifts.find(s => s.id === id)
+    if (!before) return
+    if (!confirm(`Remove this shift (${before.tutor_name} · ${before.work_date})? It's deleted from the pay run.`)) return
+    setSavingId(id)
+    try {
+      const { error: e } = await supabase.from(T_SHIFTS).delete().eq('id', id)
+      if (e) throw e
+      registerUndoAction('shift removed', async () => {
+        await supabase.from(T_SHIFTS).insert({
+          tutor_id: before.tutor_id, work_date: before.work_date, hours: before.hours, kind: before.kind,
+          start_time: before.start_time ?? null, end_time: before.end_time ?? null,
+          rate_snapshot: before.rate_snapshot ?? null, notes: before.notes ?? null,
+          source_table: before.source_table ?? null, source_id: before.source_id ?? null, status: 'draft',
+        })
+        await reload()
+      })
+      await reload()
+    } catch (e) {
+      alert('Could not remove shift: ' + (e.message || String(e)))
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  // Add a manual shift to the current run. Undoable.
+  const addShift = async () => {
+    const { tutor_id, work_date, hours, rate, notes } = addForm
+    if (!tutor_id || !work_date || !(Number(hours) > 0)) { alert('Tutor, date and hours are required.'); return }
+    setAdding(true)
+    try {
+      const { data, error: e } = await supabase.from(T_SHIFTS).insert({
+        tutor_id, work_date, hours: Number(hours), kind: 'class',
+        rate_snapshot: rate === '' ? null : Number(rate),
+        source_table: 'manual', status: 'draft', notes: notes?.trim() || 'Manual shift',
+      }).select('id').single()
+      if (e) throw e
+      if (data?.id) registerUndoAction('shift added', async () => {
+        await supabase.from(T_SHIFTS).delete().eq('id', data.id); await reload()
+      })
+      setAddOpen(false)
+      setAddForm({ tutor_id: '', work_date: '', hours: '1', rate: '', notes: '' })
+      await reload()
+    } catch (e) {
+      alert('Could not add shift: ' + (e.message || String(e)))
+    } finally {
+      setAdding(false)
     }
   }
 
@@ -567,6 +623,7 @@ export default function PayrollPage() {
                     editable={editable}
                     saving={savingId === s.id}
                     onUpdate={(patch) => updateShift(s.id, patch)}
+                    onDelete={() => deleteShift(s.id)}
                   />
                 ))}
               </div>
@@ -575,6 +632,61 @@ export default function PayrollPage() {
         })}
           </div>
         ))}
+
+        {/* Add a manual shift (only while the run is open) */}
+        {!loading && editable && (
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 mt-5">
+            {!addOpen ? (
+              <button onClick={() => { setAddOpen(true); setAddForm(f => ({ ...f, work_date: f.work_date || (run?.period_start || '') })) }}
+                className="text-sm font-semibold text-[#325099] hover:text-[#062E63]">＋ Add a shift</button>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-[#062E63]">Add a manual shift</p>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[10px] uppercase tracking-wider text-[#325099]/70 font-semibold block mb-1">Tutor</label>
+                    <select value={addForm.tutor_id} onChange={e => setAddForm(f => ({ ...f, tutor_id: e.target.value }))}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white">
+                      <option value="">—</option>
+                      {allTutors.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-[#325099]/70 font-semibold block mb-1">Date</label>
+                    <input type="date" value={addForm.work_date} min={run?.period_start} max={run?.period_end}
+                      onChange={e => setAddForm(f => ({ ...f, work_date: e.target.value }))}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-[#325099]/70 font-semibold block mb-1">Hours</label>
+                    <input type="number" step="0.25" min="0.25" value={addForm.hours}
+                      onChange={e => setAddForm(f => ({ ...f, hours: e.target.value }))}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-[#325099]/70 font-semibold block mb-1">Rate $/h</label>
+                    <input type="number" step="0.50" min="0" placeholder="—" value={addForm.rate}
+                      onChange={e => setAddForm(f => ({ ...f, rate: e.target.value }))}
+                      className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white" />
+                  </div>
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[10px] uppercase tracking-wider text-[#325099]/70 font-semibold block mb-1">Note</label>
+                    <input value={addForm.notes} onChange={e => setAddForm(f => ({ ...f, notes: e.target.value }))}
+                      placeholder="e.g. extra tutoring" className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={addShift} disabled={adding}
+                    className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2 rounded-full disabled:opacity-50">
+                    {adding ? 'Adding…' : 'Add shift'}</button>
+                  <button onClick={() => setAddOpen(false)} disabled={adding}
+                    className="text-sm font-semibold text-[#325099] px-3 py-2">Cancel</button>
+                  <span className="text-[11px] text-[#2A2035]/45">Date must fall within this fortnight to appear in the run.</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Footer actions */}
         {!loading && shifts.length > 0 && (
@@ -742,7 +854,7 @@ function lessonUrl(shift) {
   return null
 }
 
-function ShiftRow({ shift, editable, saving, onUpdate }) {
+function ShiftRow({ shift, editable, saving, onUpdate, onDelete }) {
   const rowKey = `${shift.id}-${shift.hours}-${shift.rate_snapshot ?? 'null'}`
   const url    = lessonUrl(shift)
 
@@ -762,9 +874,17 @@ function ShiftRow({ shift, editable, saving, onUpdate }) {
   const linkClass = url ? 'group cursor-pointer hover:bg-[#F0F4FF] transition' : ''
 
   return (
-    <div key={rowKey} className={`grid grid-cols-12 gap-3 items-center px-6 py-3 text-sm ${missingRate ? 'bg-[#FFFBEB]' : ''} ${linkClass}`}
+    <div key={rowKey} className={`relative grid grid-cols-12 gap-3 items-center px-6 py-3 text-sm ${missingRate ? 'bg-[#FFFBEB]' : ''} ${linkClass}`}
       onClick={url && !editable ? () => window.open(url, '_blank') : undefined}
     >
+      {editable && onDelete && (
+        <button
+          onClick={e => { e.stopPropagation(); onDelete() }}
+          disabled={saving}
+          title="Remove this shift from the pay run"
+          className="absolute top-1.5 right-2 text-[#B23A3A]/40 hover:text-[#B23A3A] text-sm leading-none disabled:opacity-30"
+        >✕</button>
+      )}
       {/* date */}
       <div className="col-span-3 md:col-span-2">
         <p className={`font-semibold ${url ? 'text-[#325099] group-hover:text-[#062E63]' : 'text-[#2A2035]'} transition`}>{fmtDateLong(shift.work_date)}</p>
