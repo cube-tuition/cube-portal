@@ -1368,6 +1368,7 @@ export default function DatabasePage() {
   // Student directory view (cards mode for students table)
   const [studentViewMode, setStudentViewMode]             = useState('data')  // 'data' | 'cards'
   const [studentCardsData, setStudentCardsData]           = useState([])
+  const [savingNote, setSavingNote]                       = useState(false)
   const [studentCardsParents, setStudentCardsParents]     = useState({})
   const [studentCardsEnrolments, setStudentCardsEnrolments] = useState({})
   const [studentCardsSearch, setStudentCardsSearch]       = useState('')
@@ -2596,7 +2597,7 @@ export default function DatabasePage() {
     ;(async () => {
       setLoadingStudentCards(true)
       const [{ data: students }, { data: enrolments }, { data: parents }] = await Promise.all([
-        supabase.from(T_STUDENTS).select('id, full_name, email, school, year, gender, phone, status').order('full_name'),
+        supabase.from(T_STUDENTS).select('id, full_name, email, school, year, gender, phone, status, notes').order('full_name'),
         supabase.from(T_ENROLMENTS).select('student_id'),
         supabase.from(T_PARENTS).select('*'),
       ])
@@ -4055,6 +4056,29 @@ export default function DatabasePage() {
                                   </div>
                                 </div>
                               )}
+                              {/* Notes */}
+                              <div className="rounded-2xl border border-[#DEE7FF] p-4 bg-white">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-[11px] font-semibold text-[#2A2035]/60">Notes</span>
+                                  {savingNote && <span className="text-[10px] text-[#325099]/50">Saving…</span>}
+                                </div>
+                                <textarea
+                                  key={selected.id}
+                                  defaultValue={selected.notes || ''}
+                                  onBlur={async (e) => {
+                                    const v = e.target.value.trim() || null
+                                    if (v === (selected.notes || null)) return
+                                    setSavingNote(true)
+                                    const { error } = await supabase.from(T_STUDENTS).update({ notes: v }).eq('id', selected.id)
+                                    setSavingNote(false)
+                                    if (error) { alert('Failed to save notes: ' + error.message); return }
+                                    setStudentCardsData(prev => prev.map(s => s.id === selected.id ? { ...s, notes: v } : s))
+                                  }}
+                                  rows={4}
+                                  placeholder="Notes about this student… (saved when you click away)"
+                                  className="w-full text-xs text-[#2A2035] border border-[#DEE7FF] rounded-lg px-3 py-2 focus:outline-none focus:border-[#325099] resize-y"
+                                />
+                              </div>
                             </div>
                           )}
                         </div>
