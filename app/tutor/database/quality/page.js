@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { T_STUDENTS, T_PARENTS, T_TUTORS, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_INVOICES, T_TRIAL_SUBMISSIONS } from '../../../../lib/tables'
+import { T_STUDENTS, T_PARENTS, T_TUTORS, T_ADMINS, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_INVOICES, T_TRIAL_SUBMISSIONS } from '../../../../lib/tables'
 import { TABLE_META, validateValue } from '../../../../lib/tableMeta'
 
 /*
@@ -45,24 +45,35 @@ export default function DataQualityPage() {
     const add = (severity, group, message, detail) => found.push({ severity, group, message, detail })
 
     try {
-      const [students, guardians, tutors, classes, enrolments, invoices, trials] = await Promise.all([
+      const [students, guardians, tutors, directors, classes, enrolments, invoices, trials] = await Promise.all([
         supabase.from(T_STUDENTS).select('id, full_name, email, phone, school, year, gender, status, family_id'),
         supabase.from(T_PARENTS).select('id, full_name, email, phone, relationship, student_id'),
         supabase.from(T_TUTORS).select('id, full_name'),
+        supabase.from(T_ADMINS).select('id, full_name'),
         supabase.from(T_CLASSES).select('id, class_name, teacher, day_of_week, term_id, course_id'),
         supabase.from(T_ENROLMENTS).select('id, student_id, class_id, status, price'),
         supabase.from(T_INVOICES).select('id, term_id, family_id, student_id, status, payment_status'),
         supabase.from(T_TRIAL_SUBMISSIONS).select('id, student_name, parent_email, parent_phone, status'),
       ])
-      for (const r of [students, guardians, tutors, classes, enrolments, invoices, trials]) {
+      for (const r of [students, guardians, tutors, directors, classes, enrolments, invoices, trials]) {
         if (r.error) throw new Error(r.error.message)
       }
-      const S = students.data ?? [], G = guardians.data ?? [], TU = tutors.data ?? []
+      const S = students.data ?? [], G = guardians.data ?? [], TU = tutors.data ?? [], DIR = directors.data ?? []
       const C = classes.data ?? [], E = enrolments.data ?? [], I = invoices.data ?? [], TR = trials.data ?? []
       const studentIds  = new Set(S.map(s => s.id))
       const studentById = Object.fromEntries(S.map(s => [s.id, s.full_name]))
       const classIds    = new Set(C.map(c => c.id))
-      const tutorNames  = new Set(TU.map(t => norm(t.full_name)))
+      // Staff teach under free-text names in classes.teacher — usually a first
+      // name ("Daniel" for "Daniel Leem"), and some teachers are directors, not
+      // tutors. Accept a teacher if it matches any staff member's full name OR
+      // first name across both tutors and directors.
+      const staffNames = new Set()
+      for (const p of [...TU, ...DIR]) {
+        const full = norm(p.full_name)
+        if (!full) continue
+        staffNames.add(full)
+        staffNames.add(full.split(/\s+/)[0])   // first name
+      }
 
       // ── Duplicates ──────────────────────────────────────────────────────────
       const nameCount = {}
@@ -159,10 +170,10 @@ export default function DataQualityPage() {
         if (!c.course_id) add('medium', 'Missing required', `Class "${c.class_name}" has no course.`)
       }
 
-      // ── Free-text teacher names not matching tutor records ──────────────────
-      const unmatched = [...new Set(C.filter(c => c.teacher && !tutorNames.has(norm(c.teacher))).map(c => c.teacher))]
+      // ── Free-text teacher names not matching any staff record ───────────────
+      const unmatched = [...new Set(C.filter(c => c.teacher && !staffNames.has(norm(c.teacher))).map(c => c.teacher))]
       if (unmatched.length)
-        add('low', 'Unlinked references', `${unmatched.length} class teacher name(s) don't exactly match any tutor record: ${unmatched.join(', ')}. (classes.teacher is free text — a future tutor_id link would fix this permanently.)`)
+        add('low', 'Unlinked references', `${unmatched.length} class teacher name(s) have no matching staff record: ${unmatched.join(', ')}. Add them as a tutor (or director), or correct the class's Teacher field.`)
 
       // ── Duplicate live invoices (one per family/student per term expected) ──
       const invKey = {}
