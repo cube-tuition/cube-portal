@@ -188,6 +188,17 @@ export default function PayrollPage() {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
   }, [shifts, payMethods])
 
+  // Tutor options for the "add shift" picker — every tutor, plus anyone already
+  // in this run (so it's never empty even if the tutor list is slow/unavailable).
+  const tutorOptions = useMemo(() => {
+    const map = new Map()
+    for (const t of allTutors) map.set(t.id, t.full_name)
+    for (const s of shifts) if (s.tutor_id && !map.has(s.tutor_id)) map.set(s.tutor_id, s.tutor_name)
+    return [...map.entries()]
+      .map(([id, full_name]) => ({ id, full_name }))
+      .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+  }, [allTutors, shifts])
+
   // Bank vs cash split (Xero push will use the bank group only)
   const payGroups = useMemo(() => PM_GROUPS.map(g => {
     const tutors = byTutor.filter(t => t.payGroup === g.id)
@@ -648,7 +659,7 @@ export default function PayrollPage() {
                     <select value={addForm.tutor_id} onChange={e => setAddForm(f => ({ ...f, tutor_id: e.target.value }))}
                       className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white">
                       <option value="">—</option>
-                      {allTutors.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                      {tutorOptions.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
                     </select>
                   </div>
                   <div>
