@@ -562,6 +562,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             }
             isLocked={isLocked || readOnly}
             savedAt={savedAt}
+            savedBy={savedBy}
             onEdit={readOnly ? undefined : () => { setIsLocked(false); setShowValidation(false); setSaveError(null); setSaveStatus('idle') }}
             showValidation={showValidation}
             isOneToOne={/1.?:?.?1/i.test(cls?.class_name || '')}
@@ -741,7 +742,7 @@ function MarkTable({
   roster, marks, history, term, currentWeek, rqEnabled = true,
   expanded, onToggleExpand,
   onChange,
-  isLocked, savedAt, onEdit,
+  isLocked, savedAt, savedBy, onEdit,
   isOneToOne,
   showValidation,
 }) {
