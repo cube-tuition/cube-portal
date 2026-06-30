@@ -6,7 +6,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const SUBJECTS = ['Maths', 'English', 'Chemistry', 'Biology', 'Physics', 'Economics']
+const SUBJECTS = ['Maths', 'English', 'Chemistry']
 const INP = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 // ── Session Modal (create + edit) ─────────────────────────────────────────────
