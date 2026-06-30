@@ -22,6 +22,10 @@ const PM_GROUPS = [
 ]
 import { registerUndoAction } from '../../../lib/undo'
 import { fmtTime, fmtMoney, isoDate } from '../../../lib/format'
+import { authedFetch } from '../../../lib/authedFetch'
+import { SUPER_RATE } from '../../../lib/teacherCost'
+import { buildPayslipPdfBase64, buildPayslipEmailHtml, payslipSubject } from '../../../lib/payslip'
+import { TEST_RECIPIENT } from '../../../lib/emailConfig'
 
 // Xero Bills CSV defaults — edit here if your chart of accounts differs.
 const XERO_ACCOUNT_CODE = '477'         // 477 = Wages & Salaries (AU default)
@@ -99,6 +103,10 @@ export default function PayrollPage() {
   const [addOpen, setAddOpen] = useState(false)      // add-shift form open
   const [addForm, setAddForm] = useState({ tutor_id: '', work_date: '', hours: '1', rate: '', notes: '' })
   const [adding, setAdding] = useState(false)
+  const [emailByTutor, setEmailByTutor] = useState({})   // tutor_id → email (for payslips)
+  const [sendingPayslips, setSendingPayslips] = useState(false)
+  const [payslipResults, setPayslipResults] = useState(null)
+  const [payslipNote, setPayslipNote] = useState(null)
   const [cashPaid, setCashPaid] = useState({})       // tutor_id → cash_pay_status row (this run)
   const [payTab, setPayTab] = useState('bank')       // active pay-method tab
   const [loading, setLoading] = useState(true)
@@ -161,8 +169,9 @@ export default function PayrollPage() {
       setTerms(allTerms)
 
       // Pay method per tutor (bank vs cash split) + cash pay-day schedule
-      const { data: tutorRows } = await supabase.from(T_TUTORS).select('id, full_name, pay_method, cash_pay_weekday')
+      const { data: tutorRows } = await supabase.from(T_TUTORS).select('id, full_name, email, pay_method, cash_pay_weekday')
       setPayMethods(Object.fromEntries((tutorRows || []).map(t => [t.id, t.pay_method])))
+      setEmailByTutor(Object.fromEntries((tutorRows || []).map(t => [t.id, t.email])))
       setAllTutors((tutorRows || []).slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
       setCashTutors((tutorRows || []).filter(t => (t.pay_method || '').toLowerCase() === 'cash')
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
@@ -362,6 +371,57 @@ export default function PayrollPage() {
       alert('Approval failed: ' + (e.message || String(e)))
     } finally {
       setApproving(false)
+    }
+  }
+
+  // ── Payslips — one per tutor for this run (PDF + email summary) ──────────────
+  const buildPayslips = async () => {
+    const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${FORTNIGHT_LABELS[fortnight - 1] || ''} (${fmtDate(run.period_start)}–${fmtDate(run.period_end)})`
+    const out = []
+    for (const g of byTutor) {
+      const tutorId   = g.shifts[0]?.tutor_id
+      const payMethod = (payMethods[tutorId] || 'bank').toLowerCase()
+      const shifts = g.shifts.map(s => ({
+        date: fmtDate(s.work_date),
+        description: (s.notes || '').replace(/^Auto:\s*/, '') || `(${s.kind})`,
+        hours: Number(s.hours || 0), rate: s.rate_snapshot, amount: Number(s.amount || 0),
+      }))
+      const gross = g.shifts.reduce((a, s) => a + Number(s.amount || 0), 0)
+      const hours = g.shifts.reduce((a, s) => a + Number(s.hours || 0), 0)
+      const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
+      const data = { tutorName: g.name, periodLabel, payMethod, shifts, hours, gross, superAmount, total: gross + superAmount }
+      const pdf_base64 = await buildPayslipPdfBase64(data)
+      out.push({
+        name: g.name, email: emailByTutor[tutorId] || null,
+        subject: payslipSubject(periodLabel), body: buildPayslipEmailHtml(data),
+        pdf_base64, pdf_filename: `${(g.name || 'tutor').replace(/[^a-z0-9]+/gi, '_')}_payslip.pdf`,
+      })
+    }
+    return out
+  }
+
+  const sendPayslips = async (test) => {
+    if (!run || !['approved', 'exported', 'paid'].includes(run.status)) {
+      alert('Payslips can be sent once the pay run is approved.'); return
+    }
+    if (!byTutor.length) { alert('No shifts in this run.'); return }
+    if (!test && !confirm(`Send payslips to ${byTutor.length} teacher${byTutor.length === 1 ? '' : 's'}? Each gets their own PDF payslip.`)) return
+    setSendingPayslips(true); setPayslipResults(null); setPayslipNote(null)
+    try {
+      let payslips = await buildPayslips()
+      if (test) payslips = payslips.slice(0, 1)   // one sample, redirected to staff
+      const res = await authedFetch('/api/send-payslips', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payslips, test: !!test }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Send failed')
+      if (test) setPayslipNote(`Sample payslip sent to ${TEST_RECIPIENT}.`)
+      else setPayslipResults(data)
+    } catch (e) {
+      alert('Payslip send failed: ' + (e.message || String(e)))
+    } finally {
+      setSendingPayslips(false)
     }
   }
 
@@ -730,6 +790,19 @@ export default function PayrollPage() {
                   Export Xero CSV
                 </button>
               )}
+              {(run?.status === 'approved' || run?.status === 'exported' || run?.status === 'paid') && (
+                <>
+                  <button onClick={() => sendPayslips(false)} disabled={sendingPayslips}
+                    className="text-sm font-semibold text-white bg-[#325099] hover:bg-[#062E63] px-4 py-2 rounded-full transition disabled:opacity-50">
+                    {sendingPayslips ? 'Sending…' : `📄 Send payslips (${byTutor.length})`}
+                  </button>
+                  <button onClick={() => sendPayslips(true)} disabled={sendingPayslips}
+                    title="Send one sample payslip to CUBE staff"
+                    className="text-sm font-semibold text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] hover:bg-[#FEF3C7] px-3 py-2 rounded-full transition disabled:opacity-50">
+                    🧪 Test to me
+                  </button>
+                </>
+              )}
               {editable ? (
                 <button
                   onClick={approveRun}
@@ -744,6 +817,17 @@ export default function PayrollPage() {
                 </span>
               )}
             </div>
+            {(payslipNote || payslipResults) && (
+              <div className="w-full mt-1 text-xs">
+                {payslipNote && <p className="text-emerald-700">{payslipNote}</p>}
+                {payslipResults && (
+                  <>
+                    <p className="text-[#062E63] font-semibold">Payslips sent {payslipResults.successCount}/{payslipResults.total}.</p>
+                    {payslipResults.results?.filter(r => !r.success).map((r, i) => <p key={i} className="text-rose-600">{r.name || r.email}: {r.error}</p>)}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
       </section>
