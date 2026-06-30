@@ -33,7 +33,7 @@ function SessionModal({ session, onClose, onSaved }) {
 
   useEffect(() => {
     Promise.all([
-      supabase.from('tutors').select('id, full_name').order('full_name'),
+      supabase.from('tutors').select('id, full_name').eq('active', true).order('full_name'),
       supabase.from('directors').select('id, full_name').order('full_name'),
     ]).then(([{ data: tutors }, { data: directors }]) => {
       const all = [...(tutors || []), ...(directors || [])]
