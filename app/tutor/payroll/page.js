@@ -400,18 +400,34 @@ export default function PayrollPage() {
   const payslipDataFor = (g) => {
     const tutorId   = g.shifts[0]?.tutor_id
     const payMethod = (payMethods[tutorId] || 'bank').toLowerCase()
-    const shifts = g.shifts.map(s => ({
+    const mapShift = (s) => ({
       date: fmtDate(s.work_date),
       description: (s.notes || '').replace(/^Auto:\s*/, '') || `(${s.kind})`,
       hours: Number(s.hours || 0), rate: s.rate_snapshot, amount: Number(s.amount || 0),
-    }))
+    })
+    const shifts = g.shifts.map(mapShift)
+    // Split into the two weeks of the fortnight (Week 1 = first 7 days).
+    const weekIdx = (wd) => {
+      if (!run?.period_start) return 0
+      const diff = Math.floor((new Date(wd + 'T00:00:00') - new Date(run.period_start + 'T00:00:00')) / 86400000)
+      return diff < 7 ? 0 : 1
+    }
+    const buckets = [[], []]
+    for (const s of g.shifts) buckets[Math.min(1, Math.max(0, weekIdx(s.work_date)))].push(s)
+    const weeks = buckets.map((arr, wi) => ({
+      label: `Week ${wi + 1}`,
+      range: run?.period_start ? `${fmtDate(addDaysIso(run.period_start, wi * 7))}–${fmtDate(addDaysIso(run.period_start, wi * 7 + 6))}` : '',
+      shifts: arr.map(mapShift),
+      hours: arr.reduce((a, s) => a + Number(s.hours || 0), 0),
+      amount: arr.reduce((a, s) => a + Number(s.amount || 0), 0),
+    })).filter(w => w.shifts.length)
     const gross = g.shifts.reduce((a, s) => a + Number(s.amount || 0), 0)
     const hours = g.shifts.reduce((a, s) => a + Number(s.hours || 0), 0)
     const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
     const superYtd    = payMethod !== 'cash' ? (Number(quarterGrossByTutor[tutorId] || 0) * SUPER_RATE) : 0
     const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${FORTNIGHT_LABELS[fortnight - 1] || ''} (${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
     const paymentDate = run?.period_start ? fmtDateLong(addDaysIso(run.period_start, 14)) : null
-    return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, paymentDate, payMethod, shifts, hours, gross, superAmount, superYtd, total: gross + superAmount }
+    return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, paymentDate, payMethod, shifts, weeks, hours, gross, superAmount, superYtd, total: gross + superAmount }
   }
 
   const buildPayslips = async () => {
