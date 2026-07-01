@@ -6,7 +6,7 @@ import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_ATTENDANCE, T_CURRENT_TUTOR_RATES, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS } from '../../../../../lib/tables'
-import { inferSubject } from '../../../../../components/CourseDetail'
+import { inferSubject, subjectsMatch } from '../../../../../components/CourseDetail'
 import { fmtTime, fmtTimeRange } from '../../../../../lib/format'
 
 /*
@@ -221,18 +221,30 @@ export default function MakeupLessonPage() {
     }, { onConflict: 'student_id,class_id,session_date' })
     if (attErr) { setSaveErr('Failed to save attendance: ' + attErr.message); setSaving(false); return }
 
-    // 2. Upsert quiz_results (skip if absent)
+    // 2. Save quiz_results (skip if absent). quiz_results has no natural unique
+    // key, so we find-then-update/insert (like the session marker) rather than
+    // upsert — keyed on student + makeup date, matching the prefill above.
     if (!isAbsent) {
       const scoreVal = isOneToOne ? (understanding ? Number(understanding) : null) : (rq !== '' ? Number(rq) : null)
-      const { error: qzErr } = await supabase.from(T_QUIZ_RESULTS).upsert({
+      const qzSubject = subject || lesson.classes?.class_name || ''
+      const { data: existingQz } = await supabase.from(T_QUIZ_RESULTS)
+        .select('id, subject')
+        .eq('student_id', studentId)
+        .eq('quiz_date', lesson.lesson_date)
+        .limit(20)
+      const existingRow = (existingQz || []).find(r => subjectsMatch(r.subject, qzSubject)) || (existingQz || [])[0]
+      const qzPayload = {
         student_id:      studentId,
-        subject:         subject || lesson.classes?.class_name || '',
+        subject:         qzSubject,
         week:            lesson.week ? `Week ${lesson.week}` : null,
         score:           scoreVal,
         max_score:       100,
         homework_grade:  isOneToOne ? null : (hw || null),
         quiz_date:       lesson.lesson_date,
-      }, { onConflict: 'student_id,quiz_date,subject' })
+      }
+      const { error: qzErr } = existingRow
+        ? await supabase.from(T_QUIZ_RESULTS).update(qzPayload).eq('id', existingRow.id)
+        : await supabase.from(T_QUIZ_RESULTS).insert(qzPayload)
       if (qzErr) { setSaveErr('Failed to save marks: ' + qzErr.message); setSaving(false); return }
     }
 
@@ -336,7 +348,7 @@ export default function MakeupLessonPage() {
           <div className="flex items-center gap-2.5 px-5 py-3 rounded-2xl border border-[#A7F3D0] bg-[#F0FDF4]">
             <span className="text-lg">🔒</span>
             <p className="text-sm font-semibold text-[#065F46]">
-              {saved ? 'Session saved — shift logged for payroll.' : 'Session already marked — read only.'}
+              {saved ? 'Session saved — shift logged for payroll.' : 'Session already marked — use “Edit marks” to change.'}
             </p>
           </div>
         )}
@@ -420,13 +432,20 @@ export default function MakeupLessonPage() {
           <Link href="/tutor/classes" className="text-xs font-semibold text-[#2A2035]/50 hover:text-[#2A2035] transition">
             ← Back to classes
           </Link>
-          {!isLocked && (
+          {!isLocked ? (
             <button
               onClick={handleSave}
               disabled={saving}
               className="text-sm font-semibold text-white bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed px-6 py-2.5 rounded-full transition shadow-sm"
             >
               {saving ? 'Saving…' : 'Save session + shift →'}
+            </button>
+          ) : (
+            <button
+              onClick={() => { setIsLocked(false); setSaved(false); setSaveErr(null) }}
+              className="text-sm font-semibold text-[#7C3AED] bg-white border border-[#DDD6FE] hover:bg-[#F5F3FF] px-6 py-2.5 rounded-full transition"
+            >
+              Edit marks
             </button>
           )}
         </div>
