@@ -196,6 +196,13 @@ export default function MakeupLessonPage() {
   const handleSave = async () => {
     if (saving || isLocked || !lesson || !staff) return
 
+    // A makeup lesson with no student attached can't hold attendance (student_id
+    // is required). Fail clearly instead of surfacing a raw DB constraint error.
+    if (!studentId) {
+      setSaveErr('This makeup lesson has no student assigned, so attendance can’t be saved. Recreate it from the student’s class, or delete it.')
+      return
+    }
+
     // Validate
     const missing = []
     if (!attendance) missing.push('Attendance')
