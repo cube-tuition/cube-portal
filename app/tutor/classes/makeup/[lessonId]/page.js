@@ -255,39 +255,13 @@ export default function MakeupLessonPage() {
       if (qzErr) { setSaveErr('Failed to save marks: ' + qzErr.message); setSaving(false); return }
     }
 
-    // 3. Create draft payroll shift
-    const startMins = parseTimeMins(lesson.start_time)
-    const endMins   = parseTimeMins(lesson.end_time)
-    const hours = (startMins != null && endMins != null && endMins > startMins)
-      ? parseFloat(((endMins - startMins) / 60).toFixed(2)) : null
-
-    let rateSnapshot = null
-    const { data: rateRow } = await supabase
-      .from(T_CURRENT_TUTOR_RATES).select('*').eq('tutor_id', staff.id).limit(1).maybeSingle()
-    if (rateRow) rateSnapshot = rateRow
-
-    // Only insert shift if one doesn't already exist
-    const { data: existingShift } = await supabase
-      .from(T_SHIFTS).select('id')
-      .eq('source_table', 'makeup_lesson').eq('source_id', String(lesson.id))
-      .maybeSingle()
-    if (!existingShift) {
-      const { error: shiftErr } = await supabase.from(T_SHIFTS).insert({
-        tutor_id:      staff.id,
-        work_date:     lesson.lesson_date,
-        start_time:    lesson.start_time,
-        end_time:      lesson.end_time,
-        hours,
-        kind:          'teaching',
-        source_table:  'makeup_lesson',
-        source_id:     String(lesson.id),
-        rate_snapshot: rateSnapshot,
-        notes:         notes.trim() || `Makeup session — ${lesson.students?.full_name}`,
-        status:        'draft',
-        created_by:    staff.id,
-      })
-      if (shiftErr) { setSaveErr('Marks saved but shift failed: ' + shiftErr.message); setSaving(false); return }
-    }
+    // 3. Payroll shift is created automatically by the attendance→shift database
+    //    trigger (create_shift_from_class_attendance) when the attendance row is
+    //    inserted above. That trigger resolves the paid tutor from the lesson's
+    //    scheduled teacher / class teacher, applies the correct matrix rate, and
+    //    skips non-tutors (e.g. directors). We deliberately do NOT insert a shift
+    //    here — the old manual insert both mis-typed rate_snapshot (it stored the
+    //    whole rate row into a numeric column) and duplicated the trigger's shift.
 
     setSaving(false); setIsLocked(true); setSaved(true)
   }
