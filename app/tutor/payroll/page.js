@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { formatTermLabel } from '../../../lib/terms'
-import { T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
+import { T_ADMINS, T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
 
 // tutors.pay_method → payment group. Anything unrecognised lands in 'unset'.
 function payMethodGroup(pm) {
@@ -41,6 +41,8 @@ const DUE_DAYS_AFTER    = 3              // bill DueDate = period_end + N days
  */
 
 const FORTNIGHT_LABELS = ['W1 & 2', 'W3 & 4', 'W5 & 6', 'W7 & 8', 'W9 & 10']
+const HOLIDAY_IDX = 6   // pseudo-fortnight for the break AFTER a term (Holidays tab)
+const fortnightLabel = (idx) => idx === HOLIDAY_IDX ? 'Holidays' : (FORTNIGHT_LABELS[idx - 1] || '')
 
 const fmtDate = (s) => {
   if (!s) return ''
@@ -70,6 +72,22 @@ function fortnightDates(term, idx) {
   return { start: isoDate(start), end: isoDate(end) }
 }
 
+// The break AFTER a term: day after it ends → day before the next term starts
+// (mirrors pay_period_for's Holidays period). Falls back to +6 weeks if last term.
+function holidayDatesFor(term, terms) {
+  if (!term) return null
+  const start = addDaysIso(term.end_date, 1)
+  const next = (terms || []).filter(t => t.start_date > term.end_date)
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))[0]
+  const end = next ? addDaysIso(next.start_date, -1) : addDaysIso(term.end_date, 42)
+  return { start, end }
+}
+
+// Dates for a tab index (1..5 fortnights, or HOLIDAY_IDX for the break).
+function tabDates(term, idx, terms) {
+  return idx === HOLIDAY_IDX ? holidayDatesFor(term, terms) : fortnightDates(term, idx)
+}
+
 // Pick which term+fortnight to land on by default.
 //   • Today inside a term  → that term, fortnight containing today
 //   • Holidays (after term) → most recent past term, fortnight 5
@@ -83,9 +101,11 @@ function pickInitialTermFortnight(terms, todayIso) {
     )
     return { term: inTerm, fortnight: Math.min(5, Math.max(1, Math.floor(days / 14) + 1)) }
   }
+  // Reaching here means today isn't inside any term → we're in a break, so land
+  // on the Holidays tab of the most recent past term.
   const past = [...terms].sort((a, b) => b.end_date.localeCompare(a.end_date))
     .find(t => t.end_date < todayIso)
-  if (past) return { term: past, fortnight: 5 }
+  if (past) return { term: past, fortnight: HOLIDAY_IDX }
   return { term: terms[0], fortnight: 1 }
 }
 
@@ -132,18 +152,22 @@ export default function PayrollPage() {
     if (!term) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const dates = fortnightDates(term, idx)
+      const dates = tabDates(term, idx, terms)
       const { data: prData, error: prErr } = await supabase
         .rpc('ensure_pay_run', { p_date: dates.start })
       if (prErr) throw prErr
       const pr = Array.isArray(prData) ? prData[0] : prData
       setRun(pr)
 
+      // Load by the shift's ASSIGNED pay period (computed by pay_period_for in the
+      // view), not by work_date. Term-break dates (e.g. a makeup between terms)
+      // get clamped to the adjacent fortnight, so their work_date falls outside
+      // that fortnight's range — filtering by work_date would drop them entirely.
       const { data: sh, error: shErr } = await supabase
         .from(T_PAY_RUN_SHIFTS)
         .select('*')
-        .gte('work_date', pr.period_start)
-        .lte('work_date', pr.period_end)
+        .eq('period_start', pr.period_start)
+        .eq('period_end', pr.period_end)
         .order('tutor_name', { ascending: true })
         .order('work_date', { ascending: true })
         .order('start_time', { ascending: true })
@@ -190,12 +214,21 @@ export default function PayrollPage() {
       const allTerms = termsData || []
       setTerms(allTerms)
 
-      // Pay method per tutor (bank vs cash split) + cash pay-day schedule
-      const { data: tutorRows } = await supabase.from(T_TUTORS).select('id, full_name, email, pay_method, cash_pay_weekday')
-      setPayMethods(Object.fromEntries((tutorRows || []).map(t => [t.id, t.pay_method])))
-      setEmailByTutor(Object.fromEntries((tutorRows || []).map(t => [t.id, t.email])))
-      setAllTutors((tutorRows || []).slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
-      setCashTutors((tutorRows || []).filter(t => (t.pay_method || '').toLowerCase() === 'cash')
+      // Payable people = tutors + directors (directors teach makeups / cover, and
+      // are paid via shifts too). Directors have no pay_method column, so they
+      // default to bank (no cash split).
+      const [{ data: tutorRows }, { data: dirRows }] = await Promise.all([
+        supabase.from(T_TUTORS).select('id, full_name, email, pay_method, cash_pay_weekday'),
+        supabase.from(T_ADMINS).select('id, full_name, email'),
+      ])
+      const people = [
+        ...(tutorRows || []),
+        ...((dirRows || []).map(d => ({ ...d, pay_method: null, cash_pay_weekday: null }))),
+      ]
+      setPayMethods(Object.fromEntries(people.map(t => [t.id, t.pay_method])))
+      setEmailByTutor(Object.fromEntries(people.map(t => [t.id, t.email])))
+      setAllTutors(people.slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
+      setCashTutors(people.filter(t => (t.pay_method || '').toLowerCase() === 'cash')
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
 
       const { term, fortnight: f } = pickInitialTermFortnight(allTerms, isoDate(new Date()))
@@ -332,7 +365,7 @@ export default function PayrollPage() {
     const owed = Math.abs(Number(amount) || 0)
     const firstName = (tutor.full_name || '').split(' ')[0] || (tutor.full_name || 'Tutor')
     const termLabel = activeTerm.name || formatTermLabel(activeTerm)
-    const fnLabel   = FORTNIGHT_LABELS[fortnight - 1] || ''
+    const fnLabel   = fortnightLabel(fortnight)
     const description = `${firstName} - ${termLabel} ${fnLabel}`.trim()
     try {
       // 1) Add the cash log outflow row
@@ -425,7 +458,7 @@ export default function PayrollPage() {
     const hours = g.shifts.reduce((a, s) => a + Number(s.hours || 0), 0)
     const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
     const superYtd    = payMethod !== 'cash' ? (Number(quarterGrossByTutor[tutorId] || 0) * SUPER_RATE) : 0
-    const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${FORTNIGHT_LABELS[fortnight - 1] || ''} (${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
+    const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${fortnightLabel(fortnight)} (${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
     const paymentDate = run?.period_start ? fmtDateLong(addDaysIso(run.period_start, 14)) : null
     return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, paymentDate, payMethod, shifts, weeks, hours, gross, superAmount, superYtd, total: gross + superAmount }
   }
@@ -569,7 +602,7 @@ export default function PayrollPage() {
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
             <div className="min-w-0">
               <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[#2A2035] font-display">
-                {FORTNIGHT_LABELS[fortnight - 1] || '—'}
+                {fortnightLabel(fortnight) || '—'}
               </h1>
               {run && (
                 <p className="text-sm text-[#2A2035]/60 mt-1">
@@ -635,6 +668,29 @@ export default function PayrollPage() {
                 </button>
               )
             })}
+            {/* Holidays tab — the break after the term (e.g. a makeup between terms) */}
+            {(() => {
+              const active = fortnight === HOLIDAY_IDX
+              const dates = activeTerm ? holidayDatesFor(activeTerm, terms) : null
+              return (
+                <button
+                  key="holidays"
+                  onClick={() => selectFortnight(HOLIDAY_IDX)}
+                  className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition ${
+                    active
+                      ? 'bg-[#062E63] text-white border-[#062E63]'
+                      : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'
+                  }`}
+                >
+                  🏖 Holidays
+                  {dates && (
+                    <span className={`ml-2 text-[10px] font-medium ${active ? 'text-white/70' : 'text-[#2A2035]/40'}`}>
+                      {fmtDate(dates.start)}–{fmtDate(dates.end)}
+                    </span>
+                  )}
+                </button>
+              )
+            })()}
           </div>
 
           {/* Stat strip */}
