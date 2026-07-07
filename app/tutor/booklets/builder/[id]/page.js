@@ -762,7 +762,7 @@ export default function BookletBuilderEditor() {
             </div>
             <p className="text-[11px] text-[#2A2035]/50 mb-4">Saved to the question bank and added to this booklet as a block.</p>
             <QuestionEditor staffName={staff?.full_name}
-              defaults={{ year: bk.year, subjectName: bk.subject, audience: 'both' }}
+              defaults={{ year: bk.year, subjectName: bk.subject, audience: 'exam' }}
               onSaved={onNewQuestionSaved} onCancel={() => setNewQOpen(false)} />
           </div>
         </div>

@@ -233,7 +233,6 @@ export default function QuestionBankPage() {
                   {q.qtype === 'mcq' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">MCQ</span>}
                   {q.audience === 'exam' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">CUBE</span>}
                   {q.audience === 'student' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#DCFCE7] text-[#166534]">Students</span>}
-                  {q.audience === 'both' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F1F5F9] text-[#475569]">Both</span>}
                   <UsageBadge usage={usageMap[q.id]} />
                   {l?.subject && <span className="text-[11px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
                   {l?.topic && <span className="text-[11px] text-[#2A2035]/40">› {l.topic.name}</span>}

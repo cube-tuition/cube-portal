@@ -114,7 +114,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
   const [solution, setSolution] = useState('')
   const [difficulty, setDifficulty] = useState(2)
   const [marks, setMarks] = useState('')
-  const [audience, setAudience] = useState('both')   // 'exam' | 'student' | 'both'
+  const [audience, setAudience] = useState('exam')   // 'exam' (CUBE) | 'student'
   const [isMulti, setIsMulti] = useState(false)
   const [parts, setParts] = useState([blankPart(0)])
   const [options, setOptions] = useState(MCQ_LABELS.map((label) => ({ label, latex: '' })))
@@ -143,7 +143,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           setSolution(q.solution_latex || '')
           setDifficulty(q.difficulty || 2)
           setMarks(q.marks ?? '')
-          setAudience(q.audience || 'exam')
+          setAudience(q.audience === 'student' ? 'student' : 'exam')   // legacy 'both' → CUBE
           setIsMulti(q.is_multipart)
           if (Array.isArray(q.options) && q.options.length) {
             setOptions(MCQ_LABELS.map((label, i) => ({
@@ -199,7 +199,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         }
       } else if (defaults) {
         // Prefill the classification when opened from a builder (modal mode).
-        if (defaults.audience) setAudience(defaults.audience)
+        if (defaults.audience) setAudience(defaults.audience === 'student' ? 'student' : 'exam')
         const skill = defaults.skillId ? t.skills.find((s) => s.id === defaults.skillId) : null
         let subtopic = defaults.subtopicId ? t.subtopics.find((st) => st.id === defaults.subtopicId) : null
         if (!subtopic && skill) subtopic = t.subtopics.find((st) => st.id === skill.subtopic_id) || null
@@ -587,7 +587,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         <div className="mt-4">
           <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Available for</label>
           <div className="inline-flex rounded-xl border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
-            {[['exam', 'CUBE'], ['student', 'Students only'], ['both', 'Both']].map(([v, lbl]) => (
+            {[['exam', 'CUBE'], ['student', 'Students only']].map(([v, lbl]) => (
               <button key={v} type="button" onClick={() => setAudience(v)}
                 className={`px-3.5 py-1.5 transition ${audience === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
                 {lbl}
@@ -595,9 +595,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             ))}
           </div>
           <p className="text-[10px] text-[#2A2035]/40 mt-1">
-            {audience === 'exam' ? 'CUBE only — used in workbooks, additional questions and exams; hidden from the student-facing question bank.'
-              : audience === 'student' ? 'Only available in student practice — never pulled into exams.'
-              : 'Available in both CUBE materials and student practice.'}
+            {audience === 'student' ? 'Only available in student practice — never pulled into exams.'
+              : 'CUBE only — used in workbooks, additional questions and exams; hidden from the student-facing question bank.'}
           </p>
         </div>
       </section>
