@@ -218,6 +218,11 @@ export default function MakeupLessonPage() {
     }
     setShowValidation(false); setSaveErr(null); setSaving(true)
 
+    // 0. Attribute this makeup to whoever is recording it, so payroll pays the
+    //    right person. The attendance→shift trigger (fired by the upsert below)
+    //    reads the lesson's scheduled_teacher_id to decide who the shift is for.
+    await supabase.from(T_LESSONS).update({ scheduled_teacher_id: staff.id }).eq('id', lesson.id)
+
     // 1. Upsert attendance
     const { error: attErr } = await supabase.from(T_ATTENDANCE).upsert({
       student_id:   studentId,
@@ -401,10 +406,12 @@ export default function MakeupLessonPage() {
           <textarea
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            disabled={isLocked}
-            rows={3}
+            // When locked, use readOnly (not disabled) so a long note stays fully
+            // readable and scrollable rather than clipped in a greyed-out box.
+            readOnly={isLocked}
+            rows={6}
             placeholder="Any notes about the session, topics covered, next steps…"
-            className="w-full text-sm text-[#2A2035] bg-[#FAF5FF] border border-[#DDD6FE] rounded-xl px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/25 focus:border-[#7C3AED] transition placeholder:text-[#2A2035]/25 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`w-full text-sm leading-relaxed text-[#2A2035] bg-[#FAF5FF] border border-[#DDD6FE] rounded-xl px-4 py-3 resize-y overflow-auto min-h-[9rem] max-h-[26rem] focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/25 focus:border-[#7C3AED] transition placeholder:text-[#2A2035]/25 ${isLocked ? 'cursor-default' : ''}`}
           />
         </FieldCard>
 
