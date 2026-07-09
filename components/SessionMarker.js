@@ -44,6 +44,16 @@ function weekNumberInTerm(date, term) {
   if (date < start || date > end) return null
   return Math.floor((date.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 7)) + 1
 }
+// Key used to store/read a session's HW + revision-quiz row in quiz_results.
+// Regular in-term sessions are keyed by term week ("Week 3"). Holiday-intensive
+// lessons run between terms (e.g. Y12 HSC classes over the winter break) have no
+// term week, so we key them by date instead — this keeps their homework/quiz
+// marks saveable and unique per session, while every term-scoped view (all of
+// which filter by quiz_date) naturally excludes these out-of-term dates.
+function quizWeekLabel(bookletWeek, dateISO) {
+  if (bookletWeek != null) return `Week ${bookletWeek}`
+  return dateISO ? `Holiday ${dateISO}` : null
+}
 function fmtSavedAt(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -197,7 +207,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       setBookletWeek(week)
 
       const subject = inferSubject({ class_name: cls.class_name })
-      const weekLabel = week != null ? `Week ${week}` : null
+      const weekLabel = quizWeekLabel(week, dateISO)
 
       // Prefill marks
       const studentIds = students.map(s => s.id)
@@ -334,7 +344,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
     setSaveError(null)
 
     const subject = inferSubject({ class_name: cls.class_name })
-    const weekLabel = bookletWeek != null ? `Week ${bookletWeek}` : null
+    const weekLabel = quizWeekLabel(bookletWeek, dateISO)
     const errors = []
 
     for (const s of roster) {
