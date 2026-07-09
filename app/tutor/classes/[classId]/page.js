@@ -203,6 +203,11 @@ export default function ClassOverviewPage() {
             (new Date(today + 'T00:00:00') - new Date(activeTerm.start_date + 'T00:00:00')) / 86400000
           )
           setTab(Math.min(10, Math.max(1, Math.floor(days / 7) + 1)))
+        } else if (today > activeTerm.end_date &&
+                   (lessonRows || []).some(l => l.lesson_date > activeTerm.end_date)) {
+          // We're in the break after the term and this class has holiday sessions —
+          // open the Holidays tab so the upcoming holiday lesson is front and centre.
+          setTab('holiday')
         }
       }
 
@@ -219,7 +224,16 @@ export default function ClassOverviewPage() {
     if (lessons.length > 0 && term) {
       const termStart = new Date(term.start_date + 'T00:00:00')
       const weekMap = new Map()
+      // Holiday-intensive lessons run in the break BETWEEN terms, so they have no
+      // term week. Collect them all under one "Holidays" tab rather than inventing
+      // week numbers past 10 (which made the class look like a 13-week term).
+      const holiday = { week: 'holiday', isHoliday: true, dates: [], lessons: [] }
       for (const lesson of lessons) {
+        if (lesson.lesson_date < term.start_date || lesson.lesson_date > term.end_date) {
+          holiday.dates.push(lesson.lesson_date)
+          holiday.lessons.push(lesson)
+          continue
+        }
         const d = new Date(lesson.lesson_date + 'T00:00:00')
         // Prefer the lesson's stored week number when valid so that a session
         // moved to a later date (e.g. a 1:1 lesson moved to another teacher)
@@ -234,7 +248,9 @@ export default function ClassOverviewPage() {
         weekMap.get(weekNum).dates.push(lesson.lesson_date)
         weekMap.get(weekNum).lessons.push(lesson)
       }
-      return [...weekMap.values()].sort((a, b) => a.week - b.week)
+      const out = [...weekMap.values()].sort((a, b) => a.week - b.week)
+      if (holiday.dates.length) out.push(holiday)   // always last, after the term weeks
+      return out
     }
     return weeklySessionDates(term, days)
   }, [term, days, lessons])
@@ -345,7 +361,7 @@ export default function ClassOverviewPage() {
             <p className="text-sm text-[#2A2035]/50">Class day_of_week missing &mdash; can&rsquo;t compute weekly sessions.</p>
           ) : (
             <>
-              {weekDates.map(({ week, dates, lessons: wkLessons }) => {
+              {weekDates.map(({ week, dates, lessons: wkLessons, isHoliday }) => {
                 const active = tab === week
                 const primaryDate = dates[0]
                 const hasData = dates.some(d => attByDate.has(d))
@@ -366,12 +382,16 @@ export default function ClassOverviewPage() {
                         ? active
                           ? 'bg-[#991B1B] text-white border-[#991B1B]'
                           : 'bg-white text-[#991B1B] border-[#FCA5A5] hover:bg-[#FEF2F2]'
+                        : isHoliday
+                          ? active
+                            ? 'bg-[#9333EA] text-white border-[#9333EA]'
+                            : 'bg-white text-[#9333EA] border-[#E9D5FF] hover:bg-[#FBF7FF]'
                         : active
                           ? 'bg-[#062E63] text-white border-[#062E63]'
                           : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'
                     }`}
                   >
-                    Wk {week}
+                    {isHoliday ? '🏖 Holidays' : `Wk ${week}`}
                     {allCancelled && <span className="ml-1 text-[9px] font-bold tracking-wide opacity-80">✕</span>}
                     {!allCancelled && hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" title="Sub assigned" />}
                     {!allCancelled && hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
@@ -453,7 +473,7 @@ export default function ClassOverviewPage() {
               <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
                 <div className="text-4xl mb-2">📅</div>
                 <p className="text-sm font-semibold text-[#2A2035] mb-1">
-                  Week {currentWeek.week} has no matching session date.
+                  {currentWeek.isHoliday ? 'No holiday sessions' : `Week ${currentWeek.week} has no matching session date.`}
                 </p>
                 <p className="text-xs text-[#2A2035]/60 max-w-md mx-auto">
                   Check the class&rsquo;s day_of_week / term boundaries.
@@ -555,8 +575,8 @@ export default function ClassOverviewPage() {
                         isAdmin={isAdmin}
                       />
                     )}
-                    {/* Booklet for this week */}
-                    {i === 0 && !isCancelled && (
+                    {/* Booklet for this week — holiday sessions have no term workbook */}
+                    {i === 0 && !isCancelled && !currentWeek.isHoliday && (
                       <div>
                         <div className="flex items-baseline justify-between mb-3">
                           <div>
