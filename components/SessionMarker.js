@@ -1,5 +1,5 @@
 'use client'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../lib/terms'
 import { inferSubject, subjectsMatch } from './CourseDetail'
@@ -36,6 +36,32 @@ function parseYearFromCourse(name) {
   const m = String(name).match(/Y(\d+)/i)
   return m ? parseInt(m[1], 10) : null
 }
+// Auto-sizing comment box. Grows to fit its content on every value change —
+// including the note prefilled on a locked session, which the old onChange-only
+// resize never handled (so long notes were clipped to one line). Caps at a
+// readable height and scrolls beyond that. Uses readOnly (not disabled) when
+// locked so the full note stays scrollable and selectable.
+function CommentBox({ value, onChange, locked }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 220) + 'px'
+  }, [value])
+  return (
+    <textarea
+      ref={ref}
+      value={value || ''}
+      onChange={e => onChange(e.target.value)}
+      placeholder="Notes about this lesson…"
+      readOnly={locked}
+      rows={1}
+      className="w-full bg-white border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs leading-relaxed text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition resize-y overflow-auto min-h-[2.25rem] max-h-[220px] read-only:bg-[#F8FAFF] read-only:text-[#2A2035]/80"
+    />
+  )
+}
+
 function weekNumberInTerm(date, term) {
   if (!date || !term) return null
   const start = isoToDate(term.start_date)
@@ -886,17 +912,10 @@ function MarkTable({
                       </td>
                     )}
                     <td className="px-5 py-3 bg-[#F5F8FF]/60">
-                      <textarea
-                        value={m.comment || ''}
-                        onChange={e => {
-                          onChange(s.id, 'comment', e.target.value)
-                          e.target.style.height = 'auto'
-                          e.target.style.height = e.target.scrollHeight + 'px'
-                        }}
-                        placeholder="Notes about this lesson…"
-                        disabled={isLocked}
-                        rows={1}
-                        className="w-full bg-white border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs text-[#2A2035] placeholder:text-[#2A2035]/30 focus:outline-none focus:ring-2 focus:ring-[#325099]/20 focus:border-[#325099] transition disabled:bg-[#F8FAFF] disabled:text-[#2A2035]/70 disabled:cursor-not-allowed resize-none overflow-hidden"
+                      <CommentBox
+                        value={m.comment}
+                        onChange={v => onChange(s.id, 'comment', v)}
+                        locked={isLocked}
                       />
                     </td>
                   </tr>
