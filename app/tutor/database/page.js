@@ -4,7 +4,8 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
-import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
+import { fetchAllTerms, getCurrentTerm, getEnrolmentTerm } from '../../../lib/terms'
+import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import TutorNav from '../../../components/TutorNav'
 import { buildClassLabelMap } from '../../../lib/classLabels'
 import { normalizeDays } from '../../../lib/format'
@@ -2388,15 +2389,29 @@ export default function DatabasePage() {
   }
 
   // ── Lessons: load class list + all staff when entering lessons table ──────────
+  // The class dropdown (used to generate lessons for a class) must follow the
+  // Term filter — classes are per-term rows, so without scoping the same class
+  // name appears once per term and you can't tell which term you'd generate for.
   useEffect(() => {
     if (selectedTable !== 'lessons') return
     ;(async () => {
-      if (allClassesForFilter.length === 0) {
-        const { data } = await supabase
-          .from(T_CLASSES).select('id, class_name, day_of_week').order('class_name')
-        const filterLabelMap = buildClassLabelMap(data || [])
-        setAllClassesForFilter((data || []).map(c => ({ ...c, class_name: filterLabelMap.get(c.id) ?? c.class_name })))
-      }
+      const filterCols = 'id, class_name, day_of_week, term_id'
+      const { data } = await (dbTermFilter
+        ? classesForTerm(dbTermFilter, filterCols)
+        : classesAllTerms(filterCols)
+      ).order('class_name')
+      const filterLabelMap = buildClassLabelMap(data || [])
+      // When showing all terms, append the term name so duplicate names are distinguishable.
+      const termName = new Map(allTerms.map(t => [t.id, t.name]))
+      setAllClassesForFilter((data || []).map(c => ({
+        ...c,
+        class_name: (filterLabelMap.get(c.id) ?? c.class_name)
+          + (!dbTermFilter && termName.get(c.term_id) ? ` · ${termName.get(c.term_id)}` : ''),
+      })))
+      // Drop a stale class selection that isn't in the newly-scoped list.
+      setLessonClassFilter(prev =>
+        prev && !(data || []).some(c => String(c.id) === String(prev)) ? '' : prev)
+
       if (allStaffForLessons.length === 0) {
         const [{ data: tutors }, { data: directors }] = await Promise.all([
           supabase.from(T_TUTORS).select('id, full_name').eq('active', true).order('full_name'),
@@ -2409,7 +2424,7 @@ export default function DatabasePage() {
         setAllStaffForLessons(combined)
       }
     })()
-  }, [selectedTable])
+  }, [selectedTable, dbTermFilter])
 
   // Once staff loads, back-fill the scheduled_teacher display name in already-loaded lesson rows
   useEffect(() => {
@@ -2426,9 +2441,22 @@ export default function DatabasePage() {
   const handleGenerateLessons = async () => {
     if (!lessonClassFilter) return
     setGeneratingLessons(true)
-    await supabase.rpc('generate_lessons_for_class', { p_class_id: Number(lessonClassFilter) })
-    setReloadKey(k => k + 1)
+    // Syncs the class's upcoming lessons to its current schedule: adds missing
+    // dates, updates time/room/week on existing future lessons (keeping their
+    // teacher), and removes empty orphaned lessons. Never touches past lessons.
+    const { data, error } = await supabase.rpc('sync_lessons_for_class', { p_class_id: Number(lessonClassFilter) })
     setGeneratingLessons(false)
+    if (error) { alert(`Could not generate lessons: ${error.message}`); return }
+    const r = data || {}
+    const parts = []
+    if (r.inserted) parts.push(`${r.inserted} added`)
+    if (r.updated) parts.push(`${r.updated} updated`)
+    if (r.deleted) parts.push(`${r.deleted} removed`)
+    const note = r.protected
+      ? `\n\n${r.protected} upcoming lesson(s) no longer match the schedule but were kept because they have attendance, notes, a makeup, or are cancelled — remove those manually if needed.`
+      : ''
+    alert(`${parts.length ? 'Lessons synced: ' + parts.join(' · ') + '.' : 'Lessons already up to date.'}${note}`)
+    setReloadKey(k => k + 1)
   }
 
   // ── Delete row ───────────────────────────────────────────────────────────────
@@ -3799,7 +3827,7 @@ export default function DatabasePage() {
                     onClick={handleGenerateLessons}
                     disabled={!lessonClassFilter || generatingLessons || loading}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Generate weekly lesson rows for the selected class based on its term schedule"
+                    title="Sync this class's upcoming lessons to its schedule: add missing dates, update time/room on future lessons (keeping their teacher), and remove empty orphaned lessons. Past lessons are never changed."
                   >
                     {generatingLessons ? '⟳ Generating…' : '⟳ Generate Lessons'}
                   </button>
@@ -5740,9 +5768,15 @@ function AddEnrolmentModal({ onClose, onCreated }) {
   useEffect(() => {
     supabase.from('students').select('id, full_name, school, year').order('full_name')
       .then(({ data }) => setStudents(data || []))
-    // Join courses to get course_price
-    supabase.from('classes').select('id, class_name, day_of_week, start_time, end_time, courses(course_price)').order('class_name')
-      .then(({ data }) => setClasses(data || []))
+    // Join courses to get course_price. New trials join the term being taught
+    // now (or the upcoming one during holidays); classes are per-term rows, so
+    // an unscoped fetch would list every class once per term.
+    ;(async () => {
+      const term = getEnrolmentTerm(await fetchAllTerms())
+      const cols = 'id, class_name, day_of_week, start_time, end_time, courses(course_price)'
+      const { data } = await (term?.id ? classesForTerm(term.id, cols) : classesAllTerms(cols)).order('class_name')
+      setClasses(data || [])
+    })()
   }, [])
 
   // Trial start = the class's lesson on its class day in the selected start week.

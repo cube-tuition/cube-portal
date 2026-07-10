@@ -41,9 +41,9 @@ const parseYearFromClass = (name) => {
  * Tutors are matched to classes by FIRST NAME on classes.teacher (Airtable
  * writes it that way). Admins see everything.
  *
- * NOTE: the `classes` table has no term_id, so "this term" effectively means
- * "everything currently in classes assigned to this tutor". If we add term
- * scoping later, this becomes a one-line filter in the load() block.
+ * NOTE: classes are PER-TERM rows (classes.term_id → terms; the term
+ * transition copies each class into the new term). Class queries must stay
+ * term-scoped or every class shows once per term — see lib/classes.js.
  */
 
 const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']

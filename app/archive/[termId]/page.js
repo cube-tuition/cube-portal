@@ -16,7 +16,8 @@ import CourseDetail, {
   subjectColor,
   subjectsMatch,
 } from '../../../components/CourseDetail'
-import { T_ENROLMENTS, T_STUDENTS } from '../../../lib/tables'
+import { T_STUDENTS } from '../../../lib/tables'
+import { enrolledClassesForTerm } from '../../../lib/classes'
 
 export default function ArchiveTermPage() {
   const params = useParams()
@@ -48,17 +49,12 @@ export default function ArchiveTermPage() {
       if (!t) { setNotFound(true); setLoading(false); return }
       setTerm(t)
 
-      // Enrolled courses (current enrolments — we don't track historical enrolment).
+      // Enrolled courses — classes are per-term rows, so scope the join to the
+      // archived term being viewed (otherwise every class shows once per term).
       let classData
-      const r1 = await supabase
-        .from(T_ENROLMENTS)
-        .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room, subject)')
-        .eq('student_id', user.id)
+      const r1 = await enrolledClassesForTerm(user.id, termId, 'id, class_name, day_of_week, start_time, end_time, teacher, room, subject')
       if (r1.error) {
-        const r2 = await supabase
-          .from(T_ENROLMENTS)
-          .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room)')
-          .eq('student_id', user.id)
+        const r2 = await enrolledClassesForTerm(user.id, termId, 'id, class_name, day_of_week, start_time, end_time, teacher, room')
         classData = r2.data
       } else {
         classData = r1.data

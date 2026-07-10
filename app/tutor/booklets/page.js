@@ -5,6 +5,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
+import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
 import BookletContentView from '../../../components/booklet/BookletContentView'
@@ -705,9 +706,16 @@ export default function BookletsPage() {
   useEffect(() => { if (staff) load() }, [staff, load])
 
   const loadClasses = useCallback(async () => {
-    const { data } = await supabase
-      .from('classes')
-      .select('id, class_name, day_of_week, start_time, teacher, courses(course_code)')
+    // Classes are per-term rows (the rollover copies them), so scope to the
+    // current term or each class shows once per term it has existed in.
+    const term = getCurrentTerm(await fetchAllTerms())
+    const cols = 'id, class_name, day_of_week, start_time, teacher, courses(course_code)'
+    let { data } = term?.id ? await classesForTerm(term.id, cols) : { data: null }
+    if (!data?.length) {
+      // Term with no classes yet — fall back to all terms (mirrors the tutor
+      // view below).
+      ;({ data } = await classesAllTerms(cols))
+    }
     if (!data) return
     const filtered = data.filter(c => {
       const code   = c.courses?.course_code || ''
@@ -1035,22 +1043,20 @@ function TutorCurriculumPage({ staff }) {
       const firstName = (staff.full_name || '').split(' ')[0]
 
       // Classes for this term where teacher name starts with tutor's first name
-      const { data: rows } = await supabase
-        .from('classes')
-        .select('id, class_name, teacher, day_of_week, start_time, end_time, courses(course_code)')
-        .ilike('teacher', firstName + '%')
-        .eq('term_id', term?.id ?? '')
-        .order('day_of_week')
-        .order('start_time')
+      const teacherCols = 'id, class_name, teacher, day_of_week, start_time, end_time, courses(course_code)'
+      const { data: rows } = term?.id
+        ? await classesForTerm(term.id, teacherCols)
+            .ilike('teacher', firstName + '%')
+            .order('day_of_week')
+            .order('start_time')
+        : { data: null }
 
       const cls = rows || []
 
       // If no classes found in current term, fall back to all terms (tutor may
       // be viewing between terms)
       if (cls.length === 0) {
-        const { data: fallback } = await supabase
-          .from('classes')
-          .select('id, class_name, teacher, day_of_week, start_time, end_time, courses(course_code)')
+        const { data: fallback } = await classesAllTerms(teacherCols)
           .ilike('teacher', firstName + '%')
           .order('day_of_week')
           .order('start_time')

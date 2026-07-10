@@ -8,6 +8,8 @@ import TutorNav from '../../../components/TutorNav'
 import { fmtDate } from '../../../lib/format'
 import { registerUndoAction } from '../../../lib/undo'
 import { HOW_HEARD_CHANNELS, HOW_HEARD_COLORS, HOW_HEARD_UNKNOWN_COLOR, channelStats } from '../../../lib/howHeard'
+import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
+import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 
 // ── Channel insights — where enquiries come from & what converts ──────────────
 function ChannelInsights({ submissions }) {
@@ -392,14 +394,18 @@ export default function TrialsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
+    // Trials join the term being taught now (or the upcoming one during
+    // holidays) — classes are per-term rows, so an unscoped fetch would list
+    // every class once per term.
+    const term = getEnrolmentTerm(await fetchAllTerms())
+    const classCols = 'id, class_name, day_of_week, start_time, course_id'
+    const classQuery = term?.id ? classesForTerm(term.id, classCols) : classesAllTerms(classCols)
     const [subRes, classRes] = await Promise.all([
       supabase
         .from('trial_submissions')
         .select('*')
         .order('submitted_at', { ascending: false }),
-      supabase
-        .from('classes')
-        .select('id, class_name, day_of_week, start_time, course_id'),
+      classQuery,
     ])
     setSubmissions(subRes.data || [])
     setClasses(classRes.data || [])

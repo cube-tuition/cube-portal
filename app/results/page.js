@@ -17,7 +17,8 @@ import CourseDetail, {
   subjectColor,
   subjectsMatch,
 } from '../../components/CourseDetail'
-import { T_ATTENDANCE, T_ENROLMENTS, T_QUIZ_RESULTS, T_RESULTS, T_STUDENTS } from '../../lib/tables'
+import { T_ATTENDANCE, T_QUIZ_RESULTS, T_RESULTS, T_STUDENTS } from '../../lib/tables'
+import { enrolledClassesForTerm } from '../../lib/classes'
 
 export default function Results() {
   const [student, setStudent] = useState(null)
@@ -45,16 +46,12 @@ export default function Results() {
       setCurrentTerm(term)
 
       // ── Enrolled classes (try with `subject`, fall back without) ────────
+      // Classes are per-term rows (the term transition copies each class into
+      // the next term), so scope to the current term or every class shows twice.
       let classData
-      const r1 = await supabase
-        .from(T_ENROLMENTS)
-        .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room, subject)')
-        .eq('student_id', user.id)
+      const r1 = await enrolledClassesForTerm(user.id, term?.id, 'id, class_name, day_of_week, start_time, end_time, teacher, room, subject')
       if (r1.error) {
-        const r2 = await supabase
-          .from(T_ENROLMENTS)
-          .select('classes(id, class_name, day_of_week, start_time, end_time, teacher, room)')
-          .eq('student_id', user.id)
+        const r2 = await enrolledClassesForTerm(user.id, term?.id, 'id, class_name, day_of_week, start_time, end_time, teacher, room')
         classData = r2.data
       } else {
         classData = r1.data

@@ -7,7 +7,8 @@ import Link from 'next/link'
 import PortalNav from '../../components/PortalNav'
 import { normalizeDay } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
-import { T_ENROLMENTS, T_STUDENTS, T_LESSONS } from '../../lib/tables'
+import { T_STUDENTS, T_LESSONS } from '../../lib/tables'
+import { enrolledClassesForTerm } from '../../lib/classes'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
@@ -77,10 +78,10 @@ export default function Dashboard() {
       const term = getCurrentTerm(terms)
       setCurrentTerm(term)
 
-      const { data: classData } = await supabase
-        .from(T_ENROLMENTS)
-        .select(`classes(class_name, day_of_week, start_time, end_time, teacher, room)`)
-        .eq('student_id', user.id)
+      // Classes are per-term rows (the term transition copies each class into
+      // the next term), so scope to the current term or every class shows twice.
+      const { data: classData } = await enrolledClassesForTerm(
+        user.id, term?.id, 'class_name, day_of_week, start_time, end_time, teacher, room')
 
       const classes = classData?.map(d => d.classes) || []
       setAllClasses(classes)

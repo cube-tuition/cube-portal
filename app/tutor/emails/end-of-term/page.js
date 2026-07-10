@@ -223,12 +223,9 @@ export default function EndOfTermEmailPage() {
     setLoading(true)
     setError(null)
     try {
-      // Classes for this term (with fallback)
+      // Classes for this term only — no all-terms fallback: end-of-term emails
+      // must never pick up another term's copy of a class.
       let { data: cls } = await supabase.from(T_CLASSES).select('id, class_name').eq('term_id', termId)
-      if (!cls?.length) {
-        const all = await supabase.from(T_CLASSES).select('id, class_name')
-        cls = all.data || []
-      }
       // 1:1 students don't get written reports — exclude 1:1 classes entirely.
       cls = (cls || []).filter(c => !/\b1\s*:\s*1\b/.test(c.class_name || ''))
       const classMap = Object.fromEntries((cls || []).map(c => [c.id, c]))

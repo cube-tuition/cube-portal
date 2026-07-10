@@ -6,8 +6,10 @@ import { requireStudent } from '../../lib/requireStudent'
 import PortalNav from '../../components/PortalNav'
 import LatexContent from '../../components/qbank/LatexContent'
 import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
+import { fetchAllTerms, getCurrentTerm } from '../../lib/terms'
 import { fetchTaxonomy, qbankImageUrl } from '../../lib/qbank'
-import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS, T_ENROLMENTS } from '../../lib/tables'
+import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS } from '../../lib/tables'
+import { enrolledClassesForTerm } from '../../lib/classes'
 
 /*
  * Resources — students REQUEST a practice worksheet (they don't hand-pick).
@@ -83,7 +85,10 @@ export default function Resources() {
       const { data: profile } = await supabase.from(T_STUDENTS).select('*').eq('id', user.id).single()
       setStudent(profile); setReady(true)
 
-      const { data: links } = await supabase.from(T_ENROLMENTS).select('classes(class_name)').eq('student_id', user.id)
+      // Classes are per-term rows, so scope to the current term to avoid
+      // counting the same class once per term after a rollover.
+      const term = getCurrentTerm(await fetchAllTerms())
+      const { data: links } = await enrolledClassesForTerm(user.id, term?.id, 'class_name')
       const pairs = (links || []).map(l => {
         const cls = l.classes
         if (!cls) return null
