@@ -487,16 +487,18 @@ function InvoiceDashboardInner() {
 
     // Referring family: if their current invoice is still a draft, apply the
     // $50 to it now; otherwise hold the credit for their next invoice.
+    const referredFirst = (allStudents.find(s => s.id === referredStudentId)?.full_name || '').split(' ')[0]
+    const rewardLabel = referredFirst ? `Referral reward — thanks for referring ${referredFirst}!` : 'Referral reward — thank you!'
     const { data: referringInv } = await supabase.from('invoices')
       .select('id, total, line_items').eq('student_id', referringStudentId)
       .eq('status', 'draft')
       .order('id', { ascending: false }).limit(1).maybeSingle()
     await supabase.from('student_credits').insert({
       student_id: referringStudentId, amount: 50, reason: 'referral_referring',
-      notes: referringInv ? 'Referral reward' : 'Referral reward — $50 off next invoice',
+      notes: rewardLabel,
       invoice_id: referringInv?.id ?? null,
     })
-    if (referringInv) await applyToInvoice(referringInv, 'Referral reward — thank you!')
+    if (referringInv) await applyToInvoice(referringInv, rewardLabel)
 
     setReferralModal(false)
     setSuccessMsg(`Referral logged. $50 applied to referred family; $50 ${referringInv ? 'applied to referring family\'s draft invoice' : 'pending for referring family\'s next invoice'}.`)

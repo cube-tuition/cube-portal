@@ -3041,6 +3041,8 @@ export default function DatabasePage() {
 
     // Referring student: if their current invoice is still a draft, apply the
     // $50 now; otherwise hold the credit for their NEXT invoice.
+    const referredFirst = (allStudentsForReferral.find(s => s.id === referredStudentId)?.full_name || '').split(' ')[0]
+    const rewardLabel = referredFirst ? `Referral reward — thanks for referring ${referredFirst}!` : 'Referral reward — thank you!'
     const { data: referringInv } = await supabase.from(T_INVOICES)
       .select('id, total, line_items').eq('student_id', referringStudentId)
       .eq('status', 'draft')
@@ -3049,11 +3051,11 @@ export default function DatabasePage() {
       student_id: referringStudentId,
       amount: 50,
       reason: 'referral_referring',
-      notes: referringInv ? 'Referral reward' : 'Referral reward — $50 off next invoice',
+      notes: rewardLabel,
       invoice_id: referringInv?.id ?? null,
       created_by: staff?.id,
     })
-    if (referringInv) await applyToInvoice(referringInv, 'Referral reward — thank you!')
+    if (referringInv) await applyToInvoice(referringInv, rewardLabel)
 
     setReferralModal(false)
     setReloadKey(k => k + 1)
