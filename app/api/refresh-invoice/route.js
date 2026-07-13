@@ -37,13 +37,15 @@ export async function POST(req) {
     const pairs = enrolLines.map(l => `(student_id = '${l.student_id}' AND class_id = ${l.class_id})`)
     const { data: enrolments } = await sb
       .from('enrolments')
-      .select('student_id, class_id, price')
+      .select('student_id, class_id, price, classes(courses(course_price))')
       .or(pairs.join(','))
 
-    // Build lookup: "studentId__classId" → price
+    // Build lookup: "studentId__classId" → price. Fall back to the class's
+    // course price when the enrolment has none (matches invoice generation).
     const priceMap = {}
     for (const e of enrolments || []) {
-      priceMap[`${e.student_id}__${e.class_id}`] = parseFloat(e.price) || 0
+      priceMap[`${e.student_id}__${e.class_id}`] =
+        (e.price != null ? parseFloat(e.price) : parseFloat(e.classes?.courses?.course_price)) || 0
     }
 
     let updated = 0

@@ -44,7 +44,7 @@ export async function POST(req) {
 
     // ── Load active enrolments with class + student + guardian ───────────────
     const { data: classes } = await sb
-      .from('classes').select('id, class_name, day_of_week, start_time, end_time, teacher')
+      .from('classes').select('id, class_name, day_of_week, start_time, end_time, teacher, courses(course_price)')
       .eq('term_id', term_id)
     const classMap = Object.fromEntries((classes || []).map(c => [c.id, c]))
     const classIds = (classes || []).map(c => c.id)
@@ -142,7 +142,9 @@ export async function POST(req) {
       for (const e of family.enrolments) {
         const s   = studMap[e.student_id]
         const cls = classMap[e.class_id]
-        const fee = parseFloat(e.price) || 0  // inc-GST
+        // Use the enrolment's own price; fall back to the class's course price
+        // when it has none (otherwise the line would bill as $0).
+        const fee = (e.price != null ? parseFloat(e.price) : parseFloat(cls?.courses?.course_price)) || 0  // inc-GST
         subtotalIncGst += fee
         lineItems.push({
           student_id:   e.student_id,
