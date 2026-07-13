@@ -450,24 +450,39 @@ function InvoiceDashboardInner() {
     })
     if (refErr) { setError('Failed to log referral: ' + refErr.message); return }
 
-    const { data: referredInv } = await supabase.from('invoices')
-      .select('id, total').eq('student_id', referredStudentId).neq('status', 'paid')
-      .order('id', { ascending: false }).limit(1).maybeSingle()
+    // Apply $50 to an invoice as its own credit line and recompute the total.
+    const applyToInvoice = async (inv, label) => {
+      const newLineItems = [...(inv.line_items || []), { type: 'credit', reason: label, amount: -50 }]
+      const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
+      await supabase.from('invoices').update({ line_items: newLineItems, subtotal: newTotal, total: newTotal }).eq('id', inv.id)
+    }
 
+    // Referred family: $50 off their current (unpaid, non-voided) invoice now.
+    const { data: referredInv } = await supabase.from('invoices')
+      .select('id, total, line_items').eq('student_id', referredStudentId)
+      .not('status', 'in', '(paid,voided)')
+      .order('id', { ascending: false }).limit(1).maybeSingle()
     await supabase.from('student_credits').insert({
       student_id: referredStudentId, amount: 50, reason: 'referral_referred',
       notes: 'Referral discount — welcome credit', invoice_id: referredInv?.id ?? null,
     })
-    if (referredInv) {
-      await supabase.from('invoices').update({ total: Math.max(0, Number(referredInv.total) - 50) }).eq('id', referredInv.id)
-    }
+    if (referredInv) await applyToInvoice(referredInv, 'Referral discount — welcome credit')
+
+    // Referring family: if their current invoice is still a draft, apply the
+    // $50 to it now; otherwise hold the credit for their next invoice.
+    const { data: referringInv } = await supabase.from('invoices')
+      .select('id, total, line_items').eq('student_id', referringStudentId)
+      .eq('status', 'draft')
+      .order('id', { ascending: false }).limit(1).maybeSingle()
     await supabase.from('student_credits').insert({
       student_id: referringStudentId, amount: 50, reason: 'referral_referring',
-      notes: 'Referral reward — $50 off next invoice', invoice_id: null,
+      notes: referringInv ? 'Referral reward' : 'Referral reward — $50 off next invoice',
+      invoice_id: referringInv?.id ?? null,
     })
+    if (referringInv) await applyToInvoice(referringInv, 'Referral reward — thank you!')
 
     setReferralModal(false)
-    setSuccessMsg('Referral logged. $50 applied to referred family; $50 pending for referring family\'s next invoice.')
+    setSuccessMsg(`Referral logged. $50 applied to referred family; $50 ${referringInv ? 'applied to referring family\'s draft invoice' : 'pending for referring family\'s next invoice'}.`)
     await loadInvoices()
   }
 

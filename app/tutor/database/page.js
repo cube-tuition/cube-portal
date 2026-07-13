@@ -3016,9 +3016,18 @@ export default function DatabasePage() {
     })
     if (refErr) { alert('Failed to log referral: ' + refErr.message); return }
 
-    // Immediate $50 credit for referred student → apply to their current draft/unpaid invoice if one exists
+    // Apply $50 to an invoice as its own credit line and recompute the total.
+    const applyToInvoice = async (inv, label) => {
+      const newLineItems = [...(inv.line_items || []), { type: 'credit', reason: label, amount: -50 }]
+      const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
+      await supabase.from(T_INVOICES).update({ line_items: newLineItems, subtotal: newTotal, total: newTotal }).eq('id', inv.id)
+    }
+
+    // Immediate $50 credit for referred student → their current unpaid, non-voided invoice
     const { data: referredInv } = await supabase.from(T_INVOICES)
-      .select('id, total').eq('student_id', referredStudentId).neq('status', 'paid').order('id', { ascending: false }).limit(1).maybeSingle()
+      .select('id, total, line_items').eq('student_id', referredStudentId)
+      .not('status', 'in', '(paid,voided)')
+      .order('id', { ascending: false }).limit(1).maybeSingle()
 
     await supabase.from(T_STUDENT_CREDITS).insert({
       student_id: referredStudentId,
@@ -3028,23 +3037,27 @@ export default function DatabasePage() {
       invoice_id: referredInv?.id ?? null,
       created_by: staff?.id,
     })
-    if (referredInv) {
-      await supabase.from(T_INVOICES).update({ total: Math.max(0, Number(referredInv.total) - 50) }).eq('id', referredInv.id)
-    }
+    if (referredInv) await applyToInvoice(referredInv, 'Referral discount — welcome credit')
 
-    // Pending $50 credit for referring student → no invoice_id (applied to NEXT invoice)
+    // Referring student: if their current invoice is still a draft, apply the
+    // $50 now; otherwise hold the credit for their NEXT invoice.
+    const { data: referringInv } = await supabase.from(T_INVOICES)
+      .select('id, total, line_items').eq('student_id', referringStudentId)
+      .eq('status', 'draft')
+      .order('id', { ascending: false }).limit(1).maybeSingle()
     await supabase.from(T_STUDENT_CREDITS).insert({
       student_id: referringStudentId,
       amount: 50,
       reason: 'referral_referring',
-      notes: 'Referral reward — $50 off next invoice',
-      invoice_id: null,
+      notes: referringInv ? 'Referral reward' : 'Referral reward — $50 off next invoice',
+      invoice_id: referringInv?.id ?? null,
       created_by: staff?.id,
     })
+    if (referringInv) await applyToInvoice(referringInv, 'Referral reward — thank you!')
 
     setReferralModal(false)
     setReloadKey(k => k + 1)
-    alert('Referral logged! $50 applied to referred student\'s invoice. $50 credit pending for referring student\'s next invoice.')
+    alert(`Referral logged! $50 applied to referred student's invoice. $50 ${referringInv ? "applied to referring student's draft invoice" : "credit pending for referring student's next invoice"}.`)
   }
 
   const handleInvoiceStatusUpdate = async (invoiceId, newStatus) => {
