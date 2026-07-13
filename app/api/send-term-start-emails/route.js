@@ -80,6 +80,19 @@ function scheduleCardHtml(lines) {
   return `<div style="margin:0 0 18px;">${rows}</div>`
 }
 
+// Split a paragraph block into consecutive runs of bullet lines vs text lines,
+// so the schedule list renders even when it shares a block with an intro line.
+function segmentBlock(block) {
+  const segs = []
+  for (const line of block.split('\n')) {
+    const isB = line.trim().startsWith('•')
+    const last = segs[segs.length - 1]
+    if (last && last.bullets === isB) last.lines.push(line)
+    else segs.push({ bullets: isB, lines: [line] })
+  }
+  return segs
+}
+
 function toHtml(plainText, { termName = '' } = {}) {
   const escaped = plainText
     .replace(/&/g, '&amp;')
@@ -87,16 +100,16 @@ function toHtml(plainText, { termName = '' } = {}) {
     .replace(/>/g, '&gt;')
   const bold = (s) => s.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#062E63;">$1</strong>')
 
-  // Render blocks; consecutive "•" lines (the {{class_details}} list) become a
-  // highlighted schedule card instead of plain text.
-  const blocks = escaped.split(/\n\n+/).map(block => {
-    const lines = block.split('\n')
-    const isBullets = lines.length > 0 && lines.every(l => l.trim() === '' || l.trim().startsWith('•'))
-    if (isBullets && lines.some(l => l.trim().startsWith('•'))) {
-      return scheduleCardHtml(lines)
-    }
-    return `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#2A2035;">${bold(block).replace(/\n/g, '<br/>')}</p>`
-  }).join('')
+  // Render blocks; runs of "•" lines (the {{class_details}} list) become a
+  // highlighted schedule card — even when they share a block with an intro
+  // sentence (single newline, no blank line before the bullets).
+  const blocks = escaped.split(/\n\n+/).map(block =>
+    segmentBlock(block).map(seg => {
+      if (seg.bullets) return scheduleCardHtml(seg.lines)
+      const html = seg.lines.join('\n').trim()
+      return html ? `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#2A2035;">${bold(html).replace(/\n/g, '<br/>')}</p>` : ''
+    }).join('')
+  ).join('')
 
   return `<!DOCTYPE html>
 <html lang="en">

@@ -94,6 +94,19 @@ function scheduleCardHtml(lines) {
   return `<div style="margin:0 0 18px;">${rows}</div>`
 }
 
+// Split a paragraph block into consecutive runs of bullet lines vs text lines,
+// so a schedule list works even when it shares a block with an intro sentence.
+function segmentBlock(block) {
+  const segs = []
+  for (const line of block.split('\n')) {
+    const isB = line.trim().startsWith('•')
+    const last = segs[segs.length - 1]
+    if (last && last.bullets === isB) last.lines.push(line)
+    else segs.push({ bullets: isB, lines: [line] })
+  }
+  return segs
+}
+
 function fillTemplatePreview(template, family, termName, termDates, termStart) {
   const unique       = family.students.filter((s, i, a) => a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i)
   const firstNames   = unique.map(s => s.student_name.split(' ')[0])
@@ -119,12 +132,13 @@ function fillTemplatePreview(template, family, termName, termDates, termStart) {
 function buildPreviewHtml(template, family, termName, termDates, termStart) {
   const body    = fillTemplatePreview(template, family, termName, termDates, termStart)
   const escaped = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const paras   = escaped.split(/\n\n+/).map(block => {
-    const lines = block.split('\n')
-    if (lines.some(l => l.trim().startsWith('•')) && lines.every(l => l.trim() === '' || l.trim().startsWith('•')))
-      return scheduleCardHtml(lines)
-    return `<p style="margin:0 0 16px 0;line-height:1.7;">${block.replace(/\n/g, '<br/>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`
-  }).join('')
+  const paras   = escaped.split(/\n\n+/).map(block =>
+    segmentBlock(block).map(seg => {
+      if (seg.bullets) return scheduleCardHtml(seg.lines)
+      const html = seg.lines.join('\n').trim()
+      return html ? `<p style="margin:0 0 16px 0;line-height:1.7;">${html.replace(/\n/g, '<br/>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>` : ''
+    }).join('')
+  ).join('')
   return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4ff;">
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:32px auto;padding:32px 24px;color:#2A2035;background:#ffffff;border-radius:12px;box-shadow:0 2px 16px rgba(6,46,99,0.08);">
       <div style="background:#062E63;background:linear-gradient(120deg,#04204a 0%,#062E63 48%,#0d3f80 100%);border-radius:14px;padding:26px 30px;margin-bottom:32px;">
