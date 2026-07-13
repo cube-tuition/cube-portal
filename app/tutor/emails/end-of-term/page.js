@@ -150,11 +150,17 @@ export default function EndOfTermEmailPage() {
   const [students, setStudents] = useState([])   // enriched enrolment rows
   const [uploads,  setUploads]  = useState({})   // key → { exists, uploading }
   const TEMPLATE_KEY = 'cube_eot_template'
+  const SUBJECT_KEY  = 'cube_eot_subject'
+  const DEFAULT_SUBJECT = '{{term_name}} Report{{plural}} — {{student_names}} | CUBE Tuition'
   const [template, setTemplate] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem(TEMPLATE_KEY) || DEFAULT_TEMPLATE
     }
     return DEFAULT_TEMPLATE
+  })
+  const [subject, setSubject] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem(SUBJECT_KEY) || DEFAULT_SUBJECT
+    return DEFAULT_SUBJECT
   })
   const [tab,      setTab]      = useState('preview') // 'preview' | 'template'
   const resultsKey = termId ? `cube_eot_results_${termId}` : null
@@ -398,6 +404,7 @@ export default function EndOfTermEmailPage() {
         term_id:   termId,
         term_name: term?.name || '',
         template,
+        subject,
         families:  payloadFamilies,
         test,
       }),
@@ -575,6 +582,22 @@ export default function EndOfTermEmailPage() {
         {/* ── Email template ──────────────────────────────────────────────── */}
         {tab === 'template' && (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-sm font-bold text-[#062E63]">Subject line</h2>
+              <button
+                onClick={() => { setSubject(DEFAULT_SUBJECT); localStorage.setItem(SUBJECT_KEY, DEFAULT_SUBJECT) }}
+                className="text-[11px] text-[#325099]/50 hover:text-[#325099] transition"
+              >
+                Reset to default
+              </button>
+            </div>
+            <input
+              type="text"
+              value={subject}
+              onChange={e => { setSubject(e.target.value); localStorage.setItem(SUBJECT_KEY, e.target.value) }}
+              className="w-full border border-[#DEE7FF] rounded-xl px-4 py-2.5 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/25 mb-1"
+            />
+            <p className="text-[11px] text-[#325099]/50 mb-5">Same placeholders work here — e.g. <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>, <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code>, <code className="bg-[#F0F4FF] px-1 rounded">{'{{plural}}'}</code>.</p>
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-sm font-bold text-[#062E63]">Email body</h2>
               <button

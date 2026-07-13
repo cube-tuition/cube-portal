@@ -143,7 +143,8 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { term_id, term_name, term_dates, term_start, template, families, test } = await request.json()
+    const { term_id, term_name, term_dates, term_start, template, subject, families, test } = await request.json()
+    const subjectTemplate = subject || '{{term_name}} — Re-enrolment Confirmation | CUBE Tuition'
 
     if (!families?.length) {
       return Response.json({ error: 'Missing families' }, { status: 400 })
@@ -218,7 +219,7 @@ export async function POST(request) {
 
       // A family with a personalised body uses it verbatim (its placeholders are
       // already resolved); otherwise fall back to the shared template.
-      const bodyText = fillTemplate(family.custom_body || template, {
+      const vars = {
         parentName:   family.parent_name || 'there',
         termName:     term_name,
         termDates:    term_dates || '',
@@ -228,9 +229,9 @@ export async function POST(request) {
         possessive:   'their',
         plural:       count > 1 ? 's' : '',
         followupDate: followupDate(),
-      })
-
-      const subject = `${term_name} — Re-enrolment Confirmation | CUBE Tuition`
+      }
+      const bodyText = fillTemplate(family.custom_body || template, vars)
+      const subject  = fillTemplate(subjectTemplate, vars)
 
       // ── Find matching invoice ──────────────────────────────────────────────
       let matchedInv = null

@@ -21,6 +21,8 @@ import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey }
  */
 
 const TEMPLATE_KEY = 'cube_term_start_template'
+const SUBJECT_KEY  = 'cube_term_start_subject'
+const DEFAULT_SUBJECT = '{{term_name}} — Re-enrolment Confirmation | CUBE Tuition'
 
 const DEFAULT_TEMPLATE = `Dear {{parent_name}},
 
@@ -172,6 +174,10 @@ function TermStartEmailPageInner() {
   const [template, setTemplate] = useState(() => {
     if (typeof window !== 'undefined') return localStorage.getItem(TEMPLATE_KEY) || DEFAULT_TEMPLATE
     return DEFAULT_TEMPLATE
+  })
+  const [subject, setSubject] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem(SUBJECT_KEY) || DEFAULT_SUBJECT
+    return DEFAULT_SUBJECT
   })
   const [tab,          setTab]          = useState('preview')
   const [sending,      setSending]      = useState(false)
@@ -329,6 +335,7 @@ function TermStartEmailPageInner() {
         term_dates: termDates,
         term_start: fmtStartDate(term?.start_date),
         template,
+        subject,
         test,
         families: fams.map(f => ({
           ...f,
@@ -471,6 +478,20 @@ function TermStartEmailPageInner() {
         {tab === 'preview' && (
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-bold text-[#062E63]">Subject line</h2>
+                <button
+                  onClick={() => { setSubject(DEFAULT_SUBJECT); localStorage.setItem(SUBJECT_KEY, DEFAULT_SUBJECT) }}
+                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] transition"
+                >Reset to default</button>
+              </div>
+              <input
+                type="text"
+                value={subject}
+                onChange={e => { setSubject(e.target.value); localStorage.setItem(SUBJECT_KEY, e.target.value) }}
+                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-2.5 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/25 mb-1"
+              />
+              <p className="text-[11px] text-[#325099]/50 mb-5">Same placeholders work here — e.g. <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>.</p>
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-sm font-bold text-[#062E63]">Email body</h2>
                 <button

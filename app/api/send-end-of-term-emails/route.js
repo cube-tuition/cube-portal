@@ -84,7 +84,8 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { term_id, term_name, template, families, test } = await request.json()
+    const { term_id, term_name, template, subject, families, test } = await request.json()
+    const subjectTemplate = subject || '{{term_name}} Report{{plural}} — {{student_names}} | CUBE Tuition'
 
     if (!term_id || !families?.length) {
       return Response.json({ error: 'Missing term_id or families' }, { status: 400 })
@@ -142,17 +143,16 @@ export async function POST(request) {
 
       // A family with a personalised body uses it verbatim (its placeholders are
       // already resolved); otherwise fall back to the shared template.
-      const bodyText = fillTemplate(family.custom_body || template, {
+      const vars = {
         parentName:   family.parent_name || 'there',
         termName:     term_name,
         studentNames,
         possessive:   'their',
         theyHave:     count === 1 ? 'they have' : 'they have',
         plural:       count > 1 ? 's' : '',
-      })
-
-      const subjectNames = firstNames.join(' & ')
-      const subject = `${term_name} Report${count > 1 ? 's' : ''} — ${subjectNames} | CUBE Tuition`
+      }
+      const bodyText = fillTemplate(family.custom_body || template, vars)
+      const subject  = fillTemplate(subjectTemplate, vars)
 
       const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from:        `CUBE Tuition <${fromEmail}>`,
