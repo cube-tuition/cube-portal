@@ -1735,7 +1735,7 @@ export default function DatabasePage() {
         const [{ data: studentRows }, { data: classRows }, { data: allClassRows }] = await Promise.all([
           supabase.from(T_STUDENTS).select('id, full_name').in('id', studentIds),
           supabase.from(T_CLASSES).select('id, class_name').in('id', classIds),
-          supabase.from(T_CLASSES).select('id, class_name'),
+          supabase.from(T_CLASSES).select('id, class_name, term_id'),
         ])
         const classLabelMap = buildClassLabelMap(allClassRows || [])
         const sMap = Object.fromEntries((studentRows || []).map(s => [s.id, s.full_name]))
@@ -1817,7 +1817,7 @@ export default function DatabasePage() {
         if (classIds.length > 0) {
           const [{ data: classRows }, { data: allClassRowsForLessons }] = await Promise.all([
             supabase.from(T_CLASSES).select('id, class_name, day_of_week').in('id', classIds),
-            supabase.from(T_CLASSES).select('id, class_name'),
+            supabase.from(T_CLASSES).select('id, class_name, term_id'),
           ])
           const lessonClassLabelMap = buildClassLabelMap(allClassRowsForLessons || [])
           const cMap = Object.fromEntries((classRows || []).map(c => [c.id, `${lessonClassLabelMap.get(c.id) ?? c.class_name} (${c.day_of_week})`]))
@@ -2269,7 +2269,7 @@ export default function DatabasePage() {
     }
     if (classesForLessons.length === 0) {
       const { data } = await supabase.from(T_CLASSES)
-        .select('id, class_name, day_of_week, start_time, end_time, room')
+        .select('id, class_name, day_of_week, start_time, end_time, room, term_id')
         .order('class_name')
       const labelMap = buildClassLabelMap(data || [])
       setClassesForLessons((data || []).map(c => ({ ...c, label: labelMap.get(c.id) ?? c.class_name })))
@@ -2534,7 +2534,7 @@ export default function DatabasePage() {
       // 4. Classes for this term (with course name) + full class list for labels
       const [{ data: termClasses }, { data: allClassesForLabels }] = await Promise.all([
         supabase.from(T_CLASSES).select('id, class_name, courses(course_name)').eq('term_id', invoiceTermId),
-        supabase.from(T_CLASSES).select('id, class_name'),
+        supabase.from(T_CLASSES).select('id, class_name, term_id'),
       ])
       const invoiceClassLabelMap = buildClassLabelMap(allClassesForLabels || [])
       const classMap = Object.fromEntries((termClasses || []).map(c => [c.id, c]))
