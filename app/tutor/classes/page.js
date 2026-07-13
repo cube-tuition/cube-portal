@@ -90,6 +90,7 @@ export default function TutorClassesPage() {
   const [selectedTermId, setSelectedTermId] = useState(null)
   const [classes, setClasses] = useState([])
   const [rosters, setRosters] = useState({}) // { [class_id]: [{ id, full_name, school, year }] }
+  const [calClasses, setCalClasses] = useState([]) // all-terms class list — powers the weekly calendar
   const [subSessions, setSubSessions] = useState([]) // [{ classId, dateISO, cls }] — sessions this tutor is subbing
   const [makeupSessions, setMakeupSessions] = useState([]) // [{ dateISO, lesson }] — 1:1 makeup lessons for this tutor
   const [dropinSessions, setDropinSessions] = useState([]) // [dropin_sessions row] — drop-in sessions for this tutor
@@ -133,22 +134,33 @@ export default function TutorClassesPage() {
       const isAdmin = staff.role === 'admin'
       const firstName = (staff.full_name || '').split(' ')[0]
 
-      // Filter by the selected term.
-      let q = supabase.from(T_CLASSES).select('*')
-        .eq('term_id', selectedTermId)
       // Non-admins always see only their own classes.
       // Admins see all classes unless they've switched to "My Classes".
-      if (!isAdmin && firstName) q = q.ilike('teacher', firstName)
-      else if (isAdmin && classView === 'mine' && firstName) q = q.ilike('teacher', firstName)
-      const { data: cls } = await q
+      const baseQuery = () => {
+        let q = supabase.from(T_CLASSES).select('*')
+        if (!isAdmin && firstName) q = q.ilike('teacher', firstName)
+        else if (isAdmin && classView === 'mine' && firstName) q = q.ilike('teacher', firstName)
+        return q
+      }
+      // Top section follows the term selector; the weekly calendar is a
+      // universal view across ALL terms (a lesson shows on its date no matter
+      // which term its class belongs to), so it gets an unscoped list.
+      const [{ data: cls }, { data: clsAll }] = await Promise.all([
+        baseQuery().eq('term_id', selectedTermId),
+        baseQuery(),
+      ])
 
       // Hide untitled rows — these are typically incomplete Airtable rows and
       // were the main source of noise on the old day-by-day view. If a row
       // genuinely needs to appear here, give it a class_name in Airtable.
       const named = (cls || []).filter(c => (c.class_name || '').trim())
       setClasses(named)
+      const namedAll = (clsAll || []).filter(c => (c.class_name || '').trim())
+      setCalClasses(namedAll)
 
-      const classIds = named.map(c => c.id)
+      // Rosters over the all-terms list — covers both the course cards and
+      // the calendar's student counts.
+      const classIds = namedAll.map(c => c.id)
       if (classIds.length > 0) {
         const { data: links } = await supabase
           .from(T_ENROLMENTS)
@@ -223,11 +235,11 @@ export default function TutorClassesPage() {
   // so session pills on own classes can be highlighted amber when a sub is
   // covering them.
   useEffect(() => {
-    if (!staff || classes.length === 0) return
+    if (!staff || calClasses.length === 0) return
     const weekISODates = Array.from({ length: 7 }, (_, i) =>
       isoDate(addDays(weekStart, i))
     )
-    const classIds = classes.map(c => c.id)
+    const classIds = calClasses.map(c => c.id)
     supabase
       .from(T_SUB_ASSIGNMENTS)
       .select('class_id, session_date')
@@ -236,11 +248,11 @@ export default function TutorClassesPage() {
       .then(({ data }) => {
         setSubDates(new Set((data || []).map(r => `${r.class_id}|${r.session_date}`)))
       })
-  }, [weekStart, classes, staff])
+  }, [weekStart, calClasses, staff])
 
   // ── Actual lessons for the current week (to override schedule-derived dates) ──
   useEffect(() => {
-    if (classes.length === 0) return
+    if (calClasses.length === 0) return
     const weekMin = isoDate(weekStart)
     const weekMax = isoDate(addDays(weekStart, 6))
     supabase
@@ -250,7 +262,7 @@ export default function TutorClassesPage() {
       .lte('lesson_date', weekMax)
       .is('makeup_student_id', null)
       .then(({ data }) => setWeekLessons(data || []))
-  }, [weekStart, classes])
+  }, [weekStart, calClasses])
 
   // ── Drop-in sessions: re-fetch whenever week or staff changes ────────────
   useEffect(() => {
@@ -278,7 +290,9 @@ export default function TutorClassesPage() {
   // We merge multiple DB rows that share a name (e.g. a course that runs on
   // Tue AND Thu shows once) and union the rosters (deduping students).
   // Classes sharing a course get A/B/C labels when 2+ exist for that course.
-  const classLabelMap = useMemo(() => buildClassLabelMap(classes), [classes])
+  // Built over all terms (grouping is term-scoped inside) so both the term
+  // course cards and the cross-term calendar get labels.
+  const classLabelMap = useMemo(() => buildClassLabelMap(calClasses.length ? calClasses : classes), [calClasses, classes])
 
   // ── Filter options derived from loaded classes ─────────────────────────────
   const availableYears = useMemo(() => {
@@ -386,7 +400,7 @@ export default function TutorClassesPage() {
     const isOneToOne = (c) => /\b1\s*:\s*1\b/.test(c?.class_name || '')
 
     for (const lesson of activeLessons) {
-      const cls = classes.find(c => c.id === lesson.class_id)
+      const cls = calClasses.find(c => c.id === lesson.class_id)
       if (!cls) continue
       if (movedSourceIds.has(lesson.id) && isOneToOne(cls)) continue // moved 1:1 — shows on the makeup day only
       const d = new Date(lesson.lesson_date + 'T00:00:00')
@@ -405,7 +419,7 @@ export default function TutorClassesPage() {
       return startMinutes(a.cls.start_time) - startMinutes(b.cls.start_time)
     })
     return out
-  }, [classes, weekLessons, makeupSessions])
+  }, [calClasses, weekLessons, makeupSessions])
 
   const sessionsByDate = useMemo(() => {
     const map = new Map()
@@ -749,7 +763,7 @@ export default function TutorClassesPage() {
 
       {monthOpen && (
         <MonthCalendarModal
-          classes={classes}
+          classes={calClasses.length ? calClasses : classes}
           staff={staff}
           isAdmin={staff?.role === 'admin'}
           classView={classView}
