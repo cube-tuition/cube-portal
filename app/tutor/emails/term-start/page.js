@@ -76,6 +76,24 @@ function fmtStartDate(iso) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
+// Render the {{class_details}} bullet lines as a stack of accented schedule
+// cards — one per class, with the day/time called out beneath the class name.
+// Shared shape with the send route (app/api/send-term-start-emails/route.js).
+function scheduleCardHtml(lines) {
+  const rows = lines.filter(l => l.trim()).map(l => {
+    const text = l.replace(/^\s*•\s*/, '').trim()
+    const i    = text.indexOf(' · ')
+    const head = i === -1 ? text : text.slice(0, i)
+    const when = i === -1 ? '' : text.slice(i + 3)
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;"><tr>`
+      + `<td style="background:#EEF3FF;border-left:4px solid #325099;border-radius:8px;padding:10px 16px;">`
+      + `<div style="font-size:14.5px;font-weight:700;color:#062E63;line-height:1.45;">${head}</div>`
+      + (when ? `<div style="font-size:13px;font-weight:600;color:#41598C;margin-top:2px;letter-spacing:0.2px;">${when}</div>` : '')
+      + `</td></tr></table>`
+  }).join('')
+  return `<div style="margin:0 0 18px;">${rows}</div>`
+}
+
 function fillTemplatePreview(template, family, termName, termDates, termStart) {
   const unique       = family.students.filter((s, i, a) => a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i)
   const firstNames   = unique.map(s => s.student_name.split(' ')[0])
@@ -101,11 +119,12 @@ function fillTemplatePreview(template, family, termName, termDates, termStart) {
 function buildPreviewHtml(template, family, termName, termDates, termStart) {
   const body    = fillTemplatePreview(template, family, termName, termDates, termStart)
   const escaped = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const paras   = escaped.split(/\n\n+/)
-    .map(p => `<p style="margin:0 0 16px 0;line-height:1.7;">${
-      p.replace(/\n/g, '<br/>')
-       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    }</p>`).join('')
+  const paras   = escaped.split(/\n\n+/).map(block => {
+    const lines = block.split('\n')
+    if (lines.some(l => l.trim().startsWith('•')) && lines.every(l => l.trim() === '' || l.trim().startsWith('•')))
+      return scheduleCardHtml(lines)
+    return `<p style="margin:0 0 16px 0;line-height:1.7;">${block.replace(/\n/g, '<br/>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`
+  }).join('')
   return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4ff;">
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:32px auto;padding:32px 24px;color:#2A2035;background:#ffffff;border-radius:12px;box-shadow:0 2px 16px rgba(6,46,99,0.08);">
       <div style="background:#062E63;background:linear-gradient(120deg,#04204a 0%,#062E63 48%,#0d3f80 100%);border-radius:14px;padding:26px 30px;margin-bottom:32px;">

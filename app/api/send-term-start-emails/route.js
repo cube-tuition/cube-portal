@@ -62,6 +62,24 @@ function fillTemplate(template, vars) {
     .replace(/\{\{plural\}\}/g,         vars.plural        || '')
 }
 
+// Render the {{class_details}} bullet lines as a stack of accented schedule
+// cards — one per class, day/time called out beneath the class name. Shared
+// shape with the preview (app/tutor/emails/term-start/page.js).
+function scheduleCardHtml(lines) {
+  const rows = lines.filter(l => l.trim()).map(l => {
+    const text = l.replace(/^\s*•\s*/, '').trim()
+    const i    = text.indexOf(' · ')
+    const head = i === -1 ? text : text.slice(0, i)
+    const when = i === -1 ? '' : text.slice(i + 3)
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;"><tr>`
+      + `<td style="background:#EEF3FF;border-left:4px solid #325099;border-radius:8px;padding:10px 16px;">`
+      + `<div style="font-size:14.5px;font-weight:700;color:#062E63;line-height:1.45;">${head}</div>`
+      + (when ? `<div style="font-size:13px;font-weight:600;color:#41598C;margin-top:2px;letter-spacing:0.2px;">${when}</div>` : '')
+      + `</td></tr></table>`
+  }).join('')
+  return `<div style="margin:0 0 18px;">${rows}</div>`
+}
+
 function toHtml(plainText, { termName = '' } = {}) {
   const escaped = plainText
     .replace(/&/g, '&amp;')
@@ -75,10 +93,7 @@ function toHtml(plainText, { termName = '' } = {}) {
     const lines = block.split('\n')
     const isBullets = lines.length > 0 && lines.every(l => l.trim() === '' || l.trim().startsWith('•'))
     if (isBullets && lines.some(l => l.trim().startsWith('•'))) {
-      const rows = lines.filter(l => l.trim()).map(l =>
-        `<p style="margin:5px 0;font-size:14px;line-height:1.6;color:#062E63;font-weight:600;">${bold(l.trim())}</p>`
-      ).join('')
-      return `<div style="background:#F0F4FF;border:1px solid #DEE7FF;border-radius:12px;padding:14px 20px;margin:0 0 18px;">${rows}</div>`
+      return scheduleCardHtml(lines)
     }
     return `<p style="margin:0 0 16px 0;font-size:15px;line-height:1.7;color:#2A2035;">${bold(block).replace(/\n/g, '<br/>')}</p>`
   }).join('')
