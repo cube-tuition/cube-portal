@@ -85,13 +85,13 @@ function scheduleCardHtml(lines) {
     const i    = text.indexOf(' · ')
     const head = i === -1 ? text : text.slice(0, i)
     const when = i === -1 ? '' : text.slice(i + 3)
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;"><tr>`
-      + `<td style="background:#EEF3FF;border-left:4px solid #325099;border-radius:8px;padding:10px 16px;">`
-      + `<div style="font-size:14.5px;font-weight:700;color:#062E63;line-height:1.45;">${head}</div>`
-      + (when ? `<div style="font-size:13px;font-weight:600;color:#41598C;margin-top:2px;letter-spacing:0.2px;">${when}</div>` : '')
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 9px;"><tr>`
+      + `<td style="border-left:2px solid #D5DEF0;padding:1px 0 1px 12px;">`
+      + `<div style="font-size:14px;font-weight:600;color:#22324F;line-height:1.4;">${head}</div>`
+      + (when ? `<div style="font-size:12.5px;font-weight:500;color:#6B7A99;margin-top:1px;">${when}</div>` : '')
       + `</td></tr></table>`
   }).join('')
-  return `<div style="margin:0 0 18px;">${rows}</div>`
+  return `<div style="margin:6px 0 16px;">${rows}</div>`
 }
 
 // Split a paragraph block into consecutive runs of bullet lines vs text lines,
