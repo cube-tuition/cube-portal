@@ -388,7 +388,7 @@ function InvoiceDashboardInner() {
       // All lessons for those classes (for per-lesson price), excluding makeups
       const { data: lessons } = await supabase
         .from('lessons')
-        .select('id, lesson_date, class_id, classes(class_name)')
+        .select('id, lesson_date, week, class_id, classes(class_name)')
         .in('class_id', classIds)
         .eq('is_makeup', false)
         .order('lesson_date', { ascending: false })
@@ -1203,7 +1203,9 @@ function InvoiceDashboardInner() {
                             const dateStr = `${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getFullYear()}`
                             setAddCreditForm(f => ({
                               ...f,
-                              reason: `Absence for ${lesson.classes?.class_name || 'class'} on ${dayName} ${dateStr}`,
+                              reason: lesson.week
+                                ? `Absence for ${lesson.classes?.class_name || 'class'} — Week ${lesson.week} (${dayName} ${dateStr})`
+                                : `Absence for ${lesson.classes?.class_name || 'class'} on ${dayName} ${dateStr}`,
                               amount: lesson.perLesson != null ? String(lesson.perLesson) : f.amount,
                             }))
                           }
@@ -1213,7 +1215,7 @@ function InvoiceDashboardInner() {
                         <option value="">Select lesson…</option>
                         {addCreditLessons.map(l => {
                           const d = new Date(l.lesson_date + 'T00:00:00')
-                          const label = `${l.classes?.class_name} – ${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getFullYear()}`
+                          const label = `${l.classes?.class_name}${l.week ? ` – Week ${l.week}` : ''} – ${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getFullYear()}`
                           return <option key={l.id} value={l.id}>{label}</option>
                         })}
                       </select>
