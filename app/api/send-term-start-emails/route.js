@@ -50,6 +50,7 @@ function fillTemplate(template, vars) {
   return template
     .replace(/\{\{parent_name\}\}/g,    vars.parentName    || 'there')
     .replace(/\{\{term_name\}\}/g,      vars.termName      || '')
+    .replace(/\{\{term_short\}\}/g,     (vars.termName || '').replace(/\s*\d{4}\s*$/, '').trim())
     .replace(/\{\{term_dates\}\}/g,     vars.termDates     || '')
     .replace(/\{\{term_start\}\}/g,     vars.termStart     || '')
     .replace(/\{\{student_names\}\}/g,  vars.studentNames  || '')

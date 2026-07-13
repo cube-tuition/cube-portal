@@ -86,6 +86,7 @@ function fillTemplatePreview(template, family, termName, termDates, termStart) {
   return template
     .replace(/\{\{parent_name\}\}/g,    family.parent_name || 'there')
     .replace(/\{\{term_name\}\}/g,      termName)
+    .replace(/\{\{term_short\}\}/g,     (termName || '').replace(/\s*\d{4}\s*$/, '').trim())
     .replace(/\{\{term_dates\}\}/g,     termDates)
     .replace(/\{\{term_start\}\}/g,     termStart || '')
     .replace(/\{\{student_names\}\}/g,  studentNames)
@@ -446,7 +447,8 @@ function TermStartEmailPageInner() {
                 Placeholders: <code className="bg-[#F0F4FF] px-1 rounded">{'{{parent_name}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{class_details}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>{' '}
+                <code className="bg-[#F0F4FF] px-1 rounded" title="Full term with year, e.g. Term 3 2026">{'{{term_name}}'}</code>{' '}
+                <code className="bg-[#F0F4FF] px-1 rounded" title="Term without the year, e.g. Term 3">{'{{term_short}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_start}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_dates}}'}</code>{' '}
                 <span className="text-[#325099]/40">· Use **bold** for bold text</span>
