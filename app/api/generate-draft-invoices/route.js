@@ -69,8 +69,10 @@ export async function POST(req) {
     const guardianMap = Object.fromEntries((guardians || []).map(g => [g.student_id, g]))
 
     // ── Load credits per student ─────────────────────────────────────────────
+    // NOTE: id is required — it's how applied credits get linked to the new
+    // invoice below (without it they stay "held" and would double-apply).
     const { data: credits } = await sb
-      .from('student_credits').select('student_id, amount, reason')
+      .from('student_credits').select('id, student_id, amount, reason')
       .in('student_id', studentIds).is('invoice_id', null) // unapplied credits
     const creditsByStudent = {}
     for (const c of credits || []) {
