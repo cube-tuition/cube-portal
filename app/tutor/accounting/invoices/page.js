@@ -951,10 +951,7 @@ function InvoiceDashboardInner() {
                             {enrolLines.map((l, i) => (
                               <tr key={i} className="border-b border-[#F0F4FF] last:border-0">
                                 <td className="py-1.5 font-medium text-[#062E63]">{l.student_name}</td>
-                                <td className="py-1.5 text-[#325099]/70">
-                                  {l.class_name}
-                                  {l.day && <span className="text-[#325099]/40 ml-1">· {l.day}{l.start_time ? ` ${l.start_time}` : ''}</span>}
-                                </td>
+                                <td className="py-1.5 text-[#325099]/70">{l.class_name}</td>
                                 <td className="py-1.5 text-right text-[#325099]">{fmtMoney(l.amount)}</td>
                                 {lineActions(l)}
                               </tr>
