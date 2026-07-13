@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
-import { getCurrentTerm } from '@/lib/terms'
+import { getEnrolmentTerm } from '@/lib/terms'
 import { isOneToOneClass } from '@/lib/classFormat'
 import {
   ComposedChart, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -204,7 +204,7 @@ export default function ForecastPage() {
       .order('term_number', { ascending: false })
       .then(({ data }) => {
         setTerms(data || [])
-        const current = getCurrentTerm(data || [])
+        const current = getEnrolmentTerm(data || [])
         if (current) setTermId(current.id)
         else if (data?.length) setTermId(data[0].id)
       })

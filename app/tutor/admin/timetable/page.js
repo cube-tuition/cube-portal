@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, formatTermLabel } from '../../../../lib/terms'
 import {
   T_CLASSES, T_COURSES, T_TUTORS, T_ADMINS, T_TEACHER_AVAILABILITY, T_ENROLMENTS, T_TERMS, T_STUDENTS,
 } from '../../../../lib/tables'
@@ -388,7 +388,7 @@ export default function TimetablePage() {
         ;(am[r.tutor_id][r.day_of_week] ||= new Set()).add(min)
       }
       setAvail(am)
-      const cur = getCurrentTerm(allTerms)
+      const cur = getEnrolmentTerm(allTerms)
       const upcoming = allTerms
         .filter(t => cur ? t.start_date > cur.start_date : true)
         .sort((a, b) => a.start_date.localeCompare(b.start_date))

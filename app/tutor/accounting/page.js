@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, formatTermLabel } from '../../../lib/terms'
 import { DUE_DATES, daysUntil } from '../../../lib/complianceDates'
 import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
 
@@ -117,7 +117,7 @@ export default function AccountingDashboard() {
     setLoading(true)
     const allTerms = await fetchAllTerms()
     setTerms(allTerms)
-    const cur = getCurrentTerm(allTerms)
+    const cur = getEnrolmentTerm(allTerms)
     setTerm(cur)
 
     const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, tasksRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes] = await Promise.all([

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm } from '../../../../lib/terms'
 import { fmtMoney, fmtDate, fmtDateLong } from '../../../../lib/format'
 import { generateInvoicePdf } from '../../../../lib/invoicePdf'
 import { XeroBanner } from '../../../../components/invoices/XeroBanner'
@@ -142,7 +142,7 @@ function InvoiceDashboardInner() {
     })
     fetchAllTerms().then(allTerms => {
       setTerms(allTerms)
-      const cur = getCurrentTerm(allTerms)
+      const cur = getEnrolmentTerm(allTerms)
       if (cur) setTermId(cur.id)
     })
     supabase.from('portal_settings')

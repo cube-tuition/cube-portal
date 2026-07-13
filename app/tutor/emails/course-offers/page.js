@@ -6,7 +6,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { authedFetch } from '../../../../lib/authedFetch'
 import TutorNav from '../../../../components/TutorNav'
-import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm } from '../../../../lib/terms'
 import { T_STUDENTS, T_PARENTS, T_CLASSES, T_ENROLMENTS, T_COURSE_OFFERS } from '../../../../lib/tables'
 import { inferSubject } from '../../../../components/CourseDetail'
 import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
@@ -70,7 +70,7 @@ export default function CourseOffersPage() {
       setProfile(profile)
 
       const allTerms = await fetchAllTerms()
-      const term = getCurrentTerm(allTerms)
+      const term = getEnrolmentTerm(allTerms)
       const [{ data: studentRows }, { data: guardians }, { data: classRows }, { data: enrolRows }, { data: offerRows }] = await Promise.all([
         supabase.from(T_STUDENTS).select('id, full_name, family_id, year, status').eq('status', 'active').order('full_name'),
         supabase.from(T_PARENTS).select('student_id, full_name, email'),
