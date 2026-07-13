@@ -351,24 +351,24 @@ function InvoiceDashboardInner() {
     supabase.from('students').select('id, full_name').order('full_name').then(({ data }) => setAllStudents(data || []))
   }, [])
 
-  // Load lessons for absence credit picker: student's classes in current term
+  // Load lessons for absence credit picker: the student's PAST lessons across
+  // their active enrolments (an absence is always in the past — the page's
+  // selected term may be the upcoming one with no lessons yet).
   useEffect(() => {
-    if (!addCreditModal || addCreditReasonType !== 'absence' || !addCreditForm.studentId || !termId) {
+    if (!addCreditModal || addCreditReasonType !== 'absence' || !addCreditForm.studentId) {
       setAddCreditLessons([]); setAddCreditSelectedLesson(null); return
     }
     setAddCreditLessonsLoading(true)
     ;(async () => {
-      // Get student's enrolments in current term
       const { data: enrols } = await supabase
         .from('enrolments')
         .select('class_id, price, classes(id, class_name, day_of_week, term_id)')
         .eq('student_id', addCreditForm.studentId)
         .eq('status', 'active')
-      const termEnrols = (enrols || []).filter(e => e.classes?.term_id === termId)
-      const classIds = termEnrols.map(e => e.class_id)
+      const classIds = (enrols || []).map(e => e.class_id)
       if (!classIds.length) { setAddCreditLessons([]); setAddCreditLessonsLoading(false); return }
 
-      // Get lessons for those classes (current term), excluding makeups
+      // All lessons for those classes (for per-lesson price), excluding makeups
       const { data: lessons } = await supabase
         .from('lessons')
         .select('id, lesson_date, class_id, classes(class_name)')
@@ -381,18 +381,20 @@ function InvoiceDashboardInner() {
       for (const l of lessons || []) {
         lessonCountByClass[l.class_id] = (lessonCountByClass[l.class_id] || 0) + 1
       }
-      const enrolByClass = Object.fromEntries(termEnrols.map(e => [e.class_id, e]))
+      const enrolByClass = Object.fromEntries((enrols || []).map(e => [e.class_id, e]))
 
-      const enriched = (lessons || []).map(l => {
+      // Offer only lessons that have already happened, most recent first
+      const today = new Date().toISOString().slice(0, 10)
+      const enriched = (lessons || []).filter(l => l.lesson_date <= today).map(l => {
         const enrol = enrolByClass[l.class_id]
         const lessonCount = lessonCountByClass[l.class_id] || 1
-        const perLesson = enrol ? Math.round((parseFloat(enrol.price) / lessonCount) * 100) / 100 : null
+        const perLesson = enrol?.price != null ? Math.round((parseFloat(enrol.price) / lessonCount) * 100) / 100 : null
         return { ...l, perLesson }
       })
       setAddCreditLessons(enriched)
       setAddCreditLessonsLoading(false)
     })()
-  }, [addCreditModal, addCreditReasonType, addCreditForm.studentId, termId])
+  }, [addCreditModal, addCreditReasonType, addCreditForm.studentId])
 
   // ── Credit handler ────────────────────────────────────────────────────────
   const handleAddCredit = async ({ invoiceId, studentId, amount, reason, notes }) => {
