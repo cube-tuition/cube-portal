@@ -2441,23 +2441,34 @@ export default function DatabasePage() {
   }, [allStaffForLessons, selectedTable])
 
   const handleGenerateLessons = async () => {
-    if (!lessonClassFilter) return
     setGeneratingLessons(true)
-    // Syncs the class's upcoming lessons to its current schedule: adds missing
-    // dates, updates time/room/week on existing future lessons (keeping their
-    // teacher), and removes empty orphaned lessons. Never touches past lessons.
-    const { data, error } = await supabase.rpc('sync_lessons_for_class', { p_class_id: Number(lessonClassFilter) })
+    // Syncs upcoming lessons to the class schedule: adds missing dates, updates
+    // time/room/week on existing future lessons (keeping their teacher), and
+    // removes empty orphaned lessons. Never touches past lessons. With "All
+    // classes" selected it syncs every class in the current term filter.
+    const targets = lessonClassFilter
+      ? allClassesForFilter.filter(c => String(c.id) === String(lessonClassFilter))
+      : allClassesForFilter
+    const totals = { inserted: 0, updated: 0, deleted: 0, protected: 0 }
+    const skipped = [], failed = []
+    for (const cls of targets) {
+      if (!cls.day_of_week) { skipped.push(cls.class_name); continue }
+      const { data, error } = await supabase.rpc('sync_lessons_for_class', { p_class_id: Number(cls.id) })
+      if (error) { failed.push(`${cls.class_name}: ${error.message}`); continue }
+      for (const k of Object.keys(totals)) totals[k] += (data?.[k] || 0)
+    }
     setGeneratingLessons(false)
-    if (error) { alert(`Could not generate lessons: ${error.message}`); return }
-    const r = data || {}
+    if (!targets.length) { alert('No classes to generate for — check the term filter.'); return }
     const parts = []
-    if (r.inserted) parts.push(`${r.inserted} added`)
-    if (r.updated) parts.push(`${r.updated} updated`)
-    if (r.deleted) parts.push(`${r.deleted} removed`)
-    const note = r.protected
-      ? `\n\n${r.protected} upcoming lesson(s) no longer match the schedule but were kept because they have attendance, notes, a makeup, or are cancelled — remove those manually if needed.`
-      : ''
-    alert(`${parts.length ? 'Lessons synced: ' + parts.join(' · ') + '.' : 'Lessons already up to date.'}${note}`)
+    if (totals.inserted) parts.push(`${totals.inserted} added`)
+    if (totals.updated) parts.push(`${totals.updated} updated`)
+    if (totals.deleted) parts.push(`${totals.deleted} removed`)
+    const notes = []
+    if (totals.protected) notes.push(`${totals.protected} upcoming lesson(s) no longer match the schedule but were kept because they have attendance, notes, a makeup, or are cancelled — remove those manually if needed.`)
+    if (skipped.length) notes.push(`Skipped (no day set): ${skipped.join(', ')}.`)
+    if (failed.length) notes.push(`Failed: ${failed.join(' · ')}`)
+    const scope = lessonClassFilter ? '' : ` across ${targets.length} classes`
+    alert(`${parts.length ? `Lessons synced${scope}: ` + parts.join(' · ') + '.' : `Lessons already up to date${scope}.`}${notes.length ? '\n\n' + notes.join('\n') : ''}`)
     setReloadKey(k => k + 1)
   }
 
@@ -3842,9 +3853,9 @@ export default function DatabasePage() {
                   {lessonViewMode === 'lessons' && (
                   <button
                     onClick={handleGenerateLessons}
-                    disabled={!lessonClassFilter || generatingLessons || loading}
+                    disabled={generatingLessons || loading}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Sync this class's upcoming lessons to its schedule: add missing dates, update time/room on future lessons (keeping their teacher), and remove empty orphaned lessons. Past lessons are never changed."
+                    title="Sync upcoming lessons to the class schedule: add missing dates, update time/room on future lessons (keeping their teacher), and remove empty orphaned lessons. Past lessons are never changed. With “All classes” selected, syncs every class in the term."
                   >
                     {generatingLessons ? '⟳ Generating…' : '⟳ Generate Lessons'}
                   </button>
