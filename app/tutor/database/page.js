@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
-import { fetchAllTerms, getCurrentTerm, getEnrolmentTerm } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import TutorNav from '../../../components/TutorNav'
 import { buildClassLabelMap } from '../../../lib/classLabels'
@@ -782,7 +782,7 @@ function FamiliesView() {
         for (const r of [stuRes, gRes, invRes]) if (r.error) throw new Error(r.error.message)
         const students = stuRes.data ?? [], guardians = gRes.data ?? [], invoices = invRes.data ?? []
         setTermById(Object.fromEntries((allTerms ?? []).map(t => [t.id, t])))
-        setCurrentTermId(getCurrentTerm(allTerms ?? [])?.id ?? null)
+        setCurrentTermId(getEnrolmentTerm(allTerms ?? [])?.id ?? null)
 
         const guardiansByStudent = {}
         for (const g of guardians) (guardiansByStudent[String(g.student_id)] = guardiansByStudent[String(g.student_id)] ?? []).push(g)
@@ -1593,12 +1593,14 @@ export default function DatabasePage() {
       // Fetch all terms (used for invoice generation selector + new class defaults)
       const terms = await fetchAllTerms()
       setAllTerms(terms || [])
-      const cur = getCurrentTerm(terms)
+      // Default to the enrolment term: the in-progress term while teaching,
+      // or (during the break) the next upcoming one — not the term just ended.
+      const cur = getEnrolmentTerm(terms)
       if (cur) {
         setCurrentTermId(cur.id)
         setCurrentTermName(cur.name || `Term ${cur.term_number} ${cur.year}`)
-        setInvoiceTermId(cur.id)    // default invoice generation to current term
-        setDbTermFilter(cur.id)     // default table term filter to current term
+        setInvoiceTermId(cur.id)    // default invoice generation to this term
+        setDbTermFilter(cur.id)     // default table term filter to this term
       }
 
       // Check Xero connection status
