@@ -869,7 +869,7 @@ function InvoiceDashboardInner() {
                             ))}
                             {creditLines.map((l, i) => (
                               <tr key={`c${i}`} className="border-b border-[#F0F4FF] last:border-0">
-                                <td className="py-1.5 text-[#065F46] italic" colSpan={2}>Credit: {l.reason}</td>
+                                <td className="py-1.5 text-[#065F46] italic" colSpan={2}>Credit: {(l.reason || '').replace(/^credit\s*[-–:]\s*/i, '')}</td>
                                 <td className="py-1.5 text-right text-[#065F46]">({fmtMoney(Math.abs(l.amount))})</td>
                               </tr>
                             ))}
@@ -1167,7 +1167,7 @@ function InvoiceDashboardInner() {
                             const dateStr = `${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getFullYear()}`
                             setAddCreditForm(f => ({
                               ...f,
-                              reason: `Credit - Absence for ${lesson.classes?.class_name || 'class'} on ${dayName} ${dateStr}`,
+                              reason: `Absence for ${lesson.classes?.class_name || 'class'} on ${dayName} ${dateStr}`,
                               amount: lesson.perLesson != null ? String(lesson.perLesson) : f.amount,
                             }))
                           }
