@@ -396,13 +396,23 @@ function InvoiceDashboardInner() {
 
   // ── Credit handler ────────────────────────────────────────────────────────
   const handleAddCredit = async ({ invoiceId, studentId, amount, reason, notes }) => {
+    const amt = Number(amount)
     const { error: err } = await supabase.from('student_credits').insert({
-      student_id: studentId, amount: Number(amount), reason,
+      student_id: studentId, amount: amt, reason,
       notes: notes?.trim() || null, invoice_id: invoiceId,
     })
     if (err) { setError('Failed to add credit: ' + err.message); return }
     const inv = invoices.find(i => i.id === invoiceId)
-    if (inv) await supabase.from('invoices').update({ total: Math.max(0, Number(inv.total) - Number(amount)) }).eq('id', invoiceId)
+    if (inv) {
+      // Show the credit as its own line (like the discount lines), then recompute
+      // the total from the line items so the breakdown matches the total.
+      const REASON_LABELS = { missed_lesson: 'Missed lesson', late_start: 'Late start', other: 'Adjustment' }
+      const who   = (inv.line_items || []).find(l => l.student_id === studentId)?.student_name?.split(' ')[0]
+      const label = `${REASON_LABELS[reason] || 'Adjustment'}${notes?.trim() ? ' — ' + notes.trim() : ''}${who ? ' (' + who + ')' : ''}`
+      const newLineItems = [...(inv.line_items || []), { type: 'credit', reason: label, amount: -amt }]
+      const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
+      await supabase.from('invoices').update({ line_items: newLineItems, subtotal: newTotal, total: newTotal }).eq('id', invoiceId)
+    }
     setCreditModal(null)
     await loadInvoices()
   }
