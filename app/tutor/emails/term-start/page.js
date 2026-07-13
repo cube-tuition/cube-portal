@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
 import { fmtDate } from '../../../../lib/format'
 import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
@@ -197,9 +197,11 @@ function TermStartEmailPageInner() {
     })
     fetchAllTerms().then(allTerms => {
       setTerms(allTerms)
-      // Default to the current term (unless one was passed via ?termId=)
+      // Default to the term families are starting/joining — the in-progress
+      // term, or (during the break) the next upcoming one. A term-start email
+      // is about the term ahead, so once a term ends we jump to the next.
       if (!searchParams.get('termId')) {
-        const cur = getCurrentTerm(allTerms)
+        const cur = getEnrolmentTerm(allTerms)
         if (cur) setTermId(prev => prev || cur.id)
       }
     })
