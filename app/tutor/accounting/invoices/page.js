@@ -83,6 +83,23 @@ function getWarnings(inv, prevUnpaid) {
   return w
 }
 
+// Order credit lines: dated ones (absences — "… on Tuesday 23 Jun 2026") first,
+// chronologically, then undated credits (referral rewards etc.) in saved order.
+const CREDIT_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 }
+function creditLineDate(reason) {
+  const m = /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+(\d{4})/i.exec(reason || '')
+  return m ? new Date(Number(m[3]), CREDIT_MONTHS[m[2].slice(0, 3).toLowerCase()], Number(m[1])).getTime() : null
+}
+function sortCreditLines(lines) {
+  return [...lines].sort((a, b) => {
+    const da = creditLineDate(a.reason), db = creditLineDate(b.reason)
+    if (da != null && db != null) return da - db
+    if (da != null) return -1
+    if (db != null) return 1
+    return 0
+  })
+}
+
 
 export default function InvoiceDashboard() {
   return <Suspense><InvoiceDashboardInner /></Suspense>
@@ -808,7 +825,7 @@ function InvoiceDashboardInner() {
                   const subtotal = total  // displayed in totals row
                   const enrolLines    = (inv.line_items || []).filter(l => l.type === 'enrolment')
                   const discountLines = (inv.line_items || []).filter(l => l.type === 'discount')
-                  const creditLines   = (inv.line_items || []).filter(l => l.type === 'credit')
+                  const creditLines   = sortCreditLines((inv.line_items || []).filter(l => l.type === 'credit'))
 
                   return (
                     <div key={inv.id} className={`bg-white rounded-2xl border overflow-hidden transition ${warnings.length ? 'border-[#FDE047]' : 'border-[#DEE7FF]'}`}>
