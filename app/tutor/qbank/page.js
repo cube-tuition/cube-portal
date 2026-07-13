@@ -12,6 +12,7 @@ import {
 import {
   fetchTaxonomy, yearsFromSubjects, deleteQbankImage, qbankImageUrl,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
+  buildTaxonomyMaps, labelForQuestion,
 } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
 
@@ -54,24 +55,9 @@ export default function QuestionBankPage() {
     })
   }, [router, loadQuestions])
 
-  // taxonomy lookup maps
-  const maps = useMemo(() => {
-    if (!tax) return null
-    const skill = Object.fromEntries(tax.skills.map((s) => [s.id, s]))
-    const subtopic = Object.fromEntries(tax.subtopics.map((st) => [st.id, st]))
-    const topic = Object.fromEntries(tax.topics.map((t) => [t.id, t]))
-    const subject = Object.fromEntries(tax.subjects.map((s) => [s.id, s]))
-    return { skill, subtopic, topic, subject }
-  }, [tax])
-
-  const labelFor = useCallback((q) => {
-    if (!maps) return null
-    const sk = maps.skill[q.skill_id]
-    const stp = (sk && maps.subtopic[sk.subtopic_id]) || maps.subtopic[q.subtopic_id]
-    const tp = (stp && maps.topic[stp.topic_id]) || (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
-    const su = tp && maps.subject[tp.subject_id]
-    return { skill: sk, subtopic: stp, topic: tp, subject: su }
-  }, [maps])
+  // taxonomy lookup maps (shared helpers in lib/qbank)
+  const maps = useMemo(() => buildTaxonomyMaps(tax), [tax])
+  const labelFor = useCallback((q) => labelForQuestion(q, maps), [maps])
 
   // filter dropdown lists
   // Years available for the active subject only (e.g. Chemistry → 11, 12).

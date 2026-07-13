@@ -1,13 +1,13 @@
 'use client'
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useMemo, useCallback, useRef, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
-import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage } from '../../../../lib/qbank'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion } from '../../../../lib/qbank'
 import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
@@ -15,13 +15,19 @@ import DocLivePreview from '../../../../components/qbank/DocLivePreview'
 
 /*
  * Additional Questions — /tutor/qbank/worksheets
- * Persistent, editable worksheets saved in qbank_worksheets. Unlike the ad-hoc
- * Generate page, these keep their question list (ordered ids in question_ids)
- * so they can be reopened, edited and re-exported any time.
+ * THE worksheet builder: persistent, autosaved worksheets in qbank_worksheets
+ * (ordered ids in question_ids) that can be reopened, edited and re-exported
+ * any time. The Generate page's ad-hoc builder was merged into this — arriving
+ * with ?new=1 creates a worksheet and drops straight into the editor.
  */
 
 export default function AdditionalQuestionsPage() {
+  return <Suspense><AdditionalQuestionsInner /></Suspense>
+}
+
+function AdditionalQuestionsInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -82,7 +88,20 @@ export default function AdditionalQuestionsPage() {
         .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
         .order('created_at', { ascending: false })
         .then(({ data }) => { setQuestions(data || []); setLoadingQ(false) })
+      // Arriving from Generate (?new=1): create a worksheet and open it straight away.
+      if (searchParams.get('new') === '1') {
+        supabase.from(T_QBANK_WORKSHEETS)
+          .insert({ title: 'Untitled worksheet', question_ids: [], created_by: profile?.full_name || null })
+          .select('*').single()
+          .then(({ data, error }) => {
+            if (error || !data) return
+            setSelectedId(data.id); setTitle(data.title || ''); setSubtitle(''); setTray([]); setDirty(false)
+            loadWorksheets()
+            router.replace('/tutor/qbank/worksheets')   // drop ?new=1 so refresh doesn't create another
+          })
+      }
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, loadWorksheets])
 
   const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
@@ -171,24 +190,9 @@ export default function AdditionalQuestionsPage() {
     loadWorksheets()
   }
 
-  // taxonomy helpers (same pattern as Generate page)
-  const maps = useMemo(() => {
-    if (!tax) return null
-    return {
-      skill: Object.fromEntries(tax.skills.map((s) => [s.id, s])),
-      subtopic: Object.fromEntries(tax.subtopics.map((st) => [st.id, st])),
-      topic: Object.fromEntries(tax.topics.map((t) => [t.id, t])),
-      subject: Object.fromEntries(tax.subjects.map((s) => [s.id, s])),
-    }
-  }, [tax])
-  const labelFor = useCallback((q) => {
-    if (!maps) return null
-    const sk = maps.skill[q.skill_id]
-    const stp = (sk && maps.subtopic[sk.subtopic_id]) || maps.subtopic[q.subtopic_id]
-    const tp = (stp && maps.topic[stp.topic_id]) || (sk && maps.topic[sk.topic_id]) || maps.topic[q.topic_id]
-    const su = tp && maps.subject[tp.subject_id]
-    return { skill: sk, subtopic: stp, topic: tp, subject: su }
-  }, [maps])
+  // taxonomy helpers (shared with the list page and exam builder)
+  const maps = useMemo(() => buildTaxonomyMaps(tax), [tax])
+  const labelFor = useCallback((q) => labelForQuestion(q, maps), [maps])
 
   const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects) : []), [tax])
   const subjectsForYear = useMemo(() => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []), [tax, year])

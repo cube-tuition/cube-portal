@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import LatexContent from '../../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS } from '../../../../../lib/tables'
-import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage } from '../../../../../lib/qbank'
+import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps } from '../../../../../lib/qbank'
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuickEditModal from '../../../../../components/qbank/QuickEditModal'
@@ -72,16 +72,8 @@ export default function ExamBuilderPage() {
     })
   }, [router, id, loadQuestions])
 
-  // ── taxonomy maps ───────────────────────────────────────────────────────────
-  const maps = useMemo(() => {
-    if (!tax) return null
-    return {
-      skill: Object.fromEntries(tax.skills.map((s) => [s.id, s])),
-      subtopic: Object.fromEntries(tax.subtopics.map((st) => [st.id, st])),
-      topic: Object.fromEntries(tax.topics.map((t) => [t.id, t])),
-      subject: Object.fromEntries(tax.subjects.map((s) => [s.id, s])),
-    }
-  }, [tax])
+  // ── taxonomy maps (shared helper in lib/qbank) ─────────────────────────────
+  const maps = useMemo(() => buildTaxonomyMaps(tax), [tax])
   const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
   const rubricById = useMemo(() => Object.fromEntries(rubrics.map((r) => [r.id, r])), [rubrics])
   const isEnglish = exam?.paper_type === 'english'
