@@ -413,6 +413,54 @@ function InvoiceDashboardInner() {
     })()
   }, [addCreditModal, addCreditReasonType, addCreditForm.studentId])
 
+  // ── Manual line editing (drafts only) ───────────────────────────────────
+  // lineModal: { invoiceId, index, type, reason, amount } — index null = add new line
+  const [lineModal, setLineModal] = useState(null)
+  const recomputeAndSave = async (invoiceId, items) => {
+    const newTotal = Math.max(0, items.reduce((s, l) => s + (Number(l.amount) || 0), 0))
+    const { error } = await supabase.from('invoices')
+      .update({ line_items: items, subtotal: newTotal, total: newTotal }).eq('id', invoiceId)
+    if (error) { setError('Failed to save line: ' + error.message); return false }
+    return true
+  }
+  const saveLineEdit = async ({ reason, amount }) => {
+    const { invoiceId, index } = lineModal
+    const inv = invoices.find(i => i.id === invoiceId)
+    if (!inv) return
+    const items = [...(inv.line_items || [])]
+    const amt = Number(amount)
+    if (index == null) {
+      items.push({ type: 'adjustment', reason: reason.trim() || 'Adjustment', amount: amt })
+    } else {
+      const l = { ...items[index] }
+      if (l.type === 'enrolment') {
+        l.class_name = reason.trim() || l.class_name
+        l.unit_price = amt
+        l.amount     = amt
+      } else if (l.type === 'discount' || l.type === 'credit') {
+        l.reason = reason.trim() || l.reason
+        l.amount = -Math.abs(amt)
+      } else {
+        l.reason = reason.trim() || l.reason
+        l.amount = amt
+      }
+      items[index] = l
+    }
+    if (await recomputeAndSave(invoiceId, items)) { setLineModal(null); await loadInvoices() }
+  }
+  const removeLine = async (inv, index) => {
+    const l = (inv.line_items || [])[index]
+    if (!l) return
+    const desc = l.type === 'enrolment'
+      ? `${l.student_name} — ${l.class_name} (${fmtMoney(l.amount)})`
+      : `${l.reason} (${fmtMoney(l.amount)})`
+    if (!confirm(`Remove this line from ${inv.invoice_number || 'this invoice'}?\n\n${desc}\n\nThe invoice total will be recalculated.`)) return
+    const typed = prompt('Final confirmation — type REMOVE (in capitals) to delete this line:')
+    if ((typed || '').trim() !== 'REMOVE') { alert('Removal cancelled — the confirmation text didn’t match.'); return }
+    const items = (inv.line_items || []).filter((_, i) => i !== index)
+    if (await recomputeAndSave(inv.id, items)) await loadInvoices()
+  }
+
   // ── Credit handler ────────────────────────────────────────────────────────
   const handleAddCredit = async ({ invoiceId, studentId, amount, reason, notes }) => {
     const amt = Number(amount)
@@ -825,9 +873,22 @@ function InvoiceDashboardInner() {
                   const total    = parseFloat(inv.total) || 0
                   const gst      = inv.is_legacy ? 0 : total / 11
                   const subtotal = total  // displayed in totals row
-                  const enrolLines    = (inv.line_items || []).filter(l => l.type === 'enrolment')
-                  const discountLines = (inv.line_items || []).filter(l => l.type === 'discount')
-                  const creditLines   = sortCreditLines((inv.line_items || []).filter(l => l.type === 'credit'))
+                  // _idx = position in the stored line_items array — needed so
+                  // edit/remove target the right line after filtering/sorting.
+                  const numbered      = (inv.line_items || []).map((l, idx) => ({ ...l, _idx: idx }))
+                  const enrolLines    = numbered.filter(l => l.type === 'enrolment')
+                  const discountLines = numbered.filter(l => l.type === 'discount')
+                  const creditLines   = sortCreditLines(numbered.filter(l => l.type === 'credit'))
+                  const otherLines    = numbered.filter(l => !['enrolment', 'discount', 'credit'].includes(l.type))
+                  const editable      = inv.status === 'draft'
+                  const lineActions = (l) => editable ? (
+                    <td className="py-1.5 pl-2 text-right whitespace-nowrap w-12">
+                      <button onClick={() => setLineModal({ invoiceId: inv.id, index: l._idx, type: l.type, reason: l.type === 'enrolment' ? (l.class_name || '') : (l.reason || ''), amount: Math.abs(Number(l.amount) || 0) })}
+                        title="Edit this line" className="text-[#325099]/40 hover:text-[#325099] px-1">✎</button>
+                      <button onClick={() => removeLine(inv, l._idx)}
+                        title="Remove this line" className="text-[#325099]/40 hover:text-[#DC2626] px-1">✕</button>
+                    </td>
+                  ) : null
 
                   return (
                     <div key={inv.id} className={`bg-white rounded-2xl border overflow-hidden transition ${warnings.length ? 'border-[#FDE047]' : 'border-[#DEE7FF]'}`}>
@@ -895,22 +956,40 @@ function InvoiceDashboardInner() {
                                   {l.day && <span className="text-[#325099]/40 ml-1">· {l.day}{l.start_time ? ` ${l.start_time}` : ''}</span>}
                                 </td>
                                 <td className="py-1.5 text-right text-[#325099]">{fmtMoney(l.amount)}</td>
+                                {lineActions(l)}
                               </tr>
                             ))}
                             {discountLines.map((l, i) => (
                               <tr key={`d${i}`} className="border-b border-[#F0F4FF] last:border-0">
                                 <td className="py-1.5 text-[#7C3AED] italic" colSpan={2}>{l.reason}</td>
                                 <td className="py-1.5 text-right text-[#7C3AED]">({fmtMoney(Math.abs(l.amount))})</td>
+                                {lineActions(l)}
                               </tr>
                             ))}
                             {creditLines.map((l, i) => (
                               <tr key={`c${i}`} className="border-b border-[#F0F4FF] last:border-0">
                                 <td className="py-1.5 text-[#065F46] italic" colSpan={2}>Credit: {(l.reason || '').replace(/^credit\s*[-–:]\s*/i, '')}</td>
                                 <td className="py-1.5 text-right text-[#065F46]">({fmtMoney(Math.abs(l.amount))})</td>
+                                {lineActions(l)}
+                              </tr>
+                            ))}
+                            {otherLines.map((l, i) => (
+                              <tr key={`o${i}`} className="border-b border-[#F0F4FF] last:border-0">
+                                <td className="py-1.5 text-[#2A2035]/70 italic" colSpan={2}>{l.reason || 'Adjustment'}</td>
+                                <td className={`py-1.5 text-right ${Number(l.amount) < 0 ? 'text-[#7C3AED]' : 'text-[#325099]'}`}>
+                                  {Number(l.amount) < 0 ? `(${fmtMoney(Math.abs(l.amount))})` : fmtMoney(l.amount)}
+                                </td>
+                                {lineActions(l)}
                               </tr>
                             ))}
                           </tbody>
                         </table>
+                        {editable && (
+                          <button
+                            onClick={() => setLineModal({ invoiceId: inv.id, index: null, type: 'adjustment', reason: '', amount: '' })}
+                            className="mt-1.5 text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099] transition"
+                          >+ Add line</button>
+                        )}
 
                         {/* Totals row */}
                         <div className="mt-2 pt-2 border-t border-[#DEE7FF] flex justify-end gap-6 text-xs text-[#325099]/70">
@@ -1332,6 +1411,13 @@ function InvoiceDashboardInner() {
       </div>
 
       {/* Modals */}
+      {lineModal && (
+        <EditLineModal
+          initial={lineModal}
+          onClose={() => setLineModal(null)}
+          onSave={saveLineEdit}
+        />
+      )}
       {creditModal && (
         <AddCreditModal
           members={creditModal.members}
@@ -1435,6 +1521,63 @@ function InvoiceDashboardInner() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Edit / add invoice line modal (drafts only) ───────────────────────────────
+function EditLineModal({ initial, onClose, onSave }) {
+  const isNew = initial.index == null
+  const isNegType = initial.type === 'discount' || initial.type === 'credit'
+  const [reason, setReason] = useState(initial.reason || '')
+  const [amount, setAmount] = useState(initial.amount === '' ? '' : String(initial.amount))
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (amount === '' || Number.isNaN(Number(amount))) return
+    setSaving(true)
+    await onSave({ reason, amount })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-[#2A2035] text-sm">
+            {isNew ? 'Add invoice line' : `Edit ${initial.type === 'enrolment' ? 'enrolment' : initial.type} line`}
+          </h3>
+          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
+        </div>
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">
+            {initial.type === 'enrolment' ? 'Class description' : 'Description'}
+          </label>
+          <input type="text" value={reason} onChange={e => setReason(e.target.value)}
+            placeholder={isNew ? 'e.g. Trial lesson fee / Goodwill discount' : ''}
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+        </div>
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Amount ($)</label>
+          <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
+            placeholder="e.g. 50"
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+          <p className="text-[10px] text-[#2A2035]/40 mt-1">
+            {isNegType
+              ? 'Enter the positive amount — it is applied as a deduction.'
+              : isNew
+                ? 'Positive adds a charge; negative applies a deduction.'
+                : 'The invoice total recalculates automatically.'}
+          </p>
+        </div>
+        <div className="flex gap-2 justify-end pt-1">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={submit} disabled={saving || amount === '' || Number.isNaN(Number(amount))}
+            className="px-5 py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">
+            {saving ? 'Saving…' : isNew ? 'Add line' : 'Save'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

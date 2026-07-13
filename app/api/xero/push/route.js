@@ -124,6 +124,16 @@ export async function POST(req) {
         return item
       }
 
+      // Manually added lines ('adjustment') — signed amount as-is: positive
+      // charge uses the enrolment account, deduction the discount account.
+      if (l.type === 'adjustment') {
+        const amt = Number(l.amount) || 0
+        const item = { Description: l.reason || 'Adjustment', Quantity: 1, UnitAmount: amt }
+        const code = amt < 0 ? xeroSettings?.discount_account_code : xeroSettings?.enrolment_account_code
+        if (code) item.AccountCode = code
+        return item
+      }
+
       return null
     }).filter(Boolean)
 
