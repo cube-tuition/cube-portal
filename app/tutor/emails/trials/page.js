@@ -8,81 +8,59 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getEnrolmentTerm } from '../../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
-import { fmtDate } from '../../../../lib/format'
 import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
 import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey } from '../../../../lib/emailOverrides'
 
 /*
- * Term Start Emails — /tutor/emails/term-start
+ * Trial Reminder Emails — /tutor/emails/trials
  *
- * Sends re-enrolment confirmation emails to families at the start of a new term.
- * Loads active enrolments for the selected term, groups by family, and sends
- * personalised emails with class details and term dates via Resend.
+ * For NEW students about to trial: students whose enrolments in the selected
+ * term are ALL trials (existing students trialling an extra course are handled
+ * by the term-start email, where the extra course shows a "(Trial)" marker).
+ * Sends a welcome/reminder with the first-lesson date — no invoice attached.
+ * Trials happen throughout the term, so this page lives separately from the
+ * term-start flow. Sends go through the same API route with attach_invoices
+ * off (a mixed family has an invoice, but it doesn't belong on this email).
  */
 
-const TEMPLATE_KEY = 'cube_term_start_template'
-const SUBJECT_KEY  = 'cube_term_start_subject'
-const DEFAULT_SUBJECT = '{{term_name}} — Re-enrolment Confirmation | CUBE Tuition'
+const TEMPLATE_KEY = 'cube_trials_template'
+const SUBJECT_KEY  = 'cube_trials_subject'
+const DEFAULT_SUBJECT = 'Your trial lesson{{plural}} at CUBE'
 
 const DEFAULT_TEMPLATE = `Dear {{parent_name}},
 
-We hope you had a great experience with CUBE during the previous term! As **{{term_name}}** approaches, we'd like to share a few important reminders regarding your child's enrolment. Attached to this email you'll find the invoice for {{term_name}}.
+Welcome to CUBE! We're excited to have {{student_names}} joining us for a trial lesson{{plural}}.
 
-First and foremost, if you have any feedback or questions, please feel free to reach out — we are always here to help and would love to hear your thoughts.
-
-For your reference, here are the enrolment details and lesson times for {{term_name}}:
+Here are the trial details:
 
 {{class_details}}
 
-{{term_name}} starts on {{term_start}}.
+There's nothing to pay for the trial — just arrive a few minutes early and our team will look after the rest.
 
-Please review the attached invoice. If you would like to make any changes or adjustments, don't hesitate to let us know — we're happy to assist.
+We'll be in touch after the lesson to hear how it went and to help with next steps if you'd like to continue.
 
-Thank you once again for your continued support, and we look forward to another great term ahead!
+If you have any questions before then, just reply to this email.
 
 Kind regards,
 The CUBE Team`
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function followupDate() {
-  const d = new Date()
-  d.setDate(d.getDate() + 7)
-  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
-}
-
-
-function buildTermDates(term) {
-  if (!term) return ''
-  const weeks = term.start_date && term.end_date
-    ? Math.round((new Date(term.end_date) - new Date(term.start_date)) / (7 * 86400000)) + 1
-    : null
-  return `${fmtDate(term.start_date)} to ${fmtDate(term.end_date)}${weeks ? ` (${weeks} weeks)` : ''}`
-}
-
+// Trial schedule lines show the actual FIRST lesson date, not just the weekday.
 function buildClassDetails(students) {
   const unique = students.filter((s, i, a) =>
     a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i
   )
   return unique.map(s => {
-    const time = [
-      s.class_day,
+    const when = [
+      s.first_lesson_label || s.class_day,
       s.class_start && s.class_end ? `${s.class_start} - ${s.class_end}` : s.class_start,
     ].filter(Boolean).join(' ')
-    // Trial marker sits on the class name (the bold line of the schedule
-    // card), not after the time where it would land on the muted when-line.
-    const trial = s.enr_status === 'trial' ? ' (Trial)' : ''
-    return `  • ${s.student_name} — ${s.class_name}${trial}${time ? ' · ' + time : ''}`
+    return `  • ${s.student_name} — ${s.class_name}${when ? ' · ' + when : ''}`
   }).join('\n')
 }
 
-function fmtStartDate(iso) {
-  if (!iso) return ''
-  return new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
-}
-
-// Render the {{class_details}} bullet lines as a stack of accented schedule
-// cards — one per class, with the day/time called out beneath the class name.
-// Shared shape with the send route (app/api/send-term-start-emails/route.js).
+// Render the {{class_details}} bullet lines as schedule cards — same shape as
+// the term-start preview and the send route.
 function scheduleCardHtml(lines) {
   const rows = lines.filter(l => l.trim()).map(l => {
     const text = l.replace(/^\s*•\s*/, '').trim()
@@ -98,8 +76,6 @@ function scheduleCardHtml(lines) {
   return `<div style="margin:6px 0 16px;">${rows}</div>`
 }
 
-// Split a paragraph block into consecutive runs of bullet lines vs text lines,
-// so a schedule list works even when it shares a block with an intro sentence.
 function segmentBlock(block) {
   const segs = []
   for (const line of block.split('\n')) {
@@ -111,30 +87,25 @@ function segmentBlock(block) {
   return segs
 }
 
-function fillTemplatePreview(template, family, termName, termDates, termStart) {
+function fillTemplatePreview(template, family, termName) {
   const unique       = family.students.filter((s, i, a) => a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i)
-  const firstNames   = unique.map(s => s.student_name.split(' ')[0])
-  const count        = firstNames.length
-  const studentNames = count === 1 ? firstNames[0] : firstNames.slice(0, -1).join(', ') + ' and ' + firstNames.slice(-1)
-  const classDetails = buildClassDetails(family.students)
+  const firstNames   = [...new Set(unique.map(s => s.student_name.split(' ')[0]))]
+  const count        = unique.length
+  const studentNames = firstNames.length === 1 ? firstNames[0] : firstNames.slice(0, -1).join(', ') + ' and ' + firstNames.slice(-1)
 
   return template
     .replace(/\{\{parent_name\}\}/g,    family.parent_name || 'there')
-    .replace(/\{\{term_name\}\}/g,      termName)
+    .replace(/\{\{term_name\}\}/g,      termName || '')
     .replace(/\{\{term_short\}\}/g,     (termName || '').replace(/\s*\d{4}\s*$/, '').trim())
-    .replace(/\{\{term_dates\}\}/g,     termDates)
-    .replace(/\{\{term_start\}\}/g,     termStart || '')
     .replace(/\{\{student_names\}\}/g,  studentNames)
-    .replace(/\{\{class_details\}\}/g,  classDetails)
-    .replace(/\{\{followup_date\}\}/g,  followupDate())
-    .replace(/\[date\]/gi,              followupDate())
+    .replace(/\{\{class_details\}\}/g,  buildClassDetails(family.students))
     .replace(/\{\{possessive\}\}/g,     'their')
     .replace(/\{\{they_have\}\}/g,      'they have')
     .replace(/\{\{plural\}\}/g,         count > 1 ? 's' : '')
 }
 
-function buildPreviewHtml(template, family, termName, termDates, termStart) {
-  const body    = fillTemplatePreview(template, family, termName, termDates, termStart)
+function buildPreviewHtml(template, family, termName) {
+  const body    = fillTemplatePreview(template, family, termName)
   const escaped = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const paras   = escaped.split(/\n\n+/).map(block =>
     segmentBlock(block).map(seg => {
@@ -155,16 +126,24 @@ function buildPreviewHtml(template, family, termName, termDates, termStart) {
   </body></html>`
 }
 
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MON_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function firstLessonLabel(iso) {
+  if (!iso) return ''
+  const d = new Date(iso + 'T00:00:00')
+  return `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MON_NAMES[d.getMonth()]}`
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
-export default function TermStartEmailPage() {
+export default function TrialsEmailPage() {
   return (
     <Suspense>
-      <TermStartEmailPageInner />
+      <TrialsEmailPageInner />
     </Suspense>
   )
 }
 
-function TermStartEmailPageInner() {
+function TrialsEmailPageInner() {
   const router       = useRouter()
   const searchParams = useSearchParams()
 
@@ -181,20 +160,20 @@ function TermStartEmailPageInner() {
     if (typeof window !== 'undefined') return localStorage.getItem(SUBJECT_KEY) || DEFAULT_SUBJECT
     return DEFAULT_SUBJECT
   })
-  const [tab,          setTab]          = useState('preview')
-  const [sending,      setSending]      = useState(false)
+  const [tab,           setTab]           = useState('preview')
+  const [sending,       setSending]       = useState(false)
   const [sendingFamily, setSendingFamily] = useState(null)
-  const [confirmSend,  setConfirmSend]  = useState(null)
+  const [confirmSend,   setConfirmSend]   = useState(null)
   const [previewFamily, setPreviewFamily] = useState(null)
-  const [error,        setError]        = useState(null)
+  const [error,         setError]         = useState(null)
 
-  // Per-family personalised email bodies: { [familyKey]: body }, loaded per term.
-  const [overrides,     setOverrides]     = useState({})
-  const [editFamily,    setEditFamily]    = useState(null)
-  const [editBody,      setEditBody]      = useState('')
+  // Per-family personalised bodies (email_type 'trial_reminder').
+  const [overrides,      setOverrides]      = useState({})
+  const [editFamily,     setEditFamily]     = useState(null)
+  const [editBody,       setEditBody]       = useState('')
   const [savingOverride, setSavingOverride] = useState(false)
 
-  const resultsKey = termId ? `cube_ts_results_${termId}` : null
+  const resultsKey = termId ? `cube_trials_results_${termId}` : null
   const [results, setResults] = useState([])
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -205,9 +184,6 @@ function TermStartEmailPageInner() {
     })
     fetchAllTerms().then(allTerms => {
       setTerms(allTerms)
-      // Default to the term families are starting/joining — the in-progress
-      // term, or (during the break) the next upcoming one. A term-start email
-      // is about the term ahead, so once a term ends we jump to the next.
       if (!searchParams.get('termId')) {
         const cur = getEnrolmentTerm(allTerms)
         if (cur) setTermId(prev => prev || cur.id)
@@ -219,48 +195,50 @@ function TermStartEmailPageInner() {
   // ── Persist + restore results per term ────────────────────────────────────
   useEffect(() => {
     if (!termId) return
-    try { setResults(JSON.parse(localStorage.getItem(`cube_ts_results_${termId}`)) || []) } catch { setResults([]) }
+    try { setResults(JSON.parse(localStorage.getItem(`cube_trials_results_${termId}`)) || []) } catch { setResults([]) }
   }, [termId])
-
   useEffect(() => {
     if (!resultsKey) return
     try { localStorage.setItem(resultsKey, JSON.stringify(results)) } catch {}
   }, [results, resultsKey])
 
-  // ── Load enrolments ───────────────────────────────────────────────────────
+  // ── Load trialling students ───────────────────────────────────────────────
   const loadStudents = useCallback(async () => {
     if (!termId) return
     setLoading(true); setError(null)
     try {
-      // Get classes for this term
       const { data: cls } = await supabase
         .from(T_CLASSES).select('id, class_name, day_of_week, start_time, end_time').eq('term_id', termId)
       const classMap = Object.fromEntries((cls || []).map(c => [c.id, c]))
       const classIds = (cls || []).map(c => c.id)
       if (!classIds.length) { setStudents([]); setLoading(false); return }
 
-      // Active enrolments
+      // All enrolments for the term — a student counts as "trialling" only if
+      // they have trial enrolments and NO active ones (completely new).
       const { data: enr, error: enrErr } = await supabase
         .from(T_ENROLMENTS).select('id, student_id, class_id, status')
         .in('class_id', classIds).in('status', ['active', 'trial'])
       if (enrErr) throw new Error(enrErr.message)
-      if (!enr?.length) { setStudents([]); setLoading(false); return }
+      const activeIds = new Set((enr || []).filter(e => e.status === 'active').map(e => e.student_id))
+      const trialEnr = (enr || []).filter(e => e.status === 'trial' && !activeIds.has(e.student_id))
+      if (!trialEnr.length) { setStudents([]); setLoading(false); return }
 
-      // Students whose enrolments are ALL trials are completely new — they get
-      // the trial reminder from /tutor/emails/trials, not the re-enrolment
-      // email. Keep students with at least one active enrolment (their extra
-      // trial course still shows with a "(Trial)" marker).
-      const activeStudentIds = new Set(enr.filter(e => e.status === 'active').map(e => e.student_id))
-      const enrForEmail = enr.filter(e => activeStudentIds.has(e.student_id))
-      if (!enrForEmail.length) { setStudents([]); setLoading(false); return }
+      // First lesson date per class, so the reminder can name the exact date.
+      const trialClassIds = [...new Set(trialEnr.map(e => e.class_id))]
+      const { data: lessonRows } = await supabase
+        .from('lessons').select('class_id, lesson_date')
+        .in('class_id', trialClassIds).eq('is_makeup', false)
+        .order('lesson_date', { ascending: true })
+      const firstLessonByClass = {}
+      for (const l of lessonRows || []) {
+        if (!(l.class_id in firstLessonByClass)) firstLessonByClass[l.class_id] = l.lesson_date
+      }
 
-      // Students
-      const studentIds = [...new Set(enrForEmail.map(e => e.student_id))]
+      const studentIds = [...new Set(trialEnr.map(e => e.student_id))]
       const { data: studs } = await supabase
         .from(T_STUDENTS).select('id, full_name, year, family_id').in('id', studentIds)
       const studMap = Object.fromEntries((studs || []).map(s => [s.id, s]))
 
-      // Guardians
       let parentMap = {}
       if (studentIds.length) {
         const { data: parents } = await supabase
@@ -268,7 +246,7 @@ function TermStartEmailPageInner() {
         parentMap = Object.fromEntries((parents || []).map(p => [p.student_id, p]))
       }
 
-      const rows = enrForEmail.map(e => {
+      const rows = trialEnr.map(e => {
         const s = studMap[e.student_id] || {}
         const c = classMap[e.class_id]  || {}
         const p = parentMap[e.student_id] || {}
@@ -282,11 +260,13 @@ function TermStartEmailPageInner() {
           class_day:    c.day_of_week || '',
           class_start:  c.start_time?.slice(0, 5) || '',
           class_end:    c.end_time?.slice(0, 5)   || '',
-          enr_status:   e.status || 'active',
+          first_lesson:       firstLessonByClass[e.class_id] || null,
+          first_lesson_label: firstLessonLabel(firstLessonByClass[e.class_id]),
+          enr_status:   'trial',
           parent_name:  p.full_name || '',
           parent_email: p.email || '',
         }
-      }).sort((a, b) => (a.class_name + a.student_name).localeCompare(b.class_name + b.student_name))
+      }).sort((a, b) => (a.first_lesson || '9999').localeCompare(b.first_lesson || '9999') || a.student_name.localeCompare(b.student_name))
 
       setStudents(rows)
     } catch (e) {
@@ -316,16 +296,13 @@ function TermStartEmailPageInner() {
     return Object.values(map)
   }, [students])
 
-  // Load per-family personalised bodies for the selected term.
   useEffect(() => {
-    loadEmailOverrides(termId, 'term_start').then(setOverrides)
+    loadEmailOverrides(termId, 'trial_reminder').then(setOverrides)
   }, [termId])
 
-  const term             = terms.find(t => t.id === termId)
-  const termDates        = buildTermDates(term)
+  const term = terms.find(t => t.id === termId)
   const familiesWithEmail = families.filter(f => f.parent_email)
 
-  // ── Family label ──────────────────────────────────────────────────────────
   function familyLabel(f) {
     const unique     = f.students.filter((s, i, a) => a.findIndex(x => x.student_id === s.student_id) === i)
     const lastNames  = [...new Set(unique.map(s => s.student_name.split(' ').slice(-1)[0]))]
@@ -340,18 +317,19 @@ function TermStartEmailPageInner() {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        term_id:    termId,
-        term_name:  term?.name || '',
-        term_dates: termDates,
-        term_start: fmtStartDate(term?.start_date),
+        term_id:         termId,
+        term_name:       term?.name || '',
         template,
         subject,
         test,
+        attach_invoices: false,   // trial reminders never carry an invoice
         families: fams.map(f => ({
           ...f,
-          family_id:   f.family_id   || null,
+          family_id:   f.family_id || null,
           student_ids: f.students.map(s => s.student_id).filter(Boolean),
-          // A family's personalised body (if any) overrides the shared template.
+          // The route rebuilds class_details from students — feed it the
+          // first-lesson label as the "day" so the exact date is in the email.
+          students:    f.students.map(s => ({ ...s, class_day: s.first_lesson_label || s.class_day, enr_status: 'active' })),
           custom_body: overrides[familyKey(f)] || null,
         })),
       }),
@@ -361,17 +339,17 @@ function TermStartEmailPageInner() {
     return data.results || []
   }
 
-  // ── Per-family email personalisation ────────────────────────────────────────
+  // ── Per-family personalisation ────────────────────────────────────────────
   const openEditor = (family) => {
     const key = familyKey(family)
     setEditFamily(family)
-    setEditBody(overrides[key] ?? fillTemplatePreview(template, family, term?.name || '', termDates, fmtStartDate(term?.start_date)))
+    setEditBody(overrides[key] ?? fillTemplatePreview(template, family, term?.name || ''))
   }
   const saveEditor = async () => {
     if (!editFamily) return
     const key = familyKey(editFamily)
     setSavingOverride(true); setError(null)
-    const { error: err } = await saveEmailOverride(termId, 'term_start', key, editBody, profile?.full_name)
+    const { error: err } = await saveEmailOverride(termId, 'trial_reminder', key, editBody, profile?.full_name)
     setSavingOverride(false)
     if (err) { setError(err.message); return }
     setOverrides(prev => ({ ...prev, [key]: editBody }))
@@ -381,15 +359,13 @@ function TermStartEmailPageInner() {
     if (!editFamily) return
     const key = familyKey(editFamily)
     setSavingOverride(true); setError(null)
-    const { error: err } = await deleteEmailOverride(termId, 'term_start', key)
+    const { error: err } = await deleteEmailOverride(termId, 'trial_reminder', key)
     setSavingOverride(false)
     if (err) { setError(err.message); return }
     setOverrides(prev => { const next = { ...prev }; delete next[key]; return next })
     setEditFamily(null)
   }
 
-  // Test send — exact email to CUBE staff only (marked TEST); leaves the
-  // family's real "sent" status untouched.
   const [testingFamily, setTestingFamily] = useState(null)
   const [testNote, setTestNote] = useState(null)
   const handleTestOne = async (family) => {
@@ -428,15 +404,13 @@ function TermStartEmailPageInner() {
       <TutorNav staffName={profile?.full_name} isAdmin />
 
       <div className="max-w-4xl mx-auto px-6 pt-10 pb-24">
-
-        {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <Link href="/tutor/emails" className="text-sm text-[#325099]/50 hover:text-[#325099] transition">← Emails</Link>
         </div>
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Term Start</h1>
-            <p className="text-sm text-[#325099]/60 mt-1">Send re-enrolment confirmation emails to families at the start of a new term.</p>
+            <h1 className="text-2xl font-bold text-[#062E63]">Trials</h1>
+            <p className="text-sm text-[#325099]/60 mt-1">Trial reminders for new students — first lesson details, no invoice. Existing students trialling an extra course stay in the Term Start email.</p>
           </div>
           <select
             value={termId}
@@ -448,13 +422,12 @@ function TermStartEmailPageInner() {
           </select>
         </div>
 
-        {/* Stats */}
         {students.length > 0 && (
           <div className="flex gap-4 mb-6">
             {[
-              { label: 'Students',  value: students.length },
-              { label: 'Families',  value: familiesWithEmail.length },
-              { label: 'Term dates', value: termDates || '—' },
+              { label: 'Trialling students', value: [...new Set(students.map(s => s.student_id))].length },
+              { label: 'Families',           value: familiesWithEmail.length },
+              { label: 'Next trial',         value: students[0]?.first_lesson_label || '—' },
             ].map(s => (
               <div key={s.label} className="bg-white border border-[#DEE7FF] rounded-xl px-4 py-3 flex-1 text-center">
                 <div className="text-sm font-bold text-[#062E63] leading-tight">{s.value}</div>
@@ -464,7 +437,6 @@ function TermStartEmailPageInner() {
           </div>
         )}
 
-        {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
           {[
             { id: 'preview', label: '① Email template' },
@@ -493,9 +465,8 @@ function TermStartEmailPageInner() {
                 type="text"
                 value={subject}
                 onChange={e => { setSubject(e.target.value); localStorage.setItem(SUBJECT_KEY, e.target.value) }}
-                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-2.5 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/25 mb-1"
+                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-2.5 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/25 mb-5"
               />
-              <p className="text-[11px] text-[#325099]/50 mb-5">Same placeholders work here — e.g. <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>.</p>
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-sm font-bold text-[#062E63]">Email body</h2>
                 <button
@@ -506,12 +477,10 @@ function TermStartEmailPageInner() {
               <p className="text-xs text-[#325099]/60 mb-3">
                 Placeholders: <code className="bg-[#F0F4FF] px-1 rounded">{'{{parent_name}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded">{'{{class_details}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded" title="Full term with year, e.g. Term 3 2026">{'{{term_name}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded" title="Term without the year, e.g. Term 3">{'{{term_short}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_start}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_dates}}'}</code>{' '}
-                <span className="text-[#325099]/40">· Use **bold** for bold text</span>
+                <code className="bg-[#F0F4FF] px-1 rounded" title="Schedule cards with the first lesson date">{'{{class_details}}'}</code>{' '}
+                <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>{' '}
+                <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_short}}'}</code>{' '}
+                <span className="text-[#325099]/40">· Use **bold** for bold text · schedule shows the first lesson date</span>
               </p>
               <textarea
                 value={template}
@@ -520,19 +489,17 @@ function TermStartEmailPageInner() {
                 className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#062E63] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#325099]/25 resize-y"
               />
             </div>
-
           </div>
         )}
 
         {/* ── TAB: Preview & Send ──────────────────────────────────────────── */}
         {tab === 'send' && (
           <div className="space-y-4">
-            {/* Family list */}
             <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
               {termId && students.length > 0 && (
                 <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-3">
                   <span className="text-xs font-semibold text-[#325099]/60">
-                    {familiesWithEmail.length} {familiesWithEmail.length === 1 ? 'family' : 'families'} · siblings grouped into one email · new trial students are emailed from the Trials page
+                    {familiesWithEmail.length} {familiesWithEmail.length === 1 ? 'family' : 'families'} with new students trialling · no invoice attached
                   </span>
                 </div>
               )}
@@ -542,7 +509,9 @@ function TermStartEmailPageInner() {
               ) : !termId ? (
                 <div className="text-center py-12 text-[#325099]/40 text-sm">Select a term to get started.</div>
               ) : familiesWithEmail.length === 0 ? (
-                <div className="text-center py-12 text-[#325099]/40 text-sm">No families with email addresses found for this term.</div>
+                <div className="text-center py-12 text-[#325099]/40 text-sm">
+                  No new trialling students for this term. Students appear here when all their enrolments are trials — mark an enrolment&apos;s status as <span className="font-semibold">trial</span> in the database.
+                </div>
               ) : (
                 <div className="divide-y divide-[#DEE7FF]">
                   {[...familiesWithEmail].sort((a, b) => {
@@ -559,29 +528,23 @@ function TermStartEmailPageInner() {
                           <div className={`font-semibold text-sm ${sentResult?.success ? 'text-[#166534]' : 'text-[#062E63]'}`}>{label}</div>
                           <div className="text-xs text-[#325099]/50 mt-0.5">{f.parent_email}</div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {f.students.filter((s, idx, arr) => arr.findIndex(x => x.student_id === s.student_id && x.class_id === s.class_id) === idx).map(s => (
-                              <span key={`${s.student_id}_${s.class_id}`} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#EEF3FF] text-[#325099]">
-                                {s.student_name.split(' ')[0]} · {s.class_name}
+                            {f.students.map(s => (
+                              <span key={`${s.student_id}_${s.class_id}`} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">
+                                {s.student_name.split(' ')[0]} · {s.class_name}{s.first_lesson_label ? ` · ${s.first_lesson_label}` : ''}
                               </span>
                             ))}
                           </div>
                         </div>
                         <div className="flex-shrink-0 flex flex-col items-end gap-2">
                           {sentResult ? (
-                            sentResult.success ? (
-                              <div className="flex flex-col items-end gap-1">
-                                <span className="text-xs font-semibold text-[#10b981] bg-[#D1FAE5] px-3 py-1 rounded-full">✓ Sent</span>
-                                {sentResult.invoiceAttached
-                                  ? <span className="text-[10px] font-semibold text-[#325099] bg-[#EEF3FF] px-2 py-0.5 rounded-full">📎 {sentResult.invoiceNumber}</span>
-                                  : <span className="text-[10px] text-[#92400E] bg-[#FEF3C7] px-2 py-0.5 rounded-full">⚠ no invoice attached</span>
-                                }
-                              </div>
-                            ) : (
-                              <div className="text-right">
-                                <span className="text-xs font-semibold text-red-600 bg-red-50 px-3 py-1 rounded-full">✗ Failed</span>
-                                {sentResult.error && <p className="text-[10px] text-red-500 mt-1 max-w-[180px] leading-tight">{sentResult.error}</p>}
-                              </div>
-                            )
+                            sentResult.success
+                              ? <span className="text-xs font-semibold text-[#10b981] bg-[#D1FAE5] px-3 py-1 rounded-full">✓ Sent</span>
+                              : (
+                                <div className="text-right">
+                                  <span className="text-xs font-semibold text-red-600 bg-red-50 px-3 py-1 rounded-full">✗ Failed</span>
+                                  {sentResult.error && <p className="text-[10px] text-red-500 mt-1 max-w-[180px] leading-tight">{sentResult.error}</p>}
+                                </div>
+                              )
                           ) : null}
                           <div className="flex gap-1.5">
                             {overrides[familyKey(f)] && (
@@ -615,36 +578,23 @@ function TermStartEmailPageInner() {
               )}
             </div>
 
-            {/* Test send confirmation */}
             {testNote && (
               <div className="bg-[#FFFBEB] border border-[#FDE68A] text-[#92400E] text-xs font-semibold px-4 py-3 rounded-xl">
                 🧪 {testNote}
               </div>
             )}
 
-            {/* Families without email */}
             {families.filter(f => !f.parent_email).length > 0 && (
               <div className="bg-[#FEF9C3] border border-[#FDE047] text-[#854D0E] text-xs font-medium px-4 py-3 rounded-xl">
                 ⚠ {families.filter(f => !f.parent_email).length} {families.filter(f => !f.parent_email).length === 1 ? 'family has' : 'families have'} no email on file and will be skipped.
               </div>
             )}
 
-            {/* Results summary */}
             {results.length > 0 && (
               <div className="bg-[#D1FAE5] border border-[#34D399] rounded-xl px-5 py-4">
                 <p className="text-sm font-semibold text-[#065F46]">
-                  ✓ {results.filter(r => r.success).length} of {results.length} emails sent
-                  {results.filter(r => r.invoiceAttached).length > 0 && (
-                    <span className="ml-2 font-normal text-[#065F46]/80">
-                      · 📎 {results.filter(r => r.invoiceAttached).length} with invoice attached
-                    </span>
-                  )}
+                  ✓ {results.filter(r => r.success).length} of {results.length} trial reminders sent
                 </p>
-                {results.filter(r => r.success && !r.invoiceAttached).length > 0 && (
-                  <p className="text-xs text-[#92400E] mt-1">
-                    ⚠ {results.filter(r => r.success && !r.invoiceAttached).length} sent without invoice (approve invoices first): {results.filter(r => r.success && !r.invoiceAttached).map(r => r.family).join(', ')}
-                  </p>
-                )}
                 {results.filter(r => !r.success).length > 0 && (
                   <p className="text-xs text-red-600 mt-1">
                     {results.filter(r => !r.success).length} failed: {results.filter(r => !r.success).map(r => r.family).join(', ')}
@@ -662,11 +612,11 @@ function TermStartEmailPageInner() {
                     ? <span className="text-xs text-[#325099]/50">{familiesWithEmail.length - unsent.length} already sent</span>
                     : <span />}
                   <button
-                    onClick={() => unsent.length && setConfirmSend({ families: unsent, isBulk: true, label: `Send to ${unsent.length} unsent ${unsent.length === 1 ? 'family' : 'families'}`, detail: `${term?.name || 'this term'} · ${unsent.length} email${unsent.length > 1 ? 's' : ''}` })}
+                    onClick={() => unsent.length && setConfirmSend({ families: unsent, isBulk: true, label: `${unsent.length} trial ${unsent.length === 1 ? 'family' : 'families'}`, detail: `${term?.name || 'this term'} · trial reminder, no invoice` })}
                     disabled={sending || unsent.length === 0}
                     className="bg-[#062E63] text-white text-sm font-semibold px-8 py-3 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
                   >
-                    {sending ? 'Sending…' : unsent.length === 0 ? '✓ All sent' : `✉ Send to ${unsent.length} unsent ${unsent.length === 1 ? 'family' : 'families'}`}
+                    {sending ? 'Sending…' : unsent.length === 0 ? '✓ All sent' : `✉ Send ${unsent.length} trial ${unsent.length === 1 ? 'reminder' : 'reminders'}`}
                   </button>
                 </div>
               )
@@ -682,7 +632,7 @@ function TermStartEmailPageInner() {
             <div className="w-11 h-11 rounded-2xl bg-[#FEF9C3] flex items-center justify-center text-2xl mb-4">✉️</div>
             <h2 className="text-base font-bold text-[#062E63] mb-1">Confirm send</h2>
             <p className="text-sm text-[#325099]/70 mb-1">
-              You're about to send to <span className="font-semibold text-[#062E63]">{confirmSend.label}</span>.
+              You&apos;re about to send to <span className="font-semibold text-[#062E63]">{confirmSend.label}</span>.
             </p>
             <p className="text-xs text-[#325099]/50 mb-6">{confirmSend.detail}</p>
             <p className="text-xs text-[#854D0E] bg-[#FEF9C3] border border-[#FDE047] rounded-lg px-3 py-2 mb-6">
@@ -702,14 +652,14 @@ function TermStartEmailPageInner() {
           <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
               <div>
-                <p className="text-xs font-bold text-[#325099] tracking-wider uppercase">Email Preview</p>
+                <p className="text-xs font-bold text-[#325099] tracking-wider uppercase">Trial Reminder Preview</p>
                 <p className="text-sm font-semibold text-[#062E63] mt-0.5">To: {previewFamily.parent_email}</p>
               </div>
               <button onClick={() => setPreviewFamily(null)} className="text-[#325099]/50 hover:text-[#062E63] text-xl leading-none transition">✕</button>
             </div>
             <div className="flex-1 overflow-auto">
               <iframe
-                srcDoc={buildPreviewHtml(overrides[familyKey(previewFamily)] || template, previewFamily, term?.name || '', termDates, fmtStartDate(term?.start_date))}
+                srcDoc={buildPreviewHtml(overrides[familyKey(previewFamily)] || template, previewFamily, term?.name || '')}
                 className="w-full border-0"
                 style={{ minHeight: '500px' }}
                 title="Email preview"
@@ -737,7 +687,7 @@ function TermStartEmailPageInner() {
                   {editFamily.parent_name || editFamily.parent_email}
                   <span className="text-[#2A2035]/50 font-normal"> · {editFamily.students.map(s => s.student_name.split(' ')[0]).filter((v, i, a) => a.indexOf(v) === i).join(', ')}</span>
                 </p>
-                <p className="text-[11px] text-[#2A2035]/50 mt-1">Edits the full body for this family only. The CUBE header, subject and any attached invoice are unchanged.</p>
+                <p className="text-[11px] text-[#2A2035]/50 mt-1">Edits the full body for this family only. The CUBE header and subject are unchanged.</p>
               </div>
               <button onClick={() => !savingOverride && setEditFamily(null)} className="text-[#325099]/50 hover:text-[#325099] text-xl leading-none shrink-0">✕</button>
             </div>
@@ -760,7 +710,7 @@ function TermStartEmailPageInner() {
               </button>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setEditBody(fillTemplatePreview(template, editFamily, term?.name || '', termDates, fmtStartDate(term?.start_date)))}
+                  onClick={() => setEditBody(fillTemplatePreview(template, editFamily, term?.name || ''))}
                   disabled={savingOverride}
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 rounded-full transition disabled:opacity-40"
                 >

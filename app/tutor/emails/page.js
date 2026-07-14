@@ -19,6 +19,13 @@ const CAMPAIGNS = [
     badge:       null,
   },
   {
+    href:        '/tutor/emails/trials',
+    icon:        '🧪',
+    title:       'Trials',
+    description: 'Trial reminders for new students — a welcome email with their first lesson date and time, no invoice. Sent any time during the term as trials are booked.',
+    badge:       null,
+  },
+  {
     href:        '/tutor/emails/end-of-term',
     icon:        '📋',
     title:       'End-of-Term Reports',

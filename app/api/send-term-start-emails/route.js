@@ -145,8 +145,12 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { term_id, term_name, term_dates, term_start, template, subject, families, test } = await request.json()
+    const { term_id, term_name, term_dates, term_start, template, subject, families, test, attach_invoices } = await request.json()
     const subjectTemplate = subject || '{{term_name}} — Re-enrolment Confirmation | CUBE Tuition'
+    // Trial reminders pass attach_invoices:false — a mixed family (enrolled
+    // sibling + new trialler) HAS an invoice, but it doesn't belong on the
+    // trial email.
+    const wantInvoices = attach_invoices !== false
 
     if (!families?.length) {
       return Response.json({ error: 'Missing families' }, { status: 400 })
@@ -156,7 +160,7 @@ export async function POST(request) {
     let invoiceByFamily  = {}
     let invoiceByStudent = {}
 
-    if (term_id) {
+    if (term_id && wantInvoices) {
       const sb = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY,
