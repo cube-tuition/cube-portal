@@ -17,7 +17,7 @@ import { requireApiRole } from '../../../lib/apiAuth'
 
 const PAYMENT_INSTRUCTIONS =
 `Bank Transfer:
-Account name: CUBE Tuition Pty Ltd
+Account name: CUBE Tuition
 BSB: 067-873  |  Account: 1616 0459
 Reference: [Reference]`
 
