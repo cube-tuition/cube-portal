@@ -4631,7 +4631,9 @@ export default function DatabasePage() {
                             <div className="flex items-center px-3 py-2.5 overflow-hidden gap-1" title={columnTooltip(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col)}>
                               {isPk       && <span className="text-[9px] text-amber-500 shrink-0">🔑</span>}
                               {isGuardian && <span className="text-[9px] text-amber-600/70 shrink-0">👤</span>}
-                              {isName     && <span className="text-[9px] text-emerald-600/70 shrink-0">🔗</span>}
+                              {isName     && (selectedTable === T_ENROLMENTS && col === 'class_name'
+                                ? <span className="text-[9px] text-emerald-600/70 shrink-0" title="Editable — click a cell to pick a class">▾</span>
+                                : <span className="text-[9px] text-emerald-600/70 shrink-0">🔗</span>)}
                               <span className={`text-[10px] font-bold tracking-[0.06em] uppercase truncate flex-1 min-w-0 ${isName ? 'text-emerald-800' : 'text-[#062E63]'}`}>
                                 {columnLabel(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col)}
                                 {isRequired(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col) && <span className="text-rose-400 ml-0.5">*</span>}
@@ -4791,13 +4793,14 @@ export default function DatabasePage() {
                                   </select>
                                 ) : (
                                   <div
-                                    className="px-3 py-1.5 overflow-hidden whitespace-nowrap text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors"
+                                    className="px-3 py-1.5 overflow-hidden text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors flex items-center justify-between gap-1"
                                     onClick={async () => { await ensureClassOptions(); setEditingEnrolClass(rowId) }}
                                     title="Click to move this enrolment to a different class"
                                   >
-                                    {dv === null
-                                      ? <span className="text-[#2A2035]/20 italic">— no class —</span>
-                                      : <span className="text-[#2A2035]">{dv}</span>}
+                                    <span className={`truncate whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic' : 'text-[#2A2035]'}`}>
+                                      {dv === null ? '— choose class —' : dv}
+                                    </span>
+                                    <span className="text-[#325099]/50 text-[9px] shrink-0">▾</span>
                                   </div>
                                 )
                               ) : col === LESSON_SCHED_TEACHER_COL ? (
