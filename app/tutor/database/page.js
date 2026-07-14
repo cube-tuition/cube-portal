@@ -2224,7 +2224,8 @@ export default function DatabasePage() {
     setShowAddClassModal(true)
     setNewClassForm({ course_id: '', day_of_week: '', start_time: '', end_time: '' })
     if (coursesList.length === 0) {
-      const { data } = await supabase.from(T_COURSES).select('id, course_name, course_code').order('course_name')
+      const { data } = await supabase.from(T_COURSES).select('id, course_name, course_code')
+        .eq('active', true).order('course_name')   // retired courses aren't offered for new classes
       setCoursesList(data || [])
     }
   }

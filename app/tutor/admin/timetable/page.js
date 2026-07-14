@@ -365,7 +365,7 @@ export default function TimetablePage() {
     ;(async () => {
       const [allTerms, { data: courseRows }, { data: tutorRows }, { data: directorRows }, { data: availRows }, { data: studentRows }, { data: roomRows }] = await Promise.all([
         fetchAllTerms(),
-        supabase.from(T_COURSES).select('id, course_name, course_code').order('course_name'),
+        supabase.from(T_COURSES).select('id, course_name, course_code').eq('active', true).order('course_name'),   // retired courses aren't offered
         supabase.from(T_TUTORS).select('id, full_name').eq('active', true).order('full_name'),
         supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
         supabase.from(T_TEACHER_AVAILABILITY).select('tutor_id, day_of_week, slot_time'),
