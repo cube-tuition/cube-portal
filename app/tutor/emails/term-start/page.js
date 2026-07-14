@@ -68,8 +68,10 @@ function buildClassDetails(students) {
       s.class_day,
       s.class_start && s.class_end ? `${s.class_start} - ${s.class_end}` : s.class_start,
     ].filter(Boolean).join(' ')
+    // Trial marker sits on the class name (the bold line of the schedule
+    // card), not after the time where it would land on the muted when-line.
     const trial = s.enr_status === 'trial' ? ' (Trial)' : ''
-    return `  • ${s.student_name} — ${s.class_name}${time ? ' · ' + time : ''}${trial}`
+    return `  • ${s.student_name} — ${s.class_name}${trial}${time ? ' · ' + time : ''}`
   }).join('\n')
 }
 
