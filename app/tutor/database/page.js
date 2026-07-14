@@ -2273,9 +2273,10 @@ export default function DatabasePage() {
   }
 
   // Class options for dropdowns (also used by the enrolments class selector) —
-  // all terms, A/B/C-labelled per term; loaded once on demand.
-  const ensureClassOptions = async () => {
-    if (classesForLessons.length > 0) return
+  // all terms, A/B/C-labelled per term. Pass force to refetch so classes
+  // added since the last load appear (the enrolment selector always forces).
+  const ensureClassOptions = async (force = false) => {
+    if (!force && classesForLessons.length > 0) return
     const { data } = await supabase.from(T_CLASSES)
       .select('id, class_name, day_of_week, start_time, end_time, room, term_id')
       .order('class_name')
@@ -4794,7 +4795,7 @@ export default function DatabasePage() {
                                 ) : (
                                   <div
                                     className="px-3 py-1.5 overflow-hidden text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors flex items-center justify-between gap-1"
-                                    onClick={async () => { await ensureClassOptions(); setEditingEnrolClass(rowId) }}
+                                    onClick={async () => { await ensureClassOptions(true); setEditingEnrolClass(rowId) }}
                                     title="Click to move this enrolment to a different class"
                                   >
                                     <span className={`truncate whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic' : 'text-[#2A2035]'}`}>
