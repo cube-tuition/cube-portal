@@ -4800,7 +4800,7 @@ export default function DatabasePage() {
                                     <span className={`truncate whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic' : 'text-[#2A2035]'}`}>
                                       {dv === null ? '— choose class —' : dv}
                                     </span>
-                                    <span className="text-[#325099]/50 text-[9px] shrink-0">▾</span>
+                                    <span className="text-[#325099]/60 text-[13px] leading-none shrink-0">▾</span>
                                   </div>
                                 )
                               ) : col === LESSON_SCHED_TEACHER_COL ? (
