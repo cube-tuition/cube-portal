@@ -18,10 +18,8 @@ import { requireApiRole } from '../../../lib/apiAuth'
 const PAYMENT_INSTRUCTIONS =
 `Bank Transfer:
 Account name: CUBE Tuition Pty Ltd
-BSB: XXX-XXX  |  Account: XXXXXXXX
-Reference: [Invoice Number]
-
-Please update BSB/Account in app/api/generate-draft-invoices/route.js`
+BSB: 067-873  |  Account: 1616 0459
+Reference: [Invoice Number]`
 
 export async function POST(req) {
   try {
