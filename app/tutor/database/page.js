@@ -4786,11 +4786,15 @@ export default function DatabasePage() {
                                     style={{ width: w }}
                                   >
                                     <option value="">— choose class —</option>
-                                    {classesForLessons.map(c => (
-                                      <option key={c.id} value={c.id}>
-                                        {c.label}{c.day_of_week ? ` (${c.day_of_week})` : ''}{termNameById[c.term_id] ? ` · ${termNameById[c.term_id]}` : ''}
-                                      </option>
-                                    ))}
+                                    {/* Follow the explorer's term filter — only offer that term's
+                                        classes; the term suffix is only needed on "all terms". */}
+                                    {classesForLessons
+                                      .filter(c => !dbTermFilter || String(c.term_id) === String(dbTermFilter))
+                                      .map(c => (
+                                        <option key={c.id} value={c.id}>
+                                          {c.label}{c.day_of_week ? ` (${c.day_of_week})` : ''}{!dbTermFilter && termNameById[c.term_id] ? ` · ${termNameById[c.term_id]}` : ''}
+                                        </option>
+                                      ))}
                                   </select>
                                 ) : (
                                   <div
