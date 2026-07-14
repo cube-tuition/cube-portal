@@ -24,6 +24,29 @@ const TEMPLATE_KEY = 'cube_term_start_template'
 const SUBJECT_KEY  = 'cube_term_start_subject'
 const DEFAULT_SUBJECT = '{{term_name}} — Re-enrolment Confirmation | CUBE Tuition'
 
+// Trial-only families (every enrolment is a trial — completely new students)
+// get a trial reminder instead of the re-enrolment email: no invoice exists
+// for them, and the tone is a welcome + first-lesson details.
+const TRIAL_TEMPLATE_KEY = 'cube_term_start_trial_template'
+const TRIAL_SUBJECT_KEY  = 'cube_term_start_trial_subject'
+const DEFAULT_TRIAL_SUBJECT = 'Your trial class{{plural}} at CUBE — {{term_short}}'
+const DEFAULT_TRIAL_TEMPLATE = `Dear {{parent_name}},
+
+Welcome to CUBE! We're excited to have {{student_names}} joining us for a trial class{{plural}} this term.
+
+Here are the trial details:
+
+{{class_details}}
+
+There's nothing to pay for the trial — just arrive a few minutes early and our team will look after the rest.
+
+We'll be in touch after the lesson to hear how it went and to help with next steps if you'd like to continue.
+
+If you have any questions before then, just reply to this email.
+
+Kind regards,
+The CUBE Team`
+
 const DEFAULT_TEMPLATE = `Dear {{parent_name}},
 
 We hope you had a great experience with CUBE during the previous term! As **{{term_name}}** approaches, we'd like to share a few important reminders regarding your child's enrolment. Attached to this email you'll find the invoice for {{term_name}}.
@@ -181,6 +204,14 @@ function TermStartEmailPageInner() {
     if (typeof window !== 'undefined') return localStorage.getItem(SUBJECT_KEY) || DEFAULT_SUBJECT
     return DEFAULT_SUBJECT
   })
+  const [trialTemplate, setTrialTemplate] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem(TRIAL_TEMPLATE_KEY) || DEFAULT_TRIAL_TEMPLATE
+    return DEFAULT_TRIAL_TEMPLATE
+  })
+  const [trialSubject, setTrialSubject] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem(TRIAL_SUBJECT_KEY) || DEFAULT_TRIAL_SUBJECT
+    return DEFAULT_TRIAL_SUBJECT
+  })
   const [tab,          setTab]          = useState('preview')
   const [sending,      setSending]      = useState(false)
   const [sendingFamily, setSendingFamily] = useState(null)
@@ -246,6 +277,17 @@ function TermStartEmailPageInner() {
       if (enrErr) throw new Error(enrErr.message)
       if (!enr?.length) { setStudents([]); setLoading(false); return }
 
+      // First lesson date per class — trial reminders say the exact date of
+      // the student's first class rather than just the weekly slot.
+      const { data: lessonRows } = await supabase
+        .from('lessons').select('class_id, lesson_date')
+        .in('class_id', classIds).eq('is_makeup', false)
+        .order('lesson_date', { ascending: true })
+      const firstLessonByClass = {}
+      for (const l of lessonRows || []) {
+        if (!(l.class_id in firstLessonByClass)) firstLessonByClass[l.class_id] = l.lesson_date
+      }
+
       // Students
       const studentIds = [...new Set(enr.map(e => e.student_id))]
       const { data: studs } = await supabase
@@ -274,6 +316,7 @@ function TermStartEmailPageInner() {
           class_day:    c.day_of_week || '',
           class_start:  c.start_time?.slice(0, 5) || '',
           class_end:    c.end_time?.slice(0, 5)   || '',
+          first_lesson: firstLessonByClass[e.class_id] || null,   // ISO date
           enr_status:   e.status || 'active',
           parent_name:  p.full_name || '',
           parent_email: p.email || '',
@@ -317,6 +360,27 @@ function TermStartEmailPageInner() {
   const termDates        = buildTermDates(term)
   const familiesWithEmail = families.filter(f => f.parent_email)
 
+  // Trial-only families (every enrolment is a trial — completely new students)
+  // get the trial reminder; anyone with at least one active enrolment gets the
+  // normal re-enrolment email (extra trial courses show a "(Trial)" marker).
+  const isTrialFamily = (f) => f.students.length > 0 && f.students.every(s => s.enr_status === 'trial')
+  const reEnrolFamilies = familiesWithEmail.filter(f => !isTrialFamily(f))
+  const trialFamilies   = familiesWithEmail.filter(isTrialFamily)
+
+  // Trial reminders show the actual first-lesson date instead of the weekday.
+  const withFirstLessonDates = (f) => ({
+    ...f,
+    students: f.students.map(s => {
+      if (!s.first_lesson) return s
+      const d = new Date(s.first_lesson + 'T00:00:00')
+      const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()]
+      const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]
+      return { ...s, class_day: `${day} ${d.getDate()} ${mon}` }
+    }),
+  })
+  const templateForFamily = (f) => (isTrialFamily(f) ? trialTemplate : template)
+  const familyForRender   = (f) => (isTrialFamily(f) ? withFirstLessonDates(f) : f)
+
   // ── Family label ──────────────────────────────────────────────────────────
   function familyLabel(f) {
     const unique     = f.students.filter((s, i, a) => a.findIndex(x => x.student_id === s.student_id) === i)
@@ -327,37 +391,52 @@ function TermStartEmailPageInner() {
   }
 
   // ── Send helpers ──────────────────────────────────────────────────────────
+  // Families are routed to the right template/subject: re-enrolment families
+  // to the main one, trial-only families to the trial reminder (one API call
+  // per non-empty group; the trial group naturally attaches no invoice).
   const sendToFamilies = async (fams, test = false) => {
-    const res = await authedFetch('/api/send-term-start-emails', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        term_id:    termId,
-        term_name:  term?.name || '',
-        term_dates: termDates,
-        term_start: fmtStartDate(term?.start_date),
-        template,
-        subject,
-        test,
-        families: fams.map(f => ({
-          ...f,
-          family_id:   f.family_id   || null,
-          student_ids: f.students.map(s => s.student_id).filter(Boolean),
-          // A family's personalised body (if any) overrides the shared template.
-          custom_body: overrides[familyKey(f)] || null,
-        })),
-      }),
-    })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Send failed')
-    return data.results || []
+    const groups = [
+      { list: fams.filter(f => !isTrialFamily(f)), tpl: template,      subj: subject,      prep: (f) => f },
+      { list: fams.filter(isTrialFamily),          tpl: trialTemplate, subj: trialSubject, prep: withFirstLessonDates },
+    ]
+    let all = []
+    for (const g of groups) {
+      if (!g.list.length) continue
+      const res = await authedFetch('/api/send-term-start-emails', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          term_id:    termId,
+          term_name:  term?.name || '',
+          term_dates: termDates,
+          term_start: fmtStartDate(term?.start_date),
+          template:   g.tpl,
+          subject:    g.subj,
+          test,
+          families: g.list.map(f => {
+            const fam = g.prep(f)
+            return {
+              ...fam,
+              family_id:   fam.family_id   || null,
+              student_ids: fam.students.map(s => s.student_id).filter(Boolean),
+              // A family's personalised body (if any) overrides the shared template.
+              custom_body: overrides[familyKey(f)] || null,
+            }
+          }),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Send failed')
+      all = all.concat(data.results || [])
+    }
+    return all
   }
 
   // ── Per-family email personalisation ────────────────────────────────────────
   const openEditor = (family) => {
     const key = familyKey(family)
     setEditFamily(family)
-    setEditBody(overrides[key] ?? fillTemplatePreview(template, family, term?.name || '', termDates, fmtStartDate(term?.start_date)))
+    setEditBody(overrides[key] ?? fillTemplatePreview(templateForFamily(family), familyForRender(family), term?.name || '', termDates, fmtStartDate(term?.start_date)))
   }
   const saveEditor = async () => {
     if (!editFamily) return
@@ -408,12 +487,6 @@ function TermStartEmailPageInner() {
         setResults(prev => [...prev.filter(r => r.email !== family.parent_email), ...newResults])
       } catch (e) { setError(e.message) } finally { setSendingFamily(null) }
     }
-  }
-
-  const handleSend = () => {
-    const unsent = familiesWithEmail.filter(f => !results.find(r => r.email === f.parent_email && r.success))
-    if (!unsent.length) return
-    setConfirmSend({ families: unsent, isBulk: true, label: `Send to ${unsent.length} unsent ${unsent.length === 1 ? 'family' : 'families'}`, detail: `${term?.name || 'this term'} · ${unsent.length} email${unsent.length > 1 ? 's' : ''}` })
   }
 
   const handleSendOne = (family) => {
@@ -518,6 +591,38 @@ function TermStartEmailPageInner() {
                 className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#062E63] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#325099]/25 resize-y"
               />
             </div>
+
+            {/* Trial reminder — used for trial-only (new) families instead of the re-enrolment email */}
+            <div className="bg-white rounded-2xl border border-[#FDE68A] p-6">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-bold text-[#92400E]">🧪 Trial reminder — subject</h2>
+                <button
+                  onClick={() => { setTrialSubject(DEFAULT_TRIAL_SUBJECT); localStorage.setItem(TRIAL_SUBJECT_KEY, DEFAULT_TRIAL_SUBJECT) }}
+                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] transition"
+                >Reset to default</button>
+              </div>
+              <p className="text-[11px] text-[#2A2035]/50 mb-2">Families whose enrolments are <strong>all trials</strong> (completely new students) get this email instead — no invoice is attached, and the schedule shows their first lesson date.</p>
+              <input
+                type="text"
+                value={trialSubject}
+                onChange={e => { setTrialSubject(e.target.value); localStorage.setItem(TRIAL_SUBJECT_KEY, e.target.value) }}
+                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-2.5 text-sm text-[#062E63] focus:outline-none focus:ring-2 focus:ring-[#325099]/25 mb-5"
+              />
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-bold text-[#92400E]">Trial reminder — body</h2>
+                <button
+                  onClick={() => { setTrialTemplate(DEFAULT_TRIAL_TEMPLATE); localStorage.setItem(TRIAL_TEMPLATE_KEY, DEFAULT_TRIAL_TEMPLATE) }}
+                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] transition"
+                >Reset to default</button>
+              </div>
+              <p className="text-xs text-[#325099]/60 mb-3">Same placeholders as above — <code className="bg-[#F0F4FF] px-1 rounded">{'{{class_details}}'}</code> here renders with the first lesson date (e.g. “Monday 21 Jul”).</p>
+              <textarea
+                value={trialTemplate}
+                onChange={e => { setTrialTemplate(e.target.value); localStorage.setItem(TRIAL_TEMPLATE_KEY, e.target.value) }}
+                rows={14}
+                className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#062E63] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#325099]/25 resize-y"
+              />
+            </div>
           </div>
         )}
 
@@ -530,6 +635,7 @@ function TermStartEmailPageInner() {
                 <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-3">
                   <span className="text-xs font-semibold text-[#325099]/60">
                     {familiesWithEmail.length} {familiesWithEmail.length === 1 ? 'family' : 'families'} · siblings grouped into one email
+                    {trialFamilies.length > 0 && <span className="text-[#92400E]"> · 🧪 {trialFamilies.length} trial-only {trialFamilies.length === 1 ? 'family gets' : 'families get'} the trial reminder</span>}
                   </span>
                 </div>
               )}
@@ -553,7 +659,10 @@ function TermStartEmailPageInner() {
                     return (
                       <div key={i} className={`px-5 py-4 flex items-start justify-between gap-4 transition ${sentResult?.success ? 'bg-[#F0FDF4]' : ''}`}>
                         <div className="min-w-0">
-                          <div className={`font-semibold text-sm ${sentResult?.success ? 'text-[#166534]' : 'text-[#062E63]'}`}>{label}</div>
+                          <div className={`font-semibold text-sm flex items-center gap-2 ${sentResult?.success ? 'text-[#166534]' : 'text-[#062E63]'}`}>
+                            {label}
+                            {isTrialFamily(f) && <span title="All enrolments are trials — gets the trial reminder email, no invoice" className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">🧪 Trial reminder</span>}
+                          </div>
                           <div className="text-xs text-[#325099]/50 mt-0.5">{f.parent_email}</div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {f.students.filter((s, idx, arr) => arr.findIndex(x => x.student_id === s.student_id && x.class_id === s.class_id) === idx).map(s => (
@@ -570,7 +679,9 @@ function TermStartEmailPageInner() {
                                 <span className="text-xs font-semibold text-[#10b981] bg-[#D1FAE5] px-3 py-1 rounded-full">✓ Sent</span>
                                 {sentResult.invoiceAttached
                                   ? <span className="text-[10px] font-semibold text-[#325099] bg-[#EEF3FF] px-2 py-0.5 rounded-full">📎 {sentResult.invoiceNumber}</span>
-                                  : <span className="text-[10px] text-[#92400E] bg-[#FEF3C7] px-2 py-0.5 rounded-full">⚠ no invoice attached</span>
+                                  : isTrialFamily(f)
+                                    ? <span className="text-[10px] text-[#325099]/60 bg-[#EEF3FF] px-2 py-0.5 rounded-full">trial — no invoice</span>
+                                    : <span className="text-[10px] text-[#92400E] bg-[#FEF3C7] px-2 py-0.5 rounded-full">⚠ no invoice attached</span>
                                 }
                               </div>
                             ) : (
@@ -637,11 +748,16 @@ function TermStartEmailPageInner() {
                     </span>
                   )}
                 </p>
-                {results.filter(r => r.success && !r.invoiceAttached).length > 0 && (
-                  <p className="text-xs text-[#92400E] mt-1">
-                    ⚠ {results.filter(r => r.success && !r.invoiceAttached).length} sent without invoice (approve invoices first): {results.filter(r => r.success && !r.invoiceAttached).map(r => r.family).join(', ')}
-                  </p>
-                )}
+                {(() => {
+                  // Trial-only families never have an invoice — that's expected, not a warning.
+                  const trialEmails = new Set(trialFamilies.map(f => f.parent_email))
+                  const missing = results.filter(r => r.success && !r.invoiceAttached && !trialEmails.has(r.email))
+                  return missing.length > 0 && (
+                    <p className="text-xs text-[#92400E] mt-1">
+                      ⚠ {missing.length} sent without invoice (approve invoices first): {missing.map(r => r.family).join(', ')}
+                    </p>
+                  )
+                })()}
                 {results.filter(r => !r.success).length > 0 && (
                   <p className="text-xs text-red-600 mt-1">
                     {results.filter(r => !r.success).length} failed: {results.filter(r => !r.success).map(r => r.family).join(', ')}
@@ -650,21 +766,34 @@ function TermStartEmailPageInner() {
               </div>
             )}
 
-            {/* Bulk send */}
+            {/* Bulk send — re-enrolment and trial reminders send separately, so
+                trial reminders can go out closer to the first lesson. */}
             {(() => {
-              const unsent = familiesWithEmail.filter(f => !results.find(r => r.email === f.parent_email && r.success))
+              const notSent = (f) => !results.find(r => r.email === f.parent_email && r.success)
+              const unsentRe    = reEnrolFamilies.filter(notSent)
+              const unsentTrial = trialFamilies.filter(notSent)
+              const sentCount   = familiesWithEmail.length - unsentRe.length - unsentTrial.length
               return (
-                <div className="flex items-center justify-between">
-                  {unsent.length < familiesWithEmail.length && familiesWithEmail.length > 0
-                    ? <span className="text-xs text-[#325099]/50">{familiesWithEmail.length - unsent.length} already sent</span>
-                    : <span />}
-                  <button
-                    onClick={handleSend}
-                    disabled={sending || unsent.length === 0}
-                    className="bg-[#062E63] text-white text-sm font-semibold px-8 py-3 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
-                  >
-                    {sending ? 'Sending…' : unsent.length === 0 ? '✓ All sent' : `✉ Send to ${unsent.length} unsent ${unsent.length === 1 ? 'family' : 'families'}`}
-                  </button>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  {sentCount > 0 ? <span className="text-xs text-[#325099]/50">{sentCount} already sent</span> : <span />}
+                  <div className="flex gap-2">
+                    {trialFamilies.length > 0 && (
+                      <button
+                        onClick={() => unsentTrial.length && setConfirmSend({ families: unsentTrial, isBulk: true, label: `${unsentTrial.length} trial ${unsentTrial.length === 1 ? 'family' : 'families'} (trial reminder)`, detail: `${term?.name || 'this term'} · trial reminder email, no invoice` })}
+                        disabled={sending || unsentTrial.length === 0}
+                        className="bg-white border border-[#F59E0B] text-[#92400E] text-sm font-semibold px-6 py-3 rounded-full disabled:opacity-40 hover:bg-[#FFFBEB] transition"
+                      >
+                        {unsentTrial.length === 0 ? '✓ Trials sent' : `🧪 Send ${unsentTrial.length} trial ${unsentTrial.length === 1 ? 'reminder' : 'reminders'}`}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => unsentRe.length && setConfirmSend({ families: unsentRe, isBulk: true, label: `${unsentRe.length} unsent ${unsentRe.length === 1 ? 'family' : 'families'}`, detail: `${term?.name || 'this term'} · re-enrolment email` })}
+                      disabled={sending || unsentRe.length === 0}
+                      className="bg-[#062E63] text-white text-sm font-semibold px-8 py-3 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
+                    >
+                      {sending ? 'Sending…' : unsentRe.length === 0 ? '✓ All sent' : `✉ Send to ${unsentRe.length} unsent ${unsentRe.length === 1 ? 'family' : 'families'}`}
+                    </button>
+                  </div>
                 </div>
               )
             })()}
@@ -706,7 +835,7 @@ function TermStartEmailPageInner() {
             </div>
             <div className="flex-1 overflow-auto">
               <iframe
-                srcDoc={buildPreviewHtml(overrides[familyKey(previewFamily)] || template, previewFamily, term?.name || '', termDates, fmtStartDate(term?.start_date))}
+                srcDoc={buildPreviewHtml(overrides[familyKey(previewFamily)] || templateForFamily(previewFamily), familyForRender(previewFamily), term?.name || '', termDates, fmtStartDate(term?.start_date))}
                 className="w-full border-0"
                 style={{ minHeight: '500px' }}
                 title="Email preview"
@@ -757,7 +886,7 @@ function TermStartEmailPageInner() {
               </button>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setEditBody(fillTemplatePreview(template, editFamily, term?.name || '', termDates, fmtStartDate(term?.start_date)))}
+                  onClick={() => setEditBody(fillTemplatePreview(templateForFamily(editFamily), familyForRender(editFamily), term?.name || '', termDates, fmtStartDate(term?.start_date)))}
                   disabled={savingOverride}
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 rounded-full transition disabled:opacity-40"
                 >
