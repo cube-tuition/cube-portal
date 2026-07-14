@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
@@ -7,15 +8,15 @@ import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
 import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS, T_TERM_TRANSITIONS } from '../../../lib/tables'
 import { fmtDate } from '../../../lib/format'
-import { registerUndoAction } from '../../../lib/undo'
 
 /*
  * Term Transition Wizard — /tutor/transition
  * ─────────────────────────────────────────────────────────────────────────────
  * Admin-only. A 4-step checklist for moving from one term to the next:
  *
- *   1. Setup       — pick source + target terms; reset confirmations to pending
- *   2. Enrolments  — confirm who's continuing / mark who isn't (and why)
+ *   1. Setup       — pick source + target terms
+ *   2. Enrolments  — review who rolls over (everyone active/trial is copied;
+ *                    disenrol or add students in the NEW term afterwards)
  *   3. Classes     — choose which classes to copy; execute rollover
  *                    (prices carry over with optional % fee increase)
  *   4. Done        — summary of everything created
@@ -37,16 +38,7 @@ const STEPS = [
   { id: 4, label: 'Done',       icon: '✅' },
 ]
 
-const END_REASONS = [
-  'Graduated / Year 12 finished',
-  'Paused — may return next term',
-  'Withdrew from tutoring',
-  'Changed subject',
-  'Other',
-]
-
 // ── Utility helpers ────────────────────────────────────────────────────────
-const isoToday = () => new Date().toISOString().slice(0, 10)
 
 
 // ── Main page ──────────────────────────────────────────────────────────────
@@ -75,9 +67,7 @@ export default function TransitionPage() {
   const [classes, setClasses]       = useState([])  // classes in fromTerm
   const [dataLoaded, setDataLoaded] = useState(false)
 
-  // Step 2
-  const [endings, setEndings]           = useState({})  // { enrolment_id: { ending, reason } }
-  const [nextTermStatus, setNextTermStatus] = useState({})  // { enrolment_id: 'pending'|'confirmed'|'not_continuing' }
+  // Step 2 (review only — everyone rolls over)
   const [enrolmentSearch, setEnrolmentSearch] = useState('')
 
   // Step 3
@@ -190,6 +180,7 @@ export default function TransitionPage() {
           student_id:   e.student_id,
           class_id:     e.class_id,
           price:        e.price ?? null,
+          status:       e.status,               // trials roll over as trials
           student_name: s.full_name || '—',
           year:         s.year,
           class_name:   c.class_name || '—',
@@ -199,22 +190,10 @@ export default function TransitionPage() {
           family_id:        s.family_id || null,
           parent_name:      p.full_name || '',
           parent_email:     p.email || '',
-          next_term_status: e.next_term_status || 'pending',
-          end_reason:       e.end_reason || '',
         }
       }).sort((a, b) => (a.class_name + a.student_name).localeCompare(b.class_name + b.student_name))
 
       setEnrolments(rows)
-
-      const initEndings = {}
-      const initStatuses = {}
-      for (const r of rows) {
-        const s = r.next_term_status || 'pending'  // confirmation is opt-in
-        initStatuses[r.id] = s
-        initEndings[r.id]  = { ending: s === 'not_continuing', reason: r.end_reason || '' }
-      }
-      setNextTermStatus(initStatuses)
-      setEndings(initEndings)
       setDataLoaded(true)
     } catch (e) {
       setError(e.message)
@@ -222,56 +201,6 @@ export default function TransitionPage() {
       setLoading(false)
     }
   }, [fromTermId])
-
-  // ── Step 2: update per-enrolment confirmation status ─────────────────────
-  const updateStatus = async (enrolmentId, status) => {
-    const prevStatus = nextTermStatus[enrolmentId] ?? 'pending'
-    setNextTermStatus(prev => ({ ...prev, [enrolmentId]: status }))
-    setEndings(prev => ({
-      ...prev,
-      [enrolmentId]: { ...prev[enrolmentId], ending: status === 'not_continuing' },
-    }))
-    await supabase.from(T_ENROLMENTS)
-      .update({ next_term_status: status })
-      .eq('id', enrolmentId)
-    registerUndoAction(`transition status → "${status}"`, async () => {
-      await supabase.from(T_ENROLMENTS).update({ next_term_status: prevStatus }).eq('id', enrolmentId)
-      setNextTermStatus(prev => ({ ...prev, [enrolmentId]: prevStatus }))
-      setEndings(prev => ({ ...prev, [enrolmentId]: { ...prev[enrolmentId], ending: prevStatus === 'not_continuing' } }))
-    })
-  }
-
-  // ── Step 1: reset all confirmations to pending (confirmation is opt-in) ────
-  const [resettingPending, setResettingPending] = useState(false)
-  const resetAllToPending = async () => {
-    if (!fromTermId) return
-    if (!window.confirm('Reset every enrolment in this term to "pending"? Families will then need to be explicitly confirmed in Step 2 as they respond.')) return
-    setResettingPending(true); setError(null)
-    try {
-      const { data: cls } = await supabase.from(T_CLASSES).select('id').eq('term_id', fromTermId)
-      const classIds = (cls || []).map(c => c.id)
-      if (!classIds.length) throw new Error('No classes found for this term.')
-      // capture previous statuses for undo
-      const { data: before } = await supabase.from(T_ENROLMENTS)
-        .select('id, next_term_status').in('class_id', classIds).in('status', ['active', 'trial'])
-      const { error: updErr } = await supabase.from(T_ENROLMENTS)
-        .update({ next_term_status: 'pending' })
-        .in('class_id', classIds).in('status', ['active', 'trial'])
-      if (updErr) throw updErr
-      registerUndoAction('reset confirmations to pending', async () => {
-        // restore previous statuses, grouped to minimise requests
-        const byStatus = {}
-        for (const r of before || []) (byStatus[r.next_term_status || 'pending'] ??= []).push(r.id)
-        for (const [status, ids] of Object.entries(byStatus)) {
-          await supabase.from(T_ENROLMENTS).update({ next_term_status: status }).in('id', ids)
-        }
-        if (dataLoaded) await loadData()
-      })
-      if (dataLoaded) await loadData()
-      alert(`${(before || []).length} enrolments reset to pending.`)
-    } catch (e) { setError(e.message) }
-    finally { setResettingPending(false) }
-  }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const goTo = async (nextStep) => {
@@ -288,10 +217,6 @@ export default function TransitionPage() {
     try {
       const toTerm = terms.find(t => t.id === toTermId)
       if (!toTerm) throw new Error('Target term not found.')
-
-      const endingIds = new Set(
-        Object.entries(endings).filter(([, v]) => v.ending).map(([k]) => k)
-      )
 
       const classesToRoll = classes.filter(c => selectedClasses[c.id])
 
@@ -321,40 +246,25 @@ export default function TransitionPage() {
         createdClassObjs.push(newCls)
 
         if (copyEnrolments) {
-          // endingIds holds STRING keys (Object.entries) — coerce e.id to match,
-          // otherwise not-continuing students get copied into the new term.
           const pct = parseFloat(feeIncreasePct) || 0
           const adjust = (p) => (p === null || p === undefined)
             ? null
             : Math.round(Number(p) * (1 + pct / 100) * 100) / 100
-          const enrsForClass = enrolments.filter(
-            e => e.class_id === origId && !endingIds.has(String(e.id))
-          )
+          // Everyone rolls over — disenrol or add students in the NEW term
+          // afterwards (there is no per-enrolment continuation tracking).
+          const enrsForClass = enrolments.filter(e => e.class_id === origId)
           for (const e of enrsForClass) {
             const { error: enrErr } = await supabase
               .from(T_ENROLMENTS)
               .insert({
                 student_id: e.student_id,
                 class_id: newCls.id,
-                status: 'active',
+                status: e.status || 'active',    // trials stay trials
                 price: adjust(e.price),          // carried over (+ optional % rise)
-                next_term_status: 'pending',     // confirmation is opt-in each term
               })
             if (!enrErr) createdEnrolments++
           }
         }
-      }
-
-      // Mark ending enrolments as disenrolled
-      for (const id of endingIds) {
-        const { reason } = endings[id] || {}
-        const update = {
-          status:           'disenrol',
-          next_term_status: 'not_continuing',
-          ended_at:         isoToday(),
-        }
-        if (reason) update.end_reason = reason
-        await supabase.from(T_ENROLMENTS).update(update).eq('id', id)
       }
 
       // Audit record — who ran this rollover and what it created
@@ -368,7 +278,6 @@ export default function TransitionPage() {
           meta: {
             classes_created:    createdClassObjs.length,
             enrolments_created: createdEnrolments,
-            disenrolled:        endingIds.size,
             skipped,
             copy_enrolments:    copyEnrolments,
             fee_increase_pct:   parseFloat(feeIncreasePct) || 0,
@@ -382,7 +291,6 @@ export default function TransitionPage() {
         createdEnrolments,
         skipped,
         createdClassIds:   createdClassObjs.map(c => c.id),
-        disenrolledIds:    [...endingIds],   // source enrolment IDs we flipped to disenrol
         auditId,
       })
       setRolloverDone(true)
@@ -398,7 +306,7 @@ export default function TransitionPage() {
     if (!rolloverResult) return
     setSaving(true); setError(null)
     try {
-      const { createdClassIds = [], disenrolledIds = [] } = rolloverResult
+      const { createdClassIds = [] } = rolloverResult
 
       // 1. Delete enrolments in the newly-created classes
       if (createdClassIds.length) {
@@ -408,25 +316,6 @@ export default function TransitionPage() {
       // 2. Delete the newly-created classes themselves
       if (createdClassIds.length) {
         await supabase.from(T_CLASSES).delete().in('id', createdClassIds)
-      }
-
-      // 3. Restore source enrolments that were disenrolled during this rollover
-      if (disenrolledIds.length) {
-        await supabase.from(T_ENROLMENTS)
-          .update({ status: 'active', next_term_status: 'pending', ended_at: null, end_reason: null })
-          .in('id', disenrolledIds)
-
-        // Sync local state — restored rows go back to pending (not auto-confirmed)
-        setNextTermStatus(prev => {
-          const next = { ...prev }
-          disenrolledIds.forEach(id => { next[id] = 'pending' })
-          return next
-        })
-        setEndings(prev => {
-          const next = { ...prev }
-          disenrolledIds.forEach(id => { next[id] = { ending: false, reason: '' } })
-          return next
-        })
       }
 
       // Mark the audit record cancelled
@@ -452,10 +341,6 @@ export default function TransitionPage() {
   // ── Derived values ─────────────────────────────────────────────────────────
   const fromTerm          = terms.find(t => t.id === fromTermId)
   const toTerm            = terms.find(t => t.id === toTermId)
-  const confirmedCount     = Object.values(nextTermStatus).filter(s => s === 'confirmed').length
-  const notContinuingCount = Object.values(nextTermStatus).filter(s => s === 'not_continuing').length
-  const endingCount        = notContinuingCount
-  const continuingCount    = enrolments.length - notContinuingCount
   const allSelected       = classes.length > 0 && Object.values(selectedClasses).every(Boolean)
 
   if (loading && !terms.length) return (
@@ -566,27 +451,6 @@ export default function TransitionPage() {
               </div>
             )}
 
-            {/* Start-of-transition hygiene: make confirmation opt-in */}
-            {fromTermId && (
-              <div className="flex items-start gap-3 mb-6 p-4 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl">
-                <span className="text-lg">🔁</span>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-[#92400E]">Starting the transition? Reset confirmations first.</p>
-                  <p className="text-xs text-[#92400E]/70 mt-0.5">
-                    Enrolments default to &ldquo;confirmed&rdquo;, so Step 2 starts with everyone pre-confirmed.
-                    Reset to pending, then confirm families in Step 2 as they actually respond. (Undo: Ctrl/Cmd+Z)
-                  </p>
-                </div>
-                <button
-                  onClick={resetAllToPending}
-                  disabled={resettingPending}
-                  className="shrink-0 text-xs font-semibold text-[#92400E] border border-[#FDE68A] bg-white px-3.5 py-2 rounded-lg hover:bg-[#FEF3C7] transition disabled:opacity-50"
-                >
-                  {resettingPending ? 'Resetting…' : 'Reset all to pending'}
-                </button>
-              </div>
-            )}
-
             <div className="flex justify-end">
               <button
                 onClick={() => goTo(2)}
@@ -606,16 +470,12 @@ export default function TransitionPage() {
               <div>
                 <h2 className="text-lg font-bold text-[#062E63]">Review enrolments</h2>
                 <p className="text-sm text-[#325099]/60 mt-0.5">
-                  Confirm who is continuing next term. Changes save instantly.
+                  Everyone below rolls over into the new term (trials stay trials). After the rollover,
+                  disenrol students who aren&apos;t continuing — or add new ones — directly in the new term.
                 </p>
               </div>
               <div className="flex-shrink-0 flex gap-2 text-xs font-semibold pt-1">
-                {confirmedCount > 0 && (
-                  <span className="bg-[#D1FAE5] text-[#065F46] px-2.5 py-1 rounded-full">✓ {confirmedCount} confirmed</span>
-                )}
-                {notContinuingCount > 0 && (
-                  <span className="bg-red-100 text-red-700 px-2.5 py-1 rounded-full">✗ {notContinuingCount} not continuing</span>
-                )}
+                <span className="bg-[#EEF3FF] text-[#325099] px-2.5 py-1 rounded-full">{enrolments.length} rolling over</span>
               </div>
             </div>
 
@@ -643,14 +503,13 @@ export default function TransitionPage() {
                       <button onClick={() => setEnrolmentSearch('')} className="text-[#325099]/40 hover:text-[#325099] text-xs">✕</button>
                     )}
                   </div>
-                  <table className="w-full text-sm min-w-[560px]">
+                  <table className="w-full text-sm min-w-[480px]">
                     <thead>
                       <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
                         <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Student</th>
                         <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Yr</th>
                         <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Class</th>
-                        <th className="text-center px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Status</th>
-                        <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Reason</th>
+                        <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -662,58 +521,18 @@ export default function TransitionPage() {
                                  e.class_name.toLowerCase().includes(q) ||
                                  String(e.year).includes(q)
                         })
-                        .map((e, i) => {
-                        const status = nextTermStatus[e.id] || 'confirmed'
-                        const end    = endings[e.id] || { ending: false, reason: '' }
-                        const rowBg  = status === 'confirmed'
-                          ? 'bg-[#F0FDF4]'
-                          : status === 'not_continuing'
-                          ? 'bg-red-50'
-                          : i % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'
-                        return (
-                          <tr key={e.id} className={`border-b border-[#DEE7FF] last:border-0 ${rowBg}`}>
+                        .map((e, i) => (
+                          <tr key={e.id} className={`border-b border-[#DEE7FF] last:border-0 ${i % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'}`}>
                             <td className="px-4 py-2.5 font-medium text-[#062E63]">{e.student_name}</td>
                             <td className="px-4 py-2.5 text-[#325099]/60 text-xs">Y{e.year}</td>
                             <td className="px-4 py-2.5 text-[#325099]/80 text-xs">{e.class_name}</td>
                             <td className="px-4 py-2.5">
-                              <div className="flex gap-1 justify-center">
-                                {[
-                                  { value: 'confirmed',      label: '✓', title: 'Confirmed',      active: 'bg-[#D1FAE5] text-[#065F46] border-[#34D399]' },
-                                  { value: 'not_continuing', label: '✗', title: 'Not continuing', active: 'bg-red-100 text-red-700 border-red-300' },
-                                ].map(btn => (
-                                  <button
-                                    key={btn.value}
-                                    title={btn.title}
-                                    onClick={() => updateStatus(e.id, btn.value)}
-                                    className={`w-7 h-7 rounded-full text-xs font-bold border transition ${
-                                      status === btn.value
-                                        ? btn.active
-                                        : 'bg-white text-[#325099]/30 border-[#DEE7FF] hover:border-[#325099]/40 hover:text-[#325099]/60'
-                                    }`}
-                                  >
-                                    {btn.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              {status === 'not_continuing' && (
-                                <select
-                                  value={end.reason}
-                                  onChange={ev => setEndings(prev => ({
-                                    ...prev,
-                                    [e.id]: { ...prev[e.id], reason: ev.target.value },
-                                  }))}
-                                  className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] bg-white"
-                                >
-                                  <option value="">Select reason…</option>
-                                  {END_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                                </select>
-                              )}
+                              {e.status === 'trial'
+                                ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">Trial</span>
+                                : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#D1FAE5] text-[#065F46]">Active</span>}
                             </td>
                           </tr>
-                        )
-                      })}
+                        ))}
                     </tbody>
                   </table>
                   {enrolmentSearch.trim() && (
@@ -755,9 +574,9 @@ export default function TransitionPage() {
                   className="accent-[#062E63] w-4 h-4"
                 />
                 <div>
-                  <span className="text-sm font-semibold text-[#062E63]">Copy continuing enrolments to new classes</span>
-                  <span className="text-xs text-[#325099]/50 ml-2">({endingCount} ending enrolments excluded)</span>
-                  <p className="text-[11px] text-[#325099]/50 mt-0.5">Prices carry over automatically; new enrolments start as &ldquo;pending&rdquo; confirmation.</p>
+                  <span className="text-sm font-semibold text-[#062E63]">Copy enrolments to new classes</span>
+                  <span className="text-xs text-[#325099]/50 ml-2">(all {enrolments.length} roll over — trials stay trials)</span>
+                  <p className="text-[11px] text-[#325099]/50 mt-0.5">Prices carry over automatically. Disenrol non-continuing students in the new term afterwards.</p>
                 </div>
               </label>
               {copyEnrolments && (
@@ -796,7 +615,7 @@ export default function TransitionPage() {
               {classes.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-[#325099]/40">No classes in {fromTerm?.name}.</div>
               ) : classes.map((c, i) => {
-                const carrying = enrolments.filter(e => e.class_id === c.id && !endings[e.id]?.ending).length
+                const carrying = enrolments.filter(e => e.class_id === c.id).length
                 return (
                   <label
                     key={c.id}
@@ -899,22 +718,22 @@ export default function TransitionPage() {
             </div>
 
             <div className="flex justify-center gap-3 flex-wrap">
-              <a
+              <Link
                 href={`/tutor/emails/term-start?termId=${toTermId}`}
                 className="bg-[#062E63] text-white text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#325099] transition"
               >
                 ✉ Send Term Start emails →
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/tutor/classes"
                 className="border border-[#DEE7FF] text-[#325099] text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
               >
                 View {toTerm?.name} classes
-              </a>
+              </Link>
               <button
                 onClick={() => {
                   setStep(1); setDataLoaded(false); setRolloverDone(false)
-                  setRolloverResult(null); setEnrolments([]); setEndings({})
+                  setRolloverResult(null); setEnrolments([])
                 }}
                 className="border border-[#DEE7FF] text-[#325099]/60 text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
               >

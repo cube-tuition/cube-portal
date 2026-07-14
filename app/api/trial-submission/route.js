@@ -101,7 +101,6 @@ export async function POST(req) {
         student_id:       student.id,
         class_id:         null,
         status:           'trial',
-        next_term_status: 'confirmed',
       }).select('id').single()
 
       const { data: submission, error: insertErr } = await sb

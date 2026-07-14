@@ -273,7 +273,6 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
                     const { data: newEnrol } = await supabase.from('enrolments').insert({
                       student_id: studentId, class_id: val, status: 'trial',
                       trial_start_date: new Date().toISOString().split('T')[0],
-                      next_term_status: 'pending',  // confirmation is opt-in (set at transition time)
                     }).select('id').single()
                     await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id }).eq('id', sub.id)
                     onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id })
