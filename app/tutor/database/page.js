@@ -2278,7 +2278,7 @@ export default function DatabasePage() {
   const ensureClassOptions = async (force = false) => {
     if (!force && classesForLessons.length > 0) return
     const { data } = await supabase.from(T_CLASSES)
-      .select('id, class_name, day_of_week, start_time, end_time, room, term_id')
+      .select('id, class_name, teacher, day_of_week, start_time, end_time, room, term_id')
       .order('class_name')
     const labelMap = buildClassLabelMap(data || [])
     setClassesForLessons((data || []).map(c => ({ ...c, label: labelMap.get(c.id) ?? c.class_name })))
@@ -3611,6 +3611,22 @@ export default function DatabasePage() {
       {showCreateModal && <CreateTableModal onClose={() => setShowCreateModal(false)} onCreated={handleTableCreated} />}
 
       {/* Drop table confirm modal */}
+      {/* ── Enrolment class picker (searchable popover) ───────────────────────── */}
+      {editingEnrolClass && (
+        <ClassPickerPopover
+          anchor={editingEnrolClass.rect}
+          options={classesForLessons.filter(c => !dbTermFilter || String(c.term_id) === String(dbTermFilter))}
+          showTerm={!dbTermFilter}
+          termNameById={termNameById}
+          currentId={rows.find(r => r[pkCol] === editingEnrolClass.rowId)?.class_id}
+          onClose={() => setEditingEnrolClass(null)}
+          onSelect={async (id) => {
+            await reassignEnrolmentClass(editingEnrolClass.rowId, id)
+            setEditingEnrolClass(null)
+          }}
+        />
+      )}
+
       {/* ── Add Credit Modal ──────────────────────────────────────────────────── */}
       {creditModal && (
         <AddCreditModal
@@ -4771,43 +4787,23 @@ export default function DatabasePage() {
                           return (
                             <td key={col} className={`border-b border-r border-[#E8EDF8] p-0 ${!isStickyCol && isPk ? 'bg-[#F8FAFF]/60' : !isStickyCol && isGuardian ? 'bg-[#FFFBEB]/40' : !isStickyCol && isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w, ...(isStickyCol ? { position:'sticky', left: stickyLeft, zIndex: 2, background: stickyBg, boxShadow: col === 'full_name' ? '2px 0 4px -1px rgba(0,0,0,0.06)' : 'none' } : {}) }} onClick={() => !isPk && !isName && handleCellClick(rowId, col, val)}>
                               {selectedTable === T_ENROLMENTS && col === 'class_name' ? (
-                                // Editable class selector — reassigns the enrolment's class_id;
-                                // price follows the new class's course price, rosters update everywhere.
-                                editingEnrolClass === rowId ? (
-                                  <select
-                                    autoFocus
-                                    defaultValue={row.class_id || ''}
-                                    onBlur={() => setEditingEnrolClass(null)}
-                                    onChange={async e => {
-                                      await reassignEnrolmentClass(rowId, e.target.value)
-                                      setEditingEnrolClass(null)
-                                    }}
-                                    className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] text-xs focus:outline-none"
-                                    style={{ width: w }}
-                                  >
-                                    <option value="">— choose class —</option>
-                                    {/* Follow the explorer's term filter — only offer that term's
-                                        classes; the term suffix is only needed on "all terms". */}
-                                    {classesForLessons
-                                      .filter(c => !dbTermFilter || String(c.term_id) === String(dbTermFilter))
-                                      .map(c => (
-                                        <option key={c.id} value={c.id}>
-                                          {c.label}{c.day_of_week ? ` (${c.day_of_week})` : ''}{!dbTermFilter && termNameById[c.term_id] ? ` · ${termNameById[c.term_id]}` : ''}
-                                        </option>
-                                      ))}
-                                  </select>
-                                ) : (
-                                  <div
-                                    className="px-3 py-1.5 overflow-hidden text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors flex items-center justify-between gap-1"
-                                    onClick={async () => { await ensureClassOptions(true); setEditingEnrolClass(rowId) }}
-                                    title="Click to move this enrolment to a different class"
-                                  >
-                                    <span className={`truncate whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic' : 'text-[#2A2035]'}`}>
-                                      {dv === null ? '— choose class —' : dv}
-                                    </span>
-                                    <span className="text-[#325099]/60 text-[13px] leading-none shrink-0">▾</span>
-                                  </div>
-                                )
+                                // Editable class selector — opens a searchable popover picker;
+                                // reassigns class_id, price follows the new class's course price.
+                                <div
+                                  className={`px-3 py-1.5 overflow-hidden text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors flex items-center justify-between gap-1 ${editingEnrolClass?.rowId === rowId ? 'bg-[#EEF4FF] ring-2 ring-inset ring-[#325099]' : ''}`}
+                                  onClick={e => {
+                                    // Capture the anchor rect BEFORE the async options load.
+                                    const rect = e.currentTarget.getBoundingClientRect()
+                                    setEditingEnrolClass({ rowId, rect })
+                                    ensureClassOptions(true)
+                                  }}
+                                  title="Click to move this enrolment to a different class"
+                                >
+                                  <span className={`truncate whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic' : 'text-[#2A2035]'}`}>
+                                    {dv === null ? '— choose class —' : dv}
+                                  </span>
+                                  <span className="text-[#325099]/60 text-[13px] leading-none shrink-0">▾</span>
+                                </div>
                               ) : col === LESSON_SCHED_TEACHER_COL ? (
                                 // Editable dropdown for scheduled teacher
                                 editingSchedTeacher === rowId ? (
@@ -6272,3 +6268,83 @@ function TopUpInvoiceModal({ inv, onClose, onCreated }) {
   )
 }
 
+
+// ── Enrolment class picker — searchable popover ───────────────────────────────
+// Replaces a native <select> that was unusable with 70+ classes: type to
+// filter by class name, day, teacher or term; ↑/↓ + Enter to choose; Esc or
+// click-away to close. Anchored to the clicked cell, flipping up when there's
+// no room below.
+function ClassPickerPopover({ anchor, options, showTerm, termNameById, currentId, onClose, onSelect }) {
+  const [q, setQ]   = useState('')
+  const [hi, setHi] = useState(0)
+
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return options
+    return options.filter(c =>
+      `${c.label} ${c.class_name} ${c.day_of_week || ''} ${c.teacher || ''} ${termNameById[c.term_id] || ''}`
+        .toLowerCase().includes(t)
+    )
+  }, [q, options, termNameById])
+  useEffect(() => { setHi(0) }, [q])
+
+  const WIDTH = 340, MAX_H = 336
+  const left   = Math.max(8, Math.min(anchor.left, (typeof window !== 'undefined' ? window.innerWidth : 1200) - WIDTH - 12))
+  const spaceBelow = (typeof window !== 'undefined' ? window.innerHeight : 800) - anchor.bottom
+  const openUp = spaceBelow < MAX_H + 16
+  const pos = openUp
+    ? { left, bottom: (typeof window !== 'undefined' ? window.innerHeight : 800) - anchor.top + 4, width: WIDTH }
+    : { left, top: anchor.bottom + 4, width: WIDTH }
+
+  return (
+    <div className="fixed inset-0 z-50" onMouseDown={onClose}>
+      <div
+        className="fixed bg-white border border-[#BACBFF] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        style={pos}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <input
+          autoFocus
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Search class, day, teacher…"
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, filtered.length - 1)) }
+            if (e.key === 'ArrowUp')   { e.preventDefault(); setHi(h => Math.max(h - 1, 0)) }
+            if (e.key === 'Enter')     { e.preventDefault(); if (filtered[hi]) onSelect(filtered[hi].id) }
+            if (e.key === 'Escape')    { e.preventDefault(); onClose() }
+          }}
+          className="w-full px-3.5 py-2.5 text-xs text-[#2A2035] border-b border-[#DEE7FF] focus:outline-none placeholder-[#2A2035]/30"
+        />
+        <div className="overflow-y-auto" style={{ maxHeight: MAX_H - 40 }}>
+          {filtered.length === 0 ? (
+            <p className="text-xs text-center py-6 text-[#2A2035]/40">No classes match “{q}”.</p>
+          ) : filtered.map((c, i) => {
+            const isCurrent = String(c.id) === String(currentId)
+            return (
+              <button
+                key={c.id}
+                ref={i === hi ? (el => el?.scrollIntoView({ block: 'nearest' })) : undefined}
+                onClick={() => onSelect(c.id)}
+                onMouseEnter={() => setHi(i)}
+                className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between gap-2 transition-colors ${i === hi ? 'bg-[#EEF4FF]' : 'bg-white'}`}
+              >
+                <span className="min-w-0">
+                  <span className={`block truncate ${isCurrent ? 'font-bold text-[#062E63]' : 'font-semibold text-[#2A2035]'}`}>{c.label}</span>
+                  <span className="block truncate text-[10px] text-[#2A2035]/50">
+                    {[c.day_of_week, c.start_time ? String(c.start_time).slice(0, 5) : null, c.teacher, showTerm ? termNameById[c.term_id] : null]
+                      .filter(Boolean).join(' · ') || '—'}
+                  </span>
+                </span>
+                {isCurrent && <span className="text-[#16A34A] shrink-0">✓ current</span>}
+              </button>
+            )
+          })}
+        </div>
+        <div className="px-3.5 py-1.5 border-t border-[#F0F4FF] bg-[#F8FAFF] text-[9px] text-[#2A2035]/40">
+          ↑↓ navigate · Enter select · Esc close{filtered.length ? ` · ${filtered.length} class${filtered.length === 1 ? '' : 'es'}` : ''}
+        </div>
+      </div>
+    </div>
+  )
+}
