@@ -625,7 +625,7 @@ function TermStartEmailPageInner() {
             {/* Families without email */}
             {families.filter(f => !f.parent_email).length > 0 && (
               <div className="bg-[#FEF9C3] border border-[#FDE047] text-[#854D0E] text-xs font-medium px-4 py-3 rounded-xl">
-                ⚠ {families.filter(f => !f.parent_email).length} {families.filter(f => !f.parent_email).length === 1 ? 'family has' : 'families have'} no email on file and will be skipped.
+                ⚠ {families.filter(f => !f.parent_email).length} {families.filter(f => !f.parent_email).length === 1 ? 'family has' : 'families have'} no email on file and will be skipped: <span className="font-semibold">{families.filter(f => !f.parent_email).map(f => familyLabel(f)).join(', ')}</span> — add a guardian email in the database to include them.
               </div>
             )}
 
