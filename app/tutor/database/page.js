@@ -69,6 +69,14 @@ const VIRTUAL = {
 const GUARDIAN_COLS    = ['guardian_name','guardian_relationship','guardian_email','guardian_phone']
 const PARENT_COL_MAP   = { guardian_name:'full_name', guardian_relationship:'relationship', guardian_email:'email', guardian_phone:'phone' }
 const ENROLMENT_NAME_COLS = ['student_name','class_name']
+const END_REASONS = [
+  'Graduated / Year 12 finished',
+  'Paused — may return next term',
+  'Withdrew from tutoring',
+  'Changed subject',
+  'Trial — did not continue',
+  'Other',
+]
 const TERM_NAME_COL      = 'term_name'
 const COURSE_NAME_COL    = 'course_name'
 const INVOICE_FAMILY_COL      = 'family_name'
@@ -1511,6 +1519,8 @@ export default function DatabasePage() {
   const [tutorStatusTab, setTutorStatusTab] = useState('active') // tutors view: 'active' | 'inactive' | 'all'
   const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
   const [courseStatusTab, setCourseStatusTab]   = useState('active') // courses view: 'active' | 'inactive' | 'all'
+  const [enrolStatusTab, setEnrolStatusTab]     = useState('active') // enrolments view: 'active' | 'trial' | 'disenrol' | 'all'
+  const [disenrolModal, setDisenrolModal]       = useState(null)     // { rowId } — reason prompt when flipping an enrolment to disenrol
 
   // Search
   const [search, setSearch] = useState('')
@@ -2096,6 +2106,13 @@ export default function DatabasePage() {
   const handleDropdownSave = async (value) => {
     if (!editingCell) return
     const { rowId, col } = editingCell
+    // Disenrolling asks for a reason first — the modal does the actual save
+    // (status + end_reason + ended_at together).
+    if (selectedTable === T_ENROLMENTS && col === 'status' && value === 'disenrol') {
+      setEditingCell(null)
+      setDisenrolModal({ rowId })
+      return
+    }
     setEditingCell(null); setSaving(true)
     let newVal = String(value ?? '').trim() === '' ? null : String(value).trim()
     // tutors.active / courses.active store a boolean even though the picker shows Active/Inactive.
@@ -3475,6 +3492,12 @@ export default function DatabasePage() {
       const wantActive = courseStatusTab === 'active'
       out = out.filter(r => (r.active !== false) === wantActive)
     }
+    // Enrolments view: status tabs ("trial" covers trial + trial complete).
+    if (selectedTable === T_ENROLMENTS && enrolStatusTab !== 'all') {
+      out = enrolStatusTab === 'trial'
+        ? out.filter(r => r.status === 'trial' || r.status === 'trial complete')
+        : out.filter(r => r.status === enrolStatusTab)
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       out = out.filter(r => Object.values(r).some(v => v !== null && String(v).toLowerCase().includes(q)))
@@ -3497,7 +3520,12 @@ export default function DatabasePage() {
       })
     }
     return out
-  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab])
+  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab, enrolStatusTab])
+
+  // End Reason only means anything for disenrolled rows — show the column on
+  // the Disenrolled tab only.
+  const visibleCol = (col) => !hiddenCols.has(col)
+    && !(selectedTable === T_ENROLMENTS && col === 'end_reason' && enrolStatusTab !== 'disenrol')
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -3631,6 +3659,29 @@ export default function DatabasePage() {
       {showCreateModal && <CreateTableModal onClose={() => setShowCreateModal(false)} onCreated={handleTableCreated} />}
 
       {/* Drop table confirm modal */}
+      {/* ── Disenrol reason modal ─────────────────────────────────────────────── */}
+      {disenrolModal && (
+        <DisenrolReasonModal
+          studentLabel={(() => {
+            const r = rows.find(x => x[pkCol] === disenrolModal.rowId)
+            return r ? `${r.student_name || 'this student'} — ${r.class_name || 'class'}` : 'this enrolment'
+          })()}
+          onClose={() => setDisenrolModal(null)}
+          onSave={async (reason) => {
+            const rowId = disenrolModal.rowId
+            const today = new Date().toISOString().slice(0, 10)
+            const { error } = await supabase.from(T_ENROLMENTS)
+              .update({ status: 'disenrol', end_reason: reason, ended_at: today })
+              .eq('id', rowId)
+            if (error) { alert('Disenrol failed: ' + error.message); return }
+            setRows(prev => prev.map(r => r[pkCol] === rowId
+              ? { ...r, status: 'disenrol', end_reason: reason, ended_at: today }
+              : r))
+            setDisenrolModal(null)
+          }}
+        />
+      )}
+
       {/* ── Enrolment class picker (searchable popover) ───────────────────────── */}
       {editingEnrolClass && (
         <SearchSelectPopover
@@ -3901,6 +3952,21 @@ export default function DatabasePage() {
                       <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {/* Status tabs — enrolments only */}
+              {selectedTable === T_ENROLMENTS && (
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                  {[['active', 'Active'], ['trial', 'Trial'], ['disenrol', 'Disenrolled'], ['all', 'All']].map(([v, label], i) => (
+                    <button
+                      key={v}
+                      onClick={() => setEnrolStatusTab(v)}
+                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${enrolStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -4653,7 +4719,7 @@ export default function DatabasePage() {
                   <tr>
                     <th className="sticky top-0 z-30 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] text-center text-[10px] font-bold text-[#325099]/40 select-none" style={{ width:42, minWidth:42, left:0 }}>#</th>
 
-                    {columnOrder.filter(col => !hiddenCols.has(col)).map(col => {
+                    {columnOrder.filter(visibleCol).map(col => {
                       const isPk          = col === pkCol
                       const isGuardian    = isGuardianCol(col)
                       const isName        = isNameCol(col)
@@ -4755,7 +4821,7 @@ export default function DatabasePage() {
                   {addingRow && (
                     <tr className="bg-[#F0FDF4]">
                       <td className="border-b border-r border-[#DEE7FF] px-2 py-2 text-center text-[#065F46] font-bold">*</td>
-                      {columnOrder.filter(col => !hiddenCols.has(col)).map(col => {
+                      {columnOrder.filter(visibleCol).map(col => {
                         const w = columnWidths[col] ?? defaultWidth(col)
                         const defVal = vConfig?.defaultRow?.[col] ?? ''
                         return (
@@ -4812,7 +4878,7 @@ export default function DatabasePage() {
                           ) : ri + 1}
                         </td>
 
-                        {columnOrder.filter(col => !hiddenCols.has(col)).map(col => {
+                        {columnOrder.filter(visibleCol).map(col => {
                           const val       = row[col]
                           const isEditing = editingCell?.rowId === rowId && editingCell?.col === col
                           const isPk      = col === pkCol
@@ -6397,6 +6463,56 @@ function SearchSelectPopover({ anchor, options, currentValue, onSelect, onClose,
         </div>
         <div className="px-3.5 py-1.5 border-t border-[#F0F4FF] bg-[#F8FAFF] text-[9px] text-[#2A2035]/40">
           ↑↓ navigate · Enter select · Esc close{list.length ? ` · ${list.filter(o => !o._clear).length} option${list.filter(o => !o._clear).length === 1 ? '' : 's'}` : ''}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Disenrol reason modal ──────────────────────────────────────────────────────
+// Flipping an enrolment's status to "disenrol" prompts for the reason, which
+// lands in the End Reason column (visible on the Disenrolled tab).
+function DisenrolReasonModal({ studentLabel, onClose, onSave }) {
+  const [reason, setReason]   = useState(END_REASONS[0])
+  const [custom, setCustom]   = useState('')
+  const [saving, setSaving]   = useState(false)
+  const finalReason = reason === 'Other' ? custom.trim() : reason
+  const submit = async () => {
+    if (!finalReason) return
+    setSaving(true)
+    await onSave(finalReason)
+    setSaving(false)
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+        <div>
+          <h3 className="font-bold text-[#2A2035] text-sm">Disenrol student</h3>
+          <p className="text-xs text-[#2A2035]/60 mt-1">{studentLabel}</p>
+        </div>
+        <div>
+          <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Reason for disenrolment</label>
+          <select value={reason} onChange={e => setReason(e.target.value)}
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+            {END_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        {reason === 'Other' && (
+          <div>
+            <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Details</label>
+            <input type="text" autoFocus value={custom} onChange={e => setCustom(e.target.value)}
+              placeholder="e.g. Moving interstate"
+              onKeyDown={e => { if (e.key === 'Enter' && finalReason) submit() }}
+              className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+          </div>
+        )}
+        <p className="text-[10px] text-[#2A2035]/40">Sets status to disenrol with today&apos;s date. The enrolment (and its history) is kept — it just stops being active.</p>
+        <div className="flex gap-2 justify-end pt-1">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={submit} disabled={saving || !finalReason}
+            className="px-5 py-2 bg-[#DC2626] text-white text-sm font-semibold rounded-lg hover:bg-[#B91C1C] transition disabled:opacity-40">
+            {saving ? 'Saving…' : 'Disenrol'}
+          </button>
         </div>
       </div>
     </div>
