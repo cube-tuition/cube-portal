@@ -2335,6 +2335,14 @@ export default function DatabasePage() {
     const isClass = f.lesson_type === 'class'
     // A "Class" lesson is a normal class lesson (class_id set), stored exactly like
     // generated ones — no lesson_type/student so it shows via the regular class path.
+    // The scheduled teacher defaults to the class's main teacher (full- or
+    // first-name match against staff), same as generated lessons.
+    const lessonCls   = isClass ? classesForLessons.find(c => String(c.id) === String(f.class_id)) : null
+    const mainTeacher = lessonCls?.teacher?.trim() || null
+    const teacherMatch = mainTeacher ? allStaffForLessons.find(s =>
+      (s.full_name || '').toLowerCase() === mainTeacher.toLowerCase() ||
+      (s.full_name || '').toLowerCase().split(' ')[0] === mainTeacher.toLowerCase()
+    ) : null
     const payload = isClass ? {
       class_id:    Number(f.class_id),
       lesson_date: f.lesson_date,
@@ -2343,6 +2351,8 @@ export default function DatabasePage() {
       room:        f.room?.trim() || null,
       notes:       f.notes?.trim() || null,
       status:      'scheduled',
+      main_teacher: mainTeacher,
+      scheduled_teacher_id: teacherMatch?.id ?? null,
     } : {
       lesson_type:          f.lesson_type || 'one_on_one',
       level_test_build_ids: isLevelTest ? (f.level_test_build_ids.length ? f.level_test_build_ids : null) : null,
