@@ -1332,8 +1332,9 @@ export default function DatabasePage() {
       const names = refData.options(T_TUTORS).map(o => o.label).filter(Boolean)
       return names.length ? Array.from(new Set(names)) : null
     }
-    // tutors.active is a boolean column, but presented as an Active/Inactive picker.
-    if (table === T_TUTORS && col === 'active') return ['Active', 'Inactive']
+    // tutors.active / courses.active are boolean columns, but presented as an
+    // Active/Inactive picker.
+    if ((table === T_TUTORS || table === T_COURSES) && col === 'active') return ['Active', 'Inactive']
     return cellDropdown(table, col)
   }, [refData])
   const [detailRecord, setDetailRecord] = useState(null)   // { realTable, row } | null
@@ -1509,6 +1510,7 @@ export default function DatabasePage() {
   const [dbTermFilter, setDbTermFilter] = useState(null) // term id | null = all terms
   const [tutorStatusTab, setTutorStatusTab] = useState('active') // tutors view: 'active' | 'inactive' | 'all'
   const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
+  const [courseStatusTab, setCourseStatusTab]   = useState('active') // courses view: 'active' | 'inactive' | 'all'
 
   // Search
   const [search, setSearch] = useState('')
@@ -2025,8 +2027,8 @@ export default function DatabasePage() {
     if (col === pkCol || isNameCol(col)) return
     setDeleteConfirm(null); setContextMenu(null)
     setEditingCell({ rowId, col, anchorRect })
-    // tutors.active (boolean) is edited via an Active/Inactive dropdown.
-    if (selectedTable === T_TUTORS && col === 'active') {
+    // tutors.active / courses.active (boolean) edit via an Active/Inactive dropdown.
+    if ((selectedTable === T_TUTORS || selectedTable === T_COURSES) && col === 'active') {
       setEditValue(currentVal === false || currentVal === 'false' ? 'Inactive' : 'Active')
       return
     }
@@ -2094,8 +2096,8 @@ export default function DatabasePage() {
     const { rowId, col } = editingCell
     setEditingCell(null); setSaving(true)
     let newVal = String(value ?? '').trim() === '' ? null : String(value).trim()
-    // tutors.active is stored as a boolean even though the picker shows Active/Inactive.
-    if (selectedTable === T_TUTORS && col === 'active') newVal = value === 'Active'
+    // tutors.active / courses.active store a boolean even though the picker shows Active/Inactive.
+    if ((selectedTable === T_TUTORS || selectedTable === T_COURSES) && col === 'active') newVal = value === 'Active'
     const prevRows = rows
     const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
     if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return }
@@ -2401,7 +2403,7 @@ export default function DatabasePage() {
   // The form shows every editable course column (from tableMeta), so adding a
   // course is a guided form rather than an inline blank row.
   const courseFormCols = Object.entries(TABLE_META[T_COURSES]?.columns ?? {})
-    .filter(([, m]) => !m.readOnly && !m.hidden)
+    .filter(([col, m]) => !m.readOnly && !m.hidden && col !== 'active')   // new courses start Active (DB default)
   const courseFormValid = courseFormCols.every(([col, m]) => !m.required || String(newCourseForm[col] ?? '').trim() !== '')
 
   const openAddCourseModal = () => {
@@ -3465,6 +3467,11 @@ export default function DatabasePage() {
     if (selectedTable === T_STUDENTS && studentStatusTab !== 'all') {
       out = out.filter(r => r.status === studentStatusTab)
     }
+    // Courses view: Active / Inactive / All tabs.
+    if (selectedTable === T_COURSES && courseStatusTab !== 'all') {
+      const wantActive = courseStatusTab === 'active'
+      out = out.filter(r => (r.active !== false) === wantActive)
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       out = out.filter(r => Object.values(r).some(v => v !== null && String(v).toLowerCase().includes(q)))
@@ -3487,7 +3494,7 @@ export default function DatabasePage() {
       })
     }
     return out
-  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab])
+  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab])
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -3891,6 +3898,21 @@ export default function DatabasePage() {
                       <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              {/* Active / Inactive tabs — courses only */}
+              {selectedTable === T_COURSES && (
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                  {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
+                    <button
+                      key={v}
+                      onClick={() => setCourseStatusTab(v)}
+                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${courseStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -4964,7 +4986,7 @@ export default function DatabasePage() {
                                 )
                                 if (ftype === 'boolean') {
                                   const on = dv === 'true'
-                                  if (selectedTable === T_TUTORS && col === 'active') {
+                                  if ((selectedTable === T_TUTORS || selectedTable === T_COURSES) && col === 'active') {
                                     return <div className="px-3 py-1.5"><span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${on ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>{on ? 'Active' : 'Inactive'}</span></div>
                                   }
                                   return <div className="px-3 py-1.5"><span className={`inline-flex items-center gap-1 text-[11px] font-medium ${on ? 'text-emerald-700' : 'text-[#2A2035]/45'}`}>{on ? '☑ Yes' : '☐ No'}</span></div>
