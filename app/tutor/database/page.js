@@ -1500,6 +1500,8 @@ export default function DatabasePage() {
   const [generatingLessons, setGeneratingLessons]   = useState(false)
   const [allStaffForLessons, setAllStaffForLessons] = useState([])   // [{id, full_name}] for scheduled_teacher dropdown
   const [editingSchedTeacher, setEditingSchedTeacher] = useState(null) // rowId being edited
+  const [editingEnrolClass, setEditingEnrolClass] = useState(null)     // enrolment rowId whose class is being reassigned
+  const termNameById = useMemo(() => Object.fromEntries((allTerms || []).map(t => [t.id, t.name])), [allTerms])
 
   // Term filter — applies to classes, enrolments, lessons, invoices
   // Tables where rows have a direct or indirect term_id relationship
@@ -2267,13 +2269,41 @@ export default function DatabasePage() {
         .order('updated_at', { ascending: false })
       setLevelTestsForLessons(data || [])
     }
-    if (classesForLessons.length === 0) {
-      const { data } = await supabase.from(T_CLASSES)
-        .select('id, class_name, day_of_week, start_time, end_time, room, term_id')
-        .order('class_name')
-      const labelMap = buildClassLabelMap(data || [])
-      setClassesForLessons((data || []).map(c => ({ ...c, label: labelMap.get(c.id) ?? c.class_name })))
+    await ensureClassOptions()
+  }
+
+  // Class options for dropdowns (also used by the enrolments class selector) —
+  // all terms, A/B/C-labelled per term; loaded once on demand.
+  const ensureClassOptions = async () => {
+    if (classesForLessons.length > 0) return
+    const { data } = await supabase.from(T_CLASSES)
+      .select('id, class_name, day_of_week, start_time, end_time, room, term_id')
+      .order('class_name')
+    const labelMap = buildClassLabelMap(data || [])
+    setClassesForLessons((data || []).map(c => ({ ...c, label: labelMap.get(c.id) ?? c.class_name })))
+  }
+
+  // Reassign an enrolment to a different class. The price follows the new
+  // class's course price (a custom price is replaced — adjust after if
+  // needed), and rosters/labels update everywhere since they derive from
+  // class_id.
+  const reassignEnrolmentClass = async (rowId, newClassId) => {
+    if (!newClassId) return
+    const { data: cls } = await supabase.from(T_CLASSES)
+      .select('id, class_name, courses(course_price)').eq('id', newClassId).maybeSingle()
+    const newPrice = cls?.courses?.course_price ?? null
+    const { error } = await supabase.from(T_ENROLMENTS)
+      .update({ class_id: Number(newClassId), price: newPrice }).eq('id', rowId)
+    if (error) {
+      alert(/duplicate|unique/i.test(error.message)
+        ? 'That student already has an enrolment in the selected class.'
+        : 'Could not change class: ' + error.message)
+      return
     }
+    const label = classesForLessons.find(c => String(c.id) === String(newClassId))?.label ?? cls?.class_name ?? '—'
+    setRows(prev => prev.map(r => r[pkCol] === rowId
+      ? { ...r, class_id: Number(newClassId), class_name: label, price: newPrice }
+      : r))
   }
 
   // Picking a class auto-fills the time + room from its weekly schedule (editable).
@@ -4737,7 +4767,40 @@ export default function DatabasePage() {
 
                           return (
                             <td key={col} className={`border-b border-r border-[#E8EDF8] p-0 ${!isStickyCol && isPk ? 'bg-[#F8FAFF]/60' : !isStickyCol && isGuardian ? 'bg-[#FFFBEB]/40' : !isStickyCol && isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w, ...(isStickyCol ? { position:'sticky', left: stickyLeft, zIndex: 2, background: stickyBg, boxShadow: col === 'full_name' ? '2px 0 4px -1px rgba(0,0,0,0.06)' : 'none' } : {}) }} onClick={() => !isPk && !isName && handleCellClick(rowId, col, val)}>
-                              {col === LESSON_SCHED_TEACHER_COL ? (
+                              {selectedTable === T_ENROLMENTS && col === 'class_name' ? (
+                                // Editable class selector — reassigns the enrolment's class_id;
+                                // price follows the new class's course price, rosters update everywhere.
+                                editingEnrolClass === rowId ? (
+                                  <select
+                                    autoFocus
+                                    defaultValue={row.class_id || ''}
+                                    onBlur={() => setEditingEnrolClass(null)}
+                                    onChange={async e => {
+                                      await reassignEnrolmentClass(rowId, e.target.value)
+                                      setEditingEnrolClass(null)
+                                    }}
+                                    className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] text-xs focus:outline-none"
+                                    style={{ width: w }}
+                                  >
+                                    <option value="">— choose class —</option>
+                                    {classesForLessons.map(c => (
+                                      <option key={c.id} value={c.id}>
+                                        {c.label}{c.day_of_week ? ` (${c.day_of_week})` : ''}{termNameById[c.term_id] ? ` · ${termNameById[c.term_id]}` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <div
+                                    className="px-3 py-1.5 overflow-hidden whitespace-nowrap text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors"
+                                    onClick={async () => { await ensureClassOptions(); setEditingEnrolClass(rowId) }}
+                                    title="Click to move this enrolment to a different class"
+                                  >
+                                    {dv === null
+                                      ? <span className="text-[#2A2035]/20 italic">— no class —</span>
+                                      : <span className="text-[#2A2035]">{dv}</span>}
+                                  </div>
+                                )
+                              ) : col === LESSON_SCHED_TEACHER_COL ? (
                                 // Editable dropdown for scheduled teacher
                                 editingSchedTeacher === rowId ? (
                                   <select
