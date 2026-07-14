@@ -1745,8 +1745,10 @@ export default function DatabasePage() {
         const sMap = Object.fromEntries((studentRows || []).map(s => [s.id, s.full_name]))
         const cMap = Object.fromEntries((classRows  || []).map(c => [c.id, classLabelMap.get(c.id) ?? c.class_name]))
         enrichedRows = r.map(row => ({ ...row, student_name: sMap[row.student_id] ?? null, class_name: cMap[row.class_id] ?? null }))
-        // Show name cols first (after id), then the raw FK cols at the end
-        const base = cols.filter(c => !ENROLMENT_NAME_COLS.includes(c))
+        // Show name cols first (after id), then the raw FK cols at the end.
+        // next_term_status is retired (everyone rolls over at transition) —
+        // drop it from the grid entirely, even for saved column layouts.
+        const base = cols.filter(c => !ENROLMENT_NAME_COLS.includes(c) && c !== 'next_term_status')
         const idCol = base.includes('id') ? ['id'] : []
         const rest  = base.filter(c => c !== 'id')
         cols = [...idCol, ...ENROLMENT_NAME_COLS, ...rest]
