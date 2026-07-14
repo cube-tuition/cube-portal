@@ -2488,7 +2488,14 @@ export default function DatabasePage() {
   // ── Enrolment: add student to class ─────────────────────────────────────────
   const handleEnrol = async (classId, studentId) => {
     setEnrolSaving(true)
-    const { error } = await supabase.from(T_ENROLMENTS).insert({ class_id: classId, student_id: studentId })
+    // An unassigned trial student (website enquiry → trial enrolment with no
+    // class) gets their stub linked to this class, staying a TRIAL — adding a
+    // trialling student to a class must not silently enrol (and bill) them.
+    const { data: stub } = await supabase.from(T_ENROLMENTS)
+      .select('id').eq('student_id', studentId).is('class_id', null).eq('status', 'trial').limit(1)
+    const { error } = stub?.length
+      ? await supabase.from(T_ENROLMENTS).update({ class_id: classId }).eq('id', stub[0].id)
+      : await supabase.from(T_ENROLMENTS).insert({ class_id: classId, student_id: studentId })
     if (!error) {
       const student = allStudentsList.find(s => s.id === studentId)
       if (student) {

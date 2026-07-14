@@ -814,10 +814,23 @@ export default function TimetablePage() {
     // duplicating it), then disenrol removed ones.
     for (const a of rosterAdds) {
       const name = studentsById[a.student_id]?.full_name || 'student'
+      // 1. Prior enrolment in this exact class → re-activate it.
       const { data: existing } = await supabase.from(T_ENROLMENTS)
         .select('id').eq('class_id', a.class_id).eq('student_id', a.student_id).limit(1)
-      const { error } = existing?.length
-        ? await supabase.from(T_ENROLMENTS).update({ status: 'active', ended_at: null, end_reason: null }).eq('id', existing[0].id)
+      if (existing?.length) {
+        const { error } = await supabase.from(T_ENROLMENTS)
+          .update({ status: 'active', ended_at: null, end_reason: null }).eq('id', existing[0].id)
+        if (error) failures.push(`Enrol ${name}: ${error.message}`)
+        continue
+      }
+      // 2. Unassigned trial student (a website-form enquiry creates a trial
+      //    enrolment with no class) → link that stub to this class, keeping
+      //    them a TRIAL — placing a trialling student on the timetable must
+      //    not silently enrol (and bill) them.
+      const { data: stub } = await supabase.from(T_ENROLMENTS)
+        .select('id').eq('student_id', a.student_id).is('class_id', null).eq('status', 'trial').limit(1)
+      const { error } = stub?.length
+        ? await supabase.from(T_ENROLMENTS).update({ class_id: a.class_id }).eq('id', stub[0].id)
         : await supabase.from(T_ENROLMENTS).insert({ class_id: a.class_id, student_id: a.student_id, status: 'active' })
       if (error) failures.push(`Enrol ${name}: ${error.message}`)
     }
