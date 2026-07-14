@@ -19,7 +19,7 @@ const PAYMENT_INSTRUCTIONS =
 `Bank Transfer:
 Account name: CUBE Tuition Pty Ltd
 BSB: 067-873  |  Account: 1616 0459
-Reference: [Invoice Number]`
+Reference: [Reference]`
 
 export async function POST(req) {
   try {
