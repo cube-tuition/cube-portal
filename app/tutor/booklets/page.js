@@ -352,6 +352,59 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
   const [err, setErr]       = useState('')
   const fileRef             = useRef()
 
+  // ── Syllabus content picker ────────────────────────────────────────────────
+  // Chapters/sections from the master syllabus for this year+subject. Ticked
+  // sections become the booklet's Content (one line each) and auto-fill Topic.
+  const [syll, setSyll]                 = useState(null)   // [{ id, name, chapters: [{ id, name, points: [{ id, text }] }] }]
+  const [selected, setSelected]         = useState(() => new Set())
+  const [openChapters, setOpenChapters] = useState(() => new Set())
+  const [syllDirty, setSyllDirty]       = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setSyll(null)
+      const { data: mods } = await supabase.from('syllabus_modules')
+        .select('id, name, sort_order').eq('subject', form.subject).eq('year', Number(form.year)).order('sort_order')
+      if (cancelled) return
+      if (!mods?.length) { setSyll([]); return }
+      const { data: tops } = await supabase.from('syllabus_topics')
+        .select('id, module_id, name, sort_order').in('module_id', mods.map(m => m.id)).order('sort_order')
+      const { data: dps } = await supabase.from('syllabus_dotpoints')
+        .select('id, topic_id, text, sort_order').in('topic_id', (tops || []).map(t => t.id)).order('sort_order')
+      if (cancelled) return
+      const structure = mods.map(m => ({
+        ...m,
+        chapters: (tops || []).filter(t => t.module_id === m.id).map(t => ({
+          ...t,
+          points: (dps || []).filter(d => d.topic_id === t.id),
+        })),
+      }))
+      setSyll(structure)
+      // Pre-tick sections already saved in this booklet's Content.
+      if (booklet?.content) {
+        const lines = new Set(booklet.content.split('\n').map(l => l.trim()).filter(Boolean))
+        const pre = new Set()
+        for (const m of structure) for (const ch of m.chapters) for (const p of ch.points) {
+          if (lines.has(p.text.trim())) pre.add(p.text)
+        }
+        if (pre.size) setSelected(pre)
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.year, form.subject])
+
+  const togglePoint = (text) => {
+    setSyllDirty(true)
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(text)) next.delete(text); else next.add(text)
+      return next
+    })
+  }
+  const chapterTopicName = (name) => (name.includes(' — ') ? name.split(' — ').slice(1).join(' — ') : name)
+
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
 
   const handleFileChange = e => {
@@ -394,6 +447,20 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
       topic:        form.topic.trim()  || null,
       file_path:    finalPaths[0] ?? null,
       file_paths:   finalPaths,
+    }
+
+    // Ticked syllabus sections become the booklet's Content (in syllabus
+    // order); Topic auto-fills from the first ticked chapter when left blank.
+    // Content is only touched when the picker was actually used, so
+    // builder-generated content on other booklets is never clobbered.
+    if (syllDirty && syll?.length) {
+      const ordered = []
+      let firstChapter = null
+      for (const m of syll) for (const ch of m.chapters) for (const p of ch.points) {
+        if (selected.has(p.text)) { ordered.push(p.text); if (!firstChapter) firstChapter = ch.name }
+      }
+      payload.content = ordered.length ? ordered.join('\n') : null
+      if (!payload.topic && firstChapter) payload.topic = chapterTopicName(firstChapter)
     }
 
     const { error } = isEdit
@@ -458,6 +525,50 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
               ))}
             </datalist>
           </div>
+          {/* Syllabus content picker */}
+          {syll && syll.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">
+                Syllabus content <span className="font-normal text-[#2A2035]/40">(tick the sections this booklet covers)</span>
+              </label>
+              <div className="border border-[#DEE7FF] rounded-xl max-h-56 overflow-y-auto">
+                {syll.map(m => (
+                  <div key={m.id}>
+                    {syll.length > 1 && (
+                      <div className="px-3 py-1.5 bg-[#EEF4FF] text-[10px] font-bold text-[#325099] sticky top-0">{m.name}</div>
+                    )}
+                    {m.chapters.map(ch => {
+                      const open  = openChapters.has(ch.id)
+                      const count = ch.points.filter(p => selected.has(p.text)).length
+                      return (
+                        <div key={ch.id} className="border-b border-[#F0F4FF] last:border-0">
+                          <button
+                            type="button"
+                            onClick={() => setOpenChapters(prev => { const n = new Set(prev); if (n.has(ch.id)) n.delete(ch.id); else n.add(ch.id); return n })}
+                            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#F8FAFF] transition"
+                          >
+                            <span className={`text-[11px] ${count ? 'font-bold text-[#062E63]' : 'font-semibold text-[#2A2035]/70'}`}>{ch.name}</span>
+                            <span className="text-[10px] text-[#325099] shrink-0">{count ? `${count} ✓ ` : ''}{open ? '▾' : '▸'}</span>
+                          </button>
+                          {open && ch.points.map(p => (
+                            <label key={p.id} className="flex items-start gap-2 px-4 py-1 cursor-pointer hover:bg-[#F8FAFF]">
+                              <input type="checkbox" checked={selected.has(p.text)} onChange={() => togglePoint(p.text)} className="mt-0.5 accent-[#325099]" />
+                              <span className="text-[11px] text-[#2A2035]/80 leading-snug">{p.text}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-[#2A2035]/40 mt-1">
+                {selected.size > 0
+                  ? `${selected.size} section${selected.size === 1 ? '' : 's'} selected — saved as the booklet's Content; Topic auto-fills from the chapter.`
+                  : 'Selections are saved as the booklet’s Content (visible here and in the master database).'}
+              </p>
+            </div>
+          )}
           {/* Notes */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Notes <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
@@ -501,7 +612,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
 }
 
 // ── Assign Booklet Modal (pick from master database) ─────────────────────────
-function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) {
+function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, onCreateNew }) {
   const [tab, setTab]                 = useState('booklet')   // 'booklet' | 'exam'
   const [allBooklets, setAllBooklets] = useState([])
   const [exams, setExams]             = useState(null)
@@ -576,6 +687,18 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned }) 
             <button onClick={() => { setTab('exam'); setQuery('') }} className={tabCls('exam')}>Add exam</button>
           </div>
         </div>
+
+        {onCreateNew && (
+          <div className="px-4 pt-3">
+            <button
+              onClick={onCreateNew}
+              disabled={!!assigning}
+              className="w-full border border-dashed border-[#325099]/40 rounded-xl px-3 py-2 text-xs font-semibold text-[#325099] hover:bg-[#F0F4FF] transition disabled:opacity-40"
+            >
+              ＋ Create a new booklet for this week
+            </button>
+          </div>
+        )}
 
         <div className="px-4 pt-3 pb-2">
           <input
@@ -678,6 +801,7 @@ export default function BookletsPage() {
   const [activeSub, setActiveSub]   = useState('Maths')
   const [addPrefill, setAddPrefill] = useState({})
   const [editing, setEditing]       = useState(null)
+  const [creating, setCreating]     = useState(false)   // "+ New booklet" (inserts into the master DB)
   const [viewContent, setViewContent] = useState(null)
   const [assignSlot, setAssignSlot] = useState(null) // { term, week }
   const [classes,      setClasses]      = useState([])
@@ -790,6 +914,12 @@ export default function BookletsPage() {
             <h1 className="text-2xl font-bold text-[#062E63]">Curriculum</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">{booklets.length} booklet{booklets.length !== 1 ? 's' : ''} across all years and subjects</p>
           </div>
+          <button
+            onClick={() => { setAddPrefill({}); setCreating(true) }}
+            className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition"
+          >
+            + New booklet
+          </button>
         </div>
 
         {/* Year tabs */}
@@ -1002,20 +1132,26 @@ export default function BookletsPage() {
           week={assignSlot.week}
           onClose={() => setAssignSlot(null)}
           onAssigned={() => { setAssignSlot(null); load() }}
+          onCreateNew={() => {
+            // Create a brand-new booklet prefilled to this term/week slot.
+            setAddPrefill({ term_number: assignSlot.term, week: assignSlot.week })
+            setAssignSlot(null)
+            setCreating(true)
+          }}
         />
       )}
 
       {/* Modals */}
       <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
-      {editing && (
+      {(editing || creating) && (
         <BookletModal
           booklet={editing}
           defaultYear={activeYear}
           defaultSubject={activeSub}
           defaultTerm={addPrefill.term_number}
           defaultWeek={addPrefill.week}
-          onClose={() => { setEditing(null); setAddPrefill({}) }}
-          onSaved={() => { setEditing(null); setAddPrefill({}); load() }}
+          onClose={() => { setEditing(null); setCreating(false); setAddPrefill({}) }}
+          onSaved={() => { setEditing(null); setCreating(false); setAddPrefill({}); load() }}
         />
       )}
     </div>
