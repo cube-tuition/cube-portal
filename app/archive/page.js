@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { requireStudent } from '../../lib/requireStudent'
 import {
   fetchAllTerms,
-  getCurrentTerm,
+  getEnrolmentTerm,
   getPastTerms,
   formatTermLabel,
   formatTermRange,
@@ -36,7 +36,7 @@ export default function ArchivePage() {
 
       const all = await fetchAllTerms()
       setTerms(all)
-      setCurrentTerm(getCurrentTerm(all))
+      setCurrentTerm(getEnrolmentTerm(all))
 
       const [{ data: qz }, { data: ex }, { data: at }] = await Promise.all([
         supabase.from(T_QUIZ_RESULTS).select('subject, score, max_score, quiz_date').eq('student_id', user.id),

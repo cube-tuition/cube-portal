@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { requireStudent } from '../../lib/requireStudent'
 import {
   fetchAllTerms,
-  getCurrentTerm,
+  getEnrolmentTerm,
   formatTermLabel,
   formatTermRange,
   filterByTerm,
@@ -42,7 +42,7 @@ export default function Results() {
 
       // ── Current term ────────────────────────────────────────────────────
       const terms = await fetchAllTerms()
-      const term = getCurrentTerm(terms)
+      const term = getEnrolmentTerm(terms)
       setCurrentTerm(term)
 
       // ── Enrolled classes (try with `subject`, fall back without) ────────

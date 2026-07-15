@@ -7,7 +7,7 @@ import PortalNav from '../../components/PortalNav'
 import SearchSelectPopover from '../../components/SearchSelectPopover'
 import LatexContent from '../../components/qbank/LatexContent'
 import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
-import { fetchAllTerms, getCurrentTerm } from '../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm } from '../../lib/terms'
 import { fetchTaxonomy, qbankImageUrl } from '../../lib/qbank'
 import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS } from '../../lib/tables'
 import { enrolledClassesForTerm } from '../../lib/classes'
@@ -90,7 +90,7 @@ export default function Resources() {
 
       // Classes are per-term rows, so scope to the current term to avoid
       // counting the same class once per term after a rollover.
-      const term = getCurrentTerm(await fetchAllTerms())
+      const term = getEnrolmentTerm(await fetchAllTerms())
       const { data: links } = await enrolledClassesForTerm(user.id, term?.id, 'class_name')
       const pairs = (links || []).map(l => {
         const cls = l.classes

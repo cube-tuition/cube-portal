@@ -4,8 +4,9 @@ import { supabase } from '../../lib/supabase'
 import { requireStudent } from '../../lib/requireStudent'
 import { useRouter } from 'next/navigation'
 import PortalNav from '../../components/PortalNav'
-import { normalizeDay } from '../../lib/format'
-import { T_STUDENTS, T_TIMETABLE } from '../../lib/tables'
+import { normalizeDay, normalizeDays } from '../../lib/format'
+import { T_STUDENTS, T_ENROLMENTS } from '../../lib/tables'
+import { fetchAllTerms, getEnrolmentTerm } from '../../lib/terms'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -49,11 +50,31 @@ export default function Timetable() {
         .single()
       setStudent(profile)
 
-      const { data } = await supabase
-        .from(T_TIMETABLE)
-        .select('*')
+      // The student's classes in the current/enrolment term (Term 3 during the
+      // break) via their enrolments — one card per class per day.
+      const term = getEnrolmentTerm(await fetchAllTerms())
+      let q = supabase
+        .from(T_ENROLMENTS)
+        .select('status, classes!inner(class_name, day_of_week, start_time, end_time, room)')
         .eq('student_id', user.id)
-      setSchedule(data || [])
+      if (term?.id) q = q.eq('classes.term_id', term.id)
+      const { data } = await q
+      const rows = []
+      for (const r of data || []) {
+        const c = r.classes
+        if (!c || !['active', 'trial'].includes(r.status || 'active')) continue
+        for (const d of normalizeDays(c.day_of_week)) {
+          rows.push({
+            subject: c.class_name,
+            day_of_week: d,
+            start_time: (c.start_time || '').slice(0, 5),
+            end_time: (c.end_time || '').slice(0, 5),
+            location: c.room,
+          })
+        }
+      }
+      rows.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''))
+      setSchedule(rows)
     }
     load()
   }, [])

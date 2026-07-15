@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import PortalNav from '../../components/PortalNav'
 import { normalizeDay } from '../../lib/format'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, formatTermLabel } from '../../lib/terms'
 import { T_STUDENTS, T_LESSONS } from '../../lib/tables'
 import { enrolledClassesForTerm } from '../../lib/classes'
 
@@ -75,7 +75,7 @@ export default function Dashboard() {
 
       // Current term — drives the term chip in the hero
       const terms = await fetchAllTerms()
-      const term = getCurrentTerm(terms)
+      const term = getEnrolmentTerm(terms)
       setCurrentTerm(term)
 
       // Classes are per-term rows (the term transition copies each class into
