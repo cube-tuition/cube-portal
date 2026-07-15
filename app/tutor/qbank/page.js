@@ -233,8 +233,23 @@ export default function QuestionBankPage() {
           {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline">Clear</button> : null}
         </div>
 
-        {/* Used / Unused tabs + CUBE / Students audience tabs */}
-        <div className="flex items-center gap-1 mt-5 border-b border-[#DEE7FF]">
+        {/* CUBE / Students audience tabs — the primary split */}
+        <div className="flex gap-1 mt-5 border-b border-[#DEE7FF]">
+          {(() => {
+            const cubeCount = scoped.filter((q) => q.audience === 'exam').length
+            const studentCount = scoped.filter((q) => q.audience === 'student').length
+            const tabs = [['all', 'All', scoped.length], ['exam', 'CUBE', cubeCount], ['student', 'Students', studentCount]]
+            return tabs.map(([v, lbl, n]) => (
+              <button key={v} onClick={() => setAudienceTab(v)}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${audienceTab === v ? 'border-[#D97706] text-[#92400E]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+                {lbl} <span className="text-[11px] font-normal">({n})</span>
+              </button>
+            ))
+          })()}
+        </div>
+
+        {/* Used / Unused tabs — within the selected audience */}
+        <div className="flex gap-1 mt-2 border-b border-[#DEE7FF]">
           {(() => {
             const usedCount = audienceScoped.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
             const tabs = [['all', 'All', audienceScoped.length], ['used', 'Used', usedCount], ['unused', 'Unused', audienceScoped.length - usedCount]]
@@ -245,19 +260,6 @@ export default function QuestionBankPage() {
               </button>
             ))
           })()}
-          <div className="ml-auto flex gap-1">
-            {(() => {
-              const cubeCount = scoped.filter((q) => q.audience === 'exam').length
-              const studentCount = scoped.filter((q) => q.audience === 'student').length
-              const tabs = [['all', 'All', scoped.length], ['exam', 'CUBE', cubeCount], ['student', 'Students', studentCount]]
-              return tabs.map(([v, lbl, n]) => (
-                <button key={v} onClick={() => setAudienceTab(v)}
-                  className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${audienceTab === v ? 'border-[#D97706] text-[#92400E]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
-                  {lbl} <span className="text-[11px] font-normal">({n})</span>
-                </button>
-              ))
-            })()}
-          </div>
         </div>
 
         {/* List */}
