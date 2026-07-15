@@ -349,9 +349,12 @@ function FilterSelect({ value, options, onSelect, placeholder, clearLabel = null
     return (
       <span
         title={disabledHint}
-        className="border border-dashed border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-[#F8FAFF] text-[#2A2035]/35 flex items-center gap-1 cursor-not-allowed select-none"
+        className="border border-[#E5EAF5] rounded-lg px-2.5 py-1.5 text-xs bg-[#EEF1F6] text-[#2A2035]/40 flex items-center gap-1.5 cursor-not-allowed select-none"
       >
-        🔒 {disabledHint || placeholder}
+        <span className="truncate max-w-[180px]">{placeholder}</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 opacity-60">
+          <path d="M5 7V5.5a3 3 0 0 1 6 0V7m-7 0h8a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </span>
     )
   }
