@@ -381,12 +381,15 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
         })),
       }))
       setSyll(structure)
-      // Pre-tick sections already saved in this booklet's Content.
-      if (booklet?.content) {
+      // Pre-tick this booklet's saved dotpoint ids; fall back to matching
+      // Content lines by text for booklets saved before ids were recorded.
+      if (Array.isArray(booklet?.syllabus_points) && booklet.syllabus_points.length) {
+        setSelected(new Set(booklet.syllabus_points))
+      } else if (booklet?.content) {
         const lines = new Set(booklet.content.split('\n').map(l => l.trim()).filter(Boolean))
         const pre = new Set()
         for (const m of structure) for (const ch of m.chapters) for (const p of ch.points) {
-          if (lines.has(p.text.trim())) pre.add(p.text)
+          if (lines.has(p.text.trim())) pre.add(p.id)
         }
         if (pre.size) setSelected(pre)
       }
@@ -395,11 +398,11 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.year, form.subject])
 
-  const togglePoint = (text) => {
+  const togglePoint = (id) => {
     setSyllDirty(true)
     setSelected(prev => {
       const next = new Set(prev)
-      if (next.has(text)) next.delete(text); else next.add(text)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -455,11 +458,14 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
     // builder-generated content on other booklets is never clobbered.
     if (syllDirty && syll?.length) {
       const ordered = []
+      const orderedIds = []
       let firstChapter = null
       for (const m of syll) for (const ch of m.chapters) for (const p of ch.points) {
-        if (selected.has(p.text)) { ordered.push(p.text); if (!firstChapter) firstChapter = ch.name }
+        if (selected.has(p.id)) { ordered.push(p.text); orderedIds.push(p.id); if (!firstChapter) firstChapter = ch.name }
       }
       payload.content = ordered.length ? ordered.join('\n') : null
+      // Dotpoint ids drive the syllabus page's covered ticks.
+      payload.syllabus_points = orderedIds.length ? orderedIds : null
       if (!payload.topic && firstChapter) payload.topic = chapterTopicName(firstChapter)
     }
 
@@ -539,7 +545,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
                     )}
                     {m.chapters.map(ch => {
                       const open  = openChapters.has(ch.id)
-                      const count = ch.points.filter(p => selected.has(p.text)).length
+                      const count = ch.points.filter(p => selected.has(p.id)).length
                       return (
                         <div key={ch.id} className="border-b border-[#F0F4FF] last:border-0">
                           <button
@@ -552,7 +558,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
                           </button>
                           {open && ch.points.map(p => (
                             <label key={p.id} className="flex items-start gap-2 px-4 py-1 cursor-pointer hover:bg-[#F8FAFF]">
-                              <input type="checkbox" checked={selected.has(p.text)} onChange={() => togglePoint(p.text)} className="mt-0.5 accent-[#325099]" />
+                              <input type="checkbox" checked={selected.has(p.id)} onChange={() => togglePoint(p.id)} className="mt-0.5 accent-[#325099]" />
                               <span className="text-[11px] text-[#2A2035]/80 leading-snug">{p.text}</span>
                             </label>
                           ))}
@@ -821,7 +827,7 @@ export default function BookletsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, topic, term_number, week, notes, content, file_path, file_paths, is_exam, exam_id')
+      .select('id, booklet_name, year, subject, topic, term_number, week, notes, content, file_path, file_paths, is_exam, exam_id, syllabus_points')
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
