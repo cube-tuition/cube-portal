@@ -19,7 +19,11 @@ import { T_ADMINS, T_CURRENT_TUTOR_RATES, T_TUTOR_RATE_MATRIX, T_TUTORS } from '
  * shift history stays accurate.
  */
 
-const YEAR_BANDS = ['1-6', '7-8', '9-10', '11-12']
+// 'other' covers classes without a year in the name (e.g. Speaking
+// Development 1:1, HW Help/Mentoring 1:1) — only fill it for tutors who teach one.
+const YEAR_BANDS = ['1-6', '7-8', '9-10', '11-12', 'other']
+const CORE_BANDS = YEAR_BANDS.filter(b => b !== 'other')
+const bandHeader = (band) => (band === 'other' ? 'Other' : `Y${band}`)
 const MODES = [
   { key: 'tutor', label: 'Tutor', sub: '1-on-1' },
   { key: 'class', label: 'Class', sub: 'Group' },
@@ -114,8 +118,9 @@ export default function RatesMatrixPage() {
   }
 
   const totals = useMemo(() => {
-    const filled = Object.values(rates).length
-    const expected = (tutors?.length || 0) * YEAR_BANDS.length * MODES.length
+    // 'other' is optional per tutor, so it doesn't count toward missing cells.
+    const filled = Object.values(rates).filter(r => r.year_band !== 'other').length
+    const expected = (tutors?.length || 0) * CORE_BANDS.length * MODES.length
     return { filled, expected, missing: Math.max(expected - filled, 0) }
   }, [rates, tutors])
 
@@ -183,8 +188,9 @@ export default function RatesMatrixPage() {
                     Tutor
                   </th>
                   {YEAR_BANDS.map(band => (
-                    <th key={band} colSpan={2} className="text-center px-2 py-3 text-[11px] font-semibold text-[#062E63] border-l border-[#DEE7FF]">
-                      Y{band}
+                    <th key={band} colSpan={2} className="text-center px-2 py-3 text-[11px] font-semibold text-[#062E63] border-l border-[#DEE7FF]"
+                        title={band === 'other' ? 'Classes without a year in the name (e.g. Speaking Development)' : undefined}>
+                      {bandHeader(band)}
                     </th>
                   ))}
                 </tr>
