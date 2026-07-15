@@ -10,7 +10,7 @@ import {
   T_QBANK_QUESTIONS, T_QBANK_QUESTION_IMAGES,
 } from '../../../lib/tables'
 import {
-  fetchTaxonomy, yearsFromSubjects, deleteQbankImage, qbankImageUrl,
+  fetchTaxonomy, deleteQbankImage, qbankImageUrl,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
   buildTaxonomyMaps, labelForQuestion,
 } from '../../../lib/qbank'
@@ -59,20 +59,43 @@ export default function QuestionBankPage() {
   const maps = useMemo(() => buildTaxonomyMaps(tax), [tax])
   const labelFor = useCallback((q) => labelForQuestion(q, maps), [maps])
 
-  // filter dropdown lists
-  // Years available for the active subject only (e.g. Chemistry → 11, 12).
-  const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects.filter((s) => s.name === activeSubject)) : []), [tax, activeSubject])
-  // Active subject tab + year resolves to a specific subject row (topics are per year).
-  const subjectId = useMemo(() => {
-    if (!tax || !year) return ''
-    const s = tax.subjects.find((su) => su.name === activeSubject && String(su.year_level) === String(year))
-    return s?.id || ''
-  }, [tax, year, activeSubject])
-  // Question counts per master subject (for the tab badges).
+  // Master tabs cover subject FAMILIES — the Maths tab includes the senior
+  // variants, so e.g. "Year 11 Ext 1" appears in its year dropdown.
+  const SUBJECT_FAMILIES = {
+    Maths:     ['Maths', 'Adv Maths', 'Standard Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
+    English:   ['English'],
+    Chemistry: ['Chemistry'],
+  }
+  const familyFor = (tab) => SUBJECT_FAMILIES[tab] || [tab]
+  const yearOptionLabel = (s) => {
+    const variant = familyFor(activeSubject).includes(s.name) && s.name !== activeSubject
+      ? ' ' + s.name.replace(/\s*Maths\s*/i, ' ').trim()   // 'Ext 1 Maths' → 'Ext 1'
+      : ''
+    return `Year ${s.year_level}${variant}`
+  }
+  // The year dropdown lists the family's subject rows (topics are per subject),
+  // so picking an option resolves the exact subject directly.
+  const yearOptions = useMemo(() => {
+    if (!tax) return []
+    const fam = familyFor(activeSubject)
+    return tax.subjects
+      .filter((s) => fam.includes(s.name))
+      .sort((a, b) => a.year_level - b.year_level || a.name.localeCompare(b.name))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tax, activeSubject])
+  const subjectId = year   // the dropdown stores the subject id
+  // Question counts per master tab (family-aware, for the tab badges).
   const subjectCounts = useMemo(() => {
     const c = { Maths: 0, English: 0, Chemistry: 0 }
-    for (const q of questions) { const n = labelFor(q)?.subject?.name; if (n && n in c) c[n] += 1 }
+    for (const q of questions) {
+      const n = labelFor(q)?.subject?.name
+      if (!n) continue
+      for (const tab of Object.keys(c)) {
+        if ((SUBJECT_FAMILIES[tab] || [tab]).includes(n)) { c[tab] += 1; break }
+      }
+    }
     return c
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions, labelFor])
   const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
   const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
@@ -84,12 +107,12 @@ export default function QuestionBankPage() {
     if (!maps) return []
     return questions.filter((q) => {
       const l = labelFor(q)
-      // Each master tab shows its own subject; untagged questions have no subject.
-      if (l.subject?.name !== activeSubject) return false
+      // Each master tab shows its subject family; untagged questions have no subject.
+      if (!familyFor(activeSubject).includes(l.subject?.name)) return false
       if (skillId && q.skill_id !== skillId) return false
       if (subtopicId && l.subtopic?.id !== subtopicId) return false
       if (topicId && l.topic?.id !== topicId) return false
-      if (year && String(l.subject?.year_level) !== String(year)) return false
+      if (year && String(l.subject?.id) !== String(year)) return false
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
       if (qtype && q.qtype !== qtype) return false
       if (search.trim()) {
@@ -153,7 +176,7 @@ export default function QuestionBankPage() {
         <div className="mt-4 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">
           <select value={year} onChange={(e) => { setYear(e.target.value); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
             <option value="">All years</option>
-            {years.map((y) => <option key={y} value={y}>Year {y}</option>)}
+            {yearOptions.map((s) => <option key={s.id} value={s.id}>{yearOptionLabel(s)}</option>)}
           </select>
           <select value={topicId} disabled={!subjectId} onChange={(e) => { setTopicId(e.target.value); setSubtopicId(''); setSkillId('') }} className={selCls}>
             <option value="">{activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}</option>
