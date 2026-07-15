@@ -212,6 +212,7 @@ export async function POST(request) {
     const resend    = new Resend(process.env.RESEND_API_KEY)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
     const results   = []
+    const sentInvoiceIds = new Set()   // invoices attached to a successful real send
 
     for (const family of families) {
       const uniqueStudents = family.students.filter((s, i, a) =>
@@ -291,6 +292,17 @@ export async function POST(request) {
         invoiceAttached,
         invoiceNumber:   matchedInv?.invoice_number || null,
       })
+
+      if (!test && !sendErr && invoiceAttached && matchedInv?.id) sentInvoiceIds.add(matchedInv.id)
+    }
+
+    // Invoices that actually went out as attachments are now delivered.
+    if (sentInvoiceIds.size > 0) {
+      const sbMark = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY,
+      )
+      await sbMark.from('invoices').update({ delivery_status: 'sent' }).in('id', [...sentInvoiceIds])
     }
 
     const successCount = results.filter(r => r.success).length
