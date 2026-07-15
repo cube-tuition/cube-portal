@@ -291,7 +291,7 @@ export default function QuestionBankPage() {
                   <div className="mt-2 grid sm:grid-cols-2 gap-x-6 gap-y-1">
                     {q.options.map((opt) => (
                       <div key={opt.label} className={`flex items-start gap-1.5 text-[13px] ${opt.label === q.correct_option ? 'text-[#166534] font-semibold' : 'text-[#2A2035]/80'}`}>
-                        <span className="font-bold">{opt.label})</span>
+                        <span className="font-bold">{opt.label}.</span>
                         <span className="min-w-0"><LatexContent text={opt.latex || ''} /></span>
                         {opt.label === q.correct_option && <span>✓</span>}
                       </div>

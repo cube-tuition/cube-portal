@@ -523,7 +523,7 @@ function QuestionView({ q, n, showAnswers, last }) {
                 const correct = showAnswers && opt.label === q.correct_option
                 return (
                   <div key={opt.label} className={`flex items-start gap-2 text-[14px] ${correct ? 'text-[#166534] font-semibold' : 'text-[#1f2a44]'}`}>
-                    <span className="font-bold">{opt.label})</span>
+                    <span className="font-bold">{opt.label}.</span>
                     <span><LatexContent text={opt.latex || ''} /></span>
                     {correct && <span className="ml-1">✓</span>}
                   </div>
