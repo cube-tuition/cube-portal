@@ -37,6 +37,7 @@ export default function QuestionBankPage() {
   const [qtype, setQtype] = useState('')   // '' | 'mcq' | 'extended'
   const [search, setSearch] = useState('')
   const [usageTab, setUsageTab] = useState('all')   // all | used | unused
+  const [audienceTab, setAudienceTab] = useState('all')   // all | exam (CUBE) | student
 
   const loadQuestions = useCallback(async () => {
     const { data } = await supabase
@@ -126,12 +127,16 @@ export default function QuestionBankPage() {
     })
   }, [questions, maps, labelFor, activeSubject, year, topicId, subtopicId, skillId, difficulty, qtype, search])
 
-  // apply the Used/Unused tab on top of the scoped set
-  const filtered = useMemo(() => scoped.filter((q) => {
+  // apply the CUBE/Students tab, then the Used/Unused tab, on top of the scoped set
+  const audienceScoped = useMemo(
+    () => (audienceTab === 'all' ? scoped : scoped.filter((q) => q.audience === audienceTab)),
+    [scoped, audienceTab],
+  )
+  const filtered = useMemo(() => audienceScoped.filter((q) => {
     if (usageTab === 'all') return true
     const used = (usageMap[q.id]?.count || 0) > 0
     return usageTab === 'used' ? used : !used
-  }), [scoped, usageTab, usageMap])
+  }), [audienceScoped, usageTab, usageMap])
 
   const handleDelete = async (q) => {
     if (!confirm('Delete this question permanently?')) return
@@ -228,11 +233,11 @@ export default function QuestionBankPage() {
           {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline">Clear</button> : null}
         </div>
 
-        {/* Used / Unused tabs */}
-        <div className="flex gap-1 mt-5 border-b border-[#DEE7FF]">
+        {/* Used / Unused tabs + CUBE / Students audience tabs */}
+        <div className="flex items-center gap-1 mt-5 border-b border-[#DEE7FF]">
           {(() => {
-            const usedCount = scoped.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
-            const tabs = [['all', 'All', scoped.length], ['used', 'Used', usedCount], ['unused', 'Unused', scoped.length - usedCount]]
+            const usedCount = audienceScoped.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
+            const tabs = [['all', 'All', audienceScoped.length], ['used', 'Used', usedCount], ['unused', 'Unused', audienceScoped.length - usedCount]]
             return tabs.map(([v, lbl, n]) => (
               <button key={v} onClick={() => setUsageTab(v)}
                 className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${usageTab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
@@ -240,6 +245,19 @@ export default function QuestionBankPage() {
               </button>
             ))
           })()}
+          <div className="ml-auto flex gap-1">
+            {(() => {
+              const cubeCount = scoped.filter((q) => q.audience === 'exam').length
+              const studentCount = scoped.filter((q) => q.audience === 'student').length
+              const tabs = [['all', 'All', scoped.length], ['exam', 'CUBE', cubeCount], ['student', 'Students', studentCount]]
+              return tabs.map(([v, lbl, n]) => (
+                <button key={v} onClick={() => setAudienceTab(v)}
+                  className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${audienceTab === v ? 'border-[#D97706] text-[#92400E]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+                  {lbl} <span className="text-[11px] font-normal">({n})</span>
+                </button>
+              ))
+            })()}
+          </div>
         </div>
 
         {/* List */}
