@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
-import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS, T_TERM_TRANSITIONS } from '../../../lib/tables'
+import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS, T_TERM_TRANSITIONS, T_CLASS_BOOKLETS } from '../../../lib/tables'
 import { fmtDate } from '../../../lib/format'
 
 /*
@@ -265,6 +265,23 @@ export default function TransitionPage() {
             if (!enrErr) createdEnrolments++
           }
         }
+
+        // Carry the class's curriculum: booklet assignments + uploaded weekly
+        // PDFs are keyed by class_id, so without this the new term's class
+        // tabs start empty on the Curriculum page.
+        const { data: asg } = await supabase.from('class_booklet_assignments')
+          .select('booklet_id, term_number, week').eq('class_id', origId)
+        if (asg?.length) {
+          await supabase.from('class_booklet_assignments')
+            .insert(asg.map(a => ({ ...a, class_id: newCls.id })))
+        }
+        const { data: cbs } = await supabase.from(T_CLASS_BOOKLETS)
+          .select('term_number, week, booklet_name, storage_path, storage_paths, storage_filenames')
+          .eq('class_id', origId)
+        if (cbs?.length) {
+          await supabase.from(T_CLASS_BOOKLETS)
+            .insert(cbs.map(b => ({ ...b, class_id: newCls.id })))
+        }
       }
 
       // Audit record — who ran this rollover and what it created
@@ -308,9 +325,11 @@ export default function TransitionPage() {
     try {
       const { createdClassIds = [] } = rolloverResult
 
-      // 1. Delete enrolments in the newly-created classes
+      // 1. Delete enrolments + copied curriculum in the newly-created classes
       if (createdClassIds.length) {
         await supabase.from(T_ENROLMENTS).delete().in('class_id', createdClassIds)
+        await supabase.from('class_booklet_assignments').delete().in('class_id', createdClassIds)
+        await supabase.from(T_CLASS_BOOKLETS).delete().in('class_id', createdClassIds)
       }
 
       // 2. Delete the newly-created classes themselves
