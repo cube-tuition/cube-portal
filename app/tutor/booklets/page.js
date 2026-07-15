@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { fetchAllTerms, getCurrentTerm } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
@@ -708,7 +708,7 @@ export default function BookletsPage() {
   const loadClasses = useCallback(async () => {
     // Classes are per-term rows (the rollover copies them), so scope to the
     // current term or each class shows once per term it has existed in.
-    const term = getCurrentTerm(await fetchAllTerms())
+    const term = getEnrolmentTerm(await fetchAllTerms())
     const cols = 'id, class_name, day_of_week, start_time, teacher, courses(course_code)'
     let { data } = term?.id ? await classesForTerm(term.id, cols) : { data: null }
     if (!data?.length) {
@@ -1037,7 +1037,7 @@ function TutorCurriculumPage({ staff }) {
   useEffect(() => {
     const init = async () => {
       const terms = await fetchAllTerms()
-      const term  = getCurrentTerm(terms)
+      const term  = getEnrolmentTerm(terms)
       setCurrentTerm(term)
 
       const firstName = (staff.full_name || '').split(' ')[0]
