@@ -39,7 +39,7 @@ export default function QuestionBankPage() {
   const loadQuestions = useCallback(async () => {
     const { data } = await supabase
       .from(T_QBANK_QUESTIONS)
-      .select('*, qbank_question_parts(id), qbank_question_images(id, storage_path)')
+      .select('*, qbank_question_parts(id, part_label, prompt_latex, marks, sort_order), qbank_question_images(id, storage_path)')
       .order('created_at', { ascending: false })
     setQuestions(data || [])
     setLoadingQ(false)
@@ -261,9 +261,35 @@ export default function QuestionBankPage() {
                     <button onClick={() => handleDelete(q)} className="text-[11px] text-[#DC2626] hover:underline">Delete</button>
                   </div>
                 </div>
-                <div className="text-sm text-[#2A2035] line-clamp-3">
+                <div className="text-sm text-[#2A2035]">
                   <LatexContent text={q.stem_latex || '(no stem)'} />
                 </div>
+                {/* MCQ options */}
+                {q.qtype === 'mcq' && Array.isArray(q.options) && q.options.length > 0 && (
+                  <div className="mt-2 grid sm:grid-cols-2 gap-x-6 gap-y-1">
+                    {q.options.map((opt) => (
+                      <div key={opt.label} className={`flex items-start gap-1.5 text-[13px] ${opt.label === q.correct_option ? 'text-[#166534] font-semibold' : 'text-[#2A2035]/80'}`}>
+                        <span className="font-bold">{opt.label})</span>
+                        <span className="min-w-0"><LatexContent text={opt.latex || ''} /></span>
+                        {opt.label === q.correct_option && <span>✓</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Parts */}
+                {nParts > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {[...q.qbank_question_parts].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((p, i) => {
+                      const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                      return (
+                        <div key={p.id} className="flex items-start gap-2 text-[13px] text-[#2A2035]/80">
+                          <div className="flex-1 min-w-0"><span className="font-semibold mr-1">{lbl})</span><LatexContent text={p.prompt_latex || ''} /></div>
+                          {p.marks != null && <span className="text-[11px] text-[#2A2035]/40 shrink-0 mt-0.5">[{p.marks}]</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
                 {imgs.length > 0 && (
                   <div className="flex gap-2 mt-2">
                     {imgs.slice(0, 4).map((im) => (
