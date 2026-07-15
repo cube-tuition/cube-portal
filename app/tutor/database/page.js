@@ -783,7 +783,7 @@ function FamiliesView() {
     ;(async () => {
       try {
         const [stuRes, gRes, invRes, allTerms] = await Promise.all([
-          supabase.from(T_STUDENTS).select('id, full_name, year, status, family_id').order('full_name'),
+          supabase.from(T_STUDENTS).select('id, full_name, year, status, family_id, payment_method').order('full_name'),
           supabase.from(T_PARENTS).select('id, full_name, relationship, email, phone, student_id'),
           supabase.from(T_INVOICES).select('id, term_id, family_id, student_id, invoice_number, status, payment_status, delivery_status, total, due_date').order('created_at', { ascending: false }),
           fetchAllTerms(),
@@ -829,6 +829,18 @@ function FamiliesView() {
     })()
   }, [])
 
+  // Family-level payment method: cash if any member is cash (the invoice
+  // generator uses the same rule). Setting it writes to every member.
+  const familyPayMethod = (f) => (f.students.some(s => s.payment_method === 'cash') ? 'cash' : 'bank')
+  const setFamilyPayMethod = async (f, method) => {
+    const ids = f.students.map(s => s.id)
+    const { error } = await supabase.from(T_STUDENTS).update({ payment_method: method }).in('id', ids)
+    if (error) { alert('Could not update payment method: ' + error.message); return }
+    setFamilies(prev => prev.map(fam => fam.key === f.key
+      ? { ...fam, students: fam.students.map(s => ({ ...s, payment_method: method })) }
+      : fam))
+  }
+
   if (loading) return <div className="flex items-center justify-center h-full"><p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</p></div>
   if (err)     return <div className="flex items-center justify-center h-full"><p className="text-xs text-rose-600">{err}</p></div>
 
@@ -872,6 +884,9 @@ function FamiliesView() {
                 {f.familyId !== null
                   ? <span className="text-[9px] font-semibold bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full shrink-0">Family #{f.familyId}</span>
                   : <span className="text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0" title="Student has no family number — link siblings via the Students table">not linked</span>}
+                {familyPayMethod(f) === 'cash' && (
+                  <span className="text-[9px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-full shrink-0" title="This family pays in cash">💵 cash</span>
+                )}
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {f.students.map(s => (
@@ -922,6 +937,28 @@ function FamiliesView() {
                       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${s.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>{s.status}</span>
                     </div>
                   ))}
+                </div>
+              </section>
+              {/* Payment method — family-level, drives new invoices */}
+              <section>
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Payment Method</p>
+                <div className="bg-white rounded-xl border border-[#E8EDF8] px-4 py-3 flex items-center gap-3">
+                  <div className="flex rounded-lg border border-[#DEE7FF] overflow-hidden">
+                    {['bank', 'cash'].map(m => (
+                      <button
+                        key={m}
+                        onClick={() => setFamilyPayMethod(sel, m)}
+                        className={`px-4 py-1.5 text-xs font-semibold transition ${familyPayMethod(sel) === m
+                          ? (m === 'cash' ? 'bg-emerald-600 text-white' : 'bg-[#325099] text-white')
+                          : 'bg-white text-[#2A2035]/50 hover:bg-[#F8FAFF]'}`}
+                      >
+                        {m === 'bank' ? '🏦 Bank' : '💵 Cash'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-[#2A2035]/45 flex-1">
+                    Applies to every student in this family. New invoices inherit it; it carries across terms.
+                  </p>
                 </div>
               </section>
               {/* Last conversation — placeholder */}
@@ -1743,7 +1780,9 @@ export default function DatabasePage() {
         for (const p of parentRows || []) pMap[p.student_id] = p
         setParentMap(pMap)
         enrichedRows = r.map(s => ({ ...s, guardian_name: pMap[s.id]?.full_name ?? null, guardian_relationship: pMap[s.id]?.relationship ?? null, guardian_email: pMap[s.id]?.email ?? null, guardian_phone: pMap[s.id]?.phone ?? null }))
-        cols = [...cols, ...GUARDIAN_COLS]
+        // payment_method is managed per family in the Guardians (Families) view —
+        // drop it from the per-student grid, even for saved column layouts.
+        cols = [...cols.filter(c => c !== 'payment_method'), ...GUARDIAN_COLS]
       }
 
       if (v?.joinNames && r.length > 0) {
