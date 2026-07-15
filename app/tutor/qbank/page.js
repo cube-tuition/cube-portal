@@ -234,29 +234,29 @@ export default function QuestionBankPage() {
         </div>
 
         {/* CUBE / Students audience tabs — the primary split */}
-        <div className="flex gap-1 mt-5 border-b border-[#DEE7FF]">
+        <div className="flex gap-1 mt-5 border-b-2 border-[#EADFCB]">
           {(() => {
             const cubeCount = scoped.filter((q) => q.audience === 'exam').length
             const studentCount = scoped.filter((q) => q.audience === 'student').length
             const tabs = [['all', 'All', scoped.length], ['exam', 'CUBE', cubeCount], ['student', 'Students', studentCount]]
             return tabs.map(([v, lbl, n]) => (
               <button key={v} onClick={() => setAudienceTab(v)}
-                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${audienceTab === v ? 'border-[#D97706] text-[#92400E]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
-                {lbl} <span className="text-[11px] font-normal">({n})</span>
+                className={`px-5 py-2.5 text-base font-bold border-b-[3px] -mb-[2px] transition ${audienceTab === v ? 'border-[#D97706] text-[#92400E]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+                {lbl} <span className="text-xs font-normal">({n})</span>
               </button>
             ))
           })()}
         </div>
 
-        {/* Used / Unused tabs — within the selected audience */}
-        <div className="flex gap-1 mt-2 border-b border-[#DEE7FF]">
+        {/* Used / Unused — secondary chips within the selected audience */}
+        <div className="flex items-center gap-1.5 mt-3">
           {(() => {
             const usedCount = audienceScoped.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
             const tabs = [['all', 'All', audienceScoped.length], ['used', 'Used', usedCount], ['unused', 'Unused', audienceScoped.length - usedCount]]
             return tabs.map(([v, lbl, n]) => (
               <button key={v} onClick={() => setUsageTab(v)}
-                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${usageTab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
-                {lbl} <span className="text-[11px] font-normal">({n})</span>
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${usageTab === v ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#325099] hover:text-[#325099]'}`}>
+                {lbl} <span className="font-normal opacity-80">({n})</span>
               </button>
             ))
           })()}
