@@ -60,6 +60,7 @@ export default function Resources() {
   // request form
   const [subjectId, setSubjectId] = useState('')
   const [subjPop, setSubjPop] = useState(null)   // anchor rect for the subject popover
+  const [emptyModal, setEmptyModal] = useState(false)  // no questions left for this selection
   const [topicIds, setTopicIds] = useState([])   // [] = all topics in the subject
   const [band, setBand] = useState('')        // '' | 'easy' | 'medium' | 'hard'
   const [qtype, setQtype] = useState('')      // '' | 'mcq' | 'extended'
@@ -164,7 +165,7 @@ export default function Resources() {
   const runGenerate = (p) => {
     const pool = poolFor(p)
     if (pool.length === 0) {
-      alert('No questions available for those choices yet — try a different topic or difficulty.')
+      setEmptyModal(true)
       return false
     }
     setWorksheet(pickBalanced(pool, p.count))
@@ -375,6 +376,36 @@ export default function Resources() {
           </div>
         )}
       </div>
+
+      {/* No-questions-left modal */}
+      {emptyModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+          onClick={e => e.target === e.currentTarget && setEmptyModal(false)}
+        >
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden text-center">
+            <div className="bg-gradient-to-br from-[#EEF4FF] via-[#F8FAFF] to-[#BFD1FF]/40 pt-8 pb-6 px-6">
+              <div className="text-5xl mb-3">🏆</div>
+              <h3 className="text-lg font-bold text-[#062E63] font-display">You&rsquo;ve done them all!</h3>
+            </div>
+            <div className="px-7 py-6">
+              <p className="text-sm text-[#2A2035]/70 leading-relaxed">
+                You&rsquo;ve worked through every question in the bank for this selection.
+                Patiently wait — more questions are on their way!
+              </p>
+              <p className="text-[11px] text-[#2A2035]/40 mt-3">
+                In the meantime, try a different topic, difficulty or question type.
+              </p>
+              <button
+                onClick={() => setEmptyModal(false)}
+                className="mt-5 w-full py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition"
+              >
+                Okay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
