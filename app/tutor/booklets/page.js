@@ -381,6 +381,9 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
         })),
       }))
       setSyll(structure)
+      // Rebuild the selection for the (possibly new) year/subject — a stale
+      // selection from another syllabus would silently save nothing.
+      setSelected(new Set())
       // Pre-tick this booklet's saved dotpoint ids; fall back to matching
       // Content lines by text for booklets saved before ids were recorded.
       if (Array.isArray(booklet?.syllabus_points) && booklet.syllabus_points.length) {
