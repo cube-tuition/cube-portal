@@ -4823,8 +4823,8 @@ export default function DatabasePage() {
                             <div className="flex items-center px-3 py-2.5 overflow-hidden gap-1" title={columnTooltip(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col)}>
                               {isPk       && <span className="text-[9px] text-amber-500 shrink-0">🔑</span>}
                               {isGuardian && <span className="text-[9px] text-amber-600/70 shrink-0">👤</span>}
-                              {isName     && (selectedTable === T_ENROLMENTS && col === 'class_name'
-                                ? <span className="text-[9px] text-emerald-600/70 shrink-0" title="Editable — click a cell to pick a class">▾</span>
+                              {isName     && ((selectedTable === T_ENROLMENTS && col === 'class_name') || (selectedTable === T_CLASSES && col === COURSE_NAME_COL)
+                                ? <span className="text-[9px] text-emerald-600/70 shrink-0" title={selectedTable === T_CLASSES ? 'Editable — click a cell to pick a course' : 'Editable — click a cell to pick a class'}>▾</span>
                                 : <span className="text-[9px] text-emerald-600/70 shrink-0">🔗</span>)}
                               <span className={`text-[10px] font-bold tracking-[0.06em] uppercase truncate flex-1 min-w-0 ${isName ? 'text-emerald-800' : 'text-[#062E63]'}`}>
                                 {columnLabel(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col)}

@@ -157,8 +157,10 @@ export default function AccountingDashboard() {
       .reduce((s, i) => s + Number(i.total || 0), 0))
     // Termly cash expenses — projected full-term pay for cash-paid teachers.
     const courseModes = Object.fromEntries((coursesRes.data || []).map(c => [c.id, c.delivery_mode]))
+    // Teachers = tutors + directors (both can be paid in cash).
     setCashTeacherPay(projectedTeacherPay(classesRes.data || [], {
-      tutors: tutorsRes.data || [], rateMatrix: ratesRes.data || [], courseModes,
+      tutors: [...(tutorsRes.data || []), ...(dirRes.data || [])],
+      rateMatrix: ratesRes.data || [], courseModes,
     }, { payMethod: 'cash' }))
 
     setNoPrice((enrolRes.data || []).length)
