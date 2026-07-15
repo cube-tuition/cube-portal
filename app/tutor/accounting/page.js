@@ -102,6 +102,7 @@ export default function AccountingDashboard() {
   // Termly cash snapshot: income from cash-marked invoices vs projected pay for
   // cash-paid teachers (full-term forecast).
   const [cashIncome, setCashIncome] = useState(0)
+  const [cashInvoices, setCashInvoices] = useState([])   // itemised cash-marked invoices this term
   const [cashTeacherPay, setCashTeacherPay] = useState({ total: 0, perTutor: [], missingRate: [] })
   const [noPrice, setNoPrice] = useState(0)           // active enrolments without price (current term)
   const [noEmailFamilies, setNoEmailFamilies] = useState(0)
@@ -129,7 +130,7 @@ export default function AccountingDashboard() {
       supabase.from('cash_log').select('date').order('date', { ascending: false }).limit(1),
       cur ? supabase.from('cash_log').select('direction, amount').gte('date', cur.start_date).lte('date', cur.end_date) : { data: [] },
       cur ? supabase.from('enrolments').select('id, price, status, classes!inner(term_id)').eq('status', 'active').eq('classes.term_id', cur.id).is('price', null) : { data: [] },
-      supabase.from('students').select('id').eq('status', 'active'),
+      supabase.from('students').select('id, full_name').eq('status', 'active'),
       supabase.from('guardians').select('student_id, email'),
       supabase.from('portal_settings').select('value').eq('key', COMPLIANCE_DONE_KEY).maybeSingle(),
       supabase.from('ops_tasks').select('*').order('status').order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
@@ -151,10 +152,20 @@ export default function AccountingDashboard() {
     }
     setCashTerm(ct)
 
-    // Termly cash income — non-voided invoices for this term marked as cash.
-    setCashIncome((invRes.data || [])
+    // Termly cash income — non-voided invoices for this term marked as cash,
+    // itemised per student so the number is auditable at a glance.
+    const studentName = Object.fromEntries((studRes.data || []).map(s => [String(s.id), s.full_name]))
+    const cashInvs = (invRes.data || [])
       .filter(i => cur && i.term_id === cur.id && i.payment_method === 'cash')
-      .reduce((s, i) => s + Number(i.total || 0), 0))
+      .map(i => ({
+        id: i.id,
+        total: Number(i.total || 0),
+        label: studentName[String(i.student_id)] || i.invoice_number || `#${i.id}`,
+        paid: i.payment_status === 'paid',
+      }))
+      .sort((a, b) => b.total - a.total)
+    setCashIncome(cashInvs.reduce((s, i) => s + i.total, 0))
+    setCashInvoices(cashInvs)
     // Termly cash expenses — projected full-term pay for cash-paid teachers.
     const courseModes = Object.fromEntries((coursesRes.data || []).map(c => [c.id, c.delivery_mode]))
     // Teachers = tutors + directors (both can be paid in cash).
@@ -349,8 +360,19 @@ export default function AccountingDashboard() {
               </div>
             ))}
           </div>
-          {(cashTeacherPay.perTutor.length > 0 || cashTeacherPay.missingRate.length > 0) && (
+          {cashInvoices.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#2A2035]/55">
+              <span className="font-bold text-[#047857]">Cash income:</span>
+              {cashInvoices.map(i => (
+                <span key={i.id} title={i.paid ? 'Paid' : 'Not yet paid'}>
+                  {i.label}: <strong className="text-[#062E63]">{fmtMoney(i.total)}</strong>{!i.paid && <span className="text-amber-600"> ⏳</span>}
+                </span>
+              ))}
+            </div>
+          )}
+          {(cashTeacherPay.perTutor.length > 0 || cashTeacherPay.missingRate.length > 0) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#2A2035]/55">
+              <span className="font-bold text-[#B23A3A]">Teacher pay:</span>
               {cashTeacherPay.perTutor.map(t => (
                 <span key={t.id}>{(t.name || '').split(' ')[0]}: <strong className="text-[#062E63]">{fmtMoney(t.amount)}</strong></span>
               ))}
