@@ -564,43 +564,10 @@ function InvoiceDashboardInner() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, [field]: value } : i))
-
-      // Auto-send payment confirmation when marked paid
-      if (field === 'payment_status' && value === 'paid') {
-        try {
-          const cfRes = await authedFetch('/api/send-payment-confirmation', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ invoice_id: invoiceId }),
-          })
-          const cfData = await cfRes.json()
-          if (cfRes.ok) {
-            setSuccessMsg(`Payment confirmation sent to ${cfData.sent_to}`)
-          } else {
-            // Non-fatal — invoice is marked paid, email just failed
-            setError(`Invoice marked paid but confirmation email failed: ${cfData.error}`)
-          }
-        } catch (emailErr) {
-          setError(`Invoice marked paid but confirmation email failed: ${emailErr.message}`)
-        }
-      }
+      // (Payment-confirmation emails on mark-as-paid were removed — marking
+      // paid is now a pure status change.)
     } catch (e) { setError('Status update failed: ' + e.message) }
     setStatusEditing(null)
-  }
-
-  // ── Resend payment confirmation ───────────────────────────────────────────
-  const [resendingId, setResendingId] = useState(null)
-  const handleResendConfirmation = async (invoiceId) => {
-    setResendingId(invoiceId)
-    try {
-      const res = await authedFetch('/api/send-payment-confirmation', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: invoiceId }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setSuccessMsg(`Payment confirmation resent to ${data.sent_to}`)
-    } catch (e) { setError('Resend failed: ' + e.message) }
-    setResendingId(null)
   }
 
   const handleGenerate = async () => {
@@ -1483,18 +1450,6 @@ function InvoiceDashboardInner() {
               <p className="text-sm text-[#2A2035]">
                 You're marking this invoice as <strong>paid</strong> ({fmtMoney(confirmPaidInv.total)}).
               </p>
-              {/* Email warning */}
-              <div className="flex items-start gap-2.5 bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-4 py-3">
-                <span className="text-base mt-0.5">📧</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#92400E]">Payment confirmation email will be sent</p>
-                  <p className="text-[11px] text-[#92400E]/80 mt-0.5">
-                    {confirmPaidInv.parent_email
-                      ? <>A receipt will be emailed to <strong>{confirmPaidInv.parent_email}</strong> automatically.</>
-                      : 'No email address on file — confirmation will not be sent.'}
-                  </p>
-                </div>
-              </div>
             </div>
 
             {/* Actions */}
