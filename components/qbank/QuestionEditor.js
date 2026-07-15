@@ -161,7 +161,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           const topic = (subtopic && t.topics.find((tp) => tp.id === subtopic.topic_id))
             || (skill && t.topics.find((tp) => tp.id === skill.topic_id))
             || t.topics.find((tp) => tp.id === q.topic_id)
-          const subject = topic && t.subjects.find((su) => su.id === topic.subject_id)
+          const subject = (topic && t.subjects.find((su) => su.id === topic.subject_id))
+            || (skill && t.subjects.find((su) => su.id === skill.subject_id))
           if (subject) { setSubjectName(subject.name); setYear(String(subject.year_level)) }
           if (topic) setTopicId(topic.id)
           // Multi tags from the join tables (fall back to legacy single columns).
@@ -261,11 +262,10 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
       .map((t) => ({ key: t.id, label: t.name, options: (tax.subtopicsByTopic[t.id] || []).map((st) => ({ id: st.id, name: st.name })) }))
       .filter((g) => g.options.length)
   }, [tax, subjectId])
-  // Skills across the subject+year (independent dimension).
+  // Skills across the subject+year (subject-level, independent dimension).
   const skillGroups = useMemo(() => {
     if (!tax || !subjectId) return []
-    const tIds = new Set((tax.topicsBySubject[subjectId] || []).map((t) => t.id))
-    const opts = tax.skills.filter((s) => tIds.has(s.topic_id)).map((s) => ({ id: s.id, name: s.name }))
+    const opts = (tax.skillsBySubject?.[subjectId] || []).map((s) => ({ id: s.id, name: s.name }))
     return opts.length ? [{ key: 'skills', label: '', options: opts }] : []
   }, [tax, subjectId])
   // Chemistry dotpoints are browsed by module tab. The active module's dotpoints
@@ -314,12 +314,12 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     setSubtopicIds((ids) => [...ids, data.id])
   }
   const addSkill = async () => {
-    if (!topicId) { setError('Pick a Topic/Module first to add a skill.'); return }
+    if (!subjectId) { setError('Pick a Subject first to add a skill.'); return }
     const name = (window.prompt('New skill name:') || '').trim()
     if (!name) return
-    // Skills carry topic_id (required); subtopic_id is optional (skills are independent).
+    // Skills belong to the subject; topic/subtopic tags are not required.
     const { data, error: e } = await supabase.from(T_QBANK_SKILLS)
-      .insert({ topic_id: topicId, subtopic_id: subtopicIds[0] || null, name }).select('id').single()
+      .insert({ subject_id: subjectId, topic_id: null, subtopic_id: null, name }).select('id').single()
     if (e) { setError(e.message || 'Could not create the skill.'); return }
     const t = await fetchTaxonomy(); setTax(t)
     setSkillIds((ids) => [...ids, data.id])

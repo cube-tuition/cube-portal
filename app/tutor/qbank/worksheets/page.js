@@ -198,12 +198,8 @@ function AdditionalQuestionsInner() {
   const subjectsForYear = useMemo(() => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []), [tax, year])
   const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
   const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
-  // Skills are independent of subtopics: keyed by topic, narrowed when a subtopic is picked.
-  const skillsForFilter = useMemo(() => {
-    if (!tax || !topicId) return []
-    if (subtopicId) return tax.skillsBySubtopic[subtopicId] || []
-    return tax.skillsByTopic[topicId] || []
-  }, [tax, topicId, subtopicId])
+  // Skills are a subject-level dimension — available as soon as a subject is picked.
+  const skillsForFilter = useMemo(() => (tax && subjectId ? (tax.skillsBySubject[subjectId] || []) : []), [tax, subjectId])
   const trayIds = useMemo(() => new Set(tray.map((q) => q.id)), [tray])
 
   const filtered = useMemo(() => {
@@ -378,7 +374,7 @@ function AdditionalQuestionsInner() {
                 <option value="">All subtopics</option>
                 {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
               </select>
-              <select value={skillId} disabled={!topicId} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
+              <select value={skillId} disabled={!subjectId} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
                 <option value="">All skills</option>
                 {skillsForFilter.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>

@@ -476,10 +476,9 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
   }
   const chosen = slot.question_id ? qById[slot.question_id] : null
   const subtopicsForTopic = (tax && slot.topic_id) ? (tax.subtopicsByTopic[slot.topic_id] || []) : []
-  // Skills are independent of subtopics: keyed by topic, narrowed when a subtopic is picked.
-  const skillsForFilter = tax && slot.topic_id
-    ? (slot.subtopic_id ? (tax.skillsBySubtopic[slot.subtopic_id] || []) : (tax.skillsByTopic[slot.topic_id] || []))
-    : []
+  // Skills are a subject-level dimension — offer the exam subject's whole skill list.
+  const examSubjectId = scopeTopics[0]?.subject_id
+  const skillsForFilter = (tax && examSubjectId) ? (tax.skillsBySubject[examSubjectId] || []) : []
   const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
   // Per-paper working-line overrides for this slot. Map of part_label (or "_" for a
@@ -514,7 +513,7 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
           <option value="">Any subtopic</option>
           {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
         </select>
-        <select value={slot.skill_id || ''} disabled={!slot.topic_id} onChange={(e) => onCriteria({ skill_id: e.target.value || null })} className={selCls}>
+        <select value={slot.skill_id || ''} disabled={!skillsForFilter.length} onChange={(e) => onCriteria({ skill_id: e.target.value || null })} className={selCls}>
           <option value="">Any skill</option>
           {skillsForFilter.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}
         </select>
