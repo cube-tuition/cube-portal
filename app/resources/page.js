@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { requireStudent } from '../../lib/requireStudent'
 import PortalNav from '../../components/PortalNav'
+import SearchSelectPopover from '../../components/SearchSelectPopover'
 import LatexContent from '../../components/qbank/LatexContent'
 import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
 import { fetchAllTerms, getCurrentTerm } from '../../lib/terms'
@@ -58,6 +59,7 @@ export default function Resources() {
 
   // request form
   const [subjectId, setSubjectId] = useState('')
+  const [subjPop, setSubjPop] = useState(null)   // anchor rect for the subject popover
   const [topicIds, setTopicIds] = useState([])   // [] = all topics in the subject
   const [band, setBand] = useState('')        // '' | 'easy' | 'medium' | 'hard'
   const [qtype, setQtype] = useState('')      // '' | 'mcq' | 'extended'
@@ -259,9 +261,31 @@ export default function Resources() {
 
               <div>
                 <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Subject</label>
-                <select value={selSubjectId} onChange={e => { setSubjectId(e.target.value); setTopicIds([]) }} className={selCls}>
-                  {mySubjects.map(s => <option key={s.id} value={s.id}>Year {s.year_level} · {s.name}</option>)}
-                </select>
+                <button
+                  type="button"
+                  onClick={e => setSubjPop(e.currentTarget.getBoundingClientRect())}
+                  className={`${selCls} flex items-center justify-between gap-2 text-left`}
+                >
+                  <span className="truncate">
+                    {(() => {
+                      const s = mySubjects.find(x => String(x.id) === String(selSubjectId))
+                      return s ? `Year ${s.year_level} · ${s.name}` : 'Choose a subject…'
+                    })()}
+                  </span>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[#2A2035]/40">
+                    <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {subjPop && (
+                  <SearchSelectPopover
+                    anchor={subjPop}
+                    options={mySubjects.map(s => ({ value: s.id, label: `Year ${s.year_level} · ${s.name}` }))}
+                    currentValue={selSubjectId}
+                    placeholder="Search subjects…"
+                    onSelect={v => { setSubjectId(v); setTopicIds([]); setSubjPop(null) }}
+                    onClose={() => setSubjPop(null)}
+                  />
+                )}
               </div>
 
               <div>
