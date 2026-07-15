@@ -8,14 +8,22 @@
  */
 const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
 
-export default function UsageBadge({ usage, details = false }) {
+export default function UsageBadge({ usage, details = false, onClick = null }) {
   const count = usage?.count || 0
 
   if (!count) {
     return details ? <span className="text-[11px] text-[#2A2035]/30 italic">Not yet used</span> : null
   }
 
-  const chip = (
+  const chip = onClick ? (
+    <button
+      onClick={onClick}
+      className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] whitespace-nowrap hover:bg-[#FDE68A] transition cursor-pointer"
+      title="See where this question is used"
+    >
+      Used ×{count}
+    </button>
+  ) : (
     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] whitespace-nowrap" title="Used in a worksheet or exam">
       Used ×{count}
     </span>

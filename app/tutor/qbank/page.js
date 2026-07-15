@@ -24,6 +24,7 @@ export default function QuestionBankPage() {
   const [questions, setQuestions] = useState([])
   const [loadingQ, setLoadingQ] = useState(true)
   const [usageMap, setUsageMap] = useState({})
+  const [usagePop, setUsagePop] = useState(null)   // { usage, rect } — where-is-it-used popover
 
   // filters
   const [activeSubject, setActiveSubject] = useState('Maths')   // master subject tab
@@ -247,7 +248,10 @@ export default function QuestionBankPage() {
                   {q.qtype === 'mcq' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">MCQ</span>}
                   {q.audience === 'exam' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">CUBE</span>}
                   {q.audience === 'student' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#DCFCE7] text-[#166534]">Students</span>}
-                  <UsageBadge usage={usageMap[q.id]} />
+                  <UsageBadge
+                    usage={usageMap[q.id]}
+                    onClick={(e) => setUsagePop({ usage: usageMap[q.id], rect: e.currentTarget.getBoundingClientRect() })}
+                  />
                   {l?.subject && <span className="text-[11px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
                   {l?.topic && <span className="text-[11px] text-[#2A2035]/40">› {l.topic.name}</span>}
                   {l?.subtopic && <span className="text-[11px] text-[#2A2035]/40">› {l.subtopic.name}</span>}
@@ -308,6 +312,62 @@ export default function QuestionBankPage() {
             Ready to build a worksheet? <Link href="/tutor/qbank/generate" className="text-[#325099] font-semibold hover:underline">Generate worksheet →</Link>
           </p>
         )}
+      </div>
+
+      {/* Where-is-it-used popover */}
+      {usagePop && <UsagePopover usage={usagePop.usage} anchor={usagePop.rect} onClose={() => setUsagePop(null)} />}
+    </div>
+  )
+}
+
+// ── Where-is-it-used popover ──────────────────────────────────────────────────
+// Opens from a question's "Used ×N" chip; lists the exams (linked) and
+// worksheets the question appears in, without leaving the browse page.
+function UsagePopover({ usage, anchor, onClose }) {
+  const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
+  const WIDTH = 320, MAX_H = 300
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800
+  const left = Math.max(8, Math.min(anchor.left, winW - WIDTH - 12))
+  const openUp = winH - anchor.bottom < MAX_H + 16
+  const pos = openUp
+    ? { left, bottom: winH - anchor.top + 4, width: WIDTH }
+    : { left, top: anchor.bottom + 4, width: WIDTH }
+
+  return (
+    <div className="fixed inset-0 z-50" onMouseDown={onClose}>
+      <div
+        className="fixed bg-white border border-[#BACBFF] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        style={pos}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="px-3.5 py-2.5 border-b border-[#F0F4FF] flex items-center justify-between">
+          <p className="text-xs font-bold text-[#062E63]">Used in {usage?.count || 0} place{(usage?.count || 0) === 1 ? '' : 's'}</p>
+          {usage?.lastUsed && <span className="text-[10px] text-[#2A2035]/40">last {fmt(usage.lastUsed)}</span>}
+        </div>
+        <div className="overflow-y-auto py-1" style={{ maxHeight: MAX_H - 40 }}>
+          {(usage?.exams || []).map((e) => (
+            <Link
+              key={e.id}
+              href={`/tutor/qbank/exams/${e.id}`}
+              className="flex items-center gap-2 px-3.5 py-2 hover:bg-[#F8FAFF] transition"
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#EEF2FF] text-[#4338CA] shrink-0">Exam</span>
+              <span className="flex-1 min-w-0 truncate text-xs font-semibold text-[#325099]">{e.title || 'Untitled exam'}</span>
+              <span className="text-[10px] text-[#2A2035]/40 shrink-0">{fmt(e.date)} →</span>
+            </Link>
+          ))}
+          {(usage?.worksheets || []).map((w, i) => (
+            <div key={i} className="flex items-center gap-2 px-3.5 py-2">
+              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#166534] shrink-0">Sheet</span>
+              <span className="flex-1 min-w-0 truncate text-xs text-[#2A2035]">{w.title || 'Worksheet'}</span>
+              <span className="text-[10px] text-[#2A2035]/40 shrink-0">{fmt(w.used_at)}</span>
+            </div>
+          ))}
+          {!(usage?.exams?.length || usage?.worksheets?.length) && (
+            <p className="text-xs text-[#2A2035]/40 italic px-3.5 py-4">No usage details recorded.</p>
+          )}
+        </div>
       </div>
     </div>
   )
