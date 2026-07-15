@@ -214,12 +214,14 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
   const [loading,     setLoading]     = useState(true)
   const [assignSlot,  setAssignSlot]  = useState(null)
   const [viewContent, setViewContent] = useState(null)
+  const [dragA,       setDragA]       = useState(null)  // assignment being dragged
+  const [overSlot,    setOverSlot]    = useState(null)  // 'term-week' under the drag
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase
       .from('class_booklet_assignments')
-      .select('id, term_number, week, booklets(booklet_name, year, subject, topic, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
+      .select('id, booklet_id, term_number, week, booklets(booklet_name, year, subject, topic, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
       .eq('class_id', cls.id)
     setAssignments(data || [])
     setLoading(false)
@@ -234,6 +236,24 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
 
   const slotMap = {}
   for (const a of assignments) slotMap[`${a.term_number}-${a.week}`] = a
+
+  // Drag a booklet card onto another week: move it there, or swap with the
+  // occupant. The unique (class_id, term, week) constraint means a swap has to
+  // delete the occupant first, move the dragged row, then re-insert.
+  const moveAssignment = async (a, term, week) => {
+    setDragA(null); setOverSlot(null)
+    if (a.term_number === term && a.week === week) return
+    const occ = slotMap[`${term}-${week}`]
+    if (occ && occ.id !== a.id) {
+      await supabase.from('class_booklet_assignments').delete().eq('id', occ.id)
+      await supabase.from('class_booklet_assignments').update({ term_number: term, week }).eq('id', a.id)
+      await supabase.from('class_booklet_assignments')
+        .insert({ class_id: cls.id, booklet_id: occ.booklet_id, term_number: a.term_number, week: a.week })
+    } else {
+      await supabase.from('class_booklet_assignments').update({ term_number: term, week }).eq('id', a.id)
+    }
+    load()
+  }
 
   if (loading) return <div className="py-6 text-center"><p className="text-[10px] text-[#2A2035]/30 animate-pulse">Loading…</p></div>
 
@@ -256,7 +276,16 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                   const pdfPaths = b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : [])
                   const pdfNames = b.pdf_filenames || []
                   return (
-                    <div key={week} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm overflow-hidden hover:shadow-md hover:border-[#C7D7FF] transition-all">
+                    <div
+                      key={week}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragA(a) }}
+                      onDragEnd={() => { setDragA(null); setOverSlot(null) }}
+                      onDragOver={(e) => { if (dragA && dragA.id !== a.id) { e.preventDefault(); setOverSlot(`${term}-${week}`) } }}
+                      onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
+                      onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
+                      className={`bg-white rounded-xl border shadow-sm overflow-hidden hover:shadow-md transition-all cursor-grab active:cursor-grabbing ${overSlot === `${term}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF]'} ${dragA?.id === a.id ? 'opacity-40' : ''}`}
+                    >
                       <div className="h-[3px] w-full" style={{ background: accentColor }} />
                       <div className="px-3 pt-2 pb-1.5">
                         <div className="flex items-center gap-1.5 mb-0.5">
@@ -296,7 +325,10 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                 }
                 return (
                   <button key={week} onClick={() => setAssignSlot({ term, week })}
-                    className="group w-full border border-dashed border-[#DEE7FF] rounded-xl overflow-hidden bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF] transition text-left">
+                    onDragOver={(e) => { if (dragA) { e.preventDefault(); setOverSlot(`${term}-${week}`) } }}
+                    onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
+                    onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
+                    className={`group w-full border border-dashed rounded-xl overflow-hidden transition text-left ${overSlot === `${term}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#DEE7FF] bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF]'}`}>
                     <div className="h-[3px] w-full bg-[#EEF2FB]" />
                     <div className="px-3 pt-2 pb-2.5">
                       <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5 text-[#A9B4CC] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
@@ -813,6 +845,8 @@ export default function BookletsPage() {
   const [creating, setCreating]     = useState(false)   // "+ New booklet" (inserts into the master DB)
   const [viewContent, setViewContent] = useState(null)
   const [assignSlot, setAssignSlot] = useState(null) // { term, week }
+  const [dragB,      setDragB]      = useState(null) // booklet being dragged (General grid)
+  const [overGSlot,  setOverGSlot]  = useState(null) // 'term-week' under the drag
   const [classes,      setClasses]      = useState([])
   const [activeClass,  setActiveClass]  = useState(null) // class id
 
@@ -893,6 +927,17 @@ export default function BookletsPage() {
 
   // Filtered view
   const visible = booklets.filter(b => b.year === activeYear && b.subject === activeSub)
+
+  // Drag a booklet card onto another week box: move it there, or swap the two
+  // when the target is occupied. Master-DB booklets carry their own term/week.
+  const moveGeneral = async (b, term, week) => {
+    setDragB(null); setOverGSlot(null)
+    if (b.term_number === term && b.week === week) return
+    const occ = visible.find(x => x.id !== b.id && x.term_number === term && x.week === week)
+    if (occ) await supabase.from('booklets').update({ term_number: b.term_number, week: b.week }).eq('id', occ.id)
+    await supabase.from('booklets').update({ term_number: term, week }).eq('id', b.id)
+    load()
+  }
 
   // Group by term
   const grouped = visible.reduce((acc, b) => {
@@ -1045,7 +1090,16 @@ export default function BookletsPage() {
                         if (b) {
                           // ── Assigned card ──────────────────────────────
                           return (
-                            <div key={week} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md hover:border-[#C7D7FF] transition-all">
+                            <div
+                              key={week}
+                              draggable
+                              onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragB(b) }}
+                              onDragEnd={() => { setDragB(null); setOverGSlot(null) }}
+                              onDragOver={(e) => { if (dragB && dragB.id !== b.id) { e.preventDefault(); setOverGSlot(`${termNum}-${week}`) } }}
+                              onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
+                              onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
+                              className={`bg-white rounded-xl border shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-all cursor-grab active:cursor-grabbing ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF]'} ${dragB?.id === b.id ? 'opacity-40' : ''}`}
+                            >
                               <div className="h-[3px] w-full" style={{ background: accentColor }} />
                               <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5">
                                 <div className="flex items-center gap-1.5">
@@ -1101,7 +1155,10 @@ export default function BookletsPage() {
                           <button
                             key={week}
                             onClick={() => setAssignSlot({ term: termNum, week })}
-                            className="group w-full border border-dashed border-[#DEE7FF] rounded-xl flex flex-col overflow-hidden bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF] transition text-left"
+                            onDragOver={(e) => { if (dragB) { e.preventDefault(); setOverGSlot(`${termNum}-${week}`) } }}
+                            onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
+                            onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
+                            className={`group w-full border border-dashed rounded-xl flex flex-col overflow-hidden transition text-left ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#DEE7FF] bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF]'}`}
                           >
                             <div className="h-[3px] w-full bg-[#EEF2FB]" />
                             <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5 flex-1">
