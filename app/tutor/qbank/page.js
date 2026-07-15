@@ -62,7 +62,7 @@ export default function QuestionBankPage() {
   // Master tabs cover subject FAMILIES — the Maths tab includes the senior
   // variants, so e.g. "Year 11 Ext 1" appears in its year dropdown.
   const SUBJECT_FAMILIES = {
-    Maths:     ['Maths', 'Adv Maths', 'Standard Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
+    Maths:     ['Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
     English:   ['English'],
     Chemistry: ['Chemistry'],
   }
