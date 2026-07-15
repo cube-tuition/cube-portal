@@ -99,7 +99,12 @@ export default function QuestionBankPage() {
   }, [questions, labelFor])
   const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
   const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
-  const skillsForSubtopic = useMemo(() => (tax && subtopicId ? (tax.skillsBySubtopic[subtopicId] || []) : []), [tax, subtopicId])
+  // Skills are independent of subtopics: keyed by topic, narrowed when a subtopic is picked.
+  const skillsForFilter = useMemo(() => {
+    if (!tax || !topicId) return []
+    if (subtopicId) return tax.skillsBySubtopic[subtopicId] || []
+    return tax.skillsByTopic[topicId] || []
+  }, [tax, topicId, subtopicId])
 
   // Questions matching every filter EXCEPT the Used/Unused tab. Drives both the
   // list and the usage-tab counts, so the counts reflect the active subject/filters.
@@ -186,9 +191,9 @@ export default function QuestionBankPage() {
             <option value="">All subtopics</option>
             {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
           </select>
-          <select value={skillId} disabled={!subtopicId} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
+          <select value={skillId} disabled={!topicId} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
             <option value="">All skills</option>
-            {skillsForSubtopic.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {skillsForFilter.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
             <option value="">Any difficulty</option>

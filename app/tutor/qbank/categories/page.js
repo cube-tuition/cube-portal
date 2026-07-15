@@ -50,7 +50,8 @@ export default function CategoriesPage() {
 
   const topicsForSubject = topics.filter((t) => t.subject_id === subjectId)
   const subtopicsForTopic = subtopics.filter((st) => st.topic_id === topicId)
-  const skillsForSubtopic = skills.filter((s) => s.subtopic_id === subtopicId)
+  // Skills hang off the topic directly — subtopics are a separate, optional dimension.
+  const skillsForTopic = skills.filter((s) => s.topic_id === topicId)
   const subjectsByYear = (y) => subjects.filter((s) => s.year_level === y)
 
   // ── Mutations ───────────────────────────────────────────────────────────────
@@ -70,9 +71,8 @@ export default function CategoriesPage() {
     setNewSubtopic(''); reload()
   }
   const addSkill = async () => {
-    if (!newSkill.trim() || !subtopicId) return
-    // Skills carry both topic_id (kept for compat) and subtopic_id.
-    await supabase.from(T_QBANK_SKILLS).insert({ topic_id: topicId, subtopic_id: subtopicId, name: newSkill.trim(), sort_order: skillsForSubtopic.length })
+    if (!newSkill.trim() || !topicId) return
+    await supabase.from(T_QBANK_SKILLS).insert({ topic_id: topicId, subtopic_id: null, name: newSkill.trim(), sort_order: skillsForTopic.length })
     setNewSkill(''); reload()
   }
 
@@ -113,7 +113,7 @@ export default function CategoriesPage() {
       <div className="max-w-6xl mx-auto px-6 pt-8 pb-16">
         <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1">Categories</h1>
-        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic → Subtopic → Skill structure your questions are filed under.</p>
+        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic structure your questions are filed under. Subtopics and skills both sit under a topic — skills don&rsquo;t need a subtopic.</p>
 
         <div className="grid md:grid-cols-4 gap-4">
           {/* Subjects */}
@@ -212,11 +212,11 @@ export default function CategoriesPage() {
             )}
           </div>
 
-          {/* Skills */}
+          {/* Skills — independent of subtopics; they hang off the topic */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63] mb-2">Skills</h2>
-            {!subtopicId ? (
-              <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a subtopic →</p>
+            {!topicId ? (
+              <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a topic →</p>
             ) : (
               <>
                 <div className="flex gap-1.5 mb-3">
@@ -226,12 +226,12 @@ export default function CategoriesPage() {
                   <button onClick={addSkill} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {skillsForSubtopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No skills yet.</p>}
-                  {skillsForSubtopic.map((s) => (
+                  {skillsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No skills yet.</p>}
+                  {skillsForTopic.map((s) => (
                     <Row key={s.id}>
                       <span className="flex-1 text-sm text-[#2A2035]">{s.name}</span>
-                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForSubtopic, s, -1)}>↑</button>
-                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForSubtopic, s, 1)}>↓</button>
+                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForTopic, s, -1)}>↑</button>
+                      <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForTopic, s, 1)}>↓</button>
                       <button className={editBtn} onClick={() => rename(T_QBANK_SKILLS, s.id, prompt('Rename skill', s.name))}>edit</button>
                       <button className={editBtn} onClick={() => remove(T_QBANK_SKILLS, s.id, s.name)}>✕</button>
                     </Row>
