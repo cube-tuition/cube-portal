@@ -5091,6 +5091,23 @@ export default function DatabasePage() {
                                   </span>
                                   <span className="text-[#325099]/60 text-[13px] leading-none shrink-0">▾</span>
                                 </div>
+                              ) : selectedTable === T_PARENTS && col === 'students' ? (
+                                // Grouped guardian row: students as linked-record chips
+                                // backed by ids (not the joined text), click to open.
+                                <div className="px-3 py-1 overflow-hidden flex items-center gap-1 flex-wrap">
+                                  {(row._students || []).length === 0
+                                    ? <span className="text-[#2A2035]/20 italic text-[10px]">no students</span>
+                                    : row._students.map(s => (
+                                      <button
+                                        key={s.id}
+                                        onClick={e => { e.stopPropagation(); openLinkedDetail(T_STUDENTS, s.id) }}
+                                        className="inline-block text-[10px] font-semibold bg-[#F0FDF4] text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-full hover:bg-emerald-100 transition truncate max-w-[140px]"
+                                        title="Open student record"
+                                      >
+                                        {s.full_name}
+                                      </button>
+                                    ))}
+                                </div>
                               ) : col === LESSON_SCHED_TEACHER_COL ? (
                                 // Editable dropdown for scheduled teacher — searchable popover
                                 <div
