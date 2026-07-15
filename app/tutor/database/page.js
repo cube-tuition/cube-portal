@@ -1773,6 +1773,36 @@ export default function DatabasePage() {
         }))
       }
 
+      // Guardians data view: one row per guardian PERSON (deduped by
+      // name+email across siblings), students grouped into one cell, plus the
+      // family payment method (same storage the Families view toggle writes).
+      if (selectedTable === T_PARENTS && r.length > 0) {
+        const sIds = [...new Set(r.map(g => g.student_id).filter(Boolean))]
+        const { data: studs } = sIds.length
+          ? await supabase.from(T_STUDENTS).select('id, full_name, payment_method').in('id', sIds)
+          : { data: [] }
+        const sMap = Object.fromEntries((studs || []).map(s => [String(s.id), s]))
+        const norm = s => (s ?? '').trim().toLowerCase()
+        const groups = new Map()
+        for (const g of r) {
+          const key = `${norm(g.full_name)}|${norm(g.email)}`
+          if (!groups.has(key)) groups.set(key, { ...g, _guardianIds: [], _studentIds: [], _students: [] })
+          const grp = groups.get(key)
+          grp._guardianIds.push(g.id)
+          if (g.student_id) {
+            grp._studentIds.push(g.student_id)
+            const st = sMap[String(g.student_id)]
+            if (st) grp._students.push(st)
+          }
+        }
+        enrichedRows = [...groups.values()].map(grp => ({
+          ...grp,
+          students: grp._students.map(s => s.full_name).join(', ') || null,
+          payment_method: grp._students.some(s => s.payment_method === 'cash') ? 'cash' : 'bank',
+        }))
+        cols = ['id', 'full_name', 'relationship', 'email', 'phone', 'students', 'payment_method']
+      }
+
       if (v?.joinParents && r.length > 0) {
         const ids = r.map(s => s.id)
         const { data: parentRows } = await supabase.from(T_PARENTS).select('student_id, full_name, relationship, email, phone').in('student_id', ids)
@@ -2131,6 +2161,13 @@ export default function DatabasePage() {
       }
       if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
       else pushUndo({ type: 'edit_cell', table: selectedTable, realTable: T_PARENTS, pkCol: 'student_id', rowId, col: PARENT_COL_MAP[col], oldVal, newVal })
+    } else if (selectedTable === T_PARENTS) {
+      // Grouped guardian rows: one row represents the same person across
+      // siblings, so edits apply to every underlying guardian row.
+      const row = rows.find(r => r[pkCol] === rowId)
+      const gids = row?._guardianIds?.length ? row._guardianIds : [rowId]
+      const { error } = await supabase.from(T_PARENTS).update({ [col]: newVal }).in('id', gids)
+      if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
     } else {
       const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
       const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
@@ -2163,6 +2200,25 @@ export default function DatabasePage() {
     const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
     if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return }
     setRows(prev => prev.map(r => r[pkCol] === rowId ? { ...r, [col]: newVal } : r))
+    if (selectedTable === T_PARENTS) {
+      // Grouped guardian rows: payment_method writes to every linked student
+      // (same storage as the Families view); other columns update every
+      // underlying guardian row for this person.
+      const row = rows.find(r => r[pkCol] === rowId)
+      let error
+      if (col === 'payment_method') {
+        const sids = row?._studentIds || []
+        ;({ error } = sids.length
+          ? await supabase.from(T_STUDENTS).update({ payment_method: newVal }).in('id', sids)
+          : { error: null })
+      } else {
+        const gids = row?._guardianIds?.length ? row._guardianIds : [rowId]
+        ;({ error } = await supabase.from(T_PARENTS).update({ [col]: newVal }).in('id', gids))
+      }
+      if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+      setSaving(false)
+      return
+    }
     const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
     const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
     if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
