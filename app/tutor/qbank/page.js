@@ -15,6 +15,7 @@ import {
   buildTaxonomyMaps, labelForQuestion,
 } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
+import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
 export default function QuestionBankPage() {
   const router = useRouter()
@@ -144,8 +145,6 @@ export default function QuestionBankPage() {
 
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
-  const selCls = 'border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
-
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
@@ -176,31 +175,54 @@ export default function QuestionBankPage() {
 
         {/* Filters */}
         <div className="mt-4 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">
-          <select value={year} onChange={(e) => { setYear(e.target.value); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
-            <option value="">All years</option>
-            {yearOptions.map((s) => <option key={s.id} value={s.id}>{yearOptionLabel(s)}</option>)}
-          </select>
-          <select value={topicId} disabled={!subjectId} onChange={(e) => { setTopicId(e.target.value); setSubtopicId(''); setSkillId('') }} className={selCls}>
-            <option value="">{activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}</option>
-            {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <select value={subtopicId} disabled={!topicId} onChange={(e) => { setSubtopicId(e.target.value); setSkillId('') }} className={selCls}>
-            <option value="">All subtopics</option>
-            {subtopicsForTopic.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
-          </select>
-          <select value={skillId} disabled={!year} onChange={(e) => setSkillId(e.target.value)} className={selCls}>
-            <option value="">All skills</option>
-            {skillsForFilter.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selCls}>
-            <option value="">Any difficulty</option>
-            {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
-          </select>
-          <select value={qtype} onChange={(e) => setQtype(e.target.value)} className={selCls}>
-            <option value="">All types</option>
-            <option value="mcq">Multiple choice</option>
-            <option value="extended">Non-MCQ (written)</option>
-          </select>
+          <FilterSelect
+            value={year}
+            placeholder="All years"
+            clearLabel="All years"
+            options={yearOptions.map((s) => ({ value: s.id, label: yearOptionLabel(s) }))}
+            onSelect={(v) => { setYear(v); setTopicId(''); setSubtopicId(''); setSkillId('') }}
+          />
+          <FilterSelect
+            value={topicId}
+            placeholder={activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}
+            clearLabel={activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}
+            disabled={!subjectId}
+            disabledHint="Pick a year first"
+            options={topicsForSubject.map((t) => ({ value: t.id, label: t.name }))}
+            onSelect={(v) => { setTopicId(v); setSubtopicId(''); setSkillId('') }}
+          />
+          <FilterSelect
+            value={subtopicId}
+            placeholder="All subtopics"
+            clearLabel="All subtopics"
+            disabled={!topicId}
+            disabledHint={activeSubject === 'Chemistry' ? 'Pick a module first' : 'Pick a topic first'}
+            options={subtopicsForTopic.map((st) => ({ value: st.id, label: st.name }))}
+            onSelect={(v) => { setSubtopicId(v); setSkillId('') }}
+          />
+          <FilterSelect
+            value={skillId}
+            placeholder="All skills"
+            clearLabel="All skills"
+            disabled={!year}
+            disabledHint="Pick a year first"
+            options={skillsForFilter.map((s) => ({ value: s.id, label: s.name }))}
+            onSelect={setSkillId}
+          />
+          <FilterSelect
+            value={difficulty}
+            placeholder="Any difficulty"
+            clearLabel="Any difficulty"
+            options={[1, 2, 3, 4].map((d) => ({ value: String(d), label: `${d} · ${DIFFICULTY_LABELS[d]}` }))}
+            onSelect={setDifficulty}
+          />
+          <FilterSelect
+            value={qtype}
+            placeholder="All types"
+            clearLabel="All types"
+            options={[{ value: 'mcq', label: 'Multiple choice' }, { value: 'extended', label: 'Non-MCQ (written)' }]}
+            onSelect={setQtype}
+          />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search text…"
             className="flex-1 min-w-[120px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
           {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline">Clear</button> : null}
@@ -313,6 +335,53 @@ export default function QuestionBankPage() {
       {/* Where-is-it-used popover */}
       {usagePop && <UsagePopover usage={usagePop.usage} anchor={usagePop.rect} onClose={() => setUsagePop(null)} />}
     </div>
+  )
+}
+
+// ── Filter dropdown (searchable popover) ──────────────────────────────────────
+// One filter chip in the question-search bar. When its prerequisite filter
+// hasn't been chosen yet it renders locked, saying what to pick first.
+function FilterSelect({ value, options, onSelect, placeholder, clearLabel = null, disabled = false, disabledHint = '' }) {
+  const [pop, setPop] = useState(null)
+  const current = options.find((o) => String(o.value) === String(value ?? '')) || null
+
+  if (disabled) {
+    return (
+      <span
+        title={disabledHint}
+        className="border border-dashed border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-[#F8FAFF] text-[#2A2035]/35 flex items-center gap-1 cursor-not-allowed select-none"
+      >
+        🔒 {disabledHint || placeholder}
+      </span>
+    )
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => setPop(e.currentTarget.getBoundingClientRect())}
+        className={`border rounded-lg px-2.5 py-1.5 text-xs flex items-center gap-1.5 transition ${current
+          ? 'border-[#325099] bg-[#F0F4FF] text-[#062E63] font-semibold'
+          : 'border-[#DEE7FF] bg-white text-[#2A2035] hover:border-[#325099]'}`}
+      >
+        <span className="truncate max-w-[180px]">{current ? current.label : placeholder}</span>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 opacity-50">
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {pop && (
+        <SearchSelectPopover
+          anchor={pop}
+          options={options}
+          currentValue={value}
+          clearLabel={clearLabel}
+          placeholder="Search…"
+          onSelect={(v) => { onSelect(v); setPop(null) }}
+          onClose={() => setPop(null)}
+        />
+      )}
+    </>
   )
 }
 
