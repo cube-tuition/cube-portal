@@ -133,7 +133,7 @@ export default function AccountingDashboard() {
       supabase.from('guardians').select('student_id, email'),
       supabase.from('portal_settings').select('value').eq('key', COMPLIANCE_DONE_KEY).maybeSingle(),
       supabase.from('ops_tasks').select('*').order('status').order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
-      supabase.from('directors').select('full_name'),
+      supabase.from('directors').select('id, full_name, pay_method'),
       cur ? supabase.from('classes').select('id, class_name, teacher, start_time, end_time, course_id, term_id').eq('term_id', cur.id) : { data: [] },
       supabase.from('tutors').select('id, full_name, pay_method'),
       supabase.from('current_tutor_rates').select('tutor_id, year_band, mode, hourly_rate'),

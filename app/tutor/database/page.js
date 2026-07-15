@@ -1511,6 +1511,8 @@ export default function DatabasePage() {
   const [allStaffForLessons, setAllStaffForLessons] = useState([])   // [{id, full_name}] for scheduled_teacher dropdown
   const [editingSchedTeacher, setEditingSchedTeacher] = useState(null) // rowId being edited
   const [editingEnrolClass, setEditingEnrolClass] = useState(null)     // enrolment rowId whose class is being reassigned
+  const [editingClassCourse, setEditingClassCourse] = useState(null)   // class rowId whose course is being reassigned
+  const [courseOptions, setCourseOptions] = useState([])               // courses for the class-course picker
   const termNameById = useMemo(() => Object.fromEntries((allTerms || []).map(t => [t.id, t.name])), [allTerms])
 
   // Term filter — applies to classes, enrolments, lessons, invoices
@@ -2305,6 +2307,28 @@ export default function DatabasePage() {
       .order('class_name')
     const labelMap = buildClassLabelMap(data || [])
     setClassesForLessons((data || []).map(c => ({ ...c, label: labelMap.get(c.id) ?? c.class_name })))
+  }
+
+  // Course options for the classes explorer's course dropdown. Force refetches
+  // so newly added courses appear (the picker always forces on open).
+  const ensureCourseOptions = async (force = false) => {
+    if (!force && courseOptions.length > 0) return
+    const { data } = await supabase.from(T_COURSES)
+      .select('id, course_name, course_code, active').order('course_name')
+    setCourseOptions(data || [])
+  }
+
+  // Relink a class to a different course. Only course_id changes — the class
+  // name stays as-is (edit it separately if it should follow the new course).
+  const reassignClassCourse = async (rowId, newCourseId) => {
+    if (!newCourseId) return
+    const { error } = await supabase.from(T_CLASSES)
+      .update({ course_id: Number(newCourseId) }).eq('id', rowId)
+    if (error) { alert('Could not change course: ' + error.message); return }
+    const course = courseOptions.find(c => String(c.id) === String(newCourseId))
+    setRows(prev => prev.map(r => r[pkCol] === rowId
+      ? { ...r, course_id: Number(newCourseId), [COURSE_NAME_COL]: course ? `${course.course_name} (${course.course_code})` : r[COURSE_NAME_COL] }
+      : r))
   }
 
   // Reassign an enrolment to a different class. The price follows the new
@@ -3706,6 +3730,26 @@ export default function DatabasePage() {
         />
       )}
 
+      {/* ── Class course picker (searchable popover) ──────────────────────────── */}
+      {editingClassCourse && (
+        <SearchSelectPopover
+          anchor={editingClassCourse.rect}
+          placeholder="Search courses…"
+          options={courseOptions.map(c => ({
+            value: c.id,
+            label: `${c.course_name} (${c.course_code})`,
+            sub: c.active === false ? 'inactive' : null,
+          }))}
+          currentValue={rows.find(r => r[pkCol] === editingClassCourse.rowId)?.course_id}
+          onClose={() => setEditingClassCourse(null)}
+          onSelect={async (id) => {
+            if (!id) { setEditingClassCourse(null); return }
+            await reassignClassCourse(editingClassCourse.rowId, id)
+            setEditingClassCourse(null)
+          }}
+        />
+      )}
+
       {/* ── Scheduled-teacher picker (searchable popover) ─────────────────────── */}
       {editingSchedTeacher?.rect && (
         <SearchSelectPopover
@@ -4932,6 +4976,23 @@ export default function DatabasePage() {
                                 >
                                   <span className={`truncate whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic' : 'text-[#2A2035]'}`}>
                                     {dv === null ? '— choose class —' : dv}
+                                  </span>
+                                  <span className="text-[#325099]/60 text-[13px] leading-none shrink-0">▾</span>
+                                </div>
+                              ) : selectedTable === T_CLASSES && col === COURSE_NAME_COL ? (
+                                // Editable course selector — relinks the class's course_id.
+                                <div
+                                  className={`px-3 py-1.5 overflow-hidden text-xs cursor-pointer hover:bg-[#EEF4FF] transition-colors flex items-center justify-between gap-1 ${editingClassCourse?.rowId === rowId ? 'bg-[#EEF4FF] ring-2 ring-inset ring-[#325099]' : ''}`}
+                                  onClick={e => {
+                                    // Capture the anchor rect BEFORE the async options load.
+                                    const rect = e.currentTarget.getBoundingClientRect()
+                                    setEditingClassCourse({ rowId, rect })
+                                    ensureCourseOptions(true)
+                                  }}
+                                  title="Click to link this class to a different course"
+                                >
+                                  <span className={`truncate whitespace-nowrap ${dv === null ? 'text-[#2A2035]/20 italic' : 'text-[#2A2035]'}`}>
+                                    {dv === null ? '— choose course —' : dv}
                                   </span>
                                   <span className="text-[#325099]/60 text-[13px] leading-none shrink-0">▾</span>
                                 </div>

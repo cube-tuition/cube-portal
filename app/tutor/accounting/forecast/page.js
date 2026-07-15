@@ -212,8 +212,17 @@ export default function ForecastPage() {
 
   // ── Load supporting data (tutors, rate matrix, fixed costs) ─────────────────
   useEffect(() => {
-    supabase.from('tutors').select('id, full_name, pay_method').order('full_name')
-      .then(({ data }) => setTutors(data || []))
+    // Teachers = tutors + directors (both teach and both have a pay_method);
+    // staff_table records which table a pay-method edit must be saved to.
+    Promise.all([
+      supabase.from('tutors').select('id, full_name, pay_method'),
+      supabase.from('directors').select('id, full_name, pay_method'),
+    ]).then(([t, d]) => setTutors(
+      [
+        ...(t.data || []).map(x => ({ ...x, staff_table: 'tutors' })),
+        ...(d.data || []).map(x => ({ ...x, staff_table: 'directors' })),
+      ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+    ))
     supabase.from('current_tutor_rates').select('tutor_id, year_band, mode, hourly_rate')
       .then(({ data }) => setRateMatrix(data || []))
     supabase.from('fixed_costs').select('*').order('frequency').order('name')
@@ -577,8 +586,9 @@ export default function ForecastPage() {
 
   // ── Tutor pay method handler ─────────────────────────────────────────────────
   const handleTutorPayMethod = async (tutorId, value) => {
+    const person = tutors.find(t => t.id === tutorId)
     setTutors(prev => prev.map(t => t.id === tutorId ? { ...t, pay_method: value } : t))
-    await supabase.from('tutors').update({ pay_method: value }).eq('id', tutorId)
+    await supabase.from(person?.staff_table || 'tutors').update({ pay_method: value }).eq('id', tutorId)
   }
 
   // ── Cash log helpers ─────────────────────────────────────────────────────────

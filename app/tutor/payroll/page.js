@@ -18,7 +18,7 @@ function payMethodGroup(pm) {
 const PM_GROUPS = [
   { id: 'bank',  icon: '🏦', title: 'Bank transfer', note: 'these will be pushed to Xero' },
   { id: 'cash',  icon: '💵', title: 'Cash',           note: 'paid in person — not pushed to Xero' },
-  { id: 'unset', icon: '❓', title: 'Pay method not set', note: 'set pay_method (bank/cash) on the tutor record in the database explorer' },
+  { id: 'unset', icon: '❓', title: 'Pay method not set', note: 'set pay_method (bank/cash) on the tutor/director record in the database explorer' },
 ]
 import { registerUndoAction } from '../../../lib/undo'
 import { fmtTime, fmtMoney, isoDate } from '../../../lib/format'
@@ -215,15 +215,15 @@ export default function PayrollPage() {
       setTerms(allTerms)
 
       // Payable people = tutors + directors (directors teach makeups / cover, and
-      // are paid via shifts too). Directors have no pay_method column, so they
-      // default to bank (no cash split).
+      // are paid via shifts too). Both tables carry pay_method/cash_pay_weekday;
+      // staff_table records where edits (e.g. cash pay day) must be saved.
       const [{ data: tutorRows }, { data: dirRows }] = await Promise.all([
         supabase.from(T_TUTORS).select('id, full_name, email, pay_method, cash_pay_weekday'),
-        supabase.from(T_ADMINS).select('id, full_name, email'),
+        supabase.from(T_ADMINS).select('id, full_name, email, pay_method, cash_pay_weekday'),
       ])
       const people = [
-        ...(tutorRows || []),
-        ...((dirRows || []).map(d => ({ ...d, pay_method: null, cash_pay_weekday: null }))),
+        ...(tutorRows || []).map(t => ({ ...t, staff_table: T_TUTORS })),
+        ...(dirRows || []).map(d => ({ ...d, staff_table: T_ADMINS })),
       ]
       setPayMethods(Object.fromEntries(people.map(t => [t.id, t.pay_method])))
       setEmailByTutor(Object.fromEntries(people.map(t => [t.id, t.email])))
@@ -1216,8 +1216,9 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, on
   for (const s of shifts || []) amt[s.tutor_id] = (amt[s.tutor_id] || 0) + Number(s.amount || 0)
   const setDay = async (id, val) => {
     const wd = val === '' ? null : Number(val)
+    const person = tutors.find(t => t.id === id)
     onChange(prev => prev.map(t => (t.id === id ? { ...t, cash_pay_weekday: wd } : t)))
-    await supabase.from(T_TUTORS).update({ cash_pay_weekday: wd }).eq('id', id)
+    await supabase.from(person?.staff_table || T_TUTORS).update({ cash_pay_weekday: wd }).eq('id', id)
   }
   const togglePaid = async (t) => {
     setBusyId(t.id)
@@ -1235,7 +1236,7 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, on
         <p className="text-[11px] text-[#325099]/60">Pick the weekday each cash teacher is paid. When you hand over the cash, hit <span className="font-semibold">Mark paid</span> — it records the outflow in the Cash Log automatically. Marking unpaid removes that log row.</p>
       </div>
       {tutors.length === 0 ? (
-        <p className="px-5 py-6 text-xs text-[#2A2035]/45">No cash teachers yet. Set a tutor’s pay method to “cash” in the database explorer to schedule them here.</p>
+        <p className="px-5 py-6 text-xs text-[#2A2035]/45">No cash teachers yet. Set a tutor’s or director’s pay method to “cash” in the database explorer to schedule them here.</p>
       ) : (
         <div className="divide-y divide-[#F0F4FF]">
           {tutors.map(t => {
