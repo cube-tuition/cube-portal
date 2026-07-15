@@ -264,11 +264,15 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         }
 
         if (weekLabel) {
-          const { data: qzRows } = await supabase
+          // Week labels repeat every term ("Week 3" exists in T2 and T3), so
+          // only rows dated inside this session's term count as prior marks.
+          let qzQuery = supabase
             .from(T_QUIZ_RESULTS)
             .select('student_id, subject, week, score, homework_grade, created_at')
             .in('student_id', studentIds)
             .eq('week', weekLabel)
+          if (containing) qzQuery = qzQuery.gte('quiz_date', containing.start_date).lte('quiz_date', containing.end_date)
+          const { data: qzRows } = await qzQuery
           if (cancelled) return
           for (const q of qzRows || []) {
             if (!subjectsMatch(q.subject, subject)) continue
@@ -417,12 +421,16 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       }
       if (hasHw || hasRq) {
         try {
-          const { data: existing } = await supabase
+          // Same term-bound as the prefill: without it, saving Term 3 Week N
+          // would overwrite the student's Term 2 "Week N" row.
+          let findQuery = supabase
             .from(T_QUIZ_RESULTS)
             .select('id, subject')
             .eq('student_id', s.id)
             .eq('week', weekLabel)
             .limit(20)
+          if (term) findQuery = findQuery.gte('quiz_date', term.start_date).lte('quiz_date', term.end_date)
+          const { data: existing } = await findQuery
           const existingRow = (existing || []).find(r => subjectsMatch(r.subject, subject))
           const payload = {
             student_id: s.id,
