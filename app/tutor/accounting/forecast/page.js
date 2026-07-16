@@ -359,10 +359,12 @@ export default function ForecastPage() {
     const classProfit    = classIncome - classTeacherCost
     const oneOnOneProfit = oneOnOneIncome - oneOnOneTeacherCost
     const totalProfit    = afterGst - totalExpenses - totalDiscount
-    // Cash income is tax-exempt — only tax the bank-derived profit
+    // Cash income is tax-exempt — only the bank-derived profit is taxed, and a
+    // taxable loss pays no tax (never a negative tax that inflates after-tax
+    // above total profit).
     const bankAfterGst      = bankEnrolIncome / 1.1
     const taxableProfit     = bankAfterGst - totalExpenses - totalDiscount
-    const afterTax          = cashEnrolIncome + taxableProfit * (1 - TAX_RATE)
+    const afterTax          = totalProfit - Math.max(0, taxableProfit) * TAX_RATE
 
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
@@ -541,8 +543,8 @@ export default function ForecastPage() {
     const multiCourseDiscount= invoices.reduce((s, i) => s + Number(i.multi_course_discount || 0), 0)
     const totalDiscount      = siblingDiscount + multiCourseDiscount
     const totalProfit        = afterGst - totalExpenses - totalDiscount
-    // Match live tax formula: no cash distinction in play, so taxableProfit = afterGst - expenses - discounts
-    const afterTax           = totalProfit * (1 - TAX_RATE)
+    // Match live tax formula: no cash distinction in play, and a loss pays no tax.
+    const afterTax           = totalProfit - Math.max(0, totalProfit) * TAX_RATE
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
