@@ -372,18 +372,6 @@ export default function AccountingDashboard() {
         })()}
 
 
-        {/* Row 2: missing / review */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-          <Panel icon="🧩" title="Missing or incomplete" badge={board.missing.length || '✓'} badgeCls={board.missing.length ? SEV.amber.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
-            {board.missing.length === 0 ? <Empty msg="Records are complete — invoicing can run cleanly." /> :
-              <div className="divide-y divide-[#F0F4FF]">{board.missing.map((it, i) => <AlertRow key={i} item={it} />)}</div>}
-          </Panel>
-          <Panel icon="🔍" title="Needs review" badge={board.review.length || '✓'} badgeCls={board.review.length ? SEV.amber.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
-            {board.review.length === 0 ? <Empty msg="Nothing waiting on a judgement call." /> :
-              <div className="divide-y divide-[#F0F4FF]">{board.review.map((it, i) => <AlertRow key={i} item={it} />)}</div>}
-          </Panel>
-        </div>
-
         {/* Compliance calendar — full list (replaces the old Due Dates page) */}
         <Panel icon="📆" title="Compliance calendar" badge={`${DUE_DATES.filter(d => !complianceDone[d.label] && daysUntil(d.due) >= 0).length} upcoming`} badgeCls={SEV.blue.chip}>
           <div className="divide-y divide-[#F0F4FF] max-h-80 overflow-y-auto">
