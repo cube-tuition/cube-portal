@@ -261,8 +261,10 @@ export default function AccountingDashboard() {
     if (noEmailFamilies > 0) missing.push({ key: 'no-email', severity: 'amber', title: `${noEmailFamilies} active student${noEmailFamilies === 1 ? '' : 's'} with no guardian email`, detail: 'Invoices to these families can’t be delivered.', href: '/tutor/database' })
 
     const outstanding = live.filter(i => i.delivery_status === 'sent' && i.payment_status !== 'paid').reduce((s, i) => s + Number(i.total || 0), 0)
+    const paidInvs = live.filter(i => i.term_id === term?.id && i.payment_status === 'paid')
+    const paidTotal = paidInvs.reduce((s, i) => s + Number(i.total || 0), 0)
 
-    return { actNow, overdue, upcoming, missing, review, outstanding, overdueTotal: od.reduce((s, i) => s + Number(i.total || 0), 0), overdueCount: od.length }
+    return { actNow, overdue, upcoming, missing, review, outstanding, paidTotal, paidCount: paidInvs.length, overdueTotal: od.reduce((s, i) => s + Number(i.total || 0), 0), overdueCount: od.length }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoices, shiftsSubmitted, payRuns, cashLast, cashTerm, noPrice, noEmailFamilies, complianceDone, term, checkedAt])
 
@@ -293,7 +295,7 @@ export default function AccountingDashboard() {
           {[
             ['Receivables outstanding', fmtMoney(board.outstanding), 'sent, not yet paid', '#062E63'],
             ['Overdue', `${fmtMoney(board.overdueTotal)}`, `${board.overdueCount} invoice${board.overdueCount === 1 ? '' : 's'} past due`, board.overdueCount ? '#B23A3A' : '#047857'],
-            ['Needs action now', String(board.actNow.length + board.overdue.length), 'items in red panels', board.actNow.length + board.overdue.length ? '#B23A3A' : '#047857'],
+            ['Amount paid', fmtMoney(board.paidTotal), `${board.paidCount} invoice${board.paidCount === 1 ? '' : 's'} paid this term`, '#047857'],
             ['Next deadline', nextDeadline ? `${daysUntil(nextDeadline.due)}d` : '—', nextDeadline ? `${nextDeadline.label} · ${fmtD(nextDeadline.due)}` : 'all clear', '#062E63'],
           ].map(([l, v, sub, color]) => (
             <div key={l} className="bg-white border border-[#DEE7FF] rounded-2xl px-4 py-3.5">
