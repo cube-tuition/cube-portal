@@ -14,11 +14,10 @@ import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
  * ─────────────────────────────────────────────────────────────────────────────
  * Daily command centre for directors: everything across invoicing, payroll,
  * tax/compliance, bookkeeping and reconciliation that needs action, is overdue,
- * is coming up, is missing, or needs review — plus an assignable task list
- * (ops_tasks) so nothing relies on memory.
+ * is coming up, is missing, or needs review.
  *
  * Compliance items can be marked done per period (portal_settings
- * 'compliance_done'), and any alert can be turned into an assigned task.
+ * 'compliance_done').
  */
 
 const fmtMoney = (n) => '$' + Math.abs(Number(n) || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -112,12 +111,6 @@ export default function AccountingDashboard() {
   const [noPrice, setNoPrice] = useState(0)           // active enrolments without price (current term)
   const [noEmailFamilies, setNoEmailFamilies] = useState(0)
   const [complianceDone, setComplianceDone] = useState({})
-  const [tasks, setTasks] = useState([])
-  const [directors, setDirectors] = useState([])
-
-  // task form
-  const [taskDraft, setTaskDraft] = useState({ title: '', assignee: '', due_date: '' })
-  const [taskSaving, setTaskSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -126,7 +119,7 @@ export default function AccountingDashboard() {
     const cur = getEnrolmentTerm(allTerms)
     setTerm(cur)
 
-    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, tasksRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes] = await Promise.all([
+    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes] = await Promise.all([
       supabase.from('invoices')
         .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status, payment_method')
         .neq('status', 'voided'),
@@ -138,7 +131,6 @@ export default function AccountingDashboard() {
       supabase.from('students').select('id, full_name').eq('status', 'active'),
       supabase.from('guardians').select('student_id, email'),
       supabase.from('portal_settings').select('value').eq('key', COMPLIANCE_DONE_KEY).maybeSingle(),
-      supabase.from('ops_tasks').select('*').order('status').order('due_date', { ascending: true, nullsFirst: false }).order('created_at'),
       supabase.from('directors').select('id, full_name, pay_method'),
       cur ? supabase.from('classes').select('id, class_name, teacher, start_time, end_time, course_id, term_id').eq('term_id', cur.id) : { data: [] },
       supabase.from('tutors').select('id, full_name, pay_method'),
@@ -183,8 +175,6 @@ export default function AccountingDashboard() {
     const emailed = new Set((guardRes.data || []).filter(g => g.email).map(g => String(g.student_id)))
     setNoEmailFamilies((studRes.data || []).filter(s => !emailed.has(s.id)).length)
     try { setComplianceDone(JSON.parse(doneRes.data?.value || '{}')) } catch { setComplianceDone({}) }
-    setTasks(tasksRes.data || [])
-    setDirectors((dirRes.data || []).map(d => (d.full_name || '').split(' ')[0]).filter(Boolean))
     setCheckedAt(new Date())
     setLoading(false)
   }, [])
@@ -204,37 +194,12 @@ export default function AccountingDashboard() {
     await supabase.from('portal_settings').upsert({ key: COMPLIANCE_DONE_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() })
   }
 
-  // ── Task CRUD ────────────────────────────────────────────────────────────────
-  const addTask = async (draft) => {
-    if (!draft.title?.trim()) return
-    setTaskSaving(true)
-    const { data } = await supabase.from('ops_tasks').insert({
-      title: draft.title.trim(),
-      assignee: draft.assignee || null,
-      due_date: draft.due_date || null,
-      source: draft.source || 'manual',
-      created_by: profile?.full_name || null,
-    }).select('*').single()
-    if (data) setTasks(prev => [data, ...prev])
-    setTaskDraft({ title: '', assignee: '', due_date: '' })
-    setTaskSaving(false)
-  }
-  const toggleTask = async (t) => {
-    const done = t.status !== 'done'
-    setTasks(prev => prev.map(x => x.id === t.id ? { ...x, status: done ? 'done' : 'open', done_at: done ? new Date().toISOString() : null } : x))
-    await supabase.from('ops_tasks').update({ status: done ? 'done' : 'open', done_at: done ? new Date().toISOString() : null }).eq('id', t.id)
-  }
-  const deleteTask = async (t) => {
-    setTasks(prev => prev.filter(x => x.id !== t.id))
-    await supabase.from('ops_tasks').delete().eq('id', t.id)
-  }
-  const taskFromAlert = (item) => addTask({ title: item.title, assignee: '', due_date: item.dueIso || '', source: 'auto:' + (item.key || 'alert') })
 
   // ── The brain: classify everything ───────────────────────────────────────────
   const board = useMemo(() => {
     const nowMs = checkedAt ? checkedAt.getTime() : 0
     const today = checkedAt ? checkedAt.toISOString().slice(0, 10) : '9999-12-31'
-    const actNow = [], overdue = [], upcoming = [], missing = [], review = [], recs = []
+    const actNow = [], overdue = [], upcoming = [], missing = [], review = []
 
     // — Invoices —
     const live = invoices
@@ -295,21 +260,14 @@ export default function AccountingDashboard() {
     if (noPrice > 0) missing.push({ key: 'no-price', severity: 'red', title: `${noPrice} active enrolment${noPrice === 1 ? '' : 's'} with no price`, detail: 'These students can’t be invoiced — set prices in the database explorer.', href: '/tutor/database' })
     if (noEmailFamilies > 0) missing.push({ key: 'no-email', severity: 'amber', title: `${noEmailFamilies} active student${noEmailFamilies === 1 ? '' : 's'} with no guardian email`, detail: 'Invoices to these families can’t be delivered.', href: '/tutor/database' })
 
-    // — Recommendations —
     const outstanding = live.filter(i => i.delivery_status === 'sent' && i.payment_status !== 'paid').reduce((s, i) => s + Number(i.total || 0), 0)
-    if (outstanding > 0) recs.push({ key: 'rec-receivables', severity: od.length ? 'amber' : 'blue', title: `${fmtMoney(outstanding)} in receivables outstanding`, detail: `${od.length} overdue. A fixed weekly 10-minute chase (same day each week) keeps this near zero.`, href: '/tutor/accounting/invoices' })
-    const net = cashTerm.inflow - cashTerm.outflow
-    if (cashTerm.inflow || cashTerm.outflow) recs.push({ key: 'rec-cash', severity: net < 0 ? 'amber' : 'blue', title: `Term cash position: ${net < 0 ? '−' : '+'}${fmtMoney(net)}`, detail: `${fmtMoney(cashTerm.inflow)} in · ${fmtMoney(cashTerm.outflow)} out (cash log). See Forecast → Overview for the full analyst view.`, href: '/tutor/accounting/forecast' })
-    recs.push({ key: 'rec-routine', severity: 'blue', title: 'Suggested weekly routine', detail: 'Mon: approve drafts + send. Wed: chase overdue. Fri: approve shifts + log cash. Term week 2: discount email. Quarter end: BAS + super together.' })
 
-    return { actNow, overdue, upcoming, missing, review, recs, outstanding, overdueTotal: od.reduce((s, i) => s + Number(i.total || 0), 0), overdueCount: od.length }
+    return { actNow, overdue, upcoming, missing, review, outstanding, overdueTotal: od.reduce((s, i) => s + Number(i.total || 0), 0), overdueCount: od.length }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoices, shiftsSubmitted, payRuns, cashLast, cashTerm, noPrice, noEmailFamilies, complianceDone, term, checkedAt])
 
   if (!profile) return <div className="min-h-screen bg-[#F0F4FF]" />
 
-  const openTasks = tasks.filter(t => t.status === 'open')
-  const doneTasks = tasks.filter(t => t.status === 'done').slice(0, 5)
   const nextDeadline = DUE_DATES.filter(d => !complianceDone[d.label] && daysUntil(d.due) >= 0).sort((a, b) => a.due.localeCompare(b.due))[0]
 
   return (
@@ -418,11 +376,11 @@ export default function AccountingDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <Panel icon="🧩" title="Missing or incomplete" badge={board.missing.length || '✓'} badgeCls={board.missing.length ? SEV.amber.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
             {board.missing.length === 0 ? <Empty msg="Records are complete — invoicing can run cleanly." /> :
-              <div className="divide-y divide-[#F0F4FF]">{board.missing.map((it, i) => <AlertRow key={i} item={it} onTask={taskFromAlert} />)}</div>}
+              <div className="divide-y divide-[#F0F4FF]">{board.missing.map((it, i) => <AlertRow key={i} item={it} />)}</div>}
           </Panel>
           <Panel icon="🔍" title="Needs review" badge={board.review.length || '✓'} badgeCls={board.review.length ? SEV.amber.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
             {board.review.length === 0 ? <Empty msg="Nothing waiting on a judgement call." /> :
-              <div className="divide-y divide-[#F0F4FF]">{board.review.map((it, i) => <AlertRow key={i} item={it} onTask={taskFromAlert} />)}</div>}
+              <div className="divide-y divide-[#F0F4FF]">{board.review.map((it, i) => <AlertRow key={i} item={it} />)}</div>}
           </Panel>
         </div>
 
@@ -458,55 +416,6 @@ export default function AccountingDashboard() {
           </div>
         </Panel>
 
-        {/* Row 3: recommendations / director tasks */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-          <Panel icon="💡" title="Recommendations">
-            <div className="divide-y divide-[#F0F4FF]">{board.recs.map((it, i) => <AlertRow key={i} item={it} />)}</div>
-          </Panel>
-
-          <Panel icon="✅" title="Director tasks" badge={openTasks.length ? `${openTasks.length} open` : '✓'} badgeCls={openTasks.length ? SEV.blue.chip : 'bg-emerald-100 text-emerald-700 border-emerald-200'}
-            footer={
-              <div className="border-t border-[#F0F4FF] px-4 py-3 flex flex-wrap items-center gap-2">
-                <input value={taskDraft.title} onChange={e => setTaskDraft(d => ({ ...d, title: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') addTask(taskDraft) }}
-                  placeholder="Add a task… (Enter to save)"
-                  className="flex-1 min-w-[160px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
-                <select value={taskDraft.assignee} onChange={e => setTaskDraft(d => ({ ...d, assignee: e.target.value }))}
-                  className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none">
-                  <option value="">Anyone</option>
-                  {directors.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <input type="date" value={taskDraft.due_date} onChange={e => setTaskDraft(d => ({ ...d, due_date: e.target.value }))}
-                  className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs bg-white focus:outline-none" />
-                <button onClick={() => addTask(taskDraft)} disabled={taskSaving || !taskDraft.title.trim()}
-                  className="text-xs font-semibold text-white bg-[#325099] px-3 py-1.5 rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">Add</button>
-              </div>
-            }>
-            {openTasks.length === 0 && doneTasks.length === 0 ? <Empty msg="No tasks yet — add one below, or use “+ Task” on any alert." /> : (
-              <div className="divide-y divide-[#F0F4FF]">
-                {openTasks.map(t => (
-                  <div key={t.id} className="flex items-center gap-2.5 px-4 py-2.5 group">
-                    <button onClick={() => toggleTask(t)} className="w-4 h-4 rounded border-2 border-[#BACBFF] hover:border-[#325099] transition shrink-0" title="Mark done" />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-xs font-semibold text-[#2A2035] truncate">{t.title}</span>
-                      <span className="block text-[10px] text-[#2A2035]/45">
-                        {t.assignee ? `→ ${t.assignee}` : 'unassigned'}{t.due_date ? ` · due ${fmtD(t.due_date)}` : ''}
-                        {t.due_date && t.due_date < todayIso() && <span className="text-rose-600 font-bold"> · overdue</span>}
-                      </span>
-                    </span>
-                    <button onClick={() => deleteTask(t)} className="text-[#2A2035]/25 hover:text-rose-500 text-xs opacity-0 group-hover:opacity-100 transition shrink-0">✕</button>
-                  </div>
-                ))}
-                {doneTasks.map(t => (
-                  <div key={t.id} className="flex items-center gap-2.5 px-4 py-2 opacity-50">
-                    <button onClick={() => toggleTask(t)} className="w-4 h-4 rounded bg-emerald-500 text-white text-[9px] font-bold leading-none shrink-0" title="Reopen">✓</button>
-                    <span className="text-xs text-[#2A2035]/60 line-through truncate">{t.title}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
       </div>
     </div>
   )
