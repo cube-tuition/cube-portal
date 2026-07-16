@@ -25,6 +25,11 @@ const fmtMoney = (n) => '$' + Math.abs(Number(n) || 0).toLocaleString('en-AU', {
 const fmtD = (iso) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const COMPLIANCE_DONE_KEY = 'compliance_done'
+// Director retainers paid in cash — counted into the term cash snapshot.
+const CASH_RETAINERS = [
+  { name: 'Ryan',  perFortnight: 300 },
+  { name: 'Aiden', perFortnight: 300 },
+]
 
 const SEV = {
   red:   { dot: 'bg-rose-500',  chip: 'bg-rose-100 text-rose-700 border-rose-200' },
@@ -342,6 +347,15 @@ export default function AccountingDashboard() {
         </div>
 
         {/* Termly cash snapshot — cash income vs projected cash teacher pay */}
+        {(() => {
+          // Director retainers: $300 cash each per fortnight, projected across the term.
+          const fortnights = term
+            ? Math.max(1, Math.round(((new Date(term.end_date + 'T00:00:00') - new Date(term.start_date + 'T00:00:00')) / 86400000 + 1) / 14))
+            : 0
+          const retainers = CASH_RETAINERS.map(r => ({ ...r, total: r.perFortnight * fortnights }))
+          const retainerTotal = retainers.reduce((s, r) => s + r.total, 0)
+          const cashExpenses = cashTeacherPay.total + retainerTotal
+          return (
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-bold text-[#062E63]">💵 Term cash snapshot{term ? ` · ${formatTermLabel(term)}` : ''}</p>
@@ -350,8 +364,8 @@ export default function AccountingDashboard() {
           <div className="grid grid-cols-3 gap-3">
             {[
               ['Cash income', fmtMoney(cashIncome), 'cash-marked invoices this term', '#047857'],
-              ['Cash expenses', fmtMoney(cashTeacherPay.total), 'est. teacher pay (cash, full term)', '#B23A3A'],
-              ['Net cash', `${cashIncome - cashTeacherPay.total < 0 ? '−' : ''}${fmtMoney(cashIncome - cashTeacherPay.total)}`, 'income − teacher pay', cashIncome - cashTeacherPay.total >= 0 ? '#047857' : '#B23A3A'],
+              ['Cash expenses', fmtMoney(cashExpenses), 'teacher pay + retainers (cash, full term)', '#B23A3A'],
+              ['Net cash', `${cashIncome - cashExpenses < 0 ? '−' : ''}${fmtMoney(cashIncome - cashExpenses)}`, 'income − teacher pay − retainers', cashIncome - cashExpenses >= 0 ? '#047857' : '#B23A3A'],
             ].map(([l, v, sub, color]) => (
               <div key={l} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-4 py-3">
                 <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{l}</p>
@@ -381,10 +395,23 @@ export default function AccountingDashboard() {
               )}
             </div>
           )}
+          {retainerTotal > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#2A2035]/55">
+              <span className="font-bold text-[#B23A3A]">Retainers:</span>
+              {retainers.map(r => (
+                <span key={r.name} title={`${fmtMoney(r.perFortnight)}/fortnight × ${fortnights} fortnight${fortnights === 1 ? '' : 's'}`}>
+                  {r.name}: <strong className="text-[#062E63]">{fmtMoney(r.total)}</strong>
+                </span>
+              ))}
+              <span className="text-[#2A2035]/40">({fmtMoney(CASH_RETAINERS[0].perFortnight)} cash each per fortnight × {fortnights})</span>
+            </div>
+          )}
           <p className="text-[10px] text-[#2A2035]/40 mt-2">
-            Income = invoices marked “cash” for this term. Expenses = projected full-term pay (lesson hours × rate × {LESSONS_PER_TERM} lessons) for tutors paid in cash; super excluded.
+            Income = invoices marked “cash” for this term. Expenses = projected full-term pay (lesson hours × rate × {LESSONS_PER_TERM} lessons) for tutors paid in cash, plus director retainers; super excluded.
           </p>
         </div>
+          )
+        })()}
 
 
         {/* Row 2: missing / review */}
