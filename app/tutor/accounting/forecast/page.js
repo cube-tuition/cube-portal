@@ -359,12 +359,8 @@ export default function ForecastPage() {
     const classProfit    = classIncome - classTeacherCost
     const oneOnOneProfit = oneOnOneIncome - oneOnOneTeacherCost
     const totalProfit    = afterGst - totalExpenses - totalDiscount
-    // Cash income is tax-exempt — only the bank-derived profit is taxed, and a
-    // taxable loss pays no tax (never a negative tax that inflates after-tax
-    // above total profit).
-    const bankAfterGst      = bankEnrolIncome / 1.1
-    const taxableProfit     = bankAfterGst - totalExpenses - totalDiscount
-    const afterTax          = totalProfit - Math.max(0, taxableProfit) * TAX_RATE
+    // Straight 25% on the whole profit (a loss pays no tax).
+    const afterTax       = totalProfit - Math.max(0, totalProfit) * TAX_RATE
 
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
@@ -820,7 +816,7 @@ export default function ForecastPage() {
                   ['Net of GST', fmt(summary.afterGst), 'cash exempt · bank ÷ 1.1', '#062E63'],
                   ['Total expenses', fmt(summary.totalExpenses), `tutors + ${fmt(summary.fixedTermly)} fixed`, '#062E63'],
                   ['Net profit', fmt(summary.totalProfit), margin !== null ? `${margin}% margin` : '—', summary.totalProfit >= 0 ? '#047857' : '#B23A3A'],
-                  ['After tax (25%)', fmt(summary.afterTax), 'cash profit exempt', summary.afterTax >= 0 ? '#047857' : '#B23A3A'],
+                  ['After tax (25%)', fmt(summary.afterTax), '75% of net profit', summary.afterTax >= 0 ? '#047857' : '#B23A3A'],
                   ['Empty seats', String(emptySeats), 'across group classes (cap 7)', emptySeats > 8 ? '#92400E' : '#062E63'],
                 ]
                 return kpis.map(([label, value, sub, color]) => (
