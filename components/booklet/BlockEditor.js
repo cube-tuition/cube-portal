@@ -299,6 +299,14 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
                 <option value="boxplot">Box plot</option>
               </select>
             </div>
+            <div>
+              <label className={L}>Position</label>
+              <select className={I} value={block.pos || 'below'} onChange={e => set({ pos: e.target.value === 'below' ? '' : e.target.value })}>
+                <option value="below">Own line (centred)</option>
+                <option value="left">Left — text wraps</option>
+                <option value="right">Right — text wraps</option>
+              </select>
+            </div>
             <div className="w-28"><label className={L}>Width (%)</label><input className={I} type="text" inputMode="numeric" value={block.width ?? ''} onChange={e => set({ width: e.target.value.replace(/\D/g, '') })} placeholder="60" /></div>
           </div>
           {(block.objType || 'cartesian') === 'cartesian' && (
