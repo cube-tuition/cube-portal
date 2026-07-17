@@ -187,6 +187,14 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           <div><label className={L}>Steps — one per line (auto-numbered)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Read the question carefully\nIdentify what is being asked\nChoose the correct formula\nSubstitute and solve'} /></div>
         </div>
       )
+    case 'image':
+      return (
+        <div className="space-y-2.5">
+          <ImageField value={block.image} onChange={v => set({ image: v })} label="Image" />
+          <div><label className={L}>Caption (optional)</label><input className={I} value={block.caption || ''} onChange={e => set({ caption: e.target.value })} placeholder="e.g. Figure 1 — the Cartesian plane" /></div>
+          <div className="w-32"><label className={L}>Width (% of page, optional)</label><input className={I} type="text" inputMode="numeric" value={block.width ?? ''} onChange={e => set({ width: e.target.value.replace(/\D/g, '') })} placeholder="e.g. 60" /></div>
+        </div>
+      )
     case 'text':
       return (
         <div className="space-y-2.5">
