@@ -95,10 +95,16 @@ const toPointRows = (v) => Array.isArray(v) ? v : String(v ?? '').split('\n').ma
   const p = l.replace(/[()]/g, '').split(',').map(x => x.trim())
   return { x: p[0] ?? '', y: p[1] ?? '', label: p.slice(2).join(', ') }
 })
-const toLineRows = (v) => Array.isArray(v) ? v : String(v ?? '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-  const p = l.split(',').map(x => x.trim())
-  return { m: p[0] ?? '', c: p[1] ?? '', label: p.slice(2).join(', ') }
-})
+// Curve rows are { eq, label }; convert legacy { m, c } rows and "m, c, label"
+// text into equation form.
+const mcToEq = (m, c) => `${m}x ${Number(c) < 0 ? '-' : '+'} ${Math.abs(Number(c))}`
+const toLineRows = (v) => {
+  if (Array.isArray(v)) return v.map(l => (l && l.eq !== undefined) ? l : { eq: mcToEq(l?.m ?? 0, l?.c ?? 0), label: l?.label ?? '' })
+  return String(v ?? '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const p = l.split(',').map(x => x.trim())
+    return { eq: mcToEq(p[0] ?? 0, p[1] ?? 0), label: p.slice(2).join(', ') }
+  })
+}
 
 function PointRows({ rows, onChange }) {
   const upd = (i, patch) => onChange(rows.map((r, j) => j === i ? { ...r, ...patch } : r))
@@ -124,18 +130,18 @@ function LineRows({ rows, onChange }) {
   const upd = (i, patch) => onChange(rows.map((r, j) => j === i ? { ...r, ...patch } : r))
   return (
     <div>
-      <label className={L}>Lines — each draws y = mx + c</label>
+      <label className={L}>Curves — any equation in x (e.g. 2x + 1, x^2 - 2, 12/x, sqrt(x))</label>
       <div className="space-y-1.5">
         {rows.map((l, i) => (
           <div key={i} className="flex items-center gap-1.5">
-            <input className={I + ' w-20 text-center'} value={l.m ?? ''} onChange={e => upd(i, { m: e.target.value })} placeholder="m" title="Gradient" />
-            <input className={I + ' w-20 text-center'} value={l.c ?? ''} onChange={e => upd(i, { c: e.target.value })} placeholder="c" title="y-intercept" />
-            <input className={I + ' flex-1'} value={l.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional), e.g. y = 2x + 1" />
-            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove line">✕</button>
+            <span className="text-[12px] text-[#2A2035]/50 shrink-0">y =</span>
+            <input className={I + ' flex-1'} value={l.eq ?? ''} onChange={e => upd(i, { eq: e.target.value })} placeholder="x^2 - 2" />
+            <input className={I + ' w-36'} value={l.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional)" />
+            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove curve">✕</button>
           </div>
         ))}
       </div>
-      <button onClick={() => onChange([...rows, { m: '', c: '', label: '' }])} className="text-[11px] font-semibold text-[#325099] hover:underline mt-1">＋ Add line</button>
+      <button onClick={() => onChange([...rows, { eq: '', label: '' }])} className="text-[11px] font-semibold text-[#325099] hover:underline mt-1">＋ Add curve</button>
     </div>
   )
 }
