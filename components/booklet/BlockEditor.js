@@ -106,6 +106,9 @@ const toLineRows = (v) => {
   })
 }
 
+// Row inputs manage their own widths, so strip the w-full baked into I.
+const I0 = I.replace('w-full ', '')
+
 function PointRows({ rows, onChange }) {
   const upd = (i, patch) => onChange(rows.map((r, j) => j === i ? { ...r, ...patch } : r))
   return (
@@ -114,9 +117,9 @@ function PointRows({ rows, onChange }) {
       <div className="space-y-1.5">
         {rows.map((p, i) => (
           <div key={i} className="flex items-center gap-1.5">
-            <input className={I + ' w-16 text-center'} value={p.x ?? ''} onChange={e => upd(i, { x: e.target.value })} placeholder="x" />
-            <input className={I + ' w-16 text-center'} value={p.y ?? ''} onChange={e => upd(i, { y: e.target.value })} placeholder="y" />
-            <input className={I + ' flex-1'} value={p.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional), e.g. A(-3, 2)" />
+            <input className={I0 + ' w-16 shrink-0 text-center'} value={p.x ?? ''} onChange={e => upd(i, { x: e.target.value })} placeholder="x" />
+            <input className={I0 + ' w-16 shrink-0 text-center'} value={p.y ?? ''} onChange={e => upd(i, { y: e.target.value })} placeholder="y" />
+            <input className={I0 + ' flex-1 min-w-0'} value={p.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional), e.g. A(-3, 2)" />
             <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove point">✕</button>
           </div>
         ))}
@@ -135,8 +138,8 @@ function LineRows({ rows, onChange }) {
         {rows.map((l, i) => (
           <div key={i} className="flex items-center gap-1.5">
             <span className="text-[12px] text-[#2A2035]/50 shrink-0">y =</span>
-            <input className={I + ' flex-1'} value={l.eq ?? ''} onChange={e => upd(i, { eq: e.target.value })} placeholder="x^2 - 2" />
-            <input className={I + ' w-36'} value={l.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional)" />
+            <input className={I0 + ' flex-1 min-w-0'} value={l.eq ?? ''} onChange={e => upd(i, { eq: e.target.value })} placeholder="x^2 - 2" />
+            <input className={I0 + ' w-32 shrink-0'} value={l.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional)" />
             <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove curve">✕</button>
           </div>
         ))}
