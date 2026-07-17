@@ -258,7 +258,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
                   Show gridlines
                 </label>
                 <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
-                  <input type="checkbox" checked={block.intercepts === true} onChange={e => set({ intercepts: e.target.checked })} className="accent-[#325099]" />
+                  <input type="checkbox" checked={block.intercepts !== false} onChange={e => set({ intercepts: e.target.checked })} className="accent-[#325099]" />
                   Show intercept labels
                 </label>
               </div>
