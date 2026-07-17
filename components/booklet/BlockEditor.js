@@ -89,6 +89,28 @@ const L = 'block text-[11px] font-semibold text-[#325099] mb-1'
 const I = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]'
 const TA = I + ' resize-y min-h-[64px] font-mono text-[13px]'
 
+// Layout controls for a block's image: position (below / float with text
+// wrapping) and width as a % of the container. Only shown once an image is set.
+function ImageLayoutFields({ block, set }) {
+  if (!block.image) return null
+  return (
+    <div className="flex gap-2 items-end">
+      <div>
+        <label className={L}>Image position</label>
+        <select className={I} value={block.imagePos || 'below'} onChange={e => set({ imagePos: e.target.value === 'below' ? '' : e.target.value })}>
+          <option value="below">Below text</option>
+          <option value="left">Left — text wraps</option>
+          <option value="right">Right — text wraps</option>
+        </select>
+      </div>
+      <div className="w-28">
+        <label className={L}>Width (%)</label>
+        <input className={I} type="text" inputMode="numeric" value={block.imageWidth ?? ''} onChange={e => set({ imageWidth: e.target.value.replace(/\D/g, '') })} placeholder="e.g. 40" />
+      </div>
+    </div>
+  )
+}
+
 function ImageField({ value, onChange, label = 'Diagram / image' }) {
   const [busy, setBusy] = useState(false)
   const upload = async (file) => {
@@ -156,6 +178,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (use $…$ for maths, “- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Area of a Parallelogram:\n$A = bh$\n- $b$ is the base\n- $h$ is the perpendicular height'} /></div>
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
+          <ImageLayoutFields block={block} set={set} />
         </div>
       )
     case 'note':
@@ -171,6 +194,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'A polygon is a closed 2D shape with straight sides.'} /></div>
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
+          <ImageLayoutFields block={block} set={set} />
         </div>
       )
     case 'worked':
@@ -179,6 +203,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Step-by-step working for the example…'} /></div>
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
+          <ImageLayoutFields block={block} set={set} />
         </div>
       )
     case 'steps':
@@ -192,7 +217,17 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
         <div className="space-y-2.5">
           <ImageField value={block.image} onChange={v => set({ image: v })} label="Image" />
           <div><label className={L}>Caption (optional)</label><input className={I} value={block.caption || ''} onChange={e => set({ caption: e.target.value })} placeholder="e.g. Figure 1 — the Cartesian plane" /></div>
-          <div className="w-32"><label className={L}>Width (% of page, optional)</label><input className={I} type="text" inputMode="numeric" value={block.width ?? ''} onChange={e => set({ width: e.target.value.replace(/\D/g, '') })} placeholder="e.g. 60" /></div>
+          <div className="flex gap-2 items-end">
+            <div>
+              <label className={L}>Alignment</label>
+              <select className={I} value={block.align || 'center'} onChange={e => set({ align: e.target.value })}>
+                <option value="left">Left</option>
+                <option value="center">Centre</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+            <div className="w-32"><label className={L}>Width (% of page)</label><input className={I} type="text" inputMode="numeric" value={block.width ?? ''} onChange={e => set({ width: e.target.value.replace(/\D/g, '') })} placeholder="e.g. 60" /></div>
+          </div>
         </div>
       )
     case 'text':
@@ -200,6 +235,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
         <div className="space-y-2.5">
           <div><label className={L}>Explanation (paragraphs, “- ” bullets, $…$ maths, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} /></div>
           <ImageField value={block.image} onChange={v => set({ image: v })} />
+          <ImageLayoutFields block={block} set={set} />
         </div>
       )
     case 'question':
@@ -210,6 +246,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
             <ImageField value={block.image} onChange={v => set({ image: v })} />
             <div><label className={L}>Marks</label><input className={I} value={block.marks} onChange={e => set({ marks: e.target.value })} placeholder="" /></div>
           </div>
+          <ImageLayoutFields block={block} set={set} />
           <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} />
           {/* The question-level solution only applies to single questions; with
               parts, each part carries its own solution. */}
