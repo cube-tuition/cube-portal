@@ -192,7 +192,7 @@ export default function BookletBuilderEditor() {
         }
         if (b.type === 'question' || b.type === 'mcq') qn++
         const tmp = document.createElement('div')
-        tmp.innerHTML = blockHtml(b, { solutions: solnView, qNum: qn })
+        tmp.innerHTML = blockHtml(b, { solutions: solnView, qNum: qn, hideSectionSyllabus: /maths/i.test(bk?.subject || '') })
         const el = tmp.firstElementChild
         if (el) {
           mp.inner.appendChild(el)
