@@ -33,6 +33,19 @@ const bookletLabel = (b) => {
   return `${b.year}.${code}. ${fmtWorkbookCode(b.booklet_name, b.subject)}`
 }
 
+// Workbook status badge — mirrors the master database's status column.
+const STATUS_BADGE_CLS = {
+  'Complete':          'bg-emerald-100 text-emerald-800',
+  'Needs Improvement': 'bg-amber-100 text-amber-800',
+  'In Progress':       'bg-blue-100 text-blue-800',
+  'Not Started':       'bg-gray-100 text-gray-500',
+}
+const StatusBadge = ({ status }) => status ? (
+  <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full whitespace-nowrap ${STATUS_BADGE_CLS[status] || STATUS_BADGE_CLS['Not Started']}`}>
+    {status}
+  </span>
+) : null
+
 // Read-only modal that shows what's inside a booklet (its content field), so
 // teachers can see what a curriculum booklet covers.
 function ContentModal({ booklet, onClose }) {
@@ -221,7 +234,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
     setLoading(true)
     const { data } = await supabase
       .from('class_booklet_assignments')
-      .select('id, booklet_id, term_number, week, booklets(booklet_name, year, subject, topic, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
+      .select('id, booklet_id, term_number, week, booklets(booklet_name, year, subject, topic, status, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
       .eq('class_id', cls.id)
     setAssignments(data || [])
     setLoading(false)
@@ -291,6 +304,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accentColor }}>{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
                           {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
+                                  <StatusBadge status={b.status} />
                         </div>
                         <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                         {b.topic && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{b.topic}</p>}
@@ -864,7 +878,7 @@ export default function BookletsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, topic, term_number, week, notes, content, file_path, file_paths, is_exam, exam_id, syllabus_points')
+      .select('id, booklet_name, year, subject, topic, status, term_number, week, notes, content, file_path, file_paths, is_exam, exam_id, syllabus_points')
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
@@ -1110,6 +1124,7 @@ export default function BookletsPage() {
                                     {weekLabel(activeSub, week)}
                                   </span>
                                   {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
+                                  <StatusBadge status={b.status} />
                                 </div>
                                 <p className="text-[12px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                                 {b.notes && (
@@ -1281,7 +1296,7 @@ function TutorCurriculumPage({ staff }) {
     setLoadingAsgn(true)
     supabase
       .from('class_booklet_assignments')
-      .select('term_number, week, booklets(id, booklet_name, topic, file_paths, file_path, year, subject, is_exam, exam_id)')
+      .select('term_number, week, booklets(id, booklet_name, topic, status, file_paths, file_path, year, subject, is_exam, exam_id)')
       .eq('class_id', activeClassId)
       .then(({ data }) => {
         setAssignments(data || [])
@@ -1549,6 +1564,7 @@ function TutorCurriculumPage({ staff }) {
                                   {/* Booklet name */}
                                   <p className="text-[11px] font-bold text-[#062E63] leading-snug">
                                     {b.is_exam ? <><span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] mr-1">Exam</span>{b.booklet_name}</> : bookletLabel(b)}
+                                    <span className="ml-1.5"><StatusBadge status={b.status} /></span>
                                   </p>
                                   {/* Topic */}
                                   {b.topic && (
