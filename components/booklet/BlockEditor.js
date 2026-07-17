@@ -230,6 +230,58 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           </div>
         </div>
       )
+    case 'mathobj':
+      return (
+        <div className="space-y-2.5">
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className={L}>Object type</label>
+              <select className={I} value={block.objType || 'cartesian'} onChange={e => set({ objType: e.target.value })}>
+                <option value="cartesian">Cartesian plane</option>
+                <option value="numberline">Number line</option>
+                <option value="boxplot">Box plot</option>
+              </select>
+            </div>
+            <div className="w-28"><label className={L}>Width (%)</label><input className={I} type="text" inputMode="numeric" value={block.width ?? ''} onChange={e => set({ width: e.target.value.replace(/\D/g, '') })} placeholder="60" /></div>
+          </div>
+          {(block.objType || 'cartesian') === 'cartesian' && (
+            <>
+              <div className="grid grid-cols-4 gap-2">
+                <div><label className={L}>x min</label><input className={I} value={block.xMin ?? ''} onChange={e => set({ xMin: e.target.value })} placeholder="-5" /></div>
+                <div><label className={L}>x max</label><input className={I} value={block.xMax ?? ''} onChange={e => set({ xMax: e.target.value })} placeholder="5" /></div>
+                <div><label className={L}>y min</label><input className={I} value={block.yMin ?? ''} onChange={e => set({ yMin: e.target.value })} placeholder="-5" /></div>
+                <div><label className={L}>y max</label><input className={I} value={block.yMax ?? ''} onChange={e => set({ yMax: e.target.value })} placeholder="5" /></div>
+              </div>
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
+                <input type="checkbox" checked={block.grid !== false} onChange={e => set({ grid: e.target.checked })} className="accent-[#325099]" />
+                Show gridlines
+              </label>
+              <div><label className={L}>Points — one per line: x, y, label (optional)</label><textarea className={TA} value={block.points ?? ''} onChange={e => set({ points: e.target.value })} placeholder={'-3, 2, A\n4, 1, P(4, 1)'} /></div>
+              <div><label className={L}>Lines — one per line: gradient, y-intercept, label (draws y = mx + c)</label><textarea className={TA} value={block.lines ?? ''} onChange={e => set({ lines: e.target.value })} placeholder={'2, 1, y = 2x + 1\n-1, 3'} /></div>
+            </>
+          )}
+          {block.objType === 'numberline' && (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <div><label className={L}>Min</label><input className={I} value={block.nlMin ?? ''} onChange={e => set({ nlMin: e.target.value })} placeholder="0" /></div>
+                <div><label className={L}>Max</label><input className={I} value={block.nlMax ?? ''} onChange={e => set({ nlMax: e.target.value })} placeholder="10" /></div>
+                <div><label className={L}>Step</label><input className={I} value={block.nlStep ?? ''} onChange={e => set({ nlStep: e.target.value })} placeholder="1" /></div>
+              </div>
+              <div><label className={L}>Marked values — one per line: value, label (optional)</label><textarea className={TA} value={block.nlPoints ?? ''} onChange={e => set({ nlPoints: e.target.value })} placeholder={'3.5\n7, B'} /></div>
+            </>
+          )}
+          {block.objType === 'boxplot' && (
+            <div className="grid grid-cols-5 gap-2">
+              <div><label className={L}>Min</label><input className={I} value={block.bpMin ?? ''} onChange={e => set({ bpMin: e.target.value })} /></div>
+              <div><label className={L}>Q1</label><input className={I} value={block.bpQ1 ?? ''} onChange={e => set({ bpQ1: e.target.value })} /></div>
+              <div><label className={L}>Median</label><input className={I} value={block.bpMed ?? ''} onChange={e => set({ bpMed: e.target.value })} /></div>
+              <div><label className={L}>Q3</label><input className={I} value={block.bpQ3 ?? ''} onChange={e => set({ bpQ3: e.target.value })} /></div>
+              <div><label className={L}>Max</label><input className={I} value={block.bpMax ?? ''} onChange={e => set({ bpMax: e.target.value })} /></div>
+            </div>
+          )}
+          <div><label className={L}>Caption (optional)</label><input className={I} value={block.caption || ''} onChange={e => set({ caption: e.target.value })} placeholder="e.g. Figure 1" /></div>
+        </div>
+      )
     case 'text':
       return (
         <div className="space-y-2.5">
