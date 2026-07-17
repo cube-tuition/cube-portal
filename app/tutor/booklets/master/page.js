@@ -32,6 +32,15 @@ const bookletLabel = (b) => {
   return `${b.year}.${code}. ${b.booklet_name}`
 }
 
+// Workbook readiness statuses (booklets.status) and their badge styles.
+const WORKBOOK_STATUSES = ['Not Started', 'In Progress', 'Needs Improvement', 'Complete']
+const STATUS_CLS = {
+  'Complete':          'bg-emerald-50 text-emerald-800 border-emerald-300',
+  'Needs Improvement': 'bg-amber-50 text-amber-800 border-amber-300',
+  'In Progress':       'bg-blue-50 text-blue-800 border-blue-300',
+  'Not Started':       'bg-gray-50 text-gray-500 border-gray-300',
+}
+
 // ── Manage Topics Panel ───────────────────────────────────────────────────────
 function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTopicsChanged }) {
   const [topics,    setTopics]    = useState([])
@@ -648,7 +657,7 @@ export default function MasterDatabasePage() {
     const [{ data }, { data: bd }] = await Promise.all([
       supabase
         .from('booklets')
-        .select('id, booklet_name, year, subject, topic, skill, term_number, week, notes, content, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
+        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, content, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
@@ -708,6 +717,13 @@ export default function MasterDatabasePage() {
 
   const handleBookletUpdated = (updated) => {
     setBooklets(bs => bs.map(b => b.id === updated.id ? updated : b))
+  }
+
+  // Workbook readiness status — saved on change from the inline badge select.
+  const saveStatus = async (id, status) => {
+    setBooklets(bs => bs.map(b => b.id === id ? { ...b, status } : b))
+    const { error } = await supabase.from('booklets').update({ status }).eq('id', id)
+    if (error) { alert('Could not save status: ' + error.message); load() }
   }
 
   // Permanently delete a booklet: its PDFs in storage, any curriculum
@@ -922,6 +938,7 @@ export default function MasterDatabasePage() {
                           <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-14">Week</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Topic</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Skill</th>
+                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-40">Status</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">PDFs</th>
                           <th className="px-4 py-3 w-12"></th>
                         </tr>
@@ -1000,6 +1017,18 @@ export default function MasterDatabasePage() {
                                   {b.skill || 'set skill…'}
                                 </button>
                               )}
+                            </td>
+
+                            {/* Status */}
+                            <td className="px-5 py-3">
+                              <select
+                                value={b.status || 'Not Started'}
+                                onChange={e => saveStatus(b.id, e.target.value)}
+                                className={`text-[10px] font-semibold rounded-full px-2 py-1 border cursor-pointer focus:outline-none transition ${STATUS_CLS[b.status || 'Not Started']}`}
+                                title="Workbook status"
+                              >
+                                {WORKBOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
                             </td>
 
                             {/* PDFs */}
