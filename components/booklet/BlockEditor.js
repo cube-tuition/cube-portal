@@ -148,6 +148,91 @@ function LineRows({ rows, onChange }) {
   )
 }
 
+// ── Maths-object fields (shared by the standalone block and box embeds) ─────
+function MathObjFields({ obj, upd }) {
+  return (
+    <>
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <label className={L}>Object type</label>
+          <select className={I} value={obj.objType || 'cartesian'} onChange={e => upd({ objType: e.target.value })}>
+            <option value="cartesian">Cartesian plane</option>
+            <option value="numberline">Number line</option>
+            <option value="boxplot">Box plot</option>
+          </select>
+        </div>
+        <div>
+          <label className={L}>Position</label>
+          <select className={I} value={obj.pos || 'below'} onChange={e => upd({ pos: e.target.value === 'below' ? '' : e.target.value })}>
+            <option value="below">Own line (centred)</option>
+            <option value="left">Left — text wraps</option>
+            <option value="right">Right — text wraps</option>
+          </select>
+        </div>
+        <div className="w-28"><label className={L}>Width (%)</label><input className={I} type="text" inputMode="numeric" value={obj.width ?? ''} onChange={e => upd({ width: e.target.value.replace(/\D/g, '') })} placeholder="60" /></div>
+      </div>
+      {(obj.objType || 'cartesian') === 'cartesian' && (
+        <>
+          <div className="grid grid-cols-4 gap-2">
+            <div><label className={L}>x min</label><input className={I} value={obj.xMin ?? ''} onChange={e => upd({ xMin: e.target.value })} placeholder="-5" /></div>
+            <div><label className={L}>x max</label><input className={I} value={obj.xMax ?? ''} onChange={e => upd({ xMax: e.target.value })} placeholder="5" /></div>
+            <div><label className={L}>y min</label><input className={I} value={obj.yMin ?? ''} onChange={e => upd({ yMin: e.target.value })} placeholder="-5" /></div>
+            <div><label className={L}>y max</label><input className={I} value={obj.yMax ?? ''} onChange={e => upd({ yMax: e.target.value })} placeholder="5" /></div>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
+              <input type="checkbox" checked={obj.grid !== false} onChange={e => upd({ grid: e.target.checked })} className="accent-[#325099]" />
+              Show gridlines
+            </label>
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
+              <input type="checkbox" checked={obj.intercepts !== false} onChange={e => upd({ intercepts: e.target.checked })} className="accent-[#325099]" />
+              Show intercept labels
+            </label>
+          </div>
+          <PointRows rows={toPointRows(obj.points)} onChange={points => upd({ points })} />
+          <LineRows rows={toLineRows(obj.lines)} onChange={lines => upd({ lines })} />
+        </>
+      )}
+      {obj.objType === 'numberline' && (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            <div><label className={L}>Min</label><input className={I} value={obj.nlMin ?? ''} onChange={e => upd({ nlMin: e.target.value })} placeholder="0" /></div>
+            <div><label className={L}>Max</label><input className={I} value={obj.nlMax ?? ''} onChange={e => upd({ nlMax: e.target.value })} placeholder="10" /></div>
+            <div><label className={L}>Step</label><input className={I} value={obj.nlStep ?? ''} onChange={e => upd({ nlStep: e.target.value })} placeholder="1" /></div>
+          </div>
+          <div><label className={L}>Marked values — one per line: value, label (optional)</label><textarea className={TA} value={obj.nlPoints ?? ''} onChange={e => upd({ nlPoints: e.target.value })} placeholder={'3.5\n7, B'} /></div>
+        </>
+      )}
+      {obj.objType === 'boxplot' && (
+        <div className="grid grid-cols-5 gap-2">
+          <div><label className={L}>Min</label><input className={I} value={obj.bpMin ?? ''} onChange={e => upd({ bpMin: e.target.value })} /></div>
+          <div><label className={L}>Q1</label><input className={I} value={obj.bpQ1 ?? ''} onChange={e => upd({ bpQ1: e.target.value })} /></div>
+          <div><label className={L}>Median</label><input className={I} value={obj.bpMed ?? ''} onChange={e => upd({ bpMed: e.target.value })} /></div>
+          <div><label className={L}>Q3</label><input className={I} value={obj.bpQ3 ?? ''} onChange={e => upd({ bpQ3: e.target.value })} /></div>
+          <div><label className={L}>Max</label><input className={I} value={obj.bpMax ?? ''} onChange={e => upd({ bpMax: e.target.value })} /></div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// Embed a maths object inside a callout box (Definition, Formula, Note, …).
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '' }
+function MathObjSection({ block, set }) {
+  if (!block.mathObj) {
+    return <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add maths object</button>
+  }
+  return (
+    <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-[#325099]">Maths object</span>
+        <button onClick={() => set({ mathObj: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+      </div>
+      <MathObjFields obj={block.mathObj} upd={patch => set({ mathObj: { ...block.mathObj, ...patch } })} />
+    </div>
+  )
+}
+
 // Layout controls for a block's image: position (below / float with text
 // wrapping) and width as a % of the container. Only shown once an image is set.
 function ImageLayoutFields({ block, set }) {
@@ -238,6 +323,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
+          <MathObjSection block={block} set={set} />
         </div>
       )
     case 'note':
@@ -245,6 +331,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
         <div className="space-y-2.5">
           <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (“- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Common mistakes:\n- Using diameter instead of radius\n- Forgetting to square the radius'} /></div>
           <TwoColField block={block} set={set} />
+          <MathObjSection block={block} set={set} />
         </div>
       )
     case 'definition':
@@ -254,6 +341,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
+          <MathObjSection block={block} set={set} />
         </div>
       )
     case 'worked':
@@ -263,12 +351,14 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
+          <MathObjSection block={block} set={set} />
         </div>
       )
     case 'steps':
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Steps — one per line (auto-numbered)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Read the question carefully\nIdentify what is being asked\nChoose the correct formula\nSubstitute and solve'} /></div>
+          <MathObjSection block={block} set={set} />
         </div>
       )
     case 'image':
@@ -290,70 +380,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
         </div>
       )
     case 'mathobj':
-      return (
-        <div className="space-y-2.5">
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <label className={L}>Object type</label>
-              <select className={I} value={block.objType || 'cartesian'} onChange={e => set({ objType: e.target.value })}>
-                <option value="cartesian">Cartesian plane</option>
-                <option value="numberline">Number line</option>
-                <option value="boxplot">Box plot</option>
-              </select>
-            </div>
-            <div>
-              <label className={L}>Position</label>
-              <select className={I} value={block.pos || 'below'} onChange={e => set({ pos: e.target.value === 'below' ? '' : e.target.value })}>
-                <option value="below">Own line (centred)</option>
-                <option value="left">Left — text wraps</option>
-                <option value="right">Right — text wraps</option>
-              </select>
-            </div>
-            <div className="w-28"><label className={L}>Width (%)</label><input className={I} type="text" inputMode="numeric" value={block.width ?? ''} onChange={e => set({ width: e.target.value.replace(/\D/g, '') })} placeholder="60" /></div>
-          </div>
-          {(block.objType || 'cartesian') === 'cartesian' && (
-            <>
-              <div className="grid grid-cols-4 gap-2">
-                <div><label className={L}>x min</label><input className={I} value={block.xMin ?? ''} onChange={e => set({ xMin: e.target.value })} placeholder="-5" /></div>
-                <div><label className={L}>x max</label><input className={I} value={block.xMax ?? ''} onChange={e => set({ xMax: e.target.value })} placeholder="5" /></div>
-                <div><label className={L}>y min</label><input className={I} value={block.yMin ?? ''} onChange={e => set({ yMin: e.target.value })} placeholder="-5" /></div>
-                <div><label className={L}>y max</label><input className={I} value={block.yMax ?? ''} onChange={e => set({ yMax: e.target.value })} placeholder="5" /></div>
-              </div>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
-                  <input type="checkbox" checked={block.grid !== false} onChange={e => set({ grid: e.target.checked })} className="accent-[#325099]" />
-                  Show gridlines
-                </label>
-                <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
-                  <input type="checkbox" checked={block.intercepts !== false} onChange={e => set({ intercepts: e.target.checked })} className="accent-[#325099]" />
-                  Show intercept labels
-                </label>
-              </div>
-              <PointRows rows={toPointRows(block.points)} onChange={points => set({ points })} />
-              <LineRows rows={toLineRows(block.lines)} onChange={lines => set({ lines })} />
-            </>
-          )}
-          {block.objType === 'numberline' && (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                <div><label className={L}>Min</label><input className={I} value={block.nlMin ?? ''} onChange={e => set({ nlMin: e.target.value })} placeholder="0" /></div>
-                <div><label className={L}>Max</label><input className={I} value={block.nlMax ?? ''} onChange={e => set({ nlMax: e.target.value })} placeholder="10" /></div>
-                <div><label className={L}>Step</label><input className={I} value={block.nlStep ?? ''} onChange={e => set({ nlStep: e.target.value })} placeholder="1" /></div>
-              </div>
-              <div><label className={L}>Marked values — one per line: value, label (optional)</label><textarea className={TA} value={block.nlPoints ?? ''} onChange={e => set({ nlPoints: e.target.value })} placeholder={'3.5\n7, B'} /></div>
-            </>
-          )}
-          {block.objType === 'boxplot' && (
-            <div className="grid grid-cols-5 gap-2">
-              <div><label className={L}>Min</label><input className={I} value={block.bpMin ?? ''} onChange={e => set({ bpMin: e.target.value })} /></div>
-              <div><label className={L}>Q1</label><input className={I} value={block.bpQ1 ?? ''} onChange={e => set({ bpQ1: e.target.value })} /></div>
-              <div><label className={L}>Median</label><input className={I} value={block.bpMed ?? ''} onChange={e => set({ bpMed: e.target.value })} /></div>
-              <div><label className={L}>Q3</label><input className={I} value={block.bpQ3 ?? ''} onChange={e => set({ bpQ3: e.target.value })} /></div>
-              <div><label className={L}>Max</label><input className={I} value={block.bpMax ?? ''} onChange={e => set({ bpMax: e.target.value })} /></div>
-            </div>
-          )}
-        </div>
-      )
+      return <div className="space-y-2.5"><MathObjFields obj={block} upd={set} /></div>
     case 'text':
       return (
         <div className="space-y-2.5">
