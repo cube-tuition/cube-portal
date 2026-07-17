@@ -726,6 +726,19 @@ export default function MasterDatabasePage() {
     if (error) { alert('Could not save status: ' + error.message); load() }
   }
 
+  // Every workbook is editable in the builder at any time: open its linked
+  // build, creating an empty draft linked to the booklet on first open.
+  const [openingBuilder, setOpeningBuilder] = useState(null)
+  const openInBuilder = async (b) => {
+    setOpeningBuilder(b.id)
+    const { data, error } = await supabase.from('booklet_builds')
+      .insert({ title: b.booklet_name, year: b.year, subject: b.subject, topic: b.topic || null, blocks: [], status: 'draft', booklet_id: b.id })
+      .select('id').single()
+    setOpeningBuilder(null)
+    if (error) { alert('Could not create the workbook in the builder: ' + error.message); return }
+    router.push(`/tutor/booklets/builder/${data.id}`)
+  }
+
   // Permanently delete a booklet: its PDFs in storage, any curriculum
   // assignments, and unlink any workbook build (reverting it to a draft).
   const handleDeleteBooklet = async () => {
@@ -939,7 +952,7 @@ export default function MasterDatabasePage() {
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Topic</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Skill</th>
                           <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-40">Status</th>
-                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">PDFs</th>
+                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Builder</th>
                           <th className="px-4 py-3 w-12"></th>
                         </tr>
                       </thead>
@@ -1031,28 +1044,32 @@ export default function MasterDatabasePage() {
                               </select>
                             </td>
 
-                            {/* PDFs */}
+                            {/* Builder — every workbook opens in the builder; a
+                                linked draft is created on first open. */}
                             <td className="px-5 py-3">
-                              <FileCell
-                                booklet={b}
-                                type="pdf"
-                                accentColor={accentColor}
-                                accentBg={accentBg}
-                                onUpdated={handleBookletUpdated}
-                              />
-                            </td>
-
-                            {/* Edit / Open in builder */}
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
-                              {buildByBookletId[b.id] && (
+                              {buildByBookletId[b.id] ? (
                                 <button
                                   onClick={() => router.push(`/tutor/booklets/builder/${buildByBookletId[b.id].id}`)}
-                                  className="block ml-auto text-[10px] font-semibold text-[#325099]/50 hover:text-[#325099] transition mb-1"
-                                  title="Open in workbook builder"
+                                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80"
+                                  style={{ background: accentBg, color: accentColor }}
+                                  title="Open this workbook in the builder"
                                 >
-                                  Builder ↗
+                                  Open builder ↗
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => openInBuilder(b)}
+                                  disabled={openingBuilder === b.id}
+                                  className="text-[10px] font-semibold px-2.5 py-1 rounded-lg border border-dashed border-[#BACBFF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40"
+                                  title="Create this workbook in the builder and open it"
+                                >
+                                  {openingBuilder === b.id ? 'Opening…' : '＋ Open in builder'}
                                 </button>
                               )}
+                            </td>
+
+                            {/* Edit / Delete */}
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
                               <button
                                 onClick={() => setEditingBooklet(b)}
                                 className="text-[10px] font-semibold text-[#325099]/50 hover:text-[#325099] transition"
