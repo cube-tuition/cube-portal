@@ -133,12 +133,11 @@ function LineRows({ rows, onChange }) {
   const upd = (i, patch) => onChange(rows.map((r, j) => j === i ? { ...r, ...patch } : r))
   return (
     <div>
-      <label className={L}>Curves — any equation in x (e.g. 2x + 1, x^2 - 2, 12/x, sqrt(x))</label>
+      <label className={L}>Curves — any equation (e.g. y = 2x + 1, y = x^2 - 2, x^2 + y^2 = 9)</label>
       <div className="space-y-1.5">
         {rows.map((l, i) => (
           <div key={i} className="flex items-center gap-1.5">
-            <span className="text-[12px] text-[#2A2035]/50 shrink-0">y =</span>
-            <input className={I0 + ' flex-1 min-w-0'} value={l.eq ?? ''} onChange={e => upd(i, { eq: e.target.value })} placeholder="x^2 - 2" />
+            <input className={I0 + ' flex-1 min-w-0'} value={l.eq ?? ''} onChange={e => upd(i, { eq: e.target.value })} placeholder="y = x^2 - 2  or  x^2 + y^2 = 9" />
             <input className={I0 + ' w-32 shrink-0'} value={l.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional)" />
             <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove curve">✕</button>
           </div>

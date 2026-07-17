@@ -426,7 +426,9 @@ export default function BookletBuilderEditor() {
       onDragStart={() => { dragId.current = b.id }}
       onDragOver={e => e.preventDefault()}
       onDrop={() => onDropOn(b.id)}
-      className={`bg-white rounded-xl border p-3.5 transition ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}>
+      className={`rounded-xl border p-3.5 transition ${b.type === 'section'
+        ? `bg-[#DCE7FB] ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#9FB7E8]'}`
+        : `bg-white ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}`}>
       <div className="flex items-center justify-between mb-2.5 cursor-pointer"
         onClick={() => setSelectedBlockId(id => id === b.id ? null : b.id)}
         title="Click to insert new blocks right after this one">
