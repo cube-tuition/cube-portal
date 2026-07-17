@@ -89,6 +89,57 @@ const L = 'block text-[11px] font-semibold text-[#325099] mb-1'
 const I = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]'
 const TA = I + ' resize-y min-h-[64px] font-mono text-[13px]'
 
+// ── Maths-object row editors ─────────────────────────────────────────────────
+// Points/lines used to be free-text; convert legacy strings to structured rows.
+const toPointRows = (v) => Array.isArray(v) ? v : String(v ?? '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+  const p = l.replace(/[()]/g, '').split(',').map(x => x.trim())
+  return { x: p[0] ?? '', y: p[1] ?? '', label: p.slice(2).join(', ') }
+})
+const toLineRows = (v) => Array.isArray(v) ? v : String(v ?? '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+  const p = l.split(',').map(x => x.trim())
+  return { m: p[0] ?? '', c: p[1] ?? '', label: p.slice(2).join(', ') }
+})
+
+function PointRows({ rows, onChange }) {
+  const upd = (i, patch) => onChange(rows.map((r, j) => j === i ? { ...r, ...patch } : r))
+  return (
+    <div>
+      <label className={L}>Points</label>
+      <div className="space-y-1.5">
+        {rows.map((p, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <input className={I + ' w-16 text-center'} value={p.x ?? ''} onChange={e => upd(i, { x: e.target.value })} placeholder="x" />
+            <input className={I + ' w-16 text-center'} value={p.y ?? ''} onChange={e => upd(i, { y: e.target.value })} placeholder="y" />
+            <input className={I + ' flex-1'} value={p.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional), e.g. A(-3, 2)" />
+            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove point">✕</button>
+          </div>
+        ))}
+      </div>
+      <button onClick={() => onChange([...rows, { x: '', y: '', label: '' }])} className="text-[11px] font-semibold text-[#325099] hover:underline mt-1">＋ Add point</button>
+    </div>
+  )
+}
+
+function LineRows({ rows, onChange }) {
+  const upd = (i, patch) => onChange(rows.map((r, j) => j === i ? { ...r, ...patch } : r))
+  return (
+    <div>
+      <label className={L}>Lines — each draws y = mx + c</label>
+      <div className="space-y-1.5">
+        {rows.map((l, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <input className={I + ' w-20 text-center'} value={l.m ?? ''} onChange={e => upd(i, { m: e.target.value })} placeholder="m" title="Gradient" />
+            <input className={I + ' w-20 text-center'} value={l.c ?? ''} onChange={e => upd(i, { c: e.target.value })} placeholder="c" title="y-intercept" />
+            <input className={I + ' flex-1'} value={l.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional), e.g. y = 2x + 1" />
+            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove line">✕</button>
+          </div>
+        ))}
+      </div>
+      <button onClick={() => onChange([...rows, { m: '', c: '', label: '' }])} className="text-[11px] font-semibold text-[#325099] hover:underline mt-1">＋ Add line</button>
+    </div>
+  )
+}
+
 // Layout controls for a block's image: position (below / float with text
 // wrapping) and width as a % of the container. Only shown once an image is set.
 function ImageLayoutFields({ block, set }) {
@@ -262,8 +313,8 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
                   Show intercept labels
                 </label>
               </div>
-              <div><label className={L}>Points — one per line: x, y, label (optional)</label><textarea className={TA} value={block.points ?? ''} onChange={e => set({ points: e.target.value })} placeholder={'-3, 2, A\n4, 1, P(4, 1)'} /></div>
-              <div><label className={L}>Lines — one per line: gradient, y-intercept, label (draws y = mx + c)</label><textarea className={TA} value={block.lines ?? ''} onChange={e => set({ lines: e.target.value })} placeholder={'2, 1, y = 2x + 1\n-1, 3'} /></div>
+              <PointRows rows={toPointRows(block.points)} onChange={points => set({ points })} />
+              <LineRows rows={toLineRows(block.lines)} onChange={lines => set({ lines })} />
             </>
           )}
           {block.objType === 'numberline' && (
@@ -285,7 +336,6 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
               <div><label className={L}>Max</label><input className={I} value={block.bpMax ?? ''} onChange={e => set({ bpMax: e.target.value })} /></div>
             </div>
           )}
-          <div><label className={L}>Caption (optional)</label><input className={I} value={block.caption || ''} onChange={e => set({ caption: e.target.value })} placeholder="e.g. Figure 1" /></div>
         </div>
       )
     case 'text':
