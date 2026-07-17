@@ -233,24 +233,41 @@ function MathObjSection({ block, set }) {
   )
 }
 
-// Answer space for a question or part: writing lines (default) or a blank
-// maths object (e.g. an empty Cartesian plane for plotting questions).
+// Answer space for a question or part: writing lines (default), plain blank
+// space of a chosen height, or a blank maths object (e.g. an empty Cartesian
+// plane for plotting questions).
 function AnswerSpace({ holder, patch, dflt = 3 }) {
-  if (holder.answerObj) {
-    return (
-      <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold text-[#325099]">Answer space — maths object</span>
-          <button onClick={() => patch({ answerObj: null })} className="text-[11px] text-rose-500 hover:underline">Use writing lines instead</button>
-        </div>
-        <MathObjFields obj={holder.answerObj} upd={o => patch({ answerObj: { ...holder.answerObj, ...o } })} />
-      </div>
-    )
+  const mode = holder.answerObj ? 'object' : (holder.answerBlank ?? '') !== '' ? 'blank' : 'lines'
+  const setMode = (m) => {
+    if (m === mode) return
+    if (m === 'lines') patch({ answerObj: null, answerBlank: '' })
+    else if (m === 'blank') patch({ answerObj: null, answerBlank: '4' })
+    else patch({ answerBlank: '', answerObj: { ...EMPTY_MATHOBJ } })
   }
   return (
-    <div className="flex items-end gap-3">
-      <div className="w-28"><label className={L}>Answer lines</label><input className={I} type="text" inputMode="numeric" value={holder.lines ?? ''} onChange={e => patch({ lines: e.target.value.replace(/\D/g, '') })} placeholder={String(dflt)} /></div>
-      <button onClick={() => patch({ answerObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline mb-2.5" title="Replace the writing lines with a blank plane / number line / box plot">＋ Use maths object instead</button>
+    <div className="space-y-2">
+      <div>
+        <label className={L}>Answer space</label>
+        <div className="inline-flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
+          {[['lines', 'Writing lines'], ['blank', 'Blank space'], ['object', 'Maths object']].map(([m, lbl], i) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`px-2.5 py-1 font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${mode === m ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === 'lines' && (
+        <div className="w-28"><label className={L}>Answer lines</label><input className={I} type="text" inputMode="numeric" value={holder.lines ?? ''} onChange={e => patch({ lines: e.target.value.replace(/\D/g, '') })} placeholder={String(dflt)} /></div>
+      )}
+      {mode === 'blank' && (
+        <div className="w-32"><label className={L}>Height (cm)</label><input className={I} type="text" inputMode="decimal" value={holder.answerBlank ?? ''} onChange={e => patch({ answerBlank: e.target.value.replace(/[^\d.]/g, '') })} placeholder="4" /></div>
+      )}
+      {mode === 'object' && (
+        <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
+          <MathObjFields obj={holder.answerObj} upd={o => patch({ answerObj: { ...holder.answerObj, ...o } })} />
+        </div>
+      )}
     </div>
   )
 }
