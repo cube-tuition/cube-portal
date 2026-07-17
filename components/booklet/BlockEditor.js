@@ -233,6 +233,28 @@ function MathObjSection({ block, set }) {
   )
 }
 
+// Answer space for a question or part: writing lines (default) or a blank
+// maths object (e.g. an empty Cartesian plane for plotting questions).
+function AnswerSpace({ holder, patch, dflt = 3 }) {
+  if (holder.answerObj) {
+    return (
+      <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-[#325099]">Answer space — maths object</span>
+          <button onClick={() => patch({ answerObj: null })} className="text-[11px] text-rose-500 hover:underline">Use writing lines instead</button>
+        </div>
+        <MathObjFields obj={holder.answerObj} upd={o => patch({ answerObj: { ...holder.answerObj, ...o } })} />
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-end gap-3">
+      <div className="w-28"><label className={L}>Answer lines</label><input className={I} type="text" inputMode="numeric" value={holder.lines ?? ''} onChange={e => patch({ lines: e.target.value.replace(/\D/g, '') })} placeholder={String(dflt)} /></div>
+      <button onClick={() => patch({ answerObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline mb-2.5" title="Replace the writing lines with a blank plane / number line / box plot">＋ Use maths object instead</button>
+    </div>
+  )
+}
+
 // Layout controls for a block's image: position (below / float with text
 // wrapping) and width as a % of the container. Only shown once an image is set.
 function ImageLayoutFields({ block, set }) {
@@ -405,7 +427,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
             <>
               <div><label className={L}>Sample solution / answer (shown in Solutions copy)</label><textarea className={TA} value={block.solution} onChange={e => set({ solution: e.target.value })} onKeyDown={e => onTextKey(e, block.solution, v => set({ solution: v }))} placeholder={'a. 320 cm²\nb. 90 mm²'} /></div>
               <ImageField label="Solution diagram / image (Solutions copy)" value={block.solutionImage || ''} onChange={v => set({ solutionImage: v })} />
-              <div className="w-28"><label className={L}>Answer lines</label><input className={I} type="text" inputMode="numeric" value={block.lines ?? ''} onChange={e => set({ lines: e.target.value.replace(/\D/g, '') })} placeholder="6" /></div>
+              <AnswerSpace holder={block} patch={set} dflt={6} />
             </>
           )}
         </div>
@@ -547,7 +569,7 @@ function PartsEditor({ parts, onChange }) {
             <input className={I + ' mb-1.5'} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} onKeyDown={e => onInlineKey(e, p.prompt || '', v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x)))} placeholder="Part prompt (optional)" />
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
             <textarea className={TA + ' mt-1.5'} value={p.solution || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, solution: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.solution || '', v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x)))} placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
-            <div className="w-28 mt-1.5"><label className={L}>Answer lines</label><input className={I} type="text" inputMode="numeric" value={p.lines ?? ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, lines: e.target.value.replace(/\D/g, '') } : x))} placeholder="3" /></div>
+            <div className="mt-1.5"><AnswerSpace holder={p} patch={obj => onChange(parts.map((x, j) => j === i ? { ...x, ...obj } : x))} /></div>
           </div>
         ))}
       </div>
