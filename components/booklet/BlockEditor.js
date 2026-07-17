@@ -252,10 +252,16 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
                 <div><label className={L}>y min</label><input className={I} value={block.yMin ?? ''} onChange={e => set({ yMin: e.target.value })} placeholder="-5" /></div>
                 <div><label className={L}>y max</label><input className={I} value={block.yMax ?? ''} onChange={e => set({ yMax: e.target.value })} placeholder="5" /></div>
               </div>
-              <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
-                <input type="checkbox" checked={block.grid !== false} onChange={e => set({ grid: e.target.checked })} className="accent-[#325099]" />
-                Show gridlines
-              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
+                  <input type="checkbox" checked={block.grid !== false} onChange={e => set({ grid: e.target.checked })} className="accent-[#325099]" />
+                  Show gridlines
+                </label>
+                <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
+                  <input type="checkbox" checked={block.intercepts === true} onChange={e => set({ intercepts: e.target.checked })} className="accent-[#325099]" />
+                  Show intercept labels
+                </label>
+              </div>
               <div><label className={L}>Points — one per line: x, y, label (optional)</label><textarea className={TA} value={block.points ?? ''} onChange={e => set({ points: e.target.value })} placeholder={'-3, 2, A\n4, 1, P(4, 1)'} /></div>
               <div><label className={L}>Lines — one per line: gradient, y-intercept, label (draws y = mx + c)</label><textarea className={TA} value={block.lines ?? ''} onChange={e => set({ lines: e.target.value })} placeholder={'2, 1, y = 2x + 1\n-1, 3'} /></div>
             </>
