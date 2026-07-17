@@ -389,6 +389,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
     week:         booklet?.week         ?? defaultWeek  ?? '',
     notes:        booklet?.notes        ?? '',
     topic:        booklet?.topic        ?? '',
+    status:       booklet?.status       ?? 'Not Started',
   })
   const [newFiles, setNewFiles]           = useState([])
   const [existingPaths, setExistingPaths] = useState(
@@ -497,6 +498,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
       week:         form.week        !== '' ? Number(form.week)        : null,
       notes:        form.notes.trim() || null,
       topic:        form.topic.trim()  || null,
+      status:       form.status,
       file_path:    finalPaths[0] ?? null,
       file_paths:   finalPaths,
     }
@@ -568,6 +570,24 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
             <div>
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Week <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
               <input type="number" min={1} max={10} value={form.week} onChange={set('week')} placeholder="e.g. 3" className={INP} />
+            </div>
+          </div>
+          {/* Status */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Status</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {['Not Started', 'In Progress', 'Needs Improvement', 'Complete'].map(s => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, status: s }))}
+                  className={`text-[10px] font-semibold px-2.5 py-1.5 rounded-full border transition ${form.status === s
+                    ? `${STATUS_BADGE_CLS[s]} border-current`
+                    : 'bg-white text-[#2A2035]/40 border-[#DEE7FF] hover:border-[#325099]'}`}
+                >
+                  {s}
+                </button>
+              ))}
             </div>
           </div>
           {/* Topic */}
