@@ -467,12 +467,6 @@ export default function BookletBuilderEditor() {
                     <span className="mr-1.5">{t.icon}</span>{t.label}
                   </button>
                 ))}
-                {g === 'Questions' && (
-                  <>
-                    <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-                    <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
-                  </>
-                )}
               </div>
             </div>
           ))}
@@ -496,8 +490,6 @@ export default function BookletBuilderEditor() {
                 <span className="mr-1.5">{t.icon}</span>{t.label}
               </button>
             ))}
-            <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-            <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
           </div>
         </div>
       ) : (
@@ -507,8 +499,6 @@ export default function BookletBuilderEditor() {
               <span className="mr-1.5">{t.icon}</span>{t.label}
             </button>
           ))}
-          <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-          <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
         </div>
       )}
     </div>
