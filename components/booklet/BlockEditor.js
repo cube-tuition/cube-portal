@@ -220,20 +220,39 @@ function MathObjFields({ obj, upd }) {
   )
 }
 
-// Embed a maths object inside a callout box (Definition, Formula, Note, …).
+// Embed extras inside a callout box (Definition, Formula, Note, …): a maths
+// object and/or a plain blank space beneath the text.
 const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '' }
 function MathObjSection({ block, set }) {
-  if (!block.mathObj) {
-    return <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add maths object</button>
-  }
   return (
-    <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold text-[#325099]">Maths object</span>
-        <button onClick={() => set({ mathObj: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+    <>
+      <div className="flex items-center gap-4">
+        {!block.mathObj && (
+          <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add maths object</button>
+        )}
+        {block.blankSpace == null && (
+          <button onClick={() => set({ blankSpace: '4' })} className="text-[11px] font-semibold text-[#325099] hover:underline" title="Empty room inside the box (e.g. for working)">＋ Add blank space</button>
+        )}
       </div>
-      <MathObjFields obj={block.mathObj} upd={patch => set({ mathObj: { ...block.mathObj, ...patch } })} />
-    </div>
+      {block.mathObj && (
+        <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-[#325099]">Maths object</span>
+            <button onClick={() => set({ mathObj: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+          </div>
+          <MathObjFields obj={block.mathObj} upd={patch => set({ mathObj: { ...block.mathObj, ...patch } })} />
+        </div>
+      )}
+      {block.blankSpace != null && (
+        <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-[#325099]">Blank space</span>
+            <button onClick={() => set({ blankSpace: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+          </div>
+          <div className="w-32"><label className={L}>Height (cm)</label><input className={I} type="text" inputMode="decimal" value={block.blankSpace ?? ''} onChange={e => set({ blankSpace: e.target.value.replace(/[^\d.]/g, '') })} placeholder="4" /></div>
+        </div>
+      )}
+    </>
   )
 }
 
