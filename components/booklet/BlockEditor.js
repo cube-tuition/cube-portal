@@ -241,12 +241,16 @@ function MathObjSection({ block, set }) {
 // space of a chosen height, or a blank maths object (e.g. an empty Cartesian
 // plane for plotting questions).
 function AnswerSpace({ holder, patch, dflt = 3 }) {
-  const mode = holder.answerObj ? 'object' : (holder.answerBlank ?? '') !== '' ? 'blank' : 'lines'
+  // The mode is explicit (answerType) so clearing the height box doesn't flip
+  // the control back to lines; legacy rows without it fall back to inference.
+  const mode = holder.answerType
+    || (holder.answerObj ? 'object' : (holder.answerBlank ?? '') !== '' ? 'blank' : 'lines')
   const setMode = (m) => {
     if (m === mode) return
-    if (m === 'lines') patch({ answerObj: null, answerBlank: '' })
-    else if (m === 'blank') patch({ answerObj: null, answerBlank: '4' })
-    else patch({ answerBlank: '', answerObj: { ...EMPTY_MATHOBJ } })
+    // Only the type switches — each mode's settings are kept for switching back.
+    if (m === 'blank') patch({ answerType: 'blank', answerBlank: (holder.answerBlank ?? '') === '' ? '4' : holder.answerBlank })
+    else if (m === 'object') patch({ answerType: 'object', answerObj: holder.answerObj || { ...EMPTY_MATHOBJ } })
+    else patch({ answerType: 'lines' })
   }
   return (
     <div className="space-y-2">
