@@ -179,6 +179,10 @@ function MathObjFields({ obj, upd }) {
             <div><label className={L}>y min</label><input className={I} value={obj.yMin ?? ''} onChange={e => upd({ yMin: e.target.value })} placeholder="-5" /></div>
             <div><label className={L}>y max</label><input className={I} value={obj.yMax ?? ''} onChange={e => upd({ yMax: e.target.value })} placeholder="5" /></div>
           </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div><label className={L}>x per square</label><input className={I} value={obj.xStep ?? ''} onChange={e => upd({ xStep: e.target.value })} placeholder="1" /></div>
+            <div><label className={L}>y per square</label><input className={I} value={obj.yStep ?? ''} onChange={e => upd({ yStep: e.target.value })} placeholder="1" /></div>
+          </div>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
               <input type="checkbox" checked={obj.grid !== false} onChange={e => upd({ grid: e.target.checked })} className="accent-[#325099]" />
