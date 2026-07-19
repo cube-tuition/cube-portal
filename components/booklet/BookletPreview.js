@@ -105,6 +105,30 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
         cur.inner.appendChild(el)
         countOnPage = 0
       }
+      // Even alone the item is taller than a page: a multi-part question falls
+      // back to per-part chunks so it breaks between parts instead of
+      // stretching the page.
+      if (cur.page.scrollHeight > PAGE_H && it.chunks) {
+        cur.inner.removeChild(el)
+        for (const ch of it.chunks) {
+          const t2 = document.createElement('div')
+          t2.innerHTML = ch
+          const cel = t2.firstElementChild
+          if (!cel) continue
+          cur.inner.appendChild(cel)
+          if (cur.page.scrollHeight > PAGE_H && countOnPage > 0) {
+            cur.inner.removeChild(cel)
+            cur = newPage(); result.push(cur)
+            cur.inner.appendChild(cel)
+            countOnPage = 0
+          }
+          if (it.homework) cur.homework = true
+          if (it.quiz) cur.quiz = true
+          cur.html.push(ch)
+          countOnPage++
+        }
+        continue
+      }
       if (it.homework) cur.homework = true
       if (it.quiz) cur.quiz = true
       cur.html.push(it.html)

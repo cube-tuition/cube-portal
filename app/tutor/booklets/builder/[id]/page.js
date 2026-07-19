@@ -5,7 +5,7 @@ import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../../../../lib/tables'
-import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, BOOKLET_CSS } from '../../../../../lib/bookletRender'
+import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
@@ -191,15 +191,45 @@ export default function BookletBuilderEditor() {
           continue
         }
         if (b.type === 'question' || b.type === 'mcq') qn++
+        const ctx = { solutions: solnView, qNum: qn, hideSectionSyllabus: /maths/i.test(bk?.subject || '') && !isExamStyle, hideMarks: /maths/i.test(bk?.subject || '') && !isExamStyle }
         const tmp = document.createElement('div')
-        tmp.innerHTML = blockHtml(b, { solutions: solnView, qNum: qn, hideSectionSyllabus: /maths/i.test(bk?.subject || '') && !isExamStyle, hideMarks: /maths/i.test(bk?.subject || '') && !isExamStyle })
+        tmp.innerHTML = blockHtml(b, ctx)
         const el = tmp.firstElementChild
         if (el) {
           mp.inner.appendChild(el)
           if (mp.page.scrollHeight > PAGE_H && countOnPage > 0) {
             mp.inner.removeChild(el)
             out.push(cur); cur = { breakId: null, auto: true, ids: [] }
-            mp = newPage(); mp.inner.appendChild(el); countOnPage = 0
+            mp = newPage(); countOnPage = 0
+            mp.inner.appendChild(el)
+          }
+          // Even alone the block is taller than a page: split a multi-part
+          // question between its parts (same fallback as preview/export). The
+          // block id is grouped onto the page where the question starts.
+          const chunks = mp.page.scrollHeight > PAGE_H ? questionChunksHtml(b, ctx) : null
+          if (chunks) {
+            mp.inner.removeChild(el)
+            let idPushed = false
+            for (const ch of chunks) {
+              const t2 = document.createElement('div')
+              t2.innerHTML = ch
+              const cel = t2.firstElementChild
+              if (!cel) continue
+              mp.inner.appendChild(cel)
+              if (mp.page.scrollHeight > PAGE_H && countOnPage > 0) {
+                mp.inner.removeChild(cel)
+                if (idPushed) {
+                  // Continuation spills over: later blocks join the new page.
+                  out.push(cur); cur = { breakId: null, auto: true, ids: [] }
+                }
+                mp = newPage(); countOnPage = 0
+                mp.inner.appendChild(cel)
+              }
+              if (!idPushed) { cur.ids.push(b.id); idPushed = true }
+              countOnPage++
+            }
+            if (!idPushed) cur.ids.push(b.id)
+            continue
           }
         }
         cur.ids.push(b.id); countOnPage++
