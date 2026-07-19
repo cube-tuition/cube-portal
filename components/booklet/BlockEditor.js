@@ -236,14 +236,14 @@ function MathObjFields({ obj, upd }) {
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
 const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
-function MathObjSection({ block, set }) {
+function MathObjSection({ block, set, blank = true }) {
   return (
     <>
       <div className="flex items-center gap-4">
         {!block.mathObj && (
           <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add maths object</button>
         )}
-        {block.blankSpace == null && (
+        {blank && block.blankSpace == null && (
           <button onClick={() => set({ blankSpace: '4' })} className="text-[11px] font-semibold text-[#325099] hover:underline" title="Empty room inside the box (e.g. for working)">＋ Add blank space</button>
         )}
       </div>
@@ -256,7 +256,7 @@ function MathObjSection({ block, set }) {
           <MathObjFields obj={block.mathObj} upd={patch => set({ mathObj: { ...block.mathObj, ...patch } })} />
         </div>
       )}
-      {block.blankSpace != null && (
+      {blank && block.blankSpace != null && (
         <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-[#325099]">Blank space</span>
@@ -477,6 +477,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
             <div><label className={L}>Marks</label><input className={I} value={block.marks} onChange={e => set({ marks: e.target.value })} placeholder="" /></div>
           </div>
           <ImageLayoutFields block={block} set={set} />
+          <MathObjSection block={block} set={set} blank={false} />
           <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} />
           {/* The question-level solution only applies to single questions; with
               parts, each part carries its own solution. */}
@@ -625,6 +626,7 @@ function PartsEditor({ parts, onChange }) {
             </div>
             <input className={I + ' mb-1.5'} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} onKeyDown={e => onInlineKey(e, p.prompt || '', v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x)))} placeholder="Part prompt (optional)" />
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
+            <div className="mt-1.5"><MathObjSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} blank={false} /></div>
             <textarea className={TA + ' mt-1.5'} value={p.solution || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, solution: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.solution || '', v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x)))} placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
             <div className="mt-1.5"><AnswerSpace holder={p} patch={obj => onChange(parts.map((x, j) => j === i ? { ...x, ...obj } : x))} /></div>
           </div>
