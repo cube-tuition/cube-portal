@@ -159,6 +159,7 @@ function MathObjFields({ obj, upd }) {
             <option value="cartesian">Cartesian plane</option>
             <option value="numberline">Number line</option>
             <option value="boxplot">Box plot</option>
+            <option value="xytable">Table of values</option>
           </select>
         </div>
         <div>
@@ -216,13 +217,25 @@ function MathObjFields({ obj, upd }) {
           <div><label className={L}>Max</label><input className={I} value={obj.bpMax ?? ''} onChange={e => upd({ bpMax: e.target.value })} /></div>
         </div>
       )}
+      {obj.objType === 'xytable' && (
+        <>
+          <div className="flex gap-2 items-end">
+            <div className="w-16"><label className={L}>Row 1</label><input className={I} value={obj.tbXLabel ?? ''} onChange={e => upd({ tbXLabel: e.target.value })} placeholder="x" /></div>
+            <div className="flex-1"><label className={L}>Values (comma separated)</label><input className={I} value={obj.tbX ?? ''} onChange={e => upd({ tbX: e.target.value })} placeholder="0, 1, 2, 3" /></div>
+          </div>
+          <div className="flex gap-2 items-end">
+            <div className="w-16"><label className={L}>Row 2</label><input className={I} value={obj.tbYLabel ?? ''} onChange={e => upd({ tbYLabel: e.target.value })} placeholder="y" /></div>
+            <div className="flex-1"><label className={L}>Values (leave blanks with just commas)</label><input className={I} value={obj.tbY ?? ''} onChange={e => upd({ tbY: e.target.value })} placeholder="5, 8, 11, 14" /></div>
+          </div>
+        </>
+      )}
     </>
   )
 }
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '' }
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
 function MathObjSection({ block, set }) {
   return (
     <>
