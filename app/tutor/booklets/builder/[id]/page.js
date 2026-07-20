@@ -5,7 +5,7 @@ import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../../../../lib/tables'
-import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS } from '../../../../../lib/bookletRender'
+import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS, DEFAULT_LT_INSTRUCTIONS, DEFAULT_LT_TOTALS } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
@@ -618,6 +618,42 @@ export default function BookletBuilderEditor() {
                 </div>
               )}
               <p className="text-[10px] text-[#2A2035]/40 mt-2">The question bank below shows only these topics. Leave all off to allow any topic for the year.</p>
+            </div>
+          )}
+          {/* Exam-style docs: editable cover page (title, subtitle, instruction and
+              Total Marks lines — e.g. the working time). Clearing a list hides
+              that section on the cover entirely. */}
+          {isExamStyle && (
+            <div className="mb-4 bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Cover page</p>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">Title</label>
+                  <input value={bk.cover?.title ?? ''} placeholder={`${bk.year ? `Year ${bk.year} ` : ''}${bk.subject === 'Maths' ? 'Mathematics' : bk.subject || ''}`}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), title: e.target.value } })}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">Subtitle</label>
+                  <input value={bk.cover?.subtitle ?? ''} placeholder={isPreTest ? 'Pre-Test' : 'Level Test'}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), subtitle: e.target.value } })}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">General instructions (one per line — e.g. the working time)</label>
+                  <textarea rows={4} value={(bk.cover?.instructions ?? DEFAULT_LT_INSTRUCTIONS).join('\n')}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), instructions: e.target.value.split('\n') } })}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">Total Marks lines (one per line — clear all to hide the section)</label>
+                  <textarea rows={4} value={(bk.cover?.totals ?? DEFAULT_LT_TOTALS).join('\n')}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), totals: e.target.value.split('\n') } })}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
+                </div>
+              </div>
             </div>
           )}
           {/* Exam-style docs fold the question palette into the top of this column. */}
