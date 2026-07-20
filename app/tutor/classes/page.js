@@ -153,9 +153,12 @@ export default function TutorClassesPage() {
       // Hide untitled rows — these are typically incomplete Airtable rows and
       // were the main source of noise on the old day-by-day view. If a row
       // genuinely needs to appear here, give it a class_name in Airtable.
-      const named = (cls || []).filter(c => (c.class_name || '').trim())
+      // Inactive classes (e.g. a 1:1 whose student left) are hidden everywhere
+      // here — course cards and calendar alike.
+      const isLive = (c) => (c.class_name || '').trim() && (c.status || 'active') === 'active'
+      const named = (cls || []).filter(isLive)
       setClasses(named)
-      const namedAll = (clsAll || []).filter(c => (c.class_name || '').trim())
+      const namedAll = (clsAll || []).filter(isLive)
       setCalClasses(namedAll)
 
       // Rosters over the all-terms list — covers both the course cards and
@@ -215,7 +218,7 @@ export default function TutorClassesPage() {
       const behind = isoDate(addDays(new Date(), -7))
       let makeupQuery = supabase
         .from(T_LESSONS)
-        .select('id, lesson_date, start_time, end_time, room, class_id, lesson_type, student_name, status, makeup_student_id, makeup_source_lesson_id, students!makeup_student_id(full_name, year), classes(class_name)')
+        .select('id, lesson_date, start_time, end_time, room, class_id, lesson_type, student_name, status, makeup_student_id, makeup_source_lesson_id, students!makeup_student_id(full_name, year), classes(class_name, status)')
         .or('is_makeup.eq.true,makeup_student_id.not.is.null,lesson_type.not.is.null')
         .gte('lesson_date', behind)
         .lte('lesson_date', ahead)
@@ -223,7 +226,10 @@ export default function TutorClassesPage() {
       // lessons (e.g. level tests, which have no teacher).
       if (!isAdmin || classView === 'mine') makeupQuery = makeupQuery.or(`scheduled_teacher_id.eq.${staff.id},scheduled_teacher_id.is.null`)
       const { data: makeupRows } = await makeupQuery
-      setMakeupSessions((makeupRows || []).map(r => ({ dateISO: r.lesson_date, lesson: r })))
+      // Overlay lessons for inactive classes stay off the calendar too.
+      setMakeupSessions((makeupRows || [])
+        .filter(r => (r.classes?.status || 'active') === 'active')
+        .map(r => ({ dateISO: r.lesson_date, lesson: r })))
 
       // (dropin sessions fetched in separate effect below)
     }

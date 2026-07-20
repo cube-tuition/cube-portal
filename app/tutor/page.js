@@ -115,6 +115,9 @@ export default function TutorHome() {
           }
         }
       }
+      // Inactive classes no longer run — keep them off the dashboard and
+      // out of the today's-lessons panel below.
+      primaryClasses = primaryClasses.filter(c => (c.status || 'active') === 'active')
       setClasses(primaryClasses)
 
       // Enrollment counts — single round trip via `enrolments`.

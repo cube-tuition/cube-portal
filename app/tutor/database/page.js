@@ -1559,6 +1559,7 @@ export default function DatabasePage() {
   const [tutorStatusTab, setTutorStatusTab] = useState('active') // tutors view: 'active' | 'inactive' | 'all'
   const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
   const [courseStatusTab, setCourseStatusTab]   = useState('active') // courses view: 'active' | 'inactive' | 'all'
+  const [classStatusTab, setClassStatusTab]     = useState('active') // classes view: 'active' | 'inactive' | 'all'
   const [enrolStatusTab, setEnrolStatusTab]     = useState('active') // enrolments view: 'active' | 'trial' | 'disenrol' | 'all'
   const [disenrolModal, setDisenrolModal]       = useState(null)     // { rowId } — reason prompt when flipping an enrolment to disenrol
 
@@ -2633,8 +2634,10 @@ export default function DatabasePage() {
       ? allClassesForFilter.filter(c => String(c.id) === String(lessonClassFilter))
       : allClassesForFilter
     const totals = { inserted: 0, updated: 0, deleted: 0, protected: 0 }
-    const skipped = [], failed = []
+    const skipped = [], skippedInactive = [], failed = []
     for (const cls of targets) {
+      // Inactive classes no longer run — never generate lessons for them.
+      if ((cls.status || 'active') !== 'active') { skippedInactive.push(cls.class_name); continue }
       if (!cls.day_of_week) { skipped.push(cls.class_name); continue }
       const { data, error } = await supabase.rpc('sync_lessons_for_class', { p_class_id: Number(cls.id) })
       if (error) { failed.push(`${cls.class_name}: ${error.message}`); continue }
@@ -2648,6 +2651,7 @@ export default function DatabasePage() {
     if (totals.deleted) parts.push(`${totals.deleted} removed`)
     const notes = []
     if (totals.protected) notes.push(`${totals.protected} upcoming lesson(s) no longer match the schedule but were kept because they have attendance, notes, a makeup, or are cancelled — remove those manually if needed.`)
+    if (skippedInactive.length) notes.push(`Skipped (inactive): ${skippedInactive.join(', ')}.`)
     if (skipped.length) notes.push(`Skipped (no day set): ${skipped.join(', ')}.`)
     if (failed.length) notes.push(`Failed: ${failed.join(' · ')}`)
     const scope = lessonClassFilter ? '' : ` across ${targets.length} classes`
@@ -3612,6 +3616,11 @@ export default function DatabasePage() {
       const wantActive = courseStatusTab === 'active'
       out = out.filter(r => (r.active !== false) === wantActive)
     }
+    // Classes view: Active / Inactive / All tabs (rows without a status count as active).
+    if (selectedTable === T_CLASSES && classStatusTab !== 'all') {
+      const wantActive = classStatusTab === 'active'
+      out = out.filter(r => ((r.status || 'active') === 'active') === wantActive)
+    }
     // Enrolments view: status tabs ("trial" covers trial + trial complete).
     if (selectedTable === T_ENROLMENTS && enrolStatusTab !== 'all') {
       out = enrolStatusTab === 'trial'
@@ -3640,7 +3649,7 @@ export default function DatabasePage() {
       })
     }
     return out
-  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab, enrolStatusTab])
+  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab, classStatusTab, enrolStatusTab])
 
   // End Reason only means anything for disenrolled rows — show the column on
   // the Disenrolled tab only.
@@ -4118,6 +4127,21 @@ export default function DatabasePage() {
                       key={v}
                       onClick={() => setCourseStatusTab(v)}
                       className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${courseStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Active / Inactive tabs — classes only */}
+              {selectedTable === T_CLASSES && (
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                  {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
+                    <button
+                      key={v}
+                      onClick={() => setClassStatusTab(v)}
+                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${classStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
                     </button>
