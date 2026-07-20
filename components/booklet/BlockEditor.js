@@ -495,6 +495,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
         <div className="space-y-2.5">
           <div><label className={L}>Question</label><textarea className={TA} value={block.prompt} onChange={e => set({ prompt: e.target.value })} onKeyDown={e => onTextKey(e, block.prompt, v => set({ prompt: v }))} /></div>
           <ImageField value={block.image} onChange={v => set({ image: v })} />
+          <MathObjSection block={block} set={set} blank={false} />
           <div>
             <label className={L}>Options</label>
             <div className="space-y-1.5">
