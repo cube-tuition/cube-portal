@@ -679,6 +679,7 @@ function InvoiceDashboardInner() {
     draft:    invoices.filter(i => i.status === 'draft').length,
     approved: invoices.filter(i => ['approved', 'synced_to_xero'].includes(i.status)).length,
     paid:     invoices.filter(i => i.payment_status === 'paid').length,
+    unpaid:   invoices.filter(i => i.payment_status === 'unpaid').length,
     overdue:  invoices.filter(i => i.payment_status === 'overdue').length,
     revenue:  invoices.filter(i => i.status !== 'voided' && i.status !== 'draft').reduce((s, i) => s + (Number(i.total) || 0), 0),
     warnings: invoices.filter(i => getWarnings(i, i.prev_unpaid).length > 0).length,
@@ -756,12 +757,13 @@ function InvoiceDashboardInner() {
         {termId && (
           <>
             {/* Stats / filter tabs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
               {[
                 { id: 'all',      label: 'Total',    value: stats.total,    cls: 'text-[#062E63]' },
                 { id: 'draft',    label: 'Draft',    value: stats.draft,    cls: 'text-[#325099]' },
                 { id: 'approved', label: 'Approved', value: stats.approved, cls: 'text-[#5B21B6]' },
                 { id: 'paid',     label: 'Paid',     value: stats.paid,     cls: 'text-[#065F46]' },
+                { id: 'unpaid',   label: 'Unpaid',   value: stats.unpaid,   cls: stats.unpaid > 0 ? 'text-[#92400E]' : 'text-[#325099]' },
                 { id: 'overdue',  label: 'Overdue',  value: stats.overdue,  cls: stats.overdue > 0 ? 'text-red-600' : 'text-[#325099]' },
                 { id: 'warnings', label: 'Warnings', value: stats.warnings, cls: stats.warnings > 0 ? 'text-[#92400E]' : 'text-[#325099]' },
                 { id: 'revenue',  label: 'Revenue',  value: `$${stats.revenue.toLocaleString('en-AU', { minimumFractionDigits: 0 })}`, cls: 'text-[#062E63]', noFilter: true },
@@ -800,6 +802,7 @@ function InvoiceDashboardInner() {
                 : filterTab === 'draft'    ? invoices.filter(i => i.status === 'draft')
                 : filterTab === 'approved' ? invoices.filter(i => ['approved', 'synced_to_xero'].includes(i.status))
                 : filterTab === 'paid'     ? invoices.filter(i => i.payment_status === 'paid')
+                : filterTab === 'unpaid'   ? invoices.filter(i => i.payment_status === 'unpaid')
                 : filterTab === 'overdue'  ? invoices.filter(i => i.payment_status === 'overdue')
                 : filterTab === 'warnings' ? invoices.filter(i => getWarnings(i, i.prev_unpaid).length > 0)
                 : invoices
