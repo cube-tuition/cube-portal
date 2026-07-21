@@ -138,8 +138,11 @@ export default function TutorClassesPage() {
       // Admins see all classes unless they've switched to "My Classes".
       const baseQuery = () => {
         let q = supabase.from(T_CLASSES).select('*')
-        if (!isAdmin && firstName) q = q.ilike('teacher', firstName)
-        else if (isAdmin && classView === 'mine' && firstName) q = q.ilike('teacher', firstName)
+        // Prefix match (like the dashboard/booklets pages): classes store the
+        // teacher as either a first name ("Kevin") or a full name ("Kevin
+        // Park") — an exact match silently hid the full-name rows.
+        if (!isAdmin && firstName) q = q.ilike('teacher', firstName + '%')
+        else if (isAdmin && classView === 'mine' && firstName) q = q.ilike('teacher', firstName + '%')
         return q
       }
       // Top section follows the term selector; the weekly calendar is a
