@@ -579,6 +579,7 @@ function TableEditor({ block, set }) {
   const setCell = (r, c, v) => set({ rows: rows.map((row, ri) => ri === r ? row.map((cell, ci) => ci === c ? v : cell) : row) })
   const addRow = () => set({ rows: [...rows, Array(nCols || 1).fill('')] })
   const removeRow = () => { if (rows.length > 1) set({ rows: rows.slice(0, -1) }) }
+  const removeRowAt = (ri) => { if (rows.length > 1) set({ rows: rows.filter((_, i) => i !== ri) }) }
   const addCol = () => set({ rows: rows.map(row => [...row, '']) })
   const removeCol = () => { if (nCols > 1) set({ rows: rows.map(row => row.slice(0, -1)) }) }
   const STEP = 'w-6 h-6 flex items-center justify-center rounded border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none'
@@ -605,7 +606,7 @@ function TableEditor({ block, set }) {
         <table className="border-collapse">
           <tbody>
             {rows.map((row, ri) => (
-              <tr key={ri}>
+              <tr key={ri} className="group">
                 {row.map((cell, ci) => (
                   <td key={ci} className="p-0.5">
                     <textarea
@@ -618,6 +619,15 @@ function TableEditor({ block, set }) {
                     />
                   </td>
                 ))}
+                {/* Per-row delete — visible on hover; the last remaining row can't be removed. */}
+                <td className="p-0.5 align-middle">
+                  {rows.length > 1 && (
+                    <button type="button" onClick={() => removeRowAt(ri)} title="Delete this row"
+                      className="w-6 h-6 flex items-center justify-center rounded text-rose-300 hover:text-rose-600 hover:bg-rose-50 text-sm leading-none opacity-0 group-hover:opacity-100 transition">
+                      ✕
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
