@@ -859,7 +859,18 @@ function bankToBlock(q) {
   const firstSolImg = imgs.filter(im => im.role === 'solution')[0]?.storage_path || ''
   if (q.qtype === 'mcq') {
     const opts = Array.isArray(q.options) ? q.options : []
-    const options = ['A', 'B', 'C', 'D'].map((k, i) => ({ k, t: typeof opts[i] === 'string' ? opts[i] : (opts[i]?.text ?? '') }))
+    // Bank options are stored as { label, latex } — match by label (falling back
+    // to position, and to legacy string / .text shapes) so the option text
+    // actually carries across.
+    const optText = (o) => {
+      if (o == null) return ''
+      if (typeof o === 'string') return o
+      return o.latex ?? o.text ?? o.t ?? ''
+    }
+    const options = ['A', 'B', 'C', 'D'].map((k, i) => {
+      const o = opts.find(x => String(x?.label ?? x?.k ?? '').toUpperCase() === k) ?? opts[i]
+      return { k, t: optText(o) }
+    })
     // qbank_question_id keeps the link to the bank so level-test marking can draw
     // the question's topic + marks for the topical analysis.
     return { ...newBlock('mcq'), qbank_question_id: q.id, prompt: q.stem_latex || '', image: firstImg, options, answer: (q.correct_option || '').toString().toUpperCase().slice(0, 1), explanation: q.solution_latex || '', marks: q.marks ? String(q.marks) : '' }
