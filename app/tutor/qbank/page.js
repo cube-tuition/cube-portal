@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useState, useMemo, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useMemo, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
@@ -17,8 +17,26 @@ import {
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
+// Master tabs cover subject FAMILIES — the Maths tab includes the senior
+// variants, so e.g. "Year 11 Ext 1" appears in its year dropdown.
+const SUBJECT_FAMILIES = {
+  Maths:     ['Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
+  English:   ['English'],
+  Chemistry: ['Chemistry'],
+}
+const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
+
 export default function QuestionBankPage() {
+  return <Suspense><QuestionBankInner /></Suspense>
+}
+
+function QuestionBankInner() {
   const router = useRouter()
+  // Subject-hub scope (?subject=Maths|English|Chemistry): pre-selects and locks
+  // the master subject tab; without it the page behaves as before.
+  const searchParams = useSearchParams()
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
   const [tax, setTax] = useState(null)
@@ -28,7 +46,7 @@ export default function QuestionBankPage() {
   const [usagePop, setUsagePop] = useState(null)   // { usage, rect } — where-is-it-used popover
 
   // filters
-  const [activeSubject, setActiveSubject] = useState('Maths')   // master subject tab
+  const [activeSubject, setActiveSubject] = useState(scope || 'Maths')   // master subject tab
   const [year, setYear] = useState('')
   const [topicId, setTopicId] = useState('')
   const [subtopicId, setSubtopicId] = useState('')
@@ -62,13 +80,6 @@ export default function QuestionBankPage() {
   const maps = useMemo(() => buildTaxonomyMaps(tax), [tax])
   const labelFor = useCallback((q) => labelForQuestion(q, maps), [maps])
 
-  // Master tabs cover subject FAMILIES — the Maths tab includes the senior
-  // variants, so e.g. "Year 11 Ext 1" appears in its year dropdown.
-  const SUBJECT_FAMILIES = {
-    Maths:     ['Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
-    English:   ['English'],
-    Chemistry: ['Chemistry'],
-  }
   const familyFor = (tab) => SUBJECT_FAMILIES[tab] || [tab]
   const yearOptionLabel = (s) => {
     const variant = familyFor(activeSubject).includes(s.name) && s.name !== activeSubject
@@ -157,18 +168,23 @@ export default function QuestionBankPage() {
         {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Question Bank</h1>
-            <p className="text-sm text-[#325099]/60 mt-1">{questions.length} question{questions.length === 1 ? '' : 's'} in the bank.</p>
+            <h1 className="text-2xl font-bold text-[#062E63]">Question Bank{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
+            <p className="text-sm text-[#325099]/60 mt-1">
+              {scope
+                ? <>{subjectCounts[scope] || 0} {SCOPE_LABEL[scope]} question{(subjectCounts[scope] || 0) === 1 ? '' : 's'} · <Link href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">back to hub</Link></>
+                : <>{questions.length} question{questions.length === 1 ? '' : 's'} in the bank.</>}
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/tutor/qbank/categories" className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
-            <Link href="/tutor/qbank/worksheets" className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Additional Questions</Link>
-            <Link href="/tutor/qbank/generate" className="px-3.5 py-2 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition">Generate worksheet</Link>
-            <Link href="/tutor/qbank/new" className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
+            <Link href={`/tutor/qbank/categories${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
+            <Link href={`/tutor/qbank/worksheets${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Additional Questions</Link>
+            <Link href={`/tutor/qbank/generate${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition">Generate worksheet</Link>
+            <Link href={`/tutor/qbank/new${scope ? `?subject=${scope}` : ''}`} className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
           </div>
         </div>
 
-        {/* Master subject tabs */}
+        {/* Master subject tabs (hidden when a hub scope locks the family) */}
+        {!scope && (
         <div className="flex gap-1 mt-6 border-b border-[#DEE7FF]">
           {['Maths', 'English', 'Chemistry'].map((s) => (
             <button key={s} onClick={() => { setActiveSubject(s); setYear(''); setTopicId(''); setSubtopicId(''); setSkillId('') }}
@@ -177,6 +193,7 @@ export default function QuestionBankPage() {
             </button>
           ))}
         </div>
+        )}
 
         {/* Filters */}
         <div className="mt-4 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">

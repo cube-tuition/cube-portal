@@ -36,7 +36,9 @@ const ADMIN_GROUPS = [
   {
     label: 'Resources',
     links: [
-      { label: 'Curriculum',      href: '/tutor/booklets',         icon: '📖' },
+      { label: 'Mathematics',     href: '/tutor/resources/maths',     icon: '📐' },
+      { label: 'English',         href: '/tutor/resources/english',   icon: '📕' },
+      { label: 'Chemistry',       href: '/tutor/resources/chemistry', icon: '⚗️' },
       { label: 'Questions',       href: '/tutor/qbank',            icon: '❓' },
       { label: 'Workbooks',       href: '/tutor/booklets/master',  icon: '📓' },
       { label: 'Exams',           href: '/tutor/resources/tests',  icon: '🧪' },

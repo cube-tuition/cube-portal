@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback, useRef, useMemo, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
@@ -15,6 +15,33 @@ const SUBJECTS_BY_YEAR = {
   12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
 }
 const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
+
+// Subject-hub scoping (?subject=Maths|English|Chemistry): each scope covers a
+// family of curriculum subjects — Maths spans the junior + senior variants.
+const SUBJECT_FAMILY = {
+  Maths: ['Maths', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
+  English: ['English'],
+  Chemistry: ['Chemistry'],
+}
+const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
+
+// Subject inferred from a course code like "9.M1" / "7.E" / "11.C" — the same
+// rule the class-tab filter uses.
+function subjectFromCourseCode(code) {
+  const parts = String(code || '').split('.')
+  const yr = parseInt(parts[0])
+  const suffix = parts[1] || ''
+  if (!suffix) return null
+  return yr >= 11
+    ? (suffix.startsWith('M1') ? 'Standard Maths'
+      : suffix.startsWith('M2') ? 'Adv Maths'
+      : suffix.startsWith('M3') ? 'Ext 1 Maths'
+      : suffix.startsWith('M4') ? 'Ext 2 Maths'
+      : suffix.startsWith('E') ? 'English'
+      : suffix.startsWith('C') ? 'Chemistry'
+      : null)
+    : (suffix.startsWith('M') ? 'Maths' : suffix.startsWith('E') ? 'English' : null)
+}
 
 const SUBJECT_CODE = {
   'Maths': 'M', 'English': 'ET',
@@ -868,7 +895,15 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BookletsPage() {
+  return <Suspense><BookletsPageInner /></Suspense>
+}
+
+function BookletsPageInner() {
   const router = useRouter()
+  // Subject-hub scope (?subject=Maths|English|Chemistry). Invalid/absent → unscoped.
+  const searchParams = useSearchParams()
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILY[scopeParam] ? scopeParam : null
   const [staff, setStaff]           = useState(null)
   const [booklets, setBooklets]     = useState([])
   const [loading, setLoading]       = useState(true)
@@ -919,20 +954,9 @@ export default function BookletsPage() {
     }
     if (!data) return
     const filtered = data.filter(c => {
-      const code   = c.courses?.course_code || ''
-      const parts  = code.split('.')
-      const yr     = parseInt(parts[0])
-      const suffix = parts[1] || ''
-      const subj = yr >= 11
-        ? (suffix.startsWith('M1') ? 'Standard Maths'
-          : suffix.startsWith('M2') ? 'Adv Maths'
-          : suffix.startsWith('M3') ? 'Ext 1 Maths'
-          : suffix.startsWith('M4') ? 'Ext 2 Maths'
-          : suffix.startsWith('E') ? 'English'
-          : suffix.startsWith('C') ? 'Chemistry'
-          : null)
-        : (suffix.startsWith('M') ? 'Maths' : suffix.startsWith('E') ? 'English' : null)
-      return yr === activeYear && subj === activeSub
+      const code = c.courses?.course_code || ''
+      const yr   = parseInt(code.split('.')[0])
+      return yr === activeYear && subjectFromCourseCode(code) === activeSub
     })
     const dayOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
     filtered.sort((a, b) => {
@@ -945,11 +969,21 @@ export default function BookletsPage() {
 
   useEffect(() => { if (staff) loadClasses() }, [staff, loadClasses])
 
-  // Reset activeSub when year changes if subject isn't valid for new year
+  // Subjects for a year, narrowed to the hub scope when one is active.
+  const subjectsFor = useCallback((year) => {
+    const all = getSubjects(year)
+    return scope ? all.filter(s => SUBJECT_FAMILY[scope].includes(s)) : all
+  }, [scope])
+  // Years that have at least one subject in scope (Chemistry → 11–12 only).
+  const visibleYears = YEARS.filter(y => subjectsFor(y).length > 0)
+
+  // Keep year + subject valid for the scope (and when the year changes).
   useEffect(() => {
-    const subjects = getSubjects(activeYear)
+    if (!visibleYears.includes(activeYear)) { setActiveYear(visibleYears[0]); return }
+    const subjects = subjectsFor(activeYear)
     if (!subjects.includes(activeSub)) setActiveSub(subjects[0])
-  }, [activeYear])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeYear, scope, subjectsFor])
 
 
   // Get public URL for a stored PDF
@@ -989,7 +1023,11 @@ export default function BookletsPage() {
   if (!staff) return null
 
   // Tutors get a read-only curriculum view of their own classes
-  if (staff.role === 'tutor') return <TutorCurriculumPage staff={staff} />
+  if (staff.role === 'tutor') return <TutorCurriculumPage staff={staff} scope={scope} />
+
+  // The unscoped admin curriculum was retired in favour of the subject hubs —
+  // old bookmarks land on the Mathematics hub.
+  if (!scope) { router.replace('/tutor/resources/maths'); return null }
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
@@ -999,8 +1037,10 @@ export default function BookletsPage() {
       <div className="bg-white border-b border-[#DEE7FF]">
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Curriculum</h1>
-            <p className="text-sm text-[#2A2035]/50 mt-0.5">{booklets.length} booklet{booklets.length !== 1 ? 's' : ''} across all years and subjects</p>
+            <h1 className="text-2xl font-bold text-[#062E63]">Curriculum{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
+            <p className="text-sm text-[#2A2035]/50 mt-0.5">
+              {booklets.filter(b => SUBJECT_FAMILY[scope].includes(b.subject)).length} {SCOPE_LABEL[scope]} booklets · <a href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">back to hub</a>
+            </p>
           </div>
           <button
             onClick={() => { setAddPrefill({}); setCreating(true) }}
@@ -1012,7 +1052,7 @@ export default function BookletsPage() {
 
         {/* Year tabs */}
         <div className="max-w-7xl mx-auto px-6 md:px-10 flex gap-1 overflow-x-auto pb-0">
-          {YEARS.map(y => (
+          {visibleYears.map(y => (
             <button key={y} onClick={() => setActiveYear(y)}
               className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
                 activeYear === y
@@ -1026,9 +1066,9 @@ export default function BookletsPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6">
-        {/* Subject tabs */}
+        {/* Subject tabs (narrowed to the hub scope when one is active) */}
         <div className="flex gap-2 mb-5 flex-wrap">
-          {getSubjects(activeYear).map(s => (
+          {subjectsFor(activeYear).map(s => (
             <button key={s} onClick={() => setActiveSub(s)}
               className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
                 activeSub === s
@@ -1262,7 +1302,7 @@ export default function BookletsPage() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tutor-facing curriculum view — read-only, scoped to their own classes
 // ─────────────────────────────────────────────────────────────────────────────
-function TutorCurriculumPage({ staff }) {
+function TutorCurriculumPage({ staff, scope = null }) {
   const [classes,       setClasses]       = useState([])  // classes this tutor teaches this term
   const [activeClassId, setActiveClassId] = useState(null)
   const [assignments,   setAssignments]   = useState([])  // class_booklet_assignments rows
@@ -1288,7 +1328,11 @@ function TutorCurriculumPage({ staff }) {
             .order('start_time')
         : { data: null }
 
-      const cls = rows || []
+      // Hub scope: keep only classes whose course belongs to the subject family.
+      const inScope = (list) => scope
+        ? list.filter(c => SUBJECT_FAMILY[scope].includes(subjectFromCourseCode(c.courses?.course_code)))
+        : list
+      const cls = inScope(rows || [])
 
       // If no classes found in current term, fall back to all terms (tutor may
       // be viewing between terms)
@@ -1297,7 +1341,7 @@ function TutorCurriculumPage({ staff }) {
           .ilike('teacher', firstName + '%')
           .order('day_of_week')
           .order('start_time')
-        const all = fallback || []
+        const all = inScope(fallback || [])
         setClasses(all)
         if (all.length) setActiveClassId(all[0].id)
       } else {
@@ -1308,7 +1352,7 @@ function TutorCurriculumPage({ staff }) {
       setLoadingCls(false)
     }
     init()
-  }, [staff])
+  }, [staff, scope])
 
   // ── Load assignments for selected class ────────────────────────────────────
   useEffect(() => {
