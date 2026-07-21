@@ -140,6 +140,7 @@ export default function BookletBuilderEditor() {
         await supabase.from(T_BOOKLET_BUILDS).update({
           title: b.title, year: b.year ? Number(b.year) : null, subject: b.subject, topic: b.topic,
           content: contentVal, blocks: b.blocks,
+          cover: b.cover ?? null,
           syllabus_points: allPoints,
           qbank_topic_ids: Array.isArray(b.qbank_topic_ids) ? b.qbank_topic_ids : null,
           updated_at: new Date().toISOString(),
