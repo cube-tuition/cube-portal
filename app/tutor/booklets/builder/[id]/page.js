@@ -418,6 +418,9 @@ export default function BookletBuilderEditor() {
   // Chemistry uses a fixed module/week naming scheme (e.g. M2W3 → "11.C. M2W3")
   // and only runs in Years 11–12.
   const isChem = bk.subject === 'Chemistry'
+  // English materials have no use for Cartesian planes / box plots etc., so the
+  // Maths object block stays out of their palette.
+  const isEnglish = /english/i.test(bk.subject || '')
   const yearOptions = isChem ? [11, 12] : YEARS
   const chemMatch = /^M(\d*)W(\d*)$/i.exec(bk.title || '')
   const chemModule = chemMatch ? chemMatch[1] : ''
@@ -515,7 +518,7 @@ export default function BookletBuilderEditor() {
             <div key={g}>
               <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">{g}</p>
               <div className="flex flex-col gap-1.5">
-                {BLOCK_TYPES.filter(t => t.group === g).map(t => (
+                {BLOCK_TYPES.filter(t => t.group === g && !(isEnglish && t.type === 'mathobj')).map(t => (
                   <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
                     <span className="mr-1.5">{t.icon}</span>{t.label}
                   </button>
