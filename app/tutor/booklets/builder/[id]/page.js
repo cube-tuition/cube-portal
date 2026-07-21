@@ -322,8 +322,11 @@ export default function BookletBuilderEditor() {
     if (j < 0 || j >= arr.length) return
     ;[arr[i], arr[j]] = [arr[j], arr[i]]; setBlocks(arr)
   }
-  // Drag-to-reorder (only within the same section/group)
+  // Drag-to-reorder (only within the same section/group). Cards only start a
+  // drag from the ⠿ handle — otherwise dragging inside the editor's controls
+  // (the table width slider, text selection in inputs) would drag the card too.
   const dragId = useRef(null)
+  const dragArmed = useRef(false)
   const onDropOn = (targetId) => {
     const arr = [...(bk.blocks || [])]
     const from = arr.findIndex(b => b.id === dragId.current)
@@ -477,7 +480,13 @@ export default function BookletBuilderEditor() {
       id={`blk-${b.id}`}
       ref={b.id === lastAddedId ? lastBlockRef : null}
       draggable
-      onDragStart={() => { dragId.current = b.id }}
+      onDragStart={e => {
+        const armed = dragArmed.current
+        dragArmed.current = false
+        if (!armed) { e.preventDefault(); return }
+        dragId.current = b.id
+      }}
+      onMouseUp={() => { dragArmed.current = false }}
       onDragOver={e => e.preventDefault()}
       onDrop={() => onDropOn(b.id)}
       className={`rounded-xl border p-3.5 transition ${b.type === 'section'
@@ -489,7 +498,8 @@ export default function BookletBuilderEditor() {
         onClick={() => setSelectedBlockId(id => id === b.id ? null : b.id)}
         title="Click to insert new blocks right after this one">
         <div className="flex items-center gap-2">
-          <span className="cursor-grab text-[#2A2035]/30 text-sm" title="Drag to reorder">⠿</span>
+          <span className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 text-sm" title="Drag to reorder"
+            onMouseDown={() => { dragArmed.current = true }}>⠿</span>
           <span className="text-[10px] font-bold tracking-wider uppercase text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2 py-0.5">{BLOCK_TYPES.find(t => t.type === b.type)?.label || b.type}</span>
           {selected && <span className="text-[10px] font-semibold text-[#325099]">↳ new blocks insert here</span>}
         </div>

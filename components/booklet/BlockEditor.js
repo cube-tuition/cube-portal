@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
 import { selectedToSyllabusText, countSelected } from '../../lib/syllabus'
 import { onTextKey, onInlineKey } from '../../lib/textShortcuts'
@@ -576,16 +576,50 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
 function TableEditor({ block, set }) {
   const rows = Array.isArray(block.rows) && block.rows.length ? block.rows : [['', '']]
   const nCols = rows[0]?.length || 0
+  // Per-column widths (% of the table, '' = auto), kept index-aligned with the
+  // columns through every insert/remove below.
+  const colWidths = rows[0]?.map((_, i) => (Array.isArray(block.colWidths) ? block.colWidths[i] : '') ?? '') || []
+  // Effective % per column, mirroring what the renderer's fixed layout does:
+  // set columns keep their %, auto columns share the remainder equally. The
+  // editor grid is sized with these so it previews the real proportions.
+  const setVals = colWidths.map(v => { const n = Number(v); return Number.isFinite(n) && n > 0 && n <= 100 ? n : null })
+  const sumSet = setVals.reduce((s, v) => s + (v || 0), 0)
+  const nAuto = setVals.filter(v => v == null).length
+  const autoShare = nAuto ? Math.max(8, (100 - sumSet) / nAuto) : 0
+  const effPct = setVals.map(v => v ?? autoShare)
+  const effTotal = effPct.reduce((s, v) => s + v, 0)
+  const effScale = effTotal > 100 ? 100 / effTotal : 1
+  // Drag-to-resize a column from the divider above the grid (Excel-style).
+  const tableRef = useRef(null)
+  const resizeRef = useRef(null)
+  const startResize = (ci) => (e) => {
+    e.preventDefault(); e.stopPropagation()
+    resizeRef.current = { ci, startX: e.clientX, startPct: effPct[ci], tw: tableRef.current?.offsetWidth || 600 }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const moveResize = (e) => {
+    const d = resizeRef.current
+    if (!d) return
+    const dPct = ((e.clientX - d.startX) / d.tw) * 100
+    const v = String(Math.round(Math.min(90, Math.max(5, d.startPct + dPct))))
+    if (v !== colWidths[d.ci]) set({ colWidths: colWidths.map((w, i) => i === d.ci ? v : w) })
+  }
+  const endResize = () => { resizeRef.current = null }
+  const resetColWidth = (ci) => set({ colWidths: colWidths.map((w, i) => i === ci ? '' : w) })
   const setCell = (r, c, v) => set({ rows: rows.map((row, ri) => ri === r ? row.map((cell, ci) => ci === c ? v : cell) : row) })
   const addRow = () => set({ rows: [...rows, Array(nCols || 1).fill('')] })
   const removeRow = () => { if (rows.length > 1) set({ rows: rows.slice(0, -1) }) }
   const removeRowAt = (ri) => { if (rows.length > 1) set({ rows: rows.filter((_, i) => i !== ri) }) }
   const insertRowAt = (ri) => set({ rows: [...rows.slice(0, ri), Array(nCols || 1).fill(''), ...rows.slice(ri)] })
-  const addCol = () => set({ rows: rows.map(row => [...row, '']) })
-  const removeCol = () => { if (nCols > 1) set({ rows: rows.map(row => row.slice(0, -1)) }) }
-  const removeColAt = (ci) => { if (nCols > 1) set({ rows: rows.map(row => row.filter((_, i) => i !== ci)) }) }
-  const insertColAt = (ci) => set({ rows: rows.map(row => [...row.slice(0, ci), '', ...row.slice(ci)]) })
+  const addCol = () => set({ rows: rows.map(row => [...row, '']), colWidths: [...colWidths, ''] })
+  const removeCol = () => { if (nCols > 1) set({ rows: rows.map(row => row.slice(0, -1)), colWidths: colWidths.slice(0, -1) }) }
+  const removeColAt = (ci) => { if (nCols > 1) set({ rows: rows.map(row => row.filter((_, i) => i !== ci)), colWidths: colWidths.filter((_, i) => i !== ci) }) }
+  const insertColAt = (ci) => set({ rows: rows.map(row => [...row.slice(0, ci), '', ...row.slice(ci)]), colWidths: [...colWidths.slice(0, ci), '', ...colWidths.slice(ci)] })
   const STEP = 'w-6 h-6 flex items-center justify-center rounded border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none'
+  // Width: empty = full page width (the default every existing table already has).
+  // The slider stores '' at 100 so untouched tables keep rendering exactly as before.
+  const widthPct = (() => { const w = Number(block.width); return Number.isFinite(w) && w >= 25 && w < 100 ? w : 100 })()
+  const ALIGNS = [['left', '⇤', 'Align left'], ['', '↔', 'Centre'], ['right', '⇥', 'Align right']]
   return (
     <div className="space-y-2.5">
       <div className="flex items-center gap-4 flex-wrap">
@@ -604,21 +638,62 @@ function TableEditor({ block, set }) {
           <span className="w-4 text-center font-semibold text-[#2A2035]">{nCols}</span>
           <button type="button" onClick={addCol} className={STEP}>+</button>
         </div>
+        <div className="flex items-center gap-1.5 text-[11px] text-[#2A2035]/50">
+          <span>Width</span>
+          <input
+            type="range" min={25} max={100} step={5} value={widthPct}
+            onChange={e => { const v = Number(e.target.value); set(v >= 100 ? { width: '' } : { width: String(v) }) }}
+            title="Table width as a percentage of the page"
+            className="w-24 accent-[#325099] cursor-pointer"
+          />
+          <span className="w-8 text-center font-semibold text-[#2A2035]">{widthPct === 100 ? 'Full' : `${widthPct}%`}</span>
+        </div>
+        {widthPct < 100 && (
+          <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden">
+            {ALIGNS.map(([v, icon, tip]) => (
+              <button key={v || 'center'} type="button" onClick={() => set({ align: v })} title={tip}
+                className={`w-7 h-6 flex items-center justify-center text-xs leading-none transition ${
+                  (block.align || '') === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'
+                }`}>{icon}</button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="overflow-x-auto">
-        <table className="border-collapse">
+        <table ref={tableRef} className="border-collapse w-full" style={{ tableLayout: 'fixed', minWidth: nCols * 72 + 60 }}>
+          <colgroup>
+            {effPct.map((p, i) => <col key={i} style={{ width: `${p * effScale * 0.9}%` }} />)}
+            <col style={{ width: 60 }} />
+          </colgroup>
           <tbody>
-            {/* Column controls — per column: insert a column to its right, or delete it. */}
+            {/* Column controls — per column: live width label ("auto" = shares
+                leftover space), insert/delete buttons, and a draggable divider
+                on the right edge to resize the column (double-click resets). */}
             <tr>
               {rows[0]?.map((_, ci) => (
-                <td key={ci} className="p-0.5">
-                  <div className="flex items-center justify-center gap-1 opacity-30 hover:opacity-100 transition">
-                    <button type="button" onClick={() => insertColAt(ci + 1)} title="Insert a column to the right of this one"
-                      className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-xs leading-none">＋</button>
-                    {nCols > 1 && (
-                      <button type="button" onClick={() => removeColAt(ci)} title="Delete this column"
-                        className="w-5 h-5 flex items-center justify-center rounded text-rose-400 hover:text-rose-600 hover:bg-rose-50 text-xs leading-none">✕</button>
-                    )}
+                <td key={ci} className="p-0.5 relative">
+                  <div className="flex items-center justify-center gap-1">
+                    <span className={`text-[10px] tabular-nums ${setVals[ci] != null ? 'font-semibold text-[#325099]' : 'text-[#2A2035]/35'}`}
+                      title={setVals[ci] != null ? `This column is set to ${setVals[ci]}% of the table` : 'Automatic — shares the space left over'}>
+                      {setVals[ci] != null ? `${setVals[ci]}%` : 'auto'}
+                    </span>
+                    <div className="flex items-center opacity-30 hover:opacity-100 transition">
+                      <button type="button" onClick={() => insertColAt(ci + 1)} title="Insert a column to the right of this one"
+                        className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-xs leading-none">＋</button>
+                      {nCols > 1 && (
+                        <button type="button" onClick={() => removeColAt(ci)} title="Delete this column"
+                          className="w-5 h-5 flex items-center justify-center rounded text-rose-400 hover:text-rose-600 hover:bg-rose-50 text-xs leading-none">✕</button>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    onPointerDown={startResize(ci)} onPointerMove={moveResize}
+                    onPointerUp={endResize} onPointerCancel={endResize}
+                    onDoubleClick={() => resetColWidth(ci)}
+                    title="Drag to resize this column · double-click to reset to auto"
+                    className="absolute top-0 -bottom-1 -right-[5px] w-2.5 cursor-col-resize touch-none flex justify-center group/rz"
+                  >
+                    <div className="w-[3px] h-full rounded pointer-events-none bg-[#C7D5F8] group-hover/rz:bg-[#325099] transition" />
                   </div>
                 </td>
               ))}
@@ -634,7 +709,7 @@ function TableEditor({ block, set }) {
                       onKeyDown={e => onInlineKey(e, cell, v => setCell(ri, ci, v))}
                       rows={1}
                       placeholder={block.headerRow && ri === 0 ? 'Header' : ''}
-                      className={`w-28 align-middle border border-[#DEE7FF] rounded px-2 py-1 text-xs text-center resize-y focus:outline-none focus:border-[#325099] ${block.headerRow && ri === 0 ? 'bg-[#EEF1F5] font-semibold' : 'bg-white'}`}
+                      className={`w-full min-w-0 align-middle border border-[#DEE7FF] rounded px-2 py-1 text-xs text-center resize-y focus:outline-none focus:border-[#325099] ${block.headerRow && ri === 0 ? 'bg-[#EEF1F5] font-semibold' : 'bg-white'}`}
                     />
                   </td>
                 ))}
@@ -655,7 +730,10 @@ function TableEditor({ block, set }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells.</p>
+      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells. Drag the blue dividers to resize columns — double-click one to set its column back to auto.</p>
+      {sumSet > 100 && (
+        <p className="text-[10px] font-semibold text-amber-600">⚠ Column widths add up to {Math.round(sumSet)}% — they&apos;ll be squeezed to fit. Keep the total at 100% or less.</p>
+      )}
     </div>
   )
 }
