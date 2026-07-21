@@ -445,12 +445,30 @@ export default function BookletBuilderEditor() {
     }))
     .filter(s => s.lines.length)
 
+  // Double-click anywhere on the live preview → jump to the corresponding
+  // block card (switching to its page tab first if needed) and select it.
+  const onPreviewDblClick = (e) => {
+    const el = e.target?.closest?.('[data-bid]')
+    if (!el) return
+    const bid = el.getAttribute('data-bid')
+    const blk = (bk?.blocks || []).find(x => x.id === bid)
+    if (!blk) return
+    const sec = sectionOf(blk)
+    if (!isExamStyle && activeSection !== sec) setActiveSection(sec)
+    setSelectedBlockId(bid)
+    // Give a tab switch a beat to render the card before scrolling to it.
+    setTimeout(() => {
+      document.getElementById(`blk-${bid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
+  }
+
   // One block card (drag handle, type badge, move/delete, editor). `list` is the
   // group the block belongs to so up/down can disable at the group's ends.
   const renderBlockCard = (b, list, i) => {
     const selected = selectedBlockId === b.id
     return (
     <div key={b.id}
+      id={`blk-${b.id}`}
       ref={b.id === lastAddedId ? lastBlockRef : null}
       draggable
       onDragStart={() => { dragId.current = b.id }}
@@ -458,6 +476,8 @@ export default function BookletBuilderEditor() {
       onDrop={() => onDropOn(b.id)}
       className={`rounded-xl border p-3.5 transition ${b.type === 'section'
         ? `bg-[#DCE7FB] ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#9FB7E8]'}`
+        : b.type === 'subtopic'
+        ? `bg-[#EDE7FB] ${selected ? 'border-[#6D4FA3] ring-2 ring-[#6D4FA3]/20' : 'border-[#C9B8E8]'}`
         : `bg-white ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}`}>
       <div className="flex items-center justify-between mb-2.5 cursor-pointer"
         onClick={() => setSelectedBlockId(id => id === b.id ? null : b.id)}
@@ -802,7 +822,9 @@ export default function BookletBuilderEditor() {
                 <button onClick={() => setSolnView(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
               </div>
             </div>
-            <div className="bg-[#E9EDF6] rounded-xl p-4 overflow-auto max-h-[calc(100vh-160px)]">
+            <div className="bg-[#E9EDF6] rounded-xl p-4 overflow-auto max-h-[calc(100vh-160px)]"
+              onDoubleClick={onPreviewDblClick}
+              title="Double-click any part of the preview to jump to its block">
               <BookletPreview meta={meta} blocks={bk.blocks} solutions={solnView} />
             </div>
           </div>
