@@ -418,12 +418,11 @@ export default function BookletBuilderEditor() {
   // Chemistry uses a fixed module/week naming scheme (e.g. M2W3 → "11.C. M2W3")
   // and only runs in Years 11–12.
   const isChem = bk.subject === 'Chemistry'
-  // English materials have no use for Cartesian planes / box plots etc., and
-  // Maths ones none for reading-comprehension stimulus texts — each subject's
-  // palette hides the block that isn't for it.
+  // Subject-aware palette: the Maths object block is Maths-only, and the
+  // reading-comprehension stimulus block is English-only.
   const isEnglish = /english/i.test(bk.subject || '')
   const isMathsSubj = /maths/i.test(bk.subject || '')
-  const paletteHides = (t) => (isEnglish && t.type === 'mathobj') || (isMathsSubj && t.type === 'stimulus')
+  const paletteHides = (t) => (t.type === 'mathobj' && !isMathsSubj) || (t.type === 'stimulus' && !isEnglish)
   const yearOptions = isChem ? [11, 12] : YEARS
   const chemMatch = /^M(\d*)W(\d*)$/i.exec(bk.title || '')
   const chemModule = chemMatch ? chemMatch[1] : ''
