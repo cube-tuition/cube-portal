@@ -608,13 +608,12 @@ function TableEditor({ block, set }) {
       <div className="overflow-x-auto">
         <table className="border-collapse">
           <tbody>
-            {/* Column controls — per column: insert a column to its left, or delete it.
-                (The Columns + stepper still appends at the right.) */}
+            {/* Column controls — per column: insert a column to its right, or delete it. */}
             <tr>
               {rows[0]?.map((_, ci) => (
                 <td key={ci} className="p-0.5">
                   <div className="flex items-center justify-center gap-1 opacity-30 hover:opacity-100 transition">
-                    <button type="button" onClick={() => insertColAt(ci)} title="Insert a column to the left of this one"
+                    <button type="button" onClick={() => insertColAt(ci + 1)} title="Insert a column to the right of this one"
                       className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-xs leading-none">＋</button>
                     {nCols > 1 && (
                       <button type="button" onClick={() => removeColAt(ci)} title="Delete this column"
@@ -639,12 +638,11 @@ function TableEditor({ block, set }) {
                     />
                   </td>
                 ))}
-                {/* Per-row controls — insert a row above this one, or delete it
-                    (the Rows + stepper still appends at the bottom; the last
-                    remaining row can't be removed). */}
+                {/* Per-row controls — insert a row below this one, or delete it
+                    (the last remaining row can't be removed). */}
                 <td className="p-0.5 align-middle">
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                    <button type="button" onClick={() => insertRowAt(ri)} title="Insert a row above this one"
+                    <button type="button" onClick={() => insertRowAt(ri + 1)} title="Insert a row below this one"
                       className="w-6 h-6 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none">＋</button>
                     {rows.length > 1 && (
                       <button type="button" onClick={() => removeRowAt(ri)} title="Delete this row"
