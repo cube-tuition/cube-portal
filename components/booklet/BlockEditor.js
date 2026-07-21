@@ -580,8 +580,11 @@ function TableEditor({ block, set }) {
   const addRow = () => set({ rows: [...rows, Array(nCols || 1).fill('')] })
   const removeRow = () => { if (rows.length > 1) set({ rows: rows.slice(0, -1) }) }
   const removeRowAt = (ri) => { if (rows.length > 1) set({ rows: rows.filter((_, i) => i !== ri) }) }
+  const insertRowAt = (ri) => set({ rows: [...rows.slice(0, ri), Array(nCols || 1).fill(''), ...rows.slice(ri)] })
   const addCol = () => set({ rows: rows.map(row => [...row, '']) })
   const removeCol = () => { if (nCols > 1) set({ rows: rows.map(row => row.slice(0, -1)) }) }
+  const removeColAt = (ci) => { if (nCols > 1) set({ rows: rows.map(row => row.filter((_, i) => i !== ci)) }) }
+  const insertColAt = (ci) => set({ rows: rows.map(row => [...row.slice(0, ci), '', ...row.slice(ci)]) })
   const STEP = 'w-6 h-6 flex items-center justify-center rounded border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none'
   return (
     <div className="space-y-2.5">
@@ -605,6 +608,23 @@ function TableEditor({ block, set }) {
       <div className="overflow-x-auto">
         <table className="border-collapse">
           <tbody>
+            {/* Column controls — per column: insert a column to its left, or delete it.
+                (The Columns + stepper still appends at the right.) */}
+            <tr>
+              {rows[0]?.map((_, ci) => (
+                <td key={ci} className="p-0.5">
+                  <div className="flex items-center justify-center gap-1 opacity-30 hover:opacity-100 transition">
+                    <button type="button" onClick={() => insertColAt(ci)} title="Insert a column to the left of this one"
+                      className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-xs leading-none">＋</button>
+                    {nCols > 1 && (
+                      <button type="button" onClick={() => removeColAt(ci)} title="Delete this column"
+                        className="w-5 h-5 flex items-center justify-center rounded text-rose-400 hover:text-rose-600 hover:bg-rose-50 text-xs leading-none">✕</button>
+                    )}
+                  </div>
+                </td>
+              ))}
+              <td />
+            </tr>
             {rows.map((row, ri) => (
               <tr key={ri} className="group">
                 {row.map((cell, ci) => (
@@ -619,14 +639,18 @@ function TableEditor({ block, set }) {
                     />
                   </td>
                 ))}
-                {/* Per-row delete — visible on hover; the last remaining row can't be removed. */}
+                {/* Per-row controls — insert a row above this one, or delete it
+                    (the Rows + stepper still appends at the bottom; the last
+                    remaining row can't be removed). */}
                 <td className="p-0.5 align-middle">
-                  {rows.length > 1 && (
-                    <button type="button" onClick={() => removeRowAt(ri)} title="Delete this row"
-                      className="w-6 h-6 flex items-center justify-center rounded text-rose-300 hover:text-rose-600 hover:bg-rose-50 text-sm leading-none opacity-0 group-hover:opacity-100 transition">
-                      ✕
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                    <button type="button" onClick={() => insertRowAt(ri)} title="Insert a row above this one"
+                      className="w-6 h-6 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none">＋</button>
+                    {rows.length > 1 && (
+                      <button type="button" onClick={() => removeRowAt(ri)} title="Delete this row"
+                        className="w-6 h-6 flex items-center justify-center rounded text-rose-300 hover:text-rose-600 hover:bg-rose-50 text-sm leading-none">✕</button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
