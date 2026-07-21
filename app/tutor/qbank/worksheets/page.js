@@ -56,7 +56,7 @@ function AdditionalQuestionsInner() {
 
   // Autosave plumbing — refs hold the latest editable snapshot + in-flight state
   // so debounced saves never race or persist stale data.
-  const dataRef = useRef({ selectedId: null, title: '', subtitle: '', tray: [] })
+  const dataRef = useRef({ selectedId: null, title: '', subtitle: '', tray: [], includeMarks: true })
   const savingRef = useRef(false)
   const pendingRef = useRef(false)
   const dirtyRef = useRef(false)
@@ -95,7 +95,7 @@ function AdditionalQuestionsInner() {
           .select('*').single()
           .then(({ data, error }) => {
             if (error || !data) return
-            setSelectedId(data.id); setTitle(data.title || ''); setSubtitle(''); setTray([]); setDirty(false)
+            setSelectedId(data.id); setTitle(data.title || ''); setSubtitle(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
             loadWorksheets()
             router.replace('/tutor/qbank/worksheets')   // drop ?new=1 so refresh doesn't create another
           })
@@ -107,7 +107,7 @@ function AdditionalQuestionsInner() {
   const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
 
   // Keep refs in sync so the autosave loop always reads the latest values.
-  useEffect(() => { dataRef.current = { selectedId, title, subtitle, tray } }, [selectedId, title, subtitle, tray])
+  useEffect(() => { dataRef.current = { selectedId, title, subtitle, tray, includeMarks } }, [selectedId, title, subtitle, tray, includeMarks])
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   // Low-level write for a given snapshot.
@@ -117,6 +117,7 @@ function AdditionalQuestionsInner() {
       title: (snap.title || '').trim() || 'Untitled worksheet',
       subtitle: (snap.subtitle || '').trim() || null,
       question_ids: (snap.tray || []).map((q) => q.id),
+      include_marks: snap.includeMarks ?? true,
       updated_at: new Date().toISOString(),
     }).eq('id', snap.selectedId)
     if (error) throw error
@@ -137,6 +138,7 @@ function AdditionalQuestionsInner() {
     setSubtitle(ws.subtitle || '')
     const ids = Array.isArray(ws.question_ids) ? ws.question_ids : []
     setTray(ids.map((id) => qById[id]).filter(Boolean))
+    setIncludeMarks(ws.include_marks ?? true)
     setDirty(false)
   }
 
@@ -177,7 +179,7 @@ function AdditionalQuestionsInner() {
     if (!selectedId || !dirty) return
     const t = setTimeout(() => { saveWorksheet() }, 1000)
     return () => clearTimeout(t)
-  }, [dirty, title, subtitle, tray, selectedId, saveWorksheet])
+  }, [dirty, title, subtitle, tray, includeMarks, selectedId, saveWorksheet])
 
   // Best-effort flush when the page unmounts with unsaved edits.
   useEffect(() => () => { if (dirtyRef.current) saveWorksheet() }, [saveWorksheet])
@@ -430,7 +432,7 @@ function AdditionalQuestionsInner() {
                 className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099]" />
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] cursor-pointer">
-                  <input type="checkbox" checked={includeMarks} onChange={(e) => setIncludeMarks(e.target.checked)} /> Show marks
+                  <input type="checkbox" checked={includeMarks} onChange={(e) => { setIncludeMarks(e.target.checked); setDirty(true) }} /> Show marks
                 </label>
                 <span className="text-xs text-[#2A2035]/50">{tray.length} question{tray.length === 1 ? '' : 's'}{includeMarks && totalMarks > 0 ? ` · ${totalMarks} marks` : ''}</span>
               </div>
