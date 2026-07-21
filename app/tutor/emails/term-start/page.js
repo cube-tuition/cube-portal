@@ -113,9 +113,10 @@ function segmentBlock(block) {
 
 function fillTemplatePreview(template, family, termName, termDates, termStart) {
   const unique       = family.students.filter((s, i, a) => a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i)
-  const firstNames   = unique.map(s => s.student_name.split(' ')[0])
-  const count        = firstNames.length
-  const studentNames = count === 1 ? firstNames[0] : firstNames.slice(0, -1).join(', ') + ' and ' + firstNames.slice(-1)
+  // Dedupe first names — a student in two classes is one child (matches the send route).
+  const firstNames   = [...new Set(unique.map(s => s.student_name.split(' ')[0]))]
+  const count        = unique.length
+  const studentNames = firstNames.length === 1 ? firstNames[0] : firstNames.slice(0, -1).join(', ') + ' and ' + firstNames.slice(-1)
   const classDetails = buildClassDetails(family.students)
 
   return template

@@ -218,9 +218,12 @@ export async function POST(request) {
       const uniqueStudents = family.students.filter((s, i, a) =>
         a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i
       )
-      const firstNames   = uniqueStudents.map(s => s.student_name.split(' ')[0])
-      const count        = firstNames.length
-      const studentNames = count === 1
+      // Dedupe first names — a student enrolled in two classes is one child, so
+      // "Kadence and Kadence" must not happen. `count` stays the enrolment-row
+      // count, which drives {{plural}} (two classes → "lessons").
+      const firstNames   = [...new Set(uniqueStudents.map(s => s.student_name.split(' ')[0]))]
+      const count        = uniqueStudents.length
+      const studentNames = firstNames.length === 1
         ? firstNames[0]
         : firstNames.slice(0, -1).join(', ') + ' and ' + firstNames.slice(-1)
 
