@@ -156,7 +156,7 @@ export default function TextsStimuliPage() {
       <div className="max-w-4xl mx-auto px-6 pt-8 pb-16">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Texts / Stimuli — English</h1>
+            <h1 className="text-2xl font-bold text-[#062E63]">Text — English</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
               Reusable passages for reading comprehension — paste one into a workbook’s Stimulus block.
               {' · '}<Link href="/tutor/resources/english" className="text-[#325099] hover:underline">back to hub</Link>
