@@ -356,7 +356,9 @@ export default function ClassOverviewPage() {
 
       {/* WEEK TABS */}
       <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
-        <div className="flex items-center gap-1 mb-6 overflow-x-auto -mx-1 px-1">
+        {/* All tabs share the row (flex-1) with the date stacked under the
+            label, so the whole term fits without horizontal scrolling. */}
+        <div className="flex items-stretch gap-1.5 mb-6">
           {weekDates.length === 0 ? (
             <p className="text-sm text-[#2A2035]/50">Class day_of_week missing &mdash; can&rsquo;t compute weekly sessions.</p>
           ) : (
@@ -377,7 +379,7 @@ export default function ClassOverviewPage() {
                   <button
                     key={week}
                     onClick={() => setTab(week)}
-                    className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition ${
+                    className={`${isHoliday ? 'flex-none px-3' : 'flex-1 min-w-0 px-1'} py-1.5 rounded-full border transition flex flex-col items-center justify-center leading-tight ${
                       allCancelled
                         ? active
                           ? 'bg-[#991B1B] text-white border-[#991B1B]'
@@ -391,12 +393,14 @@ export default function ClassOverviewPage() {
                           : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'
                     }`}
                   >
-                    {isHoliday ? '🏖 Holidays' : `Wk ${week}`}
-                    {allCancelled && <span className="ml-1 text-[9px] font-bold tracking-wide opacity-80">✕</span>}
-                    {!allCancelled && hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" title="Sub assigned" />}
-                    {!allCancelled && hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
+                    <span className="text-sm font-semibold whitespace-nowrap max-w-full truncate">
+                      {isHoliday ? '🏖 Holidays' : `Wk ${week}`}
+                      {allCancelled && <span className="ml-1 text-[9px] font-bold tracking-wide opacity-80">✕</span>}
+                      {!allCancelled && hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" title="Sub assigned" />}
+                      {!allCancelled && hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
+                    </span>
                     {primaryDate && (
-                      <span className={`ml-2 text-[10px] font-medium ${active ? 'text-white/70' : 'text-[#2A2035]/40'}`}>
+                      <span className={`text-[10px] font-medium whitespace-nowrap max-w-full truncate hidden lg:block ${active ? 'text-white/70' : 'text-[#2A2035]/40'}`}>
                         {fmtDate(primaryDate)}
                       </span>
                     )}
@@ -406,25 +410,25 @@ export default function ClassOverviewPage() {
               {/* Pre/Post test tab */}
               <button
                 onClick={() => setTab('prepost')}
-                className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition ml-2 ${
+                className={`flex-none px-3 py-1.5 rounded-full text-sm font-semibold border transition ml-2 flex items-center justify-center ${
                   tab === 'prepost'
                     ? 'bg-[#325099] text-white border-[#325099]'
                     : 'bg-white text-[#325099] border-[#DEE7FF] hover:bg-[#F8FAFF]'
                 }`}
               >
-                📊 Pre/Post
+                <span className="whitespace-nowrap max-w-full truncate">📊 Pre/Post</span>
               </button>
               {/* Exams tab — group classes only */}
               {!/1.?:?.?1/i.test(cls?.class_name || '') && (
                 <button
                   onClick={() => setTab('exams')}
-                  className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition ml-1 ${
+                  className={`flex-none px-3 py-1.5 rounded-full text-sm font-semibold border transition flex items-center justify-center ${
                     tab === 'exams'
                       ? 'bg-[#062E63] text-white border-[#062E63]'
                       : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'
                   }`}
                 >
-                  🎯 Exams
+                  <span className="whitespace-nowrap max-w-full truncate">🎯 Exams</span>
                 </button>
               )}
             </>
