@@ -708,6 +708,43 @@ function TableEditor({ block, set }) {
   const removeCol = () => { if (nCols > 1) set({ rows: rows.map(row => row.slice(0, -1)), colWidths: colWidths.slice(0, -1) }) }
   const removeColAt = (ci) => { if (nCols > 1) set({ rows: rows.map(row => row.filter((_, i) => i !== ci)), colWidths: colWidths.filter((_, i) => i !== ci) }) }
   const insertColAt = (ci) => set({ rows: rows.map(row => [...row.slice(0, ci), '', ...row.slice(ci)]), colWidths: [...colWidths.slice(0, ci), '', ...colWidths.slice(ci)] })
+
+  // Paste a whole table: spreadsheet/Word clipboards carry TSV (tabs between
+  // cells, newlines between rows) and often an HTML <table> copy. Pasting into
+  // a cell fills the grid from that cell, growing rows/columns (and their
+  // width slots) as needed. A plain single-value paste is left to the browser.
+  const parseClipboardGrid = (e) => {
+    const html = e.clipboardData?.getData('text/html') || ''
+    if (/<t(able|r)[\s>]/i.test(html)) {
+      try {
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+        const cells = [...doc.querySelectorAll('tr')].map(tr => [...tr.querySelectorAll('td,th')].map(td => td.textContent.trim()))
+        if (cells.length && cells.some(r => r.length)) return cells
+      } catch { /* fall through to TSV */ }
+    }
+    const text = (e.clipboardData?.getData('text/plain') || '').replace(/\r/g, '')
+    if (!text.includes('\t') && !text.includes('\n')) return null
+    const lines = text.split('\n')
+    if (lines.length && lines[lines.length - 1] === '') lines.pop()
+    const cells = lines.map(l => l.split('\t'))
+    return cells.length ? cells : null
+  }
+  const handleCellPaste = (ri, ci, e) => {
+    const cells = parseClipboardGrid(e)
+    if (!cells) return
+    e.preventDefault()
+    const needRows = ri + cells.length
+    const needCols = ci + Math.max(1, ...cells.map(r => r.length))
+    let next = rows.map(r => [...r])
+    while (next.length < needRows) next.push(Array(next[0]?.length || 1).fill(''))
+    next = next.map(r => r.length < needCols ? [...r, ...Array(needCols - r.length).fill('')] : r)
+    for (let i = 0; i < cells.length; i++) {
+      for (let j = 0; j < cells[i].length; j++) next[ri + i][ci + j] = cells[i][j]
+    }
+    const patch = { rows: next }
+    if (needCols > colWidths.length) patch.colWidths = [...colWidths, ...Array(needCols - colWidths.length).fill('')]
+    set(patch)
+  }
   const STEP = 'w-6 h-6 flex items-center justify-center rounded border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none'
   // Width: empty = full page width (the default every existing table already has).
   // The slider stores '' at 100 so untouched tables keep rendering exactly as before.
@@ -800,6 +837,7 @@ function TableEditor({ block, set }) {
                       value={cell}
                       onChange={e => setCell(ri, ci, e.target.value)}
                       onKeyDown={e => onInlineKey(e, cell, v => setCell(ri, ci, v))}
+                      onPaste={e => handleCellPaste(ri, ci, e)}
                       rows={1}
                       placeholder={block.headerRow && ri === 0 ? 'Header' : ''}
                       className={`w-full min-w-0 align-middle border border-[#DEE7FF] rounded px-2 py-1 text-xs text-center resize-y focus:outline-none focus:border-[#325099] ${block.headerRow && ri === 0 ? 'bg-[#EEF1F5] font-semibold' : 'bg-white'}`}
@@ -823,7 +861,7 @@ function TableEditor({ block, set }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells. Drag the blue dividers to resize columns — double-click one to set its column back to auto.</p>
+      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells. Drag the blue dividers to resize columns — double-click one to set its column back to auto. Paste a copied table (Sheets, Excel, Word…) into any cell to fill the grid from there.</p>
       {sumSet > 100 && (
         <p className="text-[10px] font-semibold text-amber-600">⚠ Column widths add up to {Math.round(sumSet)}% — they&apos;ll be squeezed to fit. Keep the total at 100% or less.</p>
       )}
