@@ -328,29 +328,32 @@ function MathObjFields({ obj, upd }) {
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
 const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
-function MathObjSection({ block, set, blank = true, maths = true, hideAdd = false }) {
+function MathObjSection({ block, set, blank = true, maths = true, hideAdd = false, objKey = 'mathObj', name = 'maths object' }) {
+  const obj = block[objKey]
+  const cap = name.charAt(0).toUpperCase() + name.slice(1)
   return (
     <>
       {/* Maths objects (Cartesian planes, box plots…) are Maths-only. A block
           that already has one still shows its editor below so it can be edited
           or removed regardless of subject. `hideAdd` suppresses this section's
           own "Add" button when the caller places one elsewhere (e.g. inline
-          next to the image upload on a question). */}
+          next to the image upload on a question). `objKey` lets a caller attach
+          the object to a different field (e.g. a part's solution object). */}
       <div className="flex items-center gap-4">
-        {maths && !hideAdd && !block.mathObj && (
-          <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add maths object</button>
+        {maths && !hideAdd && !obj && (
+          <button onClick={() => set({ [objKey]: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add {name}</button>
         )}
         {blank && block.blankSpace == null && (
           <button onClick={() => set({ blankSpace: '4' })} className="text-[11px] font-semibold text-[#325099] hover:underline" title="Empty room inside the box (e.g. for working)">＋ Add blank space</button>
         )}
       </div>
-      {block.mathObj && (
+      {obj && (
         <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#325099]">Maths object</span>
-            <button onClick={() => set({ mathObj: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+            <span className="text-[11px] font-bold text-[#325099]">{cap}</span>
+            <button onClick={() => set({ [objKey]: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
           </div>
-          <MathObjFields obj={block.mathObj} upd={patch => set({ mathObj: { ...block.mathObj, ...patch } })} />
+          <MathObjFields obj={obj} upd={patch => set({ [objKey]: { ...obj, ...patch } })} />
         </div>
       )}
       {blank && block.blankSpace != null && (
@@ -908,6 +911,11 @@ function PartsEditor({ parts, onChange, maths = true }) {
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
             <div className="mt-1.5"><MathObjSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} blank={false} maths={maths} /></div>
             <textarea className={TA + ' mt-1.5'} value={p.solution || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, solution: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.solution || '', v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x)))} placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
+            {/* Solution media (Solutions copy): a diagram/image and/or a maths object. */}
+            <div className="mt-1.5 space-y-1.5">
+              <ImageField label="Solution diagram / image (Solutions copy)" value={p.solutionImage || ''} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, solutionImage: v } : x))} />
+              <MathObjSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} blank={false} maths={maths} objKey="solutionMathObj" name="solution object" />
+            </div>
             <div className="mt-1.5"><AnswerSpace holder={p} patch={obj => onChange(parts.map((x, j) => j === i ? { ...x, ...obj } : x))} maths={maths} /></div>
           </div>
         ))}
