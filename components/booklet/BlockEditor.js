@@ -328,14 +328,16 @@ function MathObjFields({ obj, upd }) {
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
 const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
-function MathObjSection({ block, set, blank = true, maths = true }) {
+function MathObjSection({ block, set, blank = true, maths = true, hideAdd = false }) {
   return (
     <>
+      {/* Maths objects (Cartesian planes, box plots…) are Maths-only. A block
+          that already has one still shows its editor below so it can be edited
+          or removed regardless of subject. `hideAdd` suppresses this section's
+          own "Add" button when the caller places one elsewhere (e.g. inline
+          next to the image upload on a question). */}
       <div className="flex items-center gap-4">
-        {/* Maths objects (Cartesian planes, box plots…) are Maths-only. A block
-            that already has one still shows its editor below so it can be edited
-            or removed regardless of subject. */}
-        {maths && !block.mathObj && (
+        {maths && !hideAdd && !block.mathObj && (
           <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add maths object</button>
         )}
         {blank && block.blankSpace == null && (
@@ -586,11 +588,19 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
         <div className="space-y-2.5">
           <div><label className={L}>Question prompt</label><textarea className={TA} value={block.prompt} onChange={e => set({ prompt: e.target.value })} onKeyDown={e => onTextKey(e, block.prompt, v => set({ prompt: v }))} placeholder="Find the area of the following:" /></div>
           <div className="grid grid-cols-[1fr_90px] gap-2 items-end">
-            <ImageField value={block.image} onChange={v => set({ image: v })} />
+            <div className="flex items-end gap-3">
+              <ImageField value={block.image} onChange={v => set({ image: v })} />
+              {isMaths && !block.mathObj && (
+                <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })}
+                  className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 cursor-pointer hover:bg-[#F0F4FF] whitespace-nowrap">
+                  ＋ Add maths object
+                </button>
+              )}
+            </div>
             <div><label className={L}>Marks</label><input className={I} value={block.marks} onChange={e => set({ marks: e.target.value })} placeholder="" /></div>
           </div>
           <ImageLayoutFields block={block} set={set} />
-          <MathObjSection block={block} set={set} blank={false} maths={isMaths} />
+          <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
           <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} maths={isMaths} />
           {/* The question-level solution only applies to single questions; with
               parts, each part carries its own solution. */}
@@ -607,8 +617,16 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Question</label><textarea className={TA} value={block.prompt} onChange={e => set({ prompt: e.target.value })} onKeyDown={e => onTextKey(e, block.prompt, v => set({ prompt: v }))} /></div>
-          <ImageField value={block.image} onChange={v => set({ image: v })} />
-          <MathObjSection block={block} set={set} blank={false} maths={isMaths} />
+          <div className="flex items-end gap-3">
+            <ImageField value={block.image} onChange={v => set({ image: v })} />
+            {isMaths && !block.mathObj && (
+              <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })}
+                className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 cursor-pointer hover:bg-[#F0F4FF] whitespace-nowrap">
+                ＋ Add maths object
+              </button>
+            )}
+          </div>
+          <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
           <div>
             <label className={L}>Options</label>
             <div className="space-y-1.5">
