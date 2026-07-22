@@ -192,6 +192,7 @@ export default function BookletBuilderEditor() {
           mp = newPage(); countOnPage = 0
           continue
         }
+        if (b.type === 'stimulus') qn = 0   // each stimulus restarts question numbering
         if (b.type === 'question' || b.type === 'mcq') qn++
         const ctx = { solutions: solnView, qNum: qn, hideSectionSyllabus: /maths/i.test(bk?.subject || '') && !isExamStyle, hideMarks: /maths/i.test(bk?.subject || '') && !isExamStyle }
         const tmp = document.createElement('div')
