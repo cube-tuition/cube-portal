@@ -329,6 +329,8 @@ export default function BookletBuilderEditor() {
   // (the table width slider, text selection in inputs) would drag the card too.
   const dragId = useRef(null)
   const dragArmed = useRef(false)
+  // Scroll container of the live preview (for card → preview double-click jumps).
+  const previewScrollRef = useRef(null)
   const onDropOn = (targetId) => {
     const arr = [...(bk.blocks || [])]
     const from = arr.findIndex(b => b.id === dragId.current)
@@ -465,6 +467,28 @@ export default function BookletBuilderEditor() {
     }))
     .filter(s => s.lines.length)
 
+  // Double-click a block card → scroll the live preview to that block's
+  // rendered element (the mirror of onPreviewDblClick below). Scrolls only the
+  // preview pane — not the window — and pulses the block so the eye lands on it.
+  const onCardDblClick = (e, bid) => {
+    // Leave double-clicks inside form controls alone (word-select while editing).
+    if (e.target.closest('textarea, input, select, button, [contenteditable="true"]')) return
+    const host = previewScrollRef.current
+    const target = host?.querySelector(`[data-bid="${CSS.escape(bid)}"]`)
+    if (!target) return
+    setSelectedBlockId(bid)
+    const hostRect = host.getBoundingClientRect()
+    const tRect = target.getBoundingClientRect()
+    host.scrollTo({
+      top: host.scrollTop + (tRect.top - hostRect.top) - Math.max(0, (host.clientHeight - tRect.height) / 2),
+      behavior: 'smooth',
+    })
+    target.animate?.(
+      [{ boxShadow: '0 0 0 3px rgba(50,80,153,.55)' }, { boxShadow: '0 0 0 3px rgba(50,80,153,0)' }],
+      { duration: 1200, easing: 'ease-out' },
+    )
+  }
+
   // Double-click anywhere on the live preview → jump to the corresponding
   // block card (switching to its page tab first if needed) and select it.
   const onPreviewDblClick = (e) => {
@@ -500,6 +524,7 @@ export default function BookletBuilderEditor() {
       onMouseUp={() => { dragArmed.current = false }}
       onDragOver={e => e.preventDefault()}
       onDrop={() => onDropOn(b.id)}
+      onDoubleClick={e => onCardDblClick(e, b.id)}
       className={`rounded-xl border p-3.5 transition ${b.type === 'section'
         ? `bg-[#DCE7FB] ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#9FB7E8]'}`
         : b.type === 'subtopic'
@@ -858,7 +883,7 @@ export default function BookletBuilderEditor() {
                 <button onClick={() => setSolnView(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
               </div>
             </div>
-            <div className="bg-[#E9EDF6] rounded-xl p-4 overflow-auto max-h-[calc(100vh-160px)]"
+            <div ref={previewScrollRef} className="bg-[#E9EDF6] rounded-xl p-4 overflow-auto max-h-[calc(100vh-160px)]"
               onDoubleClick={onPreviewDblClick}
               title="Double-click any part of the preview to jump to its block">
               <BookletPreview meta={meta} blocks={bk.blocks} solutions={solnView} />
