@@ -528,6 +528,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
     case 'steps':
       return (
         <div className="space-y-2.5">
+          <div><label className={L}>Title (optional — shown above the steps)</label><input className={I} value={block.heading || ''} onChange={e => set({ heading: e.target.value })} onKeyDown={e => onInlineKey(e, block.heading || '', v => set({ heading: v }))} placeholder="e.g. Solving a two-step equation" /></div>
           <div><label className={L}>Steps — one per line (auto-numbered)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Read the question carefully\nIdentify what is being asked\nChoose the correct formula\nSubstitute and solve'} /></div>
           <MathObjSection block={block} set={set} />
         </div>
