@@ -61,7 +61,7 @@ const AREAS = (subjectValue) => [
     desc: 'Saved worksheets assembled from the question bank.' },
   // English keeps a library of reusable reading passages for comprehension work.
   ...(subjectValue === 'English' ? [
-    { label: 'Text', icon: '❝', href: '/tutor/resources/texts',
+    { label: 'Texts / Stimuli', icon: '❝', href: '/tutor/resources/texts',
       desc: 'Reusable passages — poems, extracts, articles — ready to drop into a workbook’s Stimulus block.' },
   ] : []),
 ]

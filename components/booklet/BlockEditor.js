@@ -132,7 +132,7 @@ function StimulusLibraryPicker({ onPick, current }) {
     <div className="rounded-lg border border-[#DEE7FF] bg-[#FBFCFF]">
       <div className="flex items-center">
         <button type="button" onClick={toggle} className="flex-1 flex items-center justify-between px-3 py-2">
-          <span className="text-[11px] font-semibold text-[#325099]">❝ From the Text library</span>
+          <span className="text-[11px] font-semibold text-[#325099]">❝ From the Texts/Stimuli library</span>
           <span className="text-[10px] text-[#325099]/60">{open ? '▲ hide' : '▼ browse'}</span>
         </button>
         <button type="button" onClick={saveToLibrary} disabled={saveState === 'saving'}
@@ -152,7 +152,7 @@ function StimulusLibraryPicker({ onPick, current }) {
               <p className="text-[11px] text-[#2A2035]/40 py-3 text-center animate-pulse">Loading…</p>
             ) : shown.length === 0 ? (
               <p className="text-[11px] text-[#2A2035]/40 py-3 text-center italic">
-                {texts.length === 0 ? <>No texts in the library yet — add some on the <Link href="/tutor/resources/texts" className="underline">Text</Link> page.</> : 'No texts match.'}
+                {texts.length === 0 ? <>No texts in the library yet — add some on the <Link href="/tutor/resources/texts" className="underline">Texts/Stimuli</Link> page.</> : 'No texts match.'}
               </p>
             ) : shown.map(t => (
               <button key={t.id} type="button"
@@ -569,7 +569,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
             <div><label className={L}>Source / author (optional)</label><input className={I} value={block.source || ''} onChange={e => set({ source: e.target.value })} placeholder="e.g. Langston Hughes, 1922" /></div>
           </div>
           <div>
-            <label className={L}>Text — paste the poem/extract as-is. Line breaks are kept exactly; a blank line makes a stanza/paragraph gap (⌘/Ctrl-B bold works)</label>
+            <label className={L}>Text</label>
             <textarea className={TA} rows={10} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Well, son, I’ll tell you:\nLife for me ain’t been no crystal stair.\n…'} />
           </div>
           <ImageField value={block.image} onChange={v => set({ image: v })} />
