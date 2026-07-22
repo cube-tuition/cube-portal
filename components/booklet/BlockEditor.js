@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useRef } from 'react'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
 import { selectedToSyllabusText, countSelected } from '../../lib/syllabus'
@@ -24,7 +25,7 @@ function SectionSyllabusPicker({ modules = [], block, onChange }) {
   const count = countSelected(modules, sset)
 
   if (!modules.length) {
-    return <p className="text-[11px] text-[#2A2035]/45">No master syllabus for this year yet — add it on the <a href="/tutor/resources/syllabus" className="underline">Syllabus</a> page.</p>
+    return <p className="text-[11px] text-[#2A2035]/45">No master syllabus for this year yet — add it on the <Link href="/tutor/resources/syllabus?subject=Chemistry" className="underline">Syllabus</Link> page.</p>
   }
   const cb = 'mt-0.5 shrink-0 accent-[#325099]'
   return (

@@ -1,6 +1,7 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import {
@@ -10,6 +11,7 @@ import {
   fetchSyllabus, fetchSyllabusSubjects, fetchDotpointCoverage,
   addModule, addTopic, addDotpoint, renameRow, deleteRow, moveRow,
 } from '../../../../lib/syllabus'
+import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 
 /*
  * Syllabus — the master syllabus dotpoint list (Chemistry for now). Each
@@ -17,7 +19,22 @@ import {
  * Content tab (no manual ticking). Booklets draw from this list.
  */
 export default function SyllabusPointsPage() {
+  return <Suspense><SyllabusPointsInner /></Suspense>
+}
+
+function SyllabusPointsInner() {
   const router = useRouter()
+  // Subject-hub scope (?subject=Maths|English|Chemistry): the subject/year
+  // picker and list narrow to that family. Absent → unchanged behaviour.
+  const searchParams = useSearchParams()
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
+
+  // The unscoped syllabus page was retired in favour of the subject hubs —
+  // old bookmarks land on the Mathematics hub.
+  useEffect(() => {
+    if (!scope) router.replace('/tutor/resources/maths')
+  }, [scope, router])
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
   const [subjects, setSubjects] = useState([])
@@ -39,11 +56,17 @@ export default function SyllabusPointsPage() {
     getAuthProfile().then(async ({ profile, role }) => {
       if (!profile || !['tutor', 'admin', 'director'].includes(role)) { router.replace('/tutor'); return }
       setProfile(profile); setReady(true)
-      const subs = await fetchSyllabusSubjects()
+      const all = await fetchSyllabusSubjects()
+      const subs = scope ? all.filter((x) => SUBJECT_FAMILIES[scope].includes(x.subject)) : all
       setSubjects(subs)
-      setSel(subs[0] || { subject: 'Chemistry', year: 11 })
+      // Scoped with no syllabus yet: start an empty picker for that subject.
+      const fallback = scope
+        ? { subject: scope, year: scope === 'Chemistry' ? 11 : 8 }
+        : { subject: 'Chemistry', year: 11 }
+      setSel(subs[0] || fallback)
     })
-  }, [router])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, scope])
 
   useEffect(() => {
     if (!sel) return undefined
@@ -137,14 +160,18 @@ export default function SyllabusPointsPage() {
     )
   }
 
+  if (!scope) return null
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-4xl mx-auto px-6 pt-8 pb-20">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Syllabus</h1>
-            <p className="text-sm text-[#325099]/60 mt-1">The master syllabus dotpoint list. Each point is ticked off automatically once it’s drawn into a booklet — hover a ✓ to see which booklet(s).</p>
+            <h1 className="text-2xl font-bold text-[#062E63]">Syllabus{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
+            <p className="text-sm text-[#325099]/60 mt-1">
+              The master syllabus dotpoint list. Each point is ticked off automatically once it’s drawn into a booklet — hover a ✓ to see which booklet(s).
+              {scope && <> · <Link href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">back to hub</Link></>}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {subjects.length > 0 && (

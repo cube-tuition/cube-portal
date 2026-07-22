@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
@@ -11,7 +12,7 @@ import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
-import { fetchTaxonomy } from '../../../../../lib/qbank'
+import { fetchTaxonomy, SUBJECT_FAMILIES } from '../../../../../lib/qbank'
 import { fetchSyllabus } from '../../../../../lib/syllabus'
 import { buildSyllabusContent } from '../../../../../lib/bookletContent'
 
@@ -342,10 +343,13 @@ export default function BookletBuilderEditor() {
   // Exam-style docs (level tests + pre-tests) use a two-column layout: one big
   // left column (palette folded in + questions) and the live preview on the right.
   const isExamStyle = isLevelTest || isPreTest
+  // Back-links land on the subject-scoped Exams page (the unscoped page was
+  // retired) — the build's subject resolves to its hub family, Maths as default.
+  const backScope = Object.keys(SUBJECT_FAMILIES).find(f => SUBJECT_FAMILIES[f].includes(bk?.subject)) || 'Maths'
   const back = isPreTest
-    ? { href: '/tutor/resources/tests?tab=pre-tests', label: '← Pre-tests' }
+    ? { href: `/tutor/resources/tests?tab=pre-tests&subject=${backScope}`, label: '← Pre-tests' }
     : isLevelTest
-      ? { href: '/tutor/resources/tests?tab=level-tests', label: '← Level tests' }
+      ? { href: `/tutor/resources/tests?tab=level-tests&subject=${backScope}`, label: '← Level tests' }
       : { href: '/tutor/booklets/builder', label: '← Booklets' }
 
   const openExport = async (solutions) => {
@@ -782,7 +786,7 @@ export default function BookletBuilderEditor() {
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Booklet content</p>
               {isChem ? (
                 <>
-                  <p className="text-xs text-[#2A2035]/55 mb-3">The syllabus dotpoints each section draws from the master <a href="/tutor/resources/syllabus" className="underline text-[#325099]">Syllabus</a> list, grouped by section header. Draw them per section on the <span className="font-semibold">Content page</span> (select a section block → “Syllabus dotpoints”). These print under each section header in the booklet.</p>
+                  <p className="text-xs text-[#2A2035]/55 mb-3">The syllabus dotpoints each section draws from the master <Link href="/tutor/resources/syllabus?subject=Chemistry" className="underline text-[#325099]">Syllabus</Link> list, grouped by section header. Draw them per section on the <span className="font-semibold">Content page</span> (select a section block → “Syllabus dotpoints”). These print under each section header in the booklet.</p>
                   {chemSyllabusSections.length === 0 ? (
                     <p className="text-xs text-[#2A2035]/40 italic">No dotpoints drawn yet — add section headers on the Content page and draw dotpoints into each.</p>
                   ) : (

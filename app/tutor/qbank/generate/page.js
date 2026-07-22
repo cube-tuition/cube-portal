@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import { SUBJECT_FAMILIES } from '../../../../lib/qbank'
 
 /*
  * Generate — /tutor/qbank/generate
@@ -14,7 +15,15 @@ import TutorNav from '../../../../components/TutorNav'
  */
 
 export default function GeneratePage() {
+  return <Suspense><GenerateInner /></Suspense>
+}
+
+function GenerateInner() {
   const router = useRouter()
+  // Keep the hub subject scope through the links.
+  const searchParams = useSearchParams()
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -31,11 +40,11 @@ export default function GeneratePage() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-[1480px] mx-auto px-6 pt-8 pb-16">
-        <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
+        <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1 mb-5">Generate</h1>
 
         <div className="grid sm:grid-cols-2 gap-4 max-w-2xl">
-          <button onClick={() => router.push('/tutor/qbank/worksheets?new=1')}
+          <button onClick={() => router.push(`/tutor/qbank/worksheets?new=1${scope ? `&subject=${scope}` : ''}`)}
             className="text-left bg-white rounded-2xl border border-[#DEE7FF] p-5 hover:border-[#325099] hover:shadow-sm transition">
             <div className="text-2xl mb-2">📝</div>
             <div className="text-base font-bold text-[#062E63]">Additional questions</div>

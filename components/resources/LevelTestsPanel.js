@@ -43,7 +43,7 @@ const DEFAULT_COVER = {
   ],
 }
 
-export default function LevelTestsPanel({ profile }) {
+export default function LevelTestsPanel({ profile, scope = null }) {
   const router = useRouter()
   const [tests, setTests] = useState([])
   const [loading, setLoading] = useState(true)
@@ -55,7 +55,10 @@ export default function LevelTestsPanel({ profile }) {
 
   const isMaths = (s) => /math/i.test(s || '')
   const isEnglish = (s) => /english|eald/i.test(s || '')
-  const visibleTests = tests.filter(t => subjectTab === 'Mathematics' ? isMaths(t.subject) : isEnglish(t.subject))
+  const isChem = (s) => /chem/i.test(s || '')
+  // Hub scope overrides the folder tabs (and adds a Chemistry folder).
+  const effTab = scope ? ({ Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' })[scope] : subjectTab
+  const visibleTests = tests.filter(t => effTab === 'Mathematics' ? isMaths(t.subject) : effTab === 'English' ? isEnglish(t.subject) : isChem(t.subject))
 
   const reload = useCallback(() => {
     supabase
@@ -109,13 +112,14 @@ export default function LevelTestsPanel({ profile }) {
     <div>
       {/* New button */}
       <div className="flex items-center justify-end mb-4">
-        <button onClick={() => { setForm(f => ({ ...f, subject: subjectTab })); setShowNew(true) }}
+        <button onClick={() => { setForm(f => ({ ...f, subject: effTab })); setShowNew(true) }}
           className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">
           + New level test
         </button>
       </div>
 
-      {/* Maths / English folders */}
+      {/* Maths / English folders (hidden when a hub scope locks the subject) */}
+      {!scope && (
       <div className="flex gap-1 mb-5 border-b border-[#DEE7FF]">
         {[{ id: 'Mathematics', label: 'Maths' }, { id: 'English', label: 'English' }].map(tab => (
           <button
@@ -131,13 +135,14 @@ export default function LevelTestsPanel({ profile }) {
           </button>
         ))}
       </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-[#2A2035]/60">Loading level tests…</p>
       ) : visibleTests.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] p-12 text-center">
           <div className="text-4xl mb-2">📝</div>
-          <p className="text-sm font-semibold text-[#2A2035]">No {subjectTab === 'Mathematics' ? 'Maths' : 'English'} level tests yet.</p>
+          <p className="text-sm font-semibold text-[#2A2035]">No {effTab === 'Mathematics' ? 'Maths' : effTab === 'Chemistry' ? 'Chemistry' : 'English'} level tests yet.</p>
           <p className="text-xs text-[#2A2035]/55 mt-1">Click “New level test” to build your first one.</p>
         </div>
       ) : (

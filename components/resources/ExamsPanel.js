@@ -9,12 +9,12 @@ import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
  * Exams list — the body of the old /tutor/qbank/exams page, with no page chrome
  * so it can sit inside the unified "Tests" page (Exams tab) or anywhere else.
  */
-export default function ExamsPanel({ profile }) {
+export default function ExamsPanel({ profile, scope = null }) {
   const router = useRouter()
   const [exams, setExams] = useState([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [tab, setTab] = useState('maths')   // 'maths' | 'english'
+  const [tab, setTab] = useState(scope === 'English' ? 'english' : 'maths')   // 'maths' | 'english'
   const [terms, setTerms] = useState([])
   const [termId, setTermId] = useState('')
 
@@ -47,7 +47,7 @@ export default function ExamsPanel({ profile }) {
   }
 
   const isEnglish = (e) => e.paper_type === 'english'
-  const shown = exams.filter((e) => (tab === 'english' ? isEnglish(e) : !isEnglish(e)) && matchesTerm(e))
+  const shown = scope === 'Chemistry' ? [] : exams.filter((e) => (tab === 'english' ? isEnglish(e) : !isEnglish(e)) && matchesTerm(e))
   const mathsN = exams.filter((e) => !isEnglish(e) && matchesTerm(e)).length
   const englishN = exams.filter((e) => isEnglish(e) && matchesTerm(e)).length
 
@@ -85,7 +85,11 @@ export default function ExamsPanel({ profile }) {
         </div>
       </div>
 
-      {/* Maths / English folders */}
+      {/* Maths / English folders (hidden when a hub scope locks the subject) */}
+      {scope === 'Chemistry' && (
+        <p className="text-sm text-[#2A2035]/50 italic py-6 text-center bg-white rounded-2xl border border-dashed border-[#DEE7FF] mb-5">Term tests only come in Maths and English paper types — there are no Chemistry term tests yet.</p>
+      )}
+      {!scope && (
       <div className="flex gap-1 mb-5 border-b border-[#DEE7FF]">
         {[['maths', 'Maths', mathsN], ['english', 'English', englishN]].map(([v, label, n]) => (
           <button key={v} onClick={() => setTab(v)}
@@ -94,8 +98,9 @@ export default function ExamsPanel({ profile }) {
           </button>
         ))}
       </div>
+      )}
 
-      {loading ? (
+      {scope === 'Chemistry' ? null : loading ? (
         <p className="text-center text-sm text-[#2A2035]/40 py-12 animate-pulse">Loading…</p>
       ) : shown.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">

@@ -20,6 +20,17 @@ function TestsInner() {
   const tabParam = searchParams.get('tab')
   const initialTab = ['level-tests', 'pre-tests'].includes(tabParam) ? tabParam : 'exams'
   const [tab, setTab] = useState(initialTab)
+  // Subject-hub scope (?subject=Maths|English|Chemistry): each panel narrows to
+  // that subject. Absent → unchanged behaviour.
+  const SCOPES = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
+  const scopeParam = searchParams.get('subject')
+  const scope = SCOPES[scopeParam] ? scopeParam : null
+
+  // The unscoped Exams page was retired in favour of the subject hubs —
+  // old bookmarks land on the Mathematics hub.
+  useEffect(() => {
+    if (!scope) router.replace('/tutor/resources/maths')
+  }, [scope, router])
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -28,6 +39,7 @@ function TestsInner() {
     })
   }, [router])
 
+  if (!scope) return null
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
   const TABS = [['exams', 'Term Tests'], ['level-tests', 'Level Tests'], ['pre-tests', 'Pre-tests']]
@@ -37,7 +49,10 @@ function TestsInner() {
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-4xl mx-auto px-6 pt-8 pb-16">
         <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold mb-1">Resources</p>
-        <h1 className="text-2xl font-bold text-[#062E63] mb-5">Exams</h1>
+        <h1 className="text-2xl font-bold text-[#062E63] mb-1">Exams{scope ? ` — ${SCOPES[scope]}` : ''}</h1>
+        {scope
+          ? <p className="text-xs text-[#2A2035]/50 mb-5"><a href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">← Back to hub</a></p>
+          : <div className="mb-5" />}
 
         {/* Main tabs */}
         <div className="flex items-center gap-2 mb-6">
@@ -56,9 +71,9 @@ function TestsInner() {
           ))}
         </div>
 
-        {tab === 'exams' && <ExamsPanel profile={profile} />}
-        {tab === 'level-tests' && <LevelTestsPanel profile={profile} />}
-        {tab === 'pre-tests' && <PreTestsPanel profile={profile} />}
+        {tab === 'exams' && <ExamsPanel profile={profile} scope={scope} />}
+        {tab === 'level-tests' && <LevelTestsPanel profile={profile} scope={scope} />}
+        {tab === 'pre-tests' && <PreTestsPanel profile={profile} scope={scope} />}
       </div>
     </div>
   )

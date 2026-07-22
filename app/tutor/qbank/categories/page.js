@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
@@ -8,11 +8,21 @@ import TutorNav from '../../../../components/TutorNav'
 import {
   T_QBANK_SUBJECTS, T_QBANK_TOPICS, T_QBANK_SUBTOPICS, T_QBANK_SKILLS,
 } from '../../../../lib/tables'
+import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 
 export default function CategoriesPage() {
+  return <Suspense><CategoriesInner /></Suspense>
+}
+
+function CategoriesInner() {
   const router = useRouter()
+  // Subject-hub scope (?subject=Maths|English|Chemistry): the subject column
+  // shows only that family. Absent → unchanged behaviour.
+  const searchParams = useSearchParams()
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -52,7 +62,7 @@ export default function CategoriesPage() {
   const subtopicsForTopic = subtopics.filter((st) => st.topic_id === topicId)
   // Skills hang off the subject directly — topics/subtopics are a separate dimension.
   const skillsForSubject = skills.filter((s) => s.subject_id === subjectId)
-  const subjectsByYear = (y) => subjects.filter((s) => s.year_level === y)
+  const subjectsByYear = (y) => subjects.filter((s) => s.year_level === y && (!scope || SUBJECT_FAMILIES[scope].includes(s.name)))
 
   // ── Mutations ───────────────────────────────────────────────────────────────
   const addSubject = async () => {
@@ -111,8 +121,8 @@ export default function CategoriesPage() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-6xl mx-auto px-6 pt-8 pb-16">
-        <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
-        <h1 className="text-2xl font-bold text-[#062E63] mt-1">Categories</h1>
+        <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
+        <h1 className="text-2xl font-bold text-[#062E63] mt-1">Categories{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
         <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic → Subtopic structure your questions are filed under. Skills sit directly under a subject — no topic or subtopic needed.</p>
 
         <div className="grid md:grid-cols-4 gap-4">

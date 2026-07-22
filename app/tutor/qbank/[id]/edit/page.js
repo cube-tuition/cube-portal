@@ -1,14 +1,23 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useEffect, useState, Suspense } from 'react'
+import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
+import { SUBJECT_FAMILIES } from '../../../../../lib/qbank'
 
 export default function EditQuestionPage() {
+  return <Suspense><EditQuestionInner /></Suspense>
+}
+
+function EditQuestionInner() {
   const router = useRouter()
   const params = useParams()
+  // Keep the hub subject scope through the back-link.
+  const searchParams = useSearchParams()
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -25,7 +34,7 @@ export default function EditQuestionPage() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-3xl mx-auto px-6 pt-8 pb-16">
-        <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
+        <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1 mb-6">Edit question</h1>
         <QuestionEditor questionId={params.id} staffName={profile?.full_name} />
       </div>

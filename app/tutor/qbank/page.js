@@ -13,18 +13,10 @@ import {
   fetchTaxonomy, deleteQbankImage, qbankImageUrl,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
   buildTaxonomyMaps, labelForQuestion,
+  SUBJECT_FAMILIES, SCOPE_LABEL,
 } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
-
-// Master tabs cover subject FAMILIES — the Maths tab includes the senior
-// variants, so e.g. "Year 11 Ext 1" appears in its year dropdown.
-const SUBJECT_FAMILIES = {
-  Maths:     ['Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
-  English:   ['English'],
-  Chemistry: ['Chemistry'],
-}
-const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
 
 export default function QuestionBankPage() {
   return <Suspense><QuestionBankInner /></Suspense>
@@ -37,6 +29,12 @@ function QuestionBankInner() {
   const searchParams = useSearchParams()
   const scopeParam = searchParams.get('subject')
   const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
+
+  // The unscoped question bank was retired in favour of the subject hubs —
+  // old bookmarks land on the Mathematics hub.
+  useEffect(() => {
+    if (!scope) router.replace('/tutor/resources/maths')
+  }, [scope, router])
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
   const [tax, setTax] = useState(null)
@@ -159,6 +157,7 @@ function QuestionBankInner() {
   const clearFilters = () => { setYear(''); setTopicId(''); setSubtopicId(''); setSkillId(''); setDifficulty(''); setQtype(''); setSearch('') }
   const hasFilter = year || topicId || subtopicId || skillId || difficulty || qtype || search
 
+  if (!scope) return null
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
   return (
@@ -316,7 +315,7 @@ function QuestionBankInner() {
                     {q.marks != null && <span className="text-[11px] text-[#2A2035]/40">{q.marks} mark{q.marks === 1 ? '' : 's'}</span>}
                     {nParts > 0 && <span className="text-[11px] text-[#2A2035]/40">{nParts} part{nParts === 1 ? '' : 's'}</span>}
                     {imgs.length > 0 && <span className="text-[11px] text-[#2A2035]/40">🖼 {imgs.length}</span>}
-                    <Link href={`/tutor/qbank/${q.id}/edit`} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</Link>
+                    <Link href={`/tutor/qbank/${q.id}/edit?subject=${scope}`} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</Link>
                     <button onClick={() => handleDelete(q)} className="text-[11px] text-[#DC2626] hover:underline">Delete</button>
                   </div>
                 </div>

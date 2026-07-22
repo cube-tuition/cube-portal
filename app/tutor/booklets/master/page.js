@@ -1,12 +1,13 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import BookletContentView from '../../../../components/booklet/BookletContentView'
 import { buildSyllabusContent } from '../../../../lib/bookletContent'
+import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -618,7 +619,22 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function MasterDatabasePage() {
+  return <Suspense><MasterDatabaseInner /></Suspense>
+}
+
+function MasterDatabaseInner() {
   const router = useRouter()
+  // Subject-hub scope (?subject=Maths|English|Chemistry): narrows the year and
+  // subject tabs to that family. Absent → unchanged behaviour.
+  const searchParams = useSearchParams()
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
+
+  // The unscoped master database was retired in favour of the subject hubs —
+  // old bookmarks land on the Mathematics hub.
+  useEffect(() => {
+    if (!scope) router.replace('/tutor/resources/maths')
+  }, [scope, router])
   const [staff,    setStaff]    = useState(null)
   const [booklets, setBooklets] = useState([])
   const [builds,   setBuilds]   = useState([])   // booklet_builds (workbook builder)
@@ -689,11 +705,21 @@ export default function MasterDatabasePage() {
 
   useEffect(() => { if (staff) load() }, [staff, load])
 
-  // Reset activeSub when year changes if subject isn't valid for new year
+  // Subjects for a year, narrowed to the hub scope when one is active.
+  const subjectsFor = useCallback((year) => {
+    const all = getSubjects(year)
+    return scope ? all.filter(su => SUBJECT_FAMILIES[scope].includes(su)) : all
+  }, [scope])
+  // Years with at least one subject in scope (Chemistry → 11–12 only).
+  const visibleYears = YEARS.filter(y => subjectsFor(y).length > 0)
+
+  // Keep year + subject valid for the scope (and when the year changes).
   useEffect(() => {
-    const subjects = getSubjects(activeYear)
+    if (!visibleYears.includes(activeYear)) { setActiveYear(visibleYears[0]); return }
+    const subjects = subjectsFor(activeYear)
     if (!subjects.includes(activeSub)) setActiveSub(subjects[0])
-  }, [activeYear])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeYear, scope, subjectsFor])
 
   const loadTopicBank = useCallback(async () => {
     const { data } = await supabase
@@ -806,11 +832,13 @@ export default function MasterDatabasePage() {
 
   // Builder workbooks: drafts (not yet saved to the database) shown in a strip;
   // published ones are matched to their master row so we can offer "Open in builder".
-  const draftBuilds = builds.filter(wb => wb.status !== 'published')
+  // Hub scope: the in-progress panel only shows drafts from the scoped family.
+  const draftBuilds = builds.filter(wb => wb.status !== 'published'
+    && (!scope || SUBJECT_FAMILIES[scope].includes(wb.subject)))
   const buildByBookletId = {}
   for (const wb of builds) if (wb.booklet_id) buildByBookletId[wb.booklet_id] = wb
 
-  if (!staff) return null
+  if (!scope || !staff) return null
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
@@ -820,13 +848,13 @@ export default function MasterDatabasePage() {
       <div className="bg-white border-b border-[#DEE7FF]">
         <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6 flex items-start justify-between gap-4">
           <div>
-            <Link href="/tutor/booklets"
+            <Link href={scope ? `/tutor/resources/${scope.toLowerCase()}` : '/tutor/booklets'}
               className="text-xs font-semibold text-[#325099]/50 hover:text-[#325099] transition block mb-1">
-              ← Curriculum
+              {scope ? '← Back to hub' : '← Curriculum'}
             </Link>
-            <h1 className="text-2xl font-bold text-[#062E63]">Master Database</h1>
+            <h1 className="text-2xl font-bold text-[#062E63]">Master Database{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">
-              {booklets.length} booklet{booklets.length !== 1 ? 's' : ''} total
+              {(scope ? booklets.filter(b => SUBJECT_FAMILIES[scope].includes(b.subject)) : booklets).length} booklet{booklets.length !== 1 ? 's' : ''}{scope ? '' : ' total'}
             </p>
           </div>
           <div className="flex items-center gap-3 mt-2">
@@ -867,7 +895,7 @@ export default function MasterDatabasePage() {
 
         {/* Year tabs */}
         <div className="max-w-7xl mx-auto px-6 md:px-10 flex gap-1 overflow-x-auto mt-4">
-          {YEARS.map(y => (
+          {visibleYears.map(y => (
             <button key={y} onClick={() => setActiveYear(y)}
               className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
                 activeYear === y ? 'border-[#325099] text-[#325099]' : 'border-transparent text-[#2A2035]/50 hover:text-[#325099]'
@@ -881,7 +909,7 @@ export default function MasterDatabasePage() {
       <div className="max-w-7xl mx-auto px-6 md:px-10 py-6">
         {/* Subject tabs */}
         <div className="flex gap-2 mb-7 flex-wrap">
-          {getSubjects(activeYear).map(s => (
+          {subjectsFor(activeYear).map(s => (
             <button key={s} onClick={() => setActiveSub(s)}
               className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
                 activeSub === s ? 'text-white border-transparent' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'

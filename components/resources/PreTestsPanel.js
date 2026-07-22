@@ -36,7 +36,7 @@ function detectYear(name) {
   return m ? parseInt(m[1], 10) : null
 }
 
-export default function PreTestsPanel({ profile }) {
+export default function PreTestsPanel({ profile, scope = null }) {
   const router = useRouter()
   const [terms, setTerms] = useState([])
   const [termId, setTermId] = useState('')
@@ -61,7 +61,8 @@ export default function PreTestsPanel({ profile }) {
       supabase.from(T_PREPOST_TESTS).select('class_id, topics, expected_pre, expected_post').eq('term_id', tid),
       supabase.from(T_BOOKLET_BUILDS).select('id, class_id, updated_at').eq('doc_type', 'pre_test').eq('term_id', tid),
     ]).then(([{ data: cls }, { data: tests }, { data: builds }]) => {
-      const groupClasses = (cls || []).filter(c => (c.courses?.delivery_mode || '') !== '1:1' && !/1:1/.test(c.class_name || ''))
+      const groupClasses = (cls || []).filter(c => (c.courses?.delivery_mode || '') !== '1:1' && !/1:1/.test(c.class_name || '')
+        && (!scope || detectSubject(c.class_name || '') === scope))
       setClasses(groupClasses.sort((a, b) => (a.class_name || '').localeCompare(b.class_name || '', undefined, { numeric: true })))
       const tMap = {}; for (const t of tests || []) tMap[t.class_id] = t
       setTestsByClass(tMap)
@@ -69,7 +70,7 @@ export default function PreTestsPanel({ profile }) {
       setBuildsByClass(bMap)
       setLoading(false)
     })
-  }, [])
+  }, [scope])
 
   useEffect(() => { reload(termId) }, [termId, reload])
 

@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
-import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion } from '../../../../lib/qbank'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
@@ -28,6 +28,10 @@ export default function AdditionalQuestionsPage() {
 function AdditionalQuestionsInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  // Subject-hub scope (?subject=Maths|English|Chemistry): limits the year/subject
+  // filters and the bank list to that family. Absent → unchanged behaviour.
+  const scopeParam = searchParams.get('subject')
+  const scope = SUBJECT_FAMILIES[scopeParam] ? scopeParam : null
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -196,8 +200,13 @@ function AdditionalQuestionsInner() {
   const maps = useMemo(() => buildTaxonomyMaps(tax), [tax])
   const labelFor = useCallback((q) => labelForQuestion(q, maps), [maps])
 
-  const years = useMemo(() => (tax ? yearsFromSubjects(tax.subjects) : []), [tax])
-  const subjectsForYear = useMemo(() => (tax && year ? tax.subjects.filter((s) => String(s.year_level) === String(year)) : []), [tax, year])
+  // Subjects narrowed to the hub scope's family when one is active.
+  const scopedSubjects = useMemo(() => {
+    if (!tax) return []
+    return scope ? tax.subjects.filter((s) => SUBJECT_FAMILIES[scope].includes(s.name)) : tax.subjects
+  }, [tax, scope])
+  const years = useMemo(() => yearsFromSubjects(scopedSubjects), [scopedSubjects])
+  const subjectsForYear = useMemo(() => (year ? scopedSubjects.filter((s) => String(s.year_level) === String(year)) : []), [scopedSubjects, year])
   const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
   const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
   // Skills are a subject-level dimension — available as soon as a subject is picked.
@@ -208,6 +217,7 @@ function AdditionalQuestionsInner() {
     if (!maps) return []
     return questions.filter((q) => {
       const l = labelFor(q)
+      if (scope && !SUBJECT_FAMILIES[scope].includes(l?.subject?.name)) return false
       if (skillId && q.skill_id !== skillId) return false
       if (subtopicId && l?.subtopic?.id !== subtopicId) return false
       if (topicId && l?.topic?.id !== topicId) return false
@@ -221,7 +231,7 @@ function AdditionalQuestionsInner() {
       }
       return true
     })
-  }, [questions, maps, labelFor, year, subjectId, topicId, subtopicId, skillId, difficulty, qtype, search])
+  }, [questions, maps, labelFor, scope, year, subjectId, topicId, subtopicId, skillId, difficulty, qtype, search])
 
   const add = (q) => { setTray((t) => (t.find((x) => x.id === q.id) ? t : [...t, q])); setDirty(true) }
   const removeFromTray = (id) => { setTray((t) => t.filter((x) => x.id !== id)); setDirty(true) }
@@ -285,9 +295,9 @@ function AdditionalQuestionsInner() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-7xl mx-auto px-6 pt-8 pb-16">
-        <Link href="/tutor/qbank" className="text-xs text-[#325099] hover:underline">← Question bank</Link>
+        <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <div className="flex items-center gap-3 mt-1 mb-5">
-          <h1 className="text-2xl font-bold text-[#062E63]">Additional Questions</h1>
+          <h1 className="text-2xl font-bold text-[#062E63]">Additional Questions{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
           {selectedId && (
             <button onClick={closeEditor}
               className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3 py-1 hover:bg-white transition">
