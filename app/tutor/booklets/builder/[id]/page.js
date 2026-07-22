@@ -591,20 +591,16 @@ export default function BookletBuilderEditor() {
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
           <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? 'Saving…' : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
         </div>
-        {/* Meta row — Subject + Year are dropdowns; Booklet name is typed.
-            The full name auto-formats as "Year.SubjectCode. Name" (shown above). */}
+        {/* Meta row — Year is a dropdown; Booklet name is typed. The subject is
+            fixed per workbook (set from its subject hub on creation) and shown
+            read-only. The full name auto-formats as "Year.SubjectCode. Name". */}
         <div className="max-w-[1500px] mx-auto px-5 pb-3 flex items-center gap-2 flex-wrap text-sm">
-          <select value={bk.subject || ''} onChange={e => {
-              const s = e.target.value
-              const patch = { subject: s }
-              if (s === 'Chemistry' && ![11, 12].includes(Number(bk.year))) patch.year = null
-              mutate(patch)
-            }}
-            className="w-44 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]">
-            <option value="">Subject…</option>
-            {SUBJECTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            {bk.subject && !SUBJECTS.some(s => s.value === bk.subject) && <option value={bk.subject}>{bk.subject}</option>}
-          </select>
+          {bk.subject && (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#EEF4FF] border border-[#DEE7FF] px-2.5 py-1.5 text-xs font-semibold text-[#325099]"
+              title="Subject is fixed per workbook — change it in the database explorer if needed">
+              {SUBJECTS.find(s => s.value === bk.subject)?.label || bk.subject}
+            </span>
+          )}
           <select value={bk.year ?? ''} onChange={e => mutate({ year: e.target.value ? Number(e.target.value) : null })}
             className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]">
             <option value="">Year…</option>
