@@ -616,7 +616,21 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           )}
         </div>
       )
-    case 'mcq':
+    case 'mcq': {
+      // Option letters are positional (A, B, C…). Reordering re-letters the
+      // options and moves the "Correct" answer with the option it points to.
+      const opts = block.options || []
+      const OPT_LETTERS = 'ABCDEFGH'
+      const moveOption = (i, dir) => {
+        const j = i + dir
+        if (j < 0 || j >= opts.length) return
+        const arr = [...opts]
+        const correctObj = arr.find(o => o.k === block.answer)
+        ;[arr[i], arr[j]] = [arr[j], arr[i]]
+        const options = arr.map((o, idx) => ({ ...o, k: OPT_LETTERS[idx] }))
+        const answer = correctObj ? OPT_LETTERS[arr.indexOf(correctObj)] : block.answer
+        set({ options, answer })
+      }
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Question</label><textarea className={TA} value={block.prompt} onChange={e => set({ prompt: e.target.value })} onKeyDown={e => onTextKey(e, block.prompt, v => set({ prompt: v }))} /></div>
@@ -633,12 +647,16 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <div>
             <label className={L}>Options</label>
             <div className="space-y-1.5">
-              {(block.options || []).map((o, i) => (
+              {opts.map((o, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <span className="w-5 text-xs font-bold text-[#325099]">{o.k}.</span>
+                  <span className={`w-5 text-xs font-bold ${o.k === block.answer && block.answer ? 'text-[#16A34A]' : 'text-[#325099]'}`}>{o.k}.</span>
                   <input className={I} value={o.t}
-                    onChange={e => { const options = block.options.map((x, j) => j === i ? { ...x, t: e.target.value } : x); set({ options }) }}
-                    onKeyDown={e => onInlineKey(e, o.t, v => { const options = block.options.map((x, j) => j === i ? { ...x, t: v } : x); set({ options }) })} />
+                    onChange={e => { const options = opts.map((x, j) => j === i ? { ...x, t: e.target.value } : x); set({ options }) }}
+                    onKeyDown={e => onInlineKey(e, o.t, v => { const options = opts.map((x, j) => j === i ? { ...x, t: v } : x); set({ options }) })} />
+                  <div className="flex flex-col shrink-0 text-[#2A2035]/40">
+                    <button onClick={() => moveOption(i, -1)} disabled={i === 0} title="Move up" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▲</button>
+                    <button onClick={() => moveOption(i, 1)} disabled={i === opts.length - 1} title="Move down" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▼</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -647,7 +665,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
             <div><label className={L}>Correct</label>
               <select className={I} value={block.answer} onChange={e => set({ answer: e.target.value })}>
                 <option value="">—</option>
-                {(block.options || []).map(o => <option key={o.k} value={o.k}>{o.k}</option>)}
+                {opts.map(o => <option key={o.k} value={o.k}>{o.k}</option>)}
               </select>
             </div>
             <div><label className={L}>Marks</label><input className={I} value={block.marks ?? ''} onChange={e => set({ marks: e.target.value })} placeholder="1" /></div>
@@ -655,6 +673,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           </div>
         </div>
       )
+    }
     case 'mcqtable':
       return (
         <div className="space-y-2">
