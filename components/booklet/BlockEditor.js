@@ -82,14 +82,17 @@ function SectionSyllabusPicker({ modules = [], block, onChange }) {
 }
 
 /*
- * StimulusLibraryPicker — fill a Stimulus block from the Texts/Stimuli library
- * (/tutor/resources/texts). Lazy-loads on first open; picking a text copies its
- * title, source and body into the block (the library row stays untouched).
+ * StimulusLibraryPicker — connect a Stimulus block to the Texts/Stimuli library
+ * (/tutor/resources/texts). Browsing lazy-loads the library and picking a text
+ * copies its title/source/body into the block; "Save to library" does the
+ * reverse, banking the block's current text as a new library entry. Both are
+ * copies — later edits on either side don't affect the other.
  */
-function StimulusLibraryPicker({ onPick }) {
+function StimulusLibraryPicker({ onPick, current }) {
   const [open, setOpen] = useState(false)
   const [texts, setTexts] = useState(null)   // null = not fetched yet
   const [query, setQuery] = useState('')
+  const [saveState, setSaveState] = useState('')   // '' | 'saving' | 'saved'
 
   const toggle = async () => {
     const next = !open
@@ -103,16 +106,43 @@ function StimulusLibraryPicker({ onPick }) {
     }
   }
 
+  const saveToLibrary = async () => {
+    const title = (current?.title || '').trim()
+    const body = (current?.body || '').trim()
+    if (!title || !body) { alert('Give the stimulus a title and some text before saving it to the library.'); return }
+    const { data: dup } = await supabase.from('stimulus_texts').select('id').ilike('title', title).limit(1)
+    if (dup?.length && !confirm(`“${title}” is already in the library — save another copy?`)) return
+    setSaveState('saving')
+    const { data, error } = await supabase
+      .from('stimulus_texts')
+      .insert({ title, source: (current?.source || '').trim() || null, text_type: 'Other', body: current.body })
+      .select('id, title, source, text_type, year, body')
+      .single()
+    if (error) { setSaveState(''); alert('Could not save to the library: ' + error.message); return }
+    setTexts(ts => (ts === null ? ts : [data, ...ts]))
+    setSaveState('saved')
+    setTimeout(() => setSaveState(''), 2000)
+  }
+
   const q = query.trim().toLowerCase()
   const shown = (texts || []).filter(t =>
     !q || `${t.title} ${t.source || ''} ${t.body}`.toLowerCase().includes(q))
 
   return (
     <div className="rounded-lg border border-[#DEE7FF] bg-[#FBFCFF]">
-      <button type="button" onClick={toggle} className="w-full flex items-center justify-between px-3 py-2">
-        <span className="text-[11px] font-semibold text-[#325099]">❝ From the Texts/Stimuli library</span>
-        <span className="text-[10px] text-[#325099]/60">{open ? '▲ hide' : '▼ browse'}</span>
-      </button>
+      <div className="flex items-center">
+        <button type="button" onClick={toggle} className="flex-1 flex items-center justify-between px-3 py-2">
+          <span className="text-[11px] font-semibold text-[#325099]">❝ From the Texts/Stimuli library</span>
+          <span className="text-[10px] text-[#325099]/60">{open ? '▲ hide' : '▼ browse'}</span>
+        </button>
+        <button type="button" onClick={saveToLibrary} disabled={saveState === 'saving'}
+          title="Save this block's title, source and text as a new library entry"
+          className={`shrink-0 mr-2 px-2.5 py-1 rounded-lg border text-[10px] font-semibold transition ${saveState === 'saved'
+            ? 'border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A]'
+            : 'border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF]'} disabled:opacity-50`}>
+          {saveState === 'saved' ? '✓ Saved' : saveState === 'saving' ? 'Saving…' : '💾 Save to library'}
+        </button>
+      </div>
       {open && (
         <div className="border-t border-[#F0F4FF] px-3 pb-2">
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search title, author or text…"
@@ -533,7 +563,7 @@ export default function BlockEditor({ block, onChange, isChem = false, syllabus 
     case 'stimulus':
       return (
         <div className="space-y-2.5">
-          <StimulusLibraryPicker onPick={(t) => set({ title: t.title || '', source: t.source || '', body: t.body || '' })} />
+          <StimulusLibraryPicker onPick={(t) => set({ title: t.title || '', source: t.source || '', body: t.body || '' })} current={{ title: block.title, source: block.source, body: block.body }} />
           <div className="grid grid-cols-2 gap-2">
             <div><label className={L}>Title (optional)</label><input className={I} value={block.title || ''} onChange={e => set({ title: e.target.value })} placeholder="e.g. Mother to Son" /></div>
             <div><label className={L}>Source / author (optional)</label><input className={I} value={block.source || ''} onChange={e => set({ source: e.target.value })} placeholder="e.g. Langston Hughes, 1922" /></div>
