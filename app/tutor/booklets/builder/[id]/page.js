@@ -421,6 +421,7 @@ export default function BookletBuilderEditor() {
   const contentBlocks = allBlocks.filter(b => sectionOf(b) === 'content')
   const foundBlocks = allBlocks.filter(b => sectionOf(b) === 'homework' && b.hwGroup !== 'developmental')
   const devBlocks = allBlocks.filter(b => sectionOf(b) === 'homework' && b.hwGroup === 'developmental')
+  const hwBlocks = allBlocks.filter(b => sectionOf(b) === 'homework')   // flat list (English)
   const quizBlocks = allBlocks.filter(b => sectionOf(b) === 'revision')
 
   // Chemistry uses a fixed module/week naming scheme (e.g. M2W3 → "11.C. M2W3")
@@ -431,6 +432,11 @@ export default function BookletBuilderEditor() {
   const isEnglish = /english/i.test(bk.subject || '')
   const isMathsSubj = /maths/i.test(bk.subject || '')
   const paletteHides = (t) => (t.type === 'mathobj' && !isMathsSubj) || (t.type === 'stimulus' && !isEnglish)
+  // English homework is one flexible list (no Foundational/Developmental split);
+  // teachers add their own subheadings, so the homework palette offers one.
+  const hwPaletteTypes = isEnglish
+    ? [{ type: 'subtopic', label: 'Subheading', icon: '—' }, ...HW_BLOCK_TYPES]
+    : HW_BLOCK_TYPES
   const yearOptions = isChem ? [11, 12] : YEARS
   const chemMatch = /^M(\d*)W(\d*)$/i.exec(bk.title || '')
   const chemModule = chemMatch ? chemMatch[1] : ''
@@ -546,19 +552,21 @@ export default function BookletBuilderEditor() {
         </div>
       ) : activeSection === 'homework' ? (
         <div className="space-y-2.5">
-          <div>
-            <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">Adding to</p>
-            <div className="flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
-              {HW_GROUPS.map((g, gi) => (
-                <button key={g.id} onClick={() => setActiveHwGroup(g.id)}
-                  className={`flex-1 px-2 py-1 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
-                  {g.label}
-                </button>
-              ))}
+          {!isEnglish && (
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">Adding to</p>
+              <div className="flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
+                {HW_GROUPS.map((g, gi) => (
+                  <button key={g.id} onClick={() => setActiveHwGroup(g.id)}
+                    className={`flex-1 px-2 py-1 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
+                    {g.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
           <div className="flex flex-col gap-1.5">
-            {HW_BLOCK_TYPES.filter(t => !paletteHides(t)).map(t => (
+            {hwPaletteTypes.filter(t => !paletteHides(t)).map(t => (
               <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
                 <span className="mr-1.5">{t.icon}</span>{t.label}
               </button>
@@ -755,6 +763,16 @@ export default function BookletBuilderEditor() {
               </div>
             )
           ) : activeSection === 'homework' ? (
+            isEnglish ? (
+              // English: one flexible homework list with teacher-authored subheadings.
+              hwBlocks.length === 0 ? (
+                <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No homework yet — add questions and your own subheadings from the palette.</div>
+              ) : (
+                <div className="space-y-3">
+                  {hwBlocks.map((b, i) => renderBlockCard(b, hwBlocks, i))}
+                </div>
+              )
+            ) : (
             <div className="space-y-6">
               {HW_GROUPS.map(g => {
                 const list = g.id === 'developmental' ? devBlocks : foundBlocks
@@ -770,6 +788,7 @@ export default function BookletBuilderEditor() {
                 )
               })}
             </div>
+            )
           ) : activeSection === 'revision' ? (
             quizBlocks.length === 0 ? (
               <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No quiz questions yet — add one from the palette.</div>
