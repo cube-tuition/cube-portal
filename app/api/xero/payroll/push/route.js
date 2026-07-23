@@ -50,15 +50,25 @@ export async function POST(req) {
       throw new Error('Xero did not return the draft pay run period')
     }
 
-    // All approved hours worked inside Xero's window, regardless of which
-    // portal fortnight/holiday run they were approved under.
+    // Candidate hours: everything approved from the payroll cutover date up to
+    // the END of Xero's draft window. Hours dated before the window start are
+    // CATCH-UP pay (e.g. the term holidays predate the calendar's first
+    // period — Xero can't open past periods, so arrears ride the current run).
+    // Double-pay guard: each pushed shift is stamped with the Xero run id, and
+    // a shift is dropped only once its stamped run is POSTED in Xero. Stamps
+    // pointing at the current draft (re-push) or a deleted run are re-swept.
+    const payrollFrom = settings.payroll_from || payRun.periodStart
     const { data: shifts, error: shiftErr } = await sb
       .from('shifts')
-      .select('tutor_id, hours, rate_snapshot, work_date')
+      .select('id, tutor_id, hours, rate_snapshot, work_date, xero_pay_run_id')
       .in('status', ['approved', 'paid'])
-      .gte('work_date', payRun.periodStart)
+      .gte('work_date', payrollFrom)
       .lte('work_date', payRun.periodEnd)
     if (shiftErr) throw shiftErr
+
+    const postedRunIds = new Set(runs.filter(r => r.status === 'POSTED').map(r => r.id))
+    const eligible = (shifts || []).filter(s =>
+      !s.xero_pay_run_id || s.xero_pay_run_id === payRun.id || !postedRunIds.has(s.xero_pay_run_id))
 
     // Cash-paid staff are handled outside Xero Payroll (cash schedule + cash
     // log) — their hours/amounts must NOT be pushed.
@@ -71,7 +81,7 @@ export async function POST(req) {
 
     const byTutor = {}
     const excludedCash = []
-    for (const s of shifts || []) {
+    for (const s of eligible) {
       const person = staffById[s.tutor_id]
       if ((person?.pay_method || 'bank') === 'cash') {
         const x = excludedCash.find(e => e.staffId === s.tutor_id)
@@ -80,8 +90,10 @@ export async function POST(req) {
         x.amount += Number(s.hours || 0) * Number(s.rate_snapshot || 0)
         continue
       }
-      const t = (byTutor[s.tutor_id] ||= { hours: 0, rates: new Set() })
+      const t = (byTutor[s.tutor_id] ||= { hours: 0, rates: new Set(), shiftIds: [], catchupHours: 0 })
       t.hours += Number(s.hours || 0)
+      t.shiftIds.push(s.id)
+      if (s.work_date < payRun.periodStart) t.catchupHours += Number(s.hours || 0)
       if (s.rate_snapshot != null) t.rates.add(Number(s.rate_snapshot))
     }
     if (!Object.keys(byTutor).length) {
@@ -89,8 +101,8 @@ export async function POST(req) {
         ? ` (${excludedCash.length} cash-paid teacher${excludedCash.length === 1 ? '' : 's'} excluded)`
         : ''
       return NextResponse.json({
-        error: `No approved bank-paid hours fall inside Xero's current draft period (${payRun.periodStart} – ${payRun.periodEnd})${cashNote}. ` +
-          `Xero opens periods in order — if this window is an older fortnight, post (or delete) that pay run in Xero first so the next one opens.`,
+        error: `No approved, unpushed bank-paid hours between ${payrollFrom} and ${payRun.periodEnd} (Xero draft period ${payRun.periodStart} – ${payRun.periodEnd})${cashNote}. ` +
+          `Hours already in a POSTED Xero pay run are never re-pushed.`,
       }, { status: 400 })
     }
 
@@ -107,7 +119,13 @@ export async function POST(req) {
       const ratePerUnit = settings.send_rate && agg.rates.size === 1 ? [...agg.rates][0] : undefined
       try {
         await setPayslipHours(slip.payslipId, { earningsRateId: settings.earnings_rate_id, hours, ratePerUnit })
-        pushed.push({ name: slip.name || map.xero_name, hours, rate: ratePerUnit ?? null })
+        // Stamp the shifts with this Xero run so they drop out of future
+        // pushes once the run is posted.
+        await sb.from('shifts').update({ xero_pay_run_id: payRun.id }).in('id', agg.shiftIds)
+        pushed.push({
+          name: slip.name || map.xero_name, hours, rate: ratePerUnit ?? null,
+          catchupHours: Math.round(agg.catchupHours * 100) / 100 || 0,
+        })
       } catch (e) {
         skipped.push({ name: slip.name || map.xero_name, reason: e.message })
       }

@@ -66,7 +66,10 @@ export default function XeroPayrollButtons({ run, canPush }) {
                 {' '}Review and post it in Xero to finalise PAYG, super and STP.
               </p>
               {result.pushed.map((p, i) => (
-                <p key={i} className="text-[#2A2035]/60">· {p.name}: {p.hours}h{p.rate != null ? ` @ $${p.rate}/h` : ''}</p>
+                <p key={i} className="text-[#2A2035]/60">
+                  · {p.name}: {p.hours}h{p.rate != null ? ` @ $${p.rate}/h` : ''}
+                  {p.catchupHours > 0 && <span className="text-[#5B21B6]"> (incl. {p.catchupHours}h earlier catch-up, e.g. holidays)</span>}
+                </p>
               ))}
               {result.windowDiffers && (
                 <p className="text-[#2A2035]/60">ℹ Xero’s pay calendar runs continuously, so its period differs from the fortnight you’re viewing ({result.portalPeriod.join(' – ')}). All approved hours inside Xero’s window were included, so the totals are still right.</p>
@@ -92,7 +95,7 @@ function SetupModal({ onClose }) {
   const [err, setErr] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [settings, setSettings] = useState({ payroll_calendar_id: '', earnings_rate_id: '', send_rate: false })
+  const [settings, setSettings] = useState({ payroll_calendar_id: '', earnings_rate_id: '', send_rate: false, payroll_from: '' })
   const [map, setMap] = useState({})         // staff_id -> xero_employee_id
 
   useEffect(() => {          // load once on mount
@@ -106,6 +109,7 @@ function SetupModal({ onClose }) {
           payroll_calendar_id: data.settings.payroll_calendar_id || '',
           earnings_rate_id:    data.settings.earnings_rate_id || '',
           send_rate:           !!data.settings.send_rate,
+          payroll_from:        data.settings.payroll_from || '',
         })
         const m = {}
         for (const r of data.map || []) m[r.staff_id] = r.xero_employee_id
@@ -188,6 +192,12 @@ function SetupModal({ onClose }) {
                   onChange={e => setSettings(s => ({ ...s, send_rate: e.target.checked }))} className="accent-[#325099]" />
                 Also send the portal’s $/hour with the hours (off = Xero uses each employee’s pay-template rate; only sent when all of a teacher’s shifts share one rate)
               </label>
+              <div className="w-56">
+                <label className={L}>Push hours from (cutover date)</label>
+                <input type="date" className={SEL} value={settings.payroll_from || ''}
+                  onChange={e => setSettings(s => ({ ...s, payroll_from: e.target.value }))} />
+                <p className="text-[10px] text-[#2A2035]/40 mt-1">Shifts before this date are never pushed — they were paid under the old Bills flow.</p>
+              </div>
 
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-[#325099]/70 font-semibold mb-2">Match teachers to Xero employees</p>

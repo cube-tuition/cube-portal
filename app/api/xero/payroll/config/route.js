@@ -67,7 +67,7 @@ export async function POST(req) {
     const sb = adminSb()
 
     const s = {}
-    for (const k of ['payroll_calendar_id', 'earnings_rate_id']) if (body[k] !== undefined) s[k] = body[k] || null
+    for (const k of ['payroll_calendar_id', 'earnings_rate_id', 'payroll_from']) if (body[k] !== undefined) s[k] = body[k] || null
     if (body.send_rate !== undefined) s.send_rate = !!body.send_rate
     if (Object.keys(s).length) {
       s.id = 1; s.updated_at = new Date().toISOString()
