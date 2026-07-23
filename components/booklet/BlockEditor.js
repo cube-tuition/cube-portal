@@ -251,6 +251,7 @@ function MathObjFields({ obj, upd }) {
             <option value="cartesian">Cartesian plane</option>
             <option value="numberline">Number line</option>
             <option value="boxplot">Box plot</option>
+            <option value="histogram">Histogram</option>
             <option value="xytable">Table of values</option>
           </select>
         </div>
@@ -300,14 +301,49 @@ function MathObjFields({ obj, upd }) {
           <div><label className={L}>Marked values — one per line: value, label (optional)</label><textarea className={TA} value={obj.nlPoints ?? ''} onChange={e => upd({ nlPoints: e.target.value })} placeholder={'3.5\n7, B'} /></div>
         </>
       )}
-      {obj.objType === 'boxplot' && (
-        <div className="grid grid-cols-5 gap-2">
-          <div><label className={L}>Min</label><input className={I} value={obj.bpMin ?? ''} onChange={e => upd({ bpMin: e.target.value })} /></div>
-          <div><label className={L}>Q1</label><input className={I} value={obj.bpQ1 ?? ''} onChange={e => upd({ bpQ1: e.target.value })} /></div>
-          <div><label className={L}>Median</label><input className={I} value={obj.bpMed ?? ''} onChange={e => upd({ bpMed: e.target.value })} /></div>
-          <div><label className={L}>Q3</label><input className={I} value={obj.bpQ3 ?? ''} onChange={e => upd({ bpQ3: e.target.value })} /></div>
-          <div><label className={L}>Max</label><input className={I} value={obj.bpMax ?? ''} onChange={e => upd({ bpMax: e.target.value })} /></div>
-        </div>
+      {obj.objType === 'boxplot' && (() => {
+        // Rows edit bpPlots; a legacy single-plot block seeds row 1 from its old
+        // bp* fields, and the first edit rewrites it as bpPlots.
+        const plots = Array.isArray(obj.bpPlots) && obj.bpPlots.length
+          ? obj.bpPlots
+          : [{ label: '', min: obj.bpMin ?? '', q1: obj.bpQ1 ?? '', med: obj.bpMed ?? '', q3: obj.bpQ3 ?? '', max: obj.bpMax ?? '', outliers: obj.bpOutliers ?? '' }]
+        const updPlot = (i, patch) => upd({ bpPlots: plots.map((p, j) => j === i ? { ...p, ...patch } : p) })
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <div><label className={L}>Title (optional)</label><input className={I} value={obj.bpTitle ?? ''} onChange={e => upd({ bpTitle: e.target.value })} placeholder="e.g. Test scores" /></div>
+              <div><label className={L}>Units under axis (optional)</label><input className={I} value={obj.bpUnits ?? ''} onChange={e => upd({ bpUnits: e.target.value })} placeholder="e.g. Score %" /></div>
+            </div>
+            {plots.map((p, i) => (
+              <div key={i} className="grid grid-cols-[1fr_46px_46px_46px_46px_46px_1fr_20px] gap-1.5 items-end">
+                <div>{i === 0 && <label className={L}>Label</label>}<input className={I} value={p.label ?? ''} onChange={e => updPlot(i, { label: e.target.value })} placeholder={plots.length > 1 ? 'e.g. Class' : 'optional'} /></div>
+                <div>{i === 0 && <label className={L}>Min</label>}<input className={I} value={p.min ?? ''} onChange={e => updPlot(i, { min: e.target.value })} /></div>
+                <div>{i === 0 && <label className={L}>Q1</label>}<input className={I} value={p.q1 ?? ''} onChange={e => updPlot(i, { q1: e.target.value })} /></div>
+                <div>{i === 0 && <label className={L}>Med</label>}<input className={I} value={p.med ?? ''} onChange={e => updPlot(i, { med: e.target.value })} /></div>
+                <div>{i === 0 && <label className={L}>Q3</label>}<input className={I} value={p.q3 ?? ''} onChange={e => updPlot(i, { q3: e.target.value })} /></div>
+                <div>{i === 0 && <label className={L}>Max</label>}<input className={I} value={p.max ?? ''} onChange={e => updPlot(i, { max: e.target.value })} /></div>
+                <div>{i === 0 && <label className={L}>Outliers (×)</label>}<input className={I} value={p.outliers ?? ''} onChange={e => updPlot(i, { outliers: e.target.value })} placeholder="2, 38" /></div>
+                <button type="button" onClick={() => upd({ bpPlots: plots.filter((_, j) => j !== i) })} disabled={plots.length === 1}
+                  title="Remove this box plot" className="h-7 text-rose-400 hover:text-rose-600 disabled:opacity-20 text-sm">✕</button>
+              </div>
+            ))}
+            <button type="button" onClick={() => upd({ bpPlots: [...plots, { label: '', min: '', q1: '', med: '', q3: '', max: '', outliers: '' }] })}
+              className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add box plot</button>
+          </>
+        )
+      })()}
+      {obj.objType === 'histogram' && (
+        <>
+          <div><label className={L}>Title (optional)</label><input className={I} value={obj.hgTitle ?? ''} onChange={e => upd({ hgTitle: e.target.value })} placeholder="e.g. Goals scored per game" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className={L}>Bar labels — comma-separated</label><input className={I} value={obj.hgValues ?? ''} onChange={e => upd({ hgValues: e.target.value })} placeholder="0–4, 5–9, 10–14" /></div>
+            <div><label className={L}>Frequencies — comma-separated</label><input className={I} value={obj.hgFreqs ?? ''} onChange={e => upd({ hgFreqs: e.target.value })} placeholder="3, 7, 5" /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className={L}>X-axis label (optional)</label><input className={I} value={obj.hgXLabel ?? ''} onChange={e => upd({ hgXLabel: e.target.value })} placeholder="e.g. Score" /></div>
+            <div><label className={L}>Y-axis label</label><input className={I} value={obj.hgYLabel ?? ''} onChange={e => upd({ hgYLabel: e.target.value })} placeholder="Frequency" /></div>
+          </div>
+        </>
       )}
       {obj.objType === 'xytable' && (
         <>
@@ -327,7 +363,7 @@ function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
 function MathObjSection({ block, set, blank = true, maths = true, hideAdd = false, objKey = 'mathObj', name = 'maths object' }) {
   const obj = block[objKey]
   const cap = name.charAt(0).toUpperCase() + name.slice(1)
@@ -754,6 +790,21 @@ function TableEditor({ block, set }) {
   const removeCol = () => { if (nCols > 1) set({ rows: rows.map(row => row.slice(0, -1)), colWidths: colWidths.slice(0, -1) }) }
   const removeColAt = (ci) => { if (nCols > 1) set({ rows: rows.map(row => row.filter((_, i) => i !== ci)), colWidths: colWidths.filter((_, i) => i !== ci) }) }
   const insertColAt = (ci) => set({ rows: rows.map(row => [...row.slice(0, ci), '', ...row.slice(ci)]), colWidths: [...colWidths.slice(0, ci), '', ...colWidths.slice(ci)] })
+  // Reorder: swap a row with its neighbour, or a column (in every row, plus its
+  // width slot) with its neighbour. dir = -1 up/left, +1 down/right.
+  const moveRow = (ri, dir) => {
+    const rj = ri + dir
+    if (rj < 0 || rj >= rows.length) return
+    const next = rows.map(r => [...r]);
+    [next[ri], next[rj]] = [next[rj], next[ri]]
+    set({ rows: next })
+  }
+  const moveCol = (ci, dir) => {
+    const cj = ci + dir
+    if (cj < 0 || cj >= nCols) return
+    const swap = (arr) => { const a = [...arr]; [a[ci], a[cj]] = [a[cj], a[ci]]; return a }
+    set({ rows: rows.map(row => swap(row)), colWidths: swap(colWidths) })
+  }
 
   // Paste a whole table: spreadsheet/Word clipboards carry TSV (tabs between
   // cells, newlines between rows) and often an HTML <table> copy. Pasting into
@@ -854,6 +905,14 @@ function TableEditor({ block, set }) {
                       {setVals[ci] != null ? `${setVals[ci]}%` : 'auto'}
                     </span>
                     <div className="flex items-center opacity-30 hover:opacity-100 transition">
+                      {nCols > 1 && (
+                        <button type="button" onClick={() => moveCol(ci, -1)} disabled={ci === 0} title="Move this column left"
+                          className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-xs leading-none">◀</button>
+                      )}
+                      {nCols > 1 && (
+                        <button type="button" onClick={() => moveCol(ci, 1)} disabled={ci === nCols - 1} title="Move this column right"
+                          className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-xs leading-none">▶</button>
+                      )}
                       <button type="button" onClick={() => insertColAt(ci + 1)} title="Insert a column to the right of this one"
                         className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-xs leading-none">＋</button>
                       {nCols > 1 && (
@@ -894,6 +953,14 @@ function TableEditor({ block, set }) {
                     (the last remaining row can't be removed). */}
                 <td className="p-0.5 align-middle">
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                    {rows.length > 1 && (
+                      <button type="button" onClick={() => moveRow(ri, -1)} disabled={ri === 0} title="Move this row up"
+                        className="w-6 h-6 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-sm leading-none">▲</button>
+                    )}
+                    {rows.length > 1 && (
+                      <button type="button" onClick={() => moveRow(ri, 1)} disabled={ri === rows.length - 1} title="Move this row down"
+                        className="w-6 h-6 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-sm leading-none">▼</button>
+                    )}
                     <button type="button" onClick={() => insertRowAt(ri + 1)} title="Insert a row below this one"
                       className="w-6 h-6 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none">＋</button>
                     {rows.length > 1 && (
@@ -907,7 +974,7 @@ function TableEditor({ block, set }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells. Drag the blue dividers to resize columns — double-click one to set its column back to auto. Paste a copied table (Sheets, Excel, Word…) into any cell to fill the grid from there.</p>
+      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells. Use ▲▼ / ◀▶ to reorder rows and columns. Drag the blue dividers to resize columns — double-click one to set its column back to auto. Paste a copied table (Sheets, Excel, Word…) into any cell to fill the grid from there.</p>
       {sumSet > 100 && (
         <p className="text-[10px] font-semibold text-amber-600">⚠ Column widths add up to {Math.round(sumSet)}% — they&apos;ll be squeezed to fit. Keep the total at 100% or less.</p>
       )}
