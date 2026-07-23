@@ -22,7 +22,7 @@ export default function XeroPayrollButtons({ run, canPush }) {
 
   const push = async () => {
     if (!run?.id) return
-    if (!confirm('Push approved hours into Xero Payroll’s current DRAFT pay run?\n\nXero’s draft period defines the window: every approved shift dated inside it — including holiday-break hours — is summed per teacher and written onto their draft payslip. Re-pushing simply refreshes the totals. Nothing is filed with the ATO until you review and post the pay run in Xero.')) return
+    if (!confirm('Push approved hours into Xero Payroll’s current DRAFT pay run?\n\nXero’s draft period defines the window: every approved shift dated inside it — including holiday-break hours — is summed per teacher and written onto their draft payslip. Cash-paid teachers are excluded. Re-pushing simply refreshes the totals. Nothing is filed with the ATO until you review and post the pay run in Xero.')) return
     setPushing(true); setResult(null)
     try {
       const res = await authedFetch('/api/xero/payroll/push', {
@@ -71,6 +71,9 @@ export default function XeroPayrollButtons({ run, canPush }) {
               {result.windowDiffers && (
                 <p className="text-[#2A2035]/60">ℹ Xero’s pay calendar runs continuously, so its period differs from the fortnight you’re viewing ({result.portalPeriod.join(' – ')}). All approved hours inside Xero’s window were included, so the totals are still right.</p>
               )}
+              {result.excludedCash?.map((x, i) => (
+                <p key={i} className="text-[#2A2035]/50">💵 {x.name}: {x.hours}h (${x.amount}) paid in cash — not pushed to Xero Payroll.</p>
+              ))}
               {result.skipped?.map((s, i) => (
                 <p key={i} className="text-amber-700">⚠ {s.name || s.staffId}: {s.reason}</p>
               ))}

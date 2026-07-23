@@ -60,15 +60,36 @@ export async function POST(req) {
       .lte('work_date', payRun.periodEnd)
     if (shiftErr) throw shiftErr
 
+    // Cash-paid staff are handled outside Xero Payroll (cash schedule + cash
+    // log) — their hours/amounts must NOT be pushed.
+    const [{ data: tRows }, { data: dRows }] = await Promise.all([
+      sb.from('tutors').select('id, full_name, pay_method'),
+      sb.from('directors').select('id, full_name, pay_method'),
+    ])
+    const staffById = {}
+    for (const r of [...(tRows || []), ...(dRows || [])]) staffById[r.id] = r
+
     const byTutor = {}
+    const excludedCash = []
     for (const s of shifts || []) {
+      const person = staffById[s.tutor_id]
+      if ((person?.pay_method || 'bank') === 'cash') {
+        const x = excludedCash.find(e => e.staffId === s.tutor_id)
+          || excludedCash[excludedCash.push({ staffId: s.tutor_id, name: person?.full_name || s.tutor_id, hours: 0, amount: 0 }) - 1]
+        x.hours += Number(s.hours || 0)
+        x.amount += Number(s.hours || 0) * Number(s.rate_snapshot || 0)
+        continue
+      }
       const t = (byTutor[s.tutor_id] ||= { hours: 0, rates: new Set() })
       t.hours += Number(s.hours || 0)
       if (s.rate_snapshot != null) t.rates.add(Number(s.rate_snapshot))
     }
     if (!Object.keys(byTutor).length) {
+      const cashNote = excludedCash.length
+        ? ` (${excludedCash.length} cash-paid teacher${excludedCash.length === 1 ? '' : 's'} excluded)`
+        : ''
       return NextResponse.json({
-        error: `No approved hours fall inside Xero's current draft period (${payRun.periodStart} – ${payRun.periodEnd}). ` +
+        error: `No approved bank-paid hours fall inside Xero's current draft period (${payRun.periodStart} – ${payRun.periodEnd})${cashNote}. ` +
           `Xero opens periods in order — if this window is an older fortnight, post (or delete) that pay run in Xero first so the next one opens.`,
       }, { status: 400 })
     }
@@ -104,6 +125,11 @@ export async function POST(req) {
       windowDiffers,
       portalPeriod: windowDiffers ? [periodStart, periodEnd] : null,
       pushed, skipped,
+      excludedCash: excludedCash.map(x => ({
+        name: x.name,
+        hours: Math.round(x.hours * 100) / 100,
+        amount: Math.round(x.amount * 100) / 100,
+      })),
     })
   } catch (err) {
     if (err instanceof PayrollScopeError || err.scope) {
