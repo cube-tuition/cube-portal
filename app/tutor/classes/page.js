@@ -148,9 +148,17 @@ export default function TutorClassesPage() {
       // Top section follows the term selector; the weekly calendar is a
       // universal view across ALL terms (a lesson shows on its date no matter
       // which term its class belongs to), so it gets an unscoped list.
+      // Tutors see EVERY class on the calendar (director-style view — their own
+      // lessons are highlighted blue, everyone else's greyed out), so their
+      // calendar list is unscoped too; only the admin "My classes" toggle narrows it.
+      const calendarQuery = () => {
+        let q = supabase.from(T_CLASSES).select('*')
+        if (isAdmin && classView === 'mine' && firstName) q = q.ilike('teacher', firstName + '%')
+        return q
+      }
       const [{ data: cls }, { data: clsAll }] = await Promise.all([
         baseQuery().eq('term_id', selectedTermId),
-        baseQuery(),
+        calendarQuery(),
       ])
 
       // Hide untitled rows — these are typically incomplete Airtable rows and
@@ -221,13 +229,14 @@ export default function TutorClassesPage() {
       const behind = isoDate(addDays(new Date(), -7))
       let makeupQuery = supabase
         .from(T_LESSONS)
-        .select('id, lesson_date, start_time, end_time, room, class_id, lesson_type, student_name, status, makeup_student_id, makeup_source_lesson_id, students!makeup_student_id(full_name, year), classes(class_name, status)')
+        .select('id, lesson_date, start_time, end_time, room, class_id, lesson_type, student_name, status, makeup_student_id, makeup_source_lesson_id, scheduled_teacher_id, students!makeup_student_id(full_name, year), classes(class_name, status)')
         .or('is_makeup.eq.true,makeup_student_id.not.is.null,lesson_type.not.is.null')
         .gte('lesson_date', behind)
         .lte('lesson_date', ahead)
-      // "My classes" view: own makeups, but always include unassigned overlay
-      // lessons (e.g. level tests, which have no teacher).
-      if (!isAdmin || classView === 'mine') makeupQuery = makeupQuery.or(`scheduled_teacher_id.eq.${staff.id},scheduled_teacher_id.is.null`)
+      // Admin "My classes" view: own makeups, but always include unassigned
+      // overlay lessons (e.g. level tests, which have no teacher). Tutors see
+      // every overlay lesson (greyed out unless it's theirs).
+      if (isAdmin && classView === 'mine') makeupQuery = makeupQuery.or(`scheduled_teacher_id.eq.${staff.id},scheduled_teacher_id.is.null`)
       const { data: makeupRows } = await makeupQuery
       // Overlay lessons for inactive classes stay off the calendar too.
       setMakeupSessions((makeupRows || [])
@@ -286,7 +295,9 @@ export default function TutorClassesPage() {
         .select('*')
         .gte('session_date', weekMin)
         .lte('session_date', weekMax)
-      if (!isAdmin || classView === 'mine') {
+      // Tutors see every drop-in (greyed unless they're rostered on); only the
+      // admin "My classes" toggle narrows the fetch.
+      if (isAdmin && classView === 'mine') {
         q = q.contains('tutors', [staff.full_name])
       }
       const { data } = await q
@@ -431,21 +442,28 @@ export default function TutorClassesPage() {
   }, [calClasses, weekLessons, makeupSessions])
 
   const sessionsByDate = useMemo(() => {
+    // Ownership flag per pill — drives the tutor view's blue-vs-grey styling
+    // (own lessons highlighted, everyone else's greyed out).
+    const myFirst = ((staff?.full_name || '').split(' ')[0] || '').toLowerCase()
+    const isMineCls = (cls) => !!myFirst && (cls?.teacher || '').toLowerCase().startsWith(myFirst)
     const map = new Map()
     for (const s of upcomingSessions) {
       if (!map.has(s.dateISO)) map.set(s.dateISO, [])
       map.get(s.dateISO).push({
         ...s,
         hasSub: subDates.has(`${s.cls.id}|${s.dateISO}`),
+        mine: isMineCls(s.cls),
       })
     }
     // Inject sub sessions into the calendar (only those in the current week view)
     for (const sub of subSessions) {
       const weekISODates = weekDays.map(d => isoDate(d))
       if (!weekISODates.includes(sub.dateISO)) continue
-      // Avoid duplicates (if somehow the sub is also listed as regular teacher)
+      // The class pill may already be on the calendar (tutors now see every
+      // class) — upgrade it in place: the viewer is the sub, so it's theirs.
       const existing = map.get(sub.dateISO) || []
-      if (existing.some(s => s.cls.id === sub.classId)) continue
+      const dup = existing.find(s => s.cls.id === sub.classId)
+      if (dup) { dup.isSub = true; dup.mine = true; continue }
       if (!map.has(sub.dateISO)) map.set(sub.dateISO, [])
       map.get(sub.dateISO).push({
         key: `sub-${sub.classId}-${sub.dateISO}`,
@@ -454,6 +472,7 @@ export default function TutorClassesPage() {
         dayName: '',
         cls: sub.cls,
         isSub: true,
+        mine: true, // the viewer is the sub — it's their session
       })
     }
     // Inject makeup 1:1 + ad-hoc (1:1 / level test) sessions
@@ -485,6 +504,7 @@ export default function TutorClassesPage() {
         lessonId: lesson.id,
         lesson,
         studentName,
+        mine: !!staff?.id && lesson.scheduled_teacher_id === staff.id,
       })
     }
     // Inject drop-in sessions for this tutor
@@ -508,10 +528,11 @@ export default function TutorClassesPage() {
         cls: syntheticCls,
         isDropin: true,
         dropin: di,
+        mine: !!staff?.full_name && (di.tutors || []).includes(staff.full_name),
       })
     }
     return map
-  }, [upcomingSessions, subSessions, weekDays, subDates, makeupSessions, dropinSessions])
+  }, [upcomingSessions, subSessions, weekDays, subDates, makeupSessions, dropinSessions, staff])
 
   const todayISO = useMemo(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return isoDate(d)
@@ -754,7 +775,8 @@ export default function TutorClassesPage() {
             weekDays={weekDays}
             sessionsByDate={sessionsByDate}
             todayISO={todayISO}
-            showTeacher={isAdmin}
+            showTeacher
+            tutorMode={!isAdmin}
             rosters={rosters}
             currentTerm={currentTerm}
             classLabelMap={classLabelMap}
@@ -1186,7 +1208,7 @@ function termWeekNumber(dateISO, term) {
   return week >= 1 ? week : null
 }
 
-function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, currentTerm, classLabelMap }) {
+function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
       {weekDays.map(d => {
@@ -1234,13 +1256,20 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                   const href = wk
                     ? `/tutor/classes/${s.cls.id}?week=${wk}`
                     : `/tutor/classes/${s.cls.id}`
-                  const isAmber  = s.isSub || s.hasSub
+                  // Tutor view: every lesson is visible (director-style), but
+                  // only the viewer's own are in colour — theirs highlighted
+                  // blue, everyone else's greyed out. Special states (sub /
+                  // makeup / drop-in) keep their colours on OWN lessons only.
+                  const grey = tutorMode && !s.mine
+                  const isAmber  = !grey && (s.isSub || s.hasSub)
                   const isMakeup = s.isMakeup
                   const isDropin = s.isDropin
-                  const pillBg     = isDropin ? '#CCFBF1CC' : isMakeup ? '#EDE9FECC' : isAmber ? '#FEF9ECCC' : col.bg + 'AA'
-                  const pillBorder = isDropin ? '1px solid #5EEAD4' : isMakeup ? '1px solid #C4B5FD' : isAmber ? '1px solid #FDE68A' : 'none'
-                  const textColor  = isDropin ? '#0F766E' : isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
-                  const subColor   = isDropin ? '#0F766E99' : isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
+                  const mineBlue = tutorMode && s.mine && !isAmber && !isMakeup && !isDropin
+                  const pillBg     = grey ? '#EEF0F4' : mineBlue ? '#D6E4FF' : isDropin ? '#CCFBF1CC' : isMakeup ? '#EDE9FECC' : isAmber ? '#FEF9ECCC' : col.bg + 'AA'
+                  const pillBorder = grey ? 'none' : mineBlue ? '1px solid #9DBBF5' : isDropin ? '1px solid #5EEAD4' : isMakeup ? '1px solid #C4B5FD' : isAmber ? '1px solid #FDE68A' : 'none'
+                  const textColor  = grey ? '#868D9C' : mineBlue ? '#062E63' : isDropin ? '#0F766E' : isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
+                  const subColor   = grey ? '#868D9C99' : mineBlue ? '#325099AA' : isDropin ? '#0F766E99' : isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
+                  const badgeGrey  = 'bg-[#E2E5EB] text-[#868D9C]'
                   const pillHref = isDropin
                     ? '/tutor/dropin'
                     : s.isLevelTest
@@ -1270,12 +1299,12 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, rosters, c
                               </span>
                             )}
                             {isMakeup && (
-                              <span className="text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#8B5CF6]/15 text-[#5B21B6] shrink-0 whitespace-nowrap">
+                              <span className={`text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${grey ? badgeGrey : 'bg-[#8B5CF6]/15 text-[#5B21B6]'}`}>
                                 Makeup
                               </span>
                             )}
                             {isDropin && (
-                              <span className="text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#CCFBF1] text-[#0F766E] shrink-0 whitespace-nowrap">
+                              <span className={`text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${grey ? badgeGrey : 'bg-[#CCFBF1] text-[#0F766E]'}`}>
                                 Drop-in
                               </span>
                             )}

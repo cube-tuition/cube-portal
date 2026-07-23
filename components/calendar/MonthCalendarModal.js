@@ -14,6 +14,10 @@ import { pickSubjectColor } from '../../lib/subjectColours'
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+// Tutor-view pill colours: own lessons vs everyone else's.
+const MINE_COL = { bg: '#D6E4FF', fg: '#062E63' }
+const GREY_COL = { bg: '#EEF0F4', fg: '#868D9C' }
+
 const isOneToOne = (name) => /\b1\s*:\s*1\b/.test(name || '')
 const startMin = (t) => { if (!t) return 0; const [h, m] = String(t).split(':').map(Number); return (h || 0) * 60 + (m || 0) }
 const fmtTime = (t) => {
@@ -32,7 +36,11 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
   const classIds = useMemo(() => classes.map(c => c.id), [classes])
   const classById = useMemo(() => Object.fromEntries(classes.map(c => [c.id, c])), [classes])
   const staffId = staff?.id
-  const mineOnly = !isAdmin || classView === 'mine'
+  // Tutors get the full director-style calendar — their own lessons highlighted
+  // blue, everyone else's greyed out. Only the admin "My classes" toggle narrows.
+  const mineOnly = isAdmin && classView === 'mine'
+  const tutorMode = !isAdmin
+  const myFirst = ((staff?.full_name || '').split(' ')[0] || '').toLowerCase()
 
   const gridStart = useMemo(() => mondayOf(anchor), [anchor])
   const gridDays = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(gridStart, i)), [gridStart])
@@ -59,7 +67,7 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
       // 1:1 overlay: real makeups (is_makeup) plus any student-based lesson added
       // via the database explorer (makeup_student_id set, not a class lesson).
       let mq = supabase.from('lessons')
-        .select('id, lesson_date, start_time, status, lesson_type, student_name, makeup_source_lesson_id, students!makeup_student_id(full_name), classes(class_name)')
+        .select('id, lesson_date, start_time, status, lesson_type, student_name, makeup_source_lesson_id, scheduled_teacher_id, students!makeup_student_id(full_name), classes(class_name)')
         .or('is_makeup.eq.true,makeup_student_id.not.is.null,lesson_type.not.is.null')
         .gte('lesson_date', minISO).lte('lesson_date', maxISO)
       // "My classes" view: show the viewer's own makeups, but always include
@@ -74,7 +82,8 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
         const c = classById[l.class_id]
         if (!c) continue
         if (movedSrc.has(l.id) && isOneToOne(c.class_name)) continue
-        push(l.lesson_date, { id: `l-${l.id}`, name: c.class_name, time: l.start_time, sort: startMin(l.start_time), makeup: false, color: pickSubjectColor(c.class_name) })
+        const mine = !!myFirst && (c.teacher || '').toLowerCase().startsWith(myFirst)
+        push(l.lesson_date, { id: `l-${l.id}`, name: c.class_name, time: l.start_time, sort: startMin(l.start_time), makeup: false, mine, color: pickSubjectColor(c.class_name) })
       }
       for (const m of (makeups || [])) {
         if (m.status === 'cancelled') continue
@@ -84,14 +93,14 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
         // the explorer does not, so label it simply "1:1".
         const isLevelTest = m.lesson_type === 'level_test'
         const prefix = isLevelTest ? 'Level Test' : (m.makeup_source_lesson_id ? '1:1 Makeup' : '1:1')
-        push(m.lesson_date, { id: `m-${m.id}`, lessonId: m.id, levelTest: isLevelTest, name: `${prefix} · ${sn}`, time: m.start_time, sort: startMin(m.start_time), makeup: true, color: pickSubjectColor(subjName) })
+        push(m.lesson_date, { id: `m-${m.id}`, lessonId: m.id, levelTest: isLevelTest, name: `${prefix} · ${sn}`, time: m.start_time, sort: startMin(m.start_time), makeup: true, mine: !!staffId && m.scheduled_teacher_id === staffId, color: pickSubjectColor(subjName) })
       }
       for (const k of Object.keys(map)) map[k].sort((a, b) => a.sort - b.sort)
       if (!cancelled) { setByDate(map); setLoading(false) }
     }
     run()
     return () => { cancelled = true }
-  }, [gridStart, gridDays, classIds, classById, mineOnly, staffId])
+  }, [gridStart, gridDays, classIds, classById, mineOnly, staffId, myFirst])
 
   const moveMonth = (delta) => setAnchor(a => { const d = new Date(a); d.setMonth(d.getMonth() + delta); d.setDate(1); return d })
   const thisMonth = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); setAnchor(d) }
@@ -142,7 +151,10 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
                       <div className={`text-[11px] font-semibold mb-1 ${isToday ? 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#062E63] text-white' : inMonth ? 'text-[#2A2035]' : 'text-[#2A2035]/30'}`}>{day.getDate()}</div>
                       <div className="space-y-1">
                         {pills.map(p => {
-                          const style = { background: p.color?.bg || '#EEF4FF', color: p.color?.fg || '#325099', borderLeft: p.makeup ? `3px solid ${p.color?.fg || '#6B21A8'}` : 'none' }
+                          // Tutor view: own lessons highlighted blue, everyone
+                          // else's greyed out (admins keep subject colours).
+                          const col = tutorMode ? (p.mine ? MINE_COL : GREY_COL) : p.color
+                          const style = { background: col?.bg || '#EEF4FF', color: col?.fg || '#325099', borderLeft: p.makeup ? `3px solid ${col?.fg || '#6B21A8'}` : 'none' }
                           const inner = <>{p.time ? <span className="font-semibold mr-1">{fmtTime(p.time)}</span> : null}{p.name}</>
                           const title = `${p.name}${p.time ? ' · ' + fmtTime(p.time) : ''}${p.levelTest ? ' · click to mark' : ''}`
                           return p.levelTest ? (
