@@ -26,6 +26,7 @@ import { authedFetch } from '../../../lib/authedFetch'
 import { SUPER_RATE } from '../../../lib/teacherCost'
 import { buildPayslipPdfBase64, buildPayslipEmailHtml, payslipSubject } from '../../../lib/payslip'
 import { TEST_RECIPIENT } from '../../../lib/emailConfig'
+import XeroPayrollButtons from '../../../components/payroll/XeroPayrollPanel'
 
 // Xero Bills CSV defaults — edit here if your chart of accounts differs.
 const XERO_ACCOUNT_CODE = '477'         // 477 = Wages & Salaries (AU default)
@@ -895,7 +896,8 @@ export default function PayrollPage() {
                 </span>
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <XeroPayrollButtons run={run} canPush={['approved', 'exported', 'paid'].includes(run?.status)} />
               {(run?.status === 'approved' || run?.status === 'exported' || run?.status === 'paid') ? (
                 <button
                   onClick={exportCsv}
