@@ -22,12 +22,12 @@ export default function XeroPayrollButtons({ run, canPush }) {
 
   const push = async () => {
     if (!run?.id) return
-    if (!confirm('Push this fortnight into Xero Payroll as a DRAFT pay run?\n\nHours for each matched teacher will be written onto their draft payslip. Nothing is filed with the ATO until you review and post the pay run in Xero.')) return
+    if (!confirm('Push approved hours into Xero Payroll’s current DRAFT pay run?\n\nXero’s draft period defines the window: every approved shift dated inside it — including holiday-break hours — is summed per teacher and written onto their draft payslip. Re-pushing simply refreshes the totals. Nothing is filed with the ATO until you review and post the pay run in Xero.')) return
     setPushing(true); setResult(null)
     try {
       const res = await authedFetch('/api/xero/payroll/push', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payRunId: run.id, periodStart: run.period_start, periodEnd: run.period_end }),
+        body: JSON.stringify({ periodStart: run.period_start, periodEnd: run.period_end }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
@@ -68,8 +68,8 @@ export default function XeroPayrollButtons({ run, canPush }) {
               {result.pushed.map((p, i) => (
                 <p key={i} className="text-[#2A2035]/60">· {p.name}: {p.hours}h{p.rate != null ? ` @ $${p.rate}/h` : ''}</p>
               ))}
-              {result.periodMismatch && (
-                <p className="text-amber-700">⚠ Xero’s draft period ({result.periodMismatch.xero.join(' – ')}) doesn’t match this fortnight ({result.periodMismatch.portal.join(' – ')}). Check the pay calendar’s cycle in Xero.</p>
+              {result.windowDiffers && (
+                <p className="text-[#2A2035]/60">ℹ Xero’s pay calendar runs continuously, so its period differs from the fortnight you’re viewing ({result.portalPeriod.join(' – ')}). All approved hours inside Xero’s window were included, so the totals are still right.</p>
               )}
               {result.skipped?.map((s, i) => (
                 <p key={i} className="text-amber-700">⚠ {s.name || s.staffId}: {s.reason}</p>
@@ -206,7 +206,8 @@ function SetupModal({ onClose }) {
               </div>
 
               <p className="text-[11px] text-[#2A2035]/45">
-                Pushing writes each matched teacher’s total fortnight hours onto their payslip in a <b>draft</b> Xero pay run.
+                Pushing fills Xero’s current <b>draft</b> pay run: every approved shift dated inside that period —
+                term fortnights and holiday breaks alike — is summed per teacher and written onto their payslip.
                 PAYG, super and STP happen when you post the pay run in Xero — the portal never posts it.
               </p>
             </>
