@@ -252,6 +252,7 @@ function MathObjFields({ obj, upd }) {
             <option value="numberline">Number line</option>
             <option value="boxplot">Box plot</option>
             <option value="histogram">Histogram</option>
+            <option value="stemleaf">Stem-and-leaf plot</option>
             <option value="xytable">Table of values</option>
           </select>
         </div>
@@ -364,6 +365,27 @@ function MathObjFields({ obj, upd }) {
           </>
         )
       })()}
+      {obj.objType === 'stemleaf' && (
+        <>
+          <div><label className={L}>Data values (comma or space separated)</label>
+            <textarea className={TA} value={obj.slData ?? ''} onChange={e => upd({ slData: e.target.value })} placeholder="23, 25, 31, 34, 34, 42, 45, 51" /></div>
+          <div className="flex gap-2 items-end">
+            <div className="flex-1"><label className={L}>Title (optional)</label><input className={I} value={obj.slTitle ?? ''} onChange={e => upd({ slTitle: e.target.value })} placeholder="e.g. Test scores" /></div>
+            <div className="w-44"><label className={L}>Leaf digit</label>
+              <select className={I} value={obj.slLeaf || '1'} onChange={e => upd({ slLeaf: e.target.value })}>
+                <option value="1">Units — 2 | 3 = 23</option>
+                <option value="10">Tens — 2 | 3 = 230</option>
+                <option value="0.1">Tenths — 2 | 3 = 2.3</option>
+              </select>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
+            <input type="checkbox" checked={obj.slHeaders !== false} onChange={e => upd({ slHeaders: e.target.checked })} className="accent-[#325099]" />
+            Show “Stem / Leaf” headers
+          </label>
+          <p className="text-[10px] text-[#2A2035]/45">Leaves are sorted automatically and empty stems in between are kept. A key is generated for you.</p>
+        </>
+      )}
       {obj.objType === 'xytable' && (
         <>
           <div className="flex gap-2 items-end">
@@ -382,7 +404,7 @@ function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true }
 function MathObjSection({ block, set, blank = true, maths = true, hideAdd = false, objKey = 'mathObj', name = 'maths object' }) {
   const obj = block[objKey]
   const cap = name.charAt(0).toUpperCase() + name.slice(1)
