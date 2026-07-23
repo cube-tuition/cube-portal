@@ -332,19 +332,38 @@ function MathObjFields({ obj, upd }) {
           </>
         )
       })()}
-      {obj.objType === 'histogram' && (
-        <>
-          <div><label className={L}>Title (optional)</label><input className={I} value={obj.hgTitle ?? ''} onChange={e => upd({ hgTitle: e.target.value })} placeholder="e.g. Goals scored per game" /></div>
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className={L}>Bar labels — comma-separated</label><input className={I} value={obj.hgValues ?? ''} onChange={e => upd({ hgValues: e.target.value })} placeholder="0–4, 5–9, 10–14" /></div>
-            <div><label className={L}>Frequencies — comma-separated</label><input className={I} value={obj.hgFreqs ?? ''} onChange={e => upd({ hgFreqs: e.target.value })} placeholder="3, 7, 5" /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className={L}>X-axis label (optional)</label><input className={I} value={obj.hgXLabel ?? ''} onChange={e => upd({ hgXLabel: e.target.value })} placeholder="e.g. Score" /></div>
-            <div><label className={L}>Y-axis label</label><input className={I} value={obj.hgYLabel ?? ''} onChange={e => upd({ hgYLabel: e.target.value })} placeholder="Frequency" /></div>
-          </div>
-        </>
-      )}
+      {obj.objType === 'histogram' && (() => {
+        // Rows edit hgBars; a block saved with the old comma-separated fields
+        // seeds its rows from them, and the first edit rewrites it as hgBars.
+        const legacyLabels = String(obj.hgValues ?? '').split(',').map(t => t.trim())
+        const legacyFreqs = String(obj.hgFreqs ?? '').split(',').map(t => t.trim())
+        const legacyN = Math.max(legacyLabels.filter(Boolean).length, legacyFreqs.filter(Boolean).length)
+        const bars = Array.isArray(obj.hgBars) && obj.hgBars.length
+          ? obj.hgBars
+          : legacyN
+            ? Array.from({ length: legacyN }, (_, i) => ({ label: legacyLabels[i] ?? '', freq: legacyFreqs[i] ?? '' }))
+            : [{ label: '', freq: '' }]
+        const updBar = (i, patch) => upd({ hgBars: bars.map((x, j) => j === i ? { ...x, ...patch } : x) })
+        return (
+          <>
+            <div><label className={L}>Title (optional)</label><input className={I} value={obj.hgTitle ?? ''} onChange={e => upd({ hgTitle: e.target.value })} placeholder="e.g. Goals scored per game" /></div>
+            {bars.map((x, i) => (
+              <div key={i} className="grid grid-cols-[1fr_90px_20px] gap-1.5 items-end">
+                <div>{i === 0 && <label className={L}>Bar label (x-axis)</label>}<input className={I} value={x.label ?? ''} onChange={e => updBar(i, { label: e.target.value })} placeholder={'e.g. 0–4 or ' + (i + 1)} /></div>
+                <div>{i === 0 && <label className={L}>Frequency</label>}<input className={I} type="text" inputMode="numeric" value={x.freq ?? ''} onChange={e => updBar(i, { freq: e.target.value })} placeholder="0" /></div>
+                <button type="button" onClick={() => upd({ hgBars: bars.filter((_, j) => j !== i) })} disabled={bars.length === 1}
+                  title="Remove this bar" className="h-7 text-rose-400 hover:text-rose-600 disabled:opacity-20 text-sm">✕</button>
+              </div>
+            ))}
+            <button type="button" onClick={() => upd({ hgBars: [...bars, { label: '', freq: '' }] })}
+              className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add bar</button>
+            <div className="grid grid-cols-2 gap-2">
+              <div><label className={L}>X-axis label (optional)</label><input className={I} value={obj.hgXLabel ?? ''} onChange={e => upd({ hgXLabel: e.target.value })} placeholder="e.g. Score" /></div>
+              <div><label className={L}>Y-axis label</label><input className={I} value={obj.hgYLabel ?? ''} onChange={e => upd({ hgYLabel: e.target.value })} placeholder="Frequency" /></div>
+            </div>
+          </>
+        )
+      })()}
       {obj.objType === 'xytable' && (
         <>
           <div className="flex gap-2 items-end">
@@ -363,7 +382,7 @@ function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y' }
 function MathObjSection({ block, set, blank = true, maths = true, hideAdd = false, objKey = 'mathObj', name = 'maths object' }) {
   const obj = block[objKey]
   const cap = name.charAt(0).toUpperCase() + name.slice(1)
