@@ -290,6 +290,18 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
     const paths   = ab.file_paths?.length ? ab.file_paths : (ab.file_path ? [ab.file_path] : [])
     const names   = ab.pdf_filenames || []
     const label   = ab.is_exam ? ab.booklet_name : (ab.year ? `${ab.year}.${(ab.subject||'')[0]||''}. ${ab.booklet_name}` : ab.booklet_name)
+    // Per-PDF name. Prefer the stored filename; otherwise derive from the file's
+    // role (portal-published copies end in _student / _solutions) so the student
+    // and teacher copies read "<year>.<Subj>S. <title>" and "<year>.<Subj>T. <title>".
+    const pdfNameFor = (path, i) => {
+      if (names[i]) return names[i]
+      const p = (path || '').toLowerCase()
+      const role = /_solutions|_teacher|\.mt\.|solution/.test(p) ? 'T'
+        : /_student|\.ms\.|student/.test(p) ? 'S' : ''
+      const subjInit = (ab.subject || '')[0]?.toUpperCase() || ''
+      if (ab.year && role) return `${ab.year}.${subjInit}${role}. ${ab.booklet_name}`
+      return ab.booklet_name || `Part ${i + 1}`
+    }
 
     return (
       <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
@@ -311,7 +323,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
         ) : paths.length > 0 ? (
           <div className="divide-y divide-[#F0F4FF]">
             {paths.map((path, i) => {
-              const pdfLabel = names[i] || ab.booklet_name || `Part ${i + 1}`
+              const pdfLabel = pdfNameFor(path, i)
               const { data: urlData } = supabase.storage.from('booklets').getPublicUrl(path)
               const url = urlData?.publicUrl
               return (

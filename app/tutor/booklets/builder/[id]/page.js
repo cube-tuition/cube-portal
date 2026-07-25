@@ -384,11 +384,20 @@ export default function BookletBuilderEditor() {
       const studentPath = await upload(false, 'student')
       const solutionsPath = await upload(true, 'solutions')
       const filePaths = [studentPath, solutionsPath]
+      // Name the two copies so student vs solutions (teacher) is clear in the
+      // curriculum: "<year>.<Subj>S. <title>" for the student copy and
+      // "<year>.<Subj>T. <title>" for the teacher copy — e.g. "5.MS. Algebra 1"
+      // and "5.MT. Algebra 1". Order matches filePaths (student, then solutions).
+      const subjInit = (bk.subject || '')[0]?.toUpperCase() || ''
+      const pdfFilenames = [
+        `${bk.year}.${subjInit}S. ${bk.title}`,
+        `${bk.year}.${subjInit}T. ${bk.title}`,
+      ]
       const payload = {
         booklet_name: bk.title, year: Number(bk.year), subject: bk.subject,
         topic: bk.topic || null,
         content: bk.subject === 'Chemistry' ? buildSyllabusContent(bk.blocks) : (bk.content || null),
-        file_path: studentPath, file_paths: filePaths,
+        file_path: studentPath, file_paths: filePaths, pdf_filenames: pdfFilenames,
       }
       let bookletId = bk.booklet_id
       let oldPaths = []
