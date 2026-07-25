@@ -8,6 +8,7 @@ import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../../../../lib/tables'
 import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS, DEFAULT_LT_INSTRUCTIONS, DEFAULT_LT_TOTALS } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
+import { bookletPdfName } from '../../../../../lib/bookletNaming'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
@@ -385,14 +386,10 @@ export default function BookletBuilderEditor() {
       const solutionsPath = await upload(true, 'solutions')
       const filePaths = [studentPath, solutionsPath]
       // Name the two copies so student vs solutions (teacher) is clear in the
-      // curriculum: "<year>.<Subj>S. <title>" for the student copy and
-      // "<year>.<Subj>T. <title>" for the teacher copy — e.g. "5.MS. Algebra 1"
-      // and "5.MT. Algebra 1". Order matches filePaths (student, then solutions).
-      const subjInit = (bk.subject || '')[0]?.toUpperCase() || ''
-      const pdfFilenames = [
-        `${bk.year}.${subjInit}S. ${bk.title}`,
-        `${bk.year}.${subjInit}T. ${bk.title}`,
-      ]
+      // curriculum, e.g. "5.MS. Algebra 1" and "5.MT. Algebra 1". Order matches
+      // filePaths (student, then solutions).
+      const meta2 = { year: bk.year, subject: bk.subject, title: bk.title }
+      const pdfFilenames = [bookletPdfName(meta2, 'S'), bookletPdfName(meta2, 'T')]
       const payload = {
         booklet_name: bk.title, year: Number(bk.year), subject: bk.subject,
         topic: bk.topic || null,

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { T_CLASS_BOOKLETS } from '../lib/tables'
+import { bookletPdfName } from '../lib/bookletNaming'
 import ExamPdfButtons from './ExamPdfButtons'
 
 /*
@@ -292,14 +293,13 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
     const label   = ab.is_exam ? ab.booklet_name : (ab.year ? `${ab.year}.${(ab.subject||'')[0]||''}. ${ab.booklet_name}` : ab.booklet_name)
     // Per-PDF name. Prefer the stored filename; otherwise derive from the file's
     // role (portal-published copies end in _student / _solutions) so the student
-    // and teacher copies read "<year>.<Subj>S. <title>" and "<year>.<Subj>T. <title>".
+    // and teacher copies read "<year>.<code>S. <title>" and "<year>.<code>T. <title>".
     const pdfNameFor = (path, i) => {
       if (names[i]) return names[i]
       const p = (path || '').toLowerCase()
-      const role = /_solutions|_teacher|\.mt\.|solution/.test(p) ? 'T'
-        : /_student|\.ms\.|student/.test(p) ? 'S' : ''
-      const subjInit = (ab.subject || '')[0]?.toUpperCase() || ''
-      if (ab.year && role) return `${ab.year}.${subjInit}${role}. ${ab.booklet_name}`
+      const role = /_solutions|_teacher|\.mt\./.test(p) ? 'T'
+        : /_student|\.ms\./.test(p) ? 'S' : ''
+      if (ab.year && role) return bookletPdfName({ year: ab.year, subject: ab.subject, title: ab.booklet_name }, role)
       return ab.booklet_name || `Part ${i + 1}`
     }
 
