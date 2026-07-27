@@ -258,9 +258,9 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
                     onUpdate(sub.id, prev)
                   })
                 }}
-                className="text-[11px] border border-[#DEE7FF] rounded-full px-2 py-1 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
+                className="min-w-[220px] border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]"
               >
-                <option value="">— not set —</option>
+                <option value="">Select student…</option>
                 <option value="outside">Outside of CUBE</option>
                 {(() => {
                   const { famGroups, singles } = referrerGroups(students || [])
