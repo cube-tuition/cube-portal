@@ -97,12 +97,11 @@ export async function POST(req) {
     const submissionIds = []
 
     for (const subj of subjectList) {
-      const { data: newEnrol } = await sb.from('enrolments').insert({
-        student_id:       student.id,
-        class_id:         null,
-        status:           'trial',
-      }).select('id').single()
-
+      // The submission is written BEFORE its enrolment. The enrolments trigger
+      // (ensure_trial_submission) back-fills a placeholder row for any trial
+      // enrolment that has no submission yet — creating the enrolment first
+      // meant every website submission landed in the pipeline twice. Writing
+      // the real row first lets that guard see it and stand down.
       const { data: submission, error: insertErr } = await sb
         .from('trial_submissions')
         .insert({
@@ -122,7 +121,6 @@ export async function POST(req) {
           notes:                t(notes),
           source,
           converted_student_id: student.id,
-          enrolment_id:         newEnrol?.id || null,
         })
         .select('id')
         .single()
@@ -130,6 +128,18 @@ export async function POST(req) {
       if (insertErr) {
         console.error('[trial-submission] DB error:', insertErr)
         return NextResponse.json({ error: insertErr.message }, { status: 500, headers: CORS })
+      }
+
+      const { data: newEnrol } = await sb.from('enrolments').insert({
+        student_id:       student.id,
+        class_id:         null,
+        status:           'trial',
+      }).select('id').single()
+
+      if (newEnrol?.id) {
+        await sb.from('trial_submissions')
+          .update({ enrolment_id: newEnrol.id })
+          .eq('id', submission.id)
       }
       submissionIds.push(submission.id)
     }
