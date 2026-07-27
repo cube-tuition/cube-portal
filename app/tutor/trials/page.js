@@ -25,10 +25,20 @@ function referrerGroups(students) {
       fams.get(s.family_id).push(s)
     } else singles.push(s)
   }
-  const famGroups = [...fams.values()].map(members => {
+  const famGroups = [...fams.entries()].map(([familyId, members]) => {
     const surname = (members[0].full_name || '').trim().split(' ').slice(-1)[0]
-    return { label: `${surname} family`, members }
-  }).sort((a, b) => a.label.localeCompare(b.label))
+    return { familyId, label: `${surname} family`, members }
+  }).sort((a, b) => a.label.localeCompare(b.label) || (a.familyId - b.familyId))
+  // Same surname twice (two unrelated Kim families): append first names so the
+  // admin can tell them apart, e.g. "Kim family (Samuel, Emily)".
+  const labelCount = {}
+  for (const g of famGroups) labelCount[g.label] = (labelCount[g.label] || 0) + 1
+  for (const g of famGroups) {
+    if (labelCount[g.label] > 1) {
+      const firsts = g.members.map(m => (m.full_name || '').trim().split(' ')[0]).filter(Boolean).join(', ')
+      g.label = `${g.label} (${firsts})`
+    }
+  }
   return { famGroups, singles: singles.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')) }
 }
 
@@ -257,7 +267,7 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
                   return (
                     <>
                       {famGroups.map(g => (
-                        <optgroup key={g.label} label={g.label}>
+                        <optgroup key={g.familyId} label={g.label}>
                           {g.members.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
                         </optgroup>
                       ))}
