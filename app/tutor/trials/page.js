@@ -10,6 +10,27 @@ import { registerUndoAction } from '../../../lib/undo'
 import { HOW_HEARD_CHANNELS, HOW_HEARD_COLORS, HOW_HEARD_UNKNOWN_COLOR, channelStats } from '../../../lib/howHeard'
 import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
+import { logReferralWithCredits } from '../../../lib/referralCredits'
+
+// Students who can be picked as a referrer (an enrolled CUBE family member).
+const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
+
+// Group students into <optgroup> buckets: proper families (shared family_id)
+// first, then family-less students individually.
+function referrerGroups(students) {
+  const fams = new Map(), singles = []
+  for (const s of students) {
+    if (s.family_id != null) {
+      if (!fams.has(s.family_id)) fams.set(s.family_id, [])
+      fams.get(s.family_id).push(s)
+    } else singles.push(s)
+  }
+  const famGroups = [...fams.values()].map(members => {
+    const surname = (members[0].full_name || '').trim().split(' ').slice(-1)[0]
+    return { label: `${surname} family`, members }
+  }).sort((a, b) => a.label.localeCompare(b.label))
+  return { famGroups, singles: singles.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')) }
+}
 
 // ── Channel insights — where enquiries come from & what converts ──────────────
 function ChannelInsights({ submissions }) {
@@ -118,7 +139,7 @@ function StatsBar({ submissions }) {
 }
 
 // ── Trial card ────────────────────────────────────────────────────────────────
-function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
+function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
   const [expanded,     setExpanded]     = useState(false)
   const [editNotes,    setEditNotes]    = useState(false)
   const [notes,        setNotes]        = useState(sub.admin_notes || '')
@@ -201,7 +222,63 @@ function TrialCard({ sub, classes, onUpdate, onConvertDrop }) {
                 <option value="">— not recorded —</option>
                 {HOW_HEARD_CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
-              {sub.referred_by && <span className="text-[11px]">· Referred by <strong>{sub.referred_by}</strong> <span className="text-emerald-700">($50 referral credit applies)</span></span>}
+            </div>
+            {/* Referrer — pick the CUBE family (or mark as outside CUBE). On
+                convert, a family referrer triggers the $50 credit to BOTH
+                families' invoices via lib/referralCredits. */}
+            <div className="col-span-full flex items-center gap-2 flex-wrap">
+              <span className="font-semibold">Referred by:</span>
+              <select
+                value={sub.referrer_outside ? 'outside' : (sub.referrer_student_id || '')}
+                onChange={async e => {
+                  const v = e.target.value
+                  const patch = v === 'outside'
+                    ? { referrer_student_id: null, referrer_outside: true }
+                    : { referrer_student_id: v || null, referrer_outside: false }
+                  // Keep the display/text field in sync when a student is picked.
+                  if (v && v !== 'outside') {
+                    const st = students.find(s => s.id === v)
+                    if (st) patch.referred_by = st.full_name
+                  }
+                  const prev = { referrer_student_id: sub.referrer_student_id ?? null, referrer_outside: !!sub.referrer_outside, referred_by: sub.referred_by ?? null }
+                  await supabase.from('trial_submissions').update(patch).eq('id', sub.id)
+                  onUpdate(sub.id, patch)
+                  registerUndoAction('referrer', async () => {
+                    await supabase.from('trial_submissions').update(prev).eq('id', sub.id)
+                    onUpdate(sub.id, prev)
+                  })
+                }}
+                className="text-[11px] border border-[#DEE7FF] rounded-full px-2 py-1 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
+              >
+                <option value="">— not set —</option>
+                <option value="outside">Outside of CUBE</option>
+                {(() => {
+                  const { famGroups, singles } = referrerGroups(students || [])
+                  return (
+                    <>
+                      {famGroups.map(g => (
+                        <optgroup key={g.label} label={g.label}>
+                          {g.members.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                        </optgroup>
+                      ))}
+                      {singles.length > 0 && (
+                        <optgroup label="Other students">
+                          {singles.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                        </optgroup>
+                      )}
+                    </>
+                  )
+                })()}
+              </select>
+              {sub.referrer_student_id && (
+                <span className="text-[11px] text-emerald-700">
+                  {sub.status === 'enrolled' ? '$50 referral credits applied to both families' : '$50 credit applies to both families on enrolment'}
+                </span>
+              )}
+              {sub.referrer_outside && <span className="text-[11px] text-[#325099]/50">No referral credit (outside CUBE)</span>}
+              {!sub.referrer_student_id && !sub.referrer_outside && sub.referred_by && (
+                <span className="text-[11px] text-[#325099]/60">Form says: <strong>{sub.referred_by}</strong> — pick them above to apply the credit</span>
+              )}
             </div>
           </div>
 
@@ -375,6 +452,7 @@ export default function TrialsPage() {
   const [isAdmin,     setIsAdmin]     = useState(false)
   const [submissions, setSubmissions] = useState([])
   const [classes,     setClasses]     = useState([])
+  const [students,    setStudents]    = useState([])
   const [loading,     setLoading]     = useState(true)
   const [filterStage, setFilterStage] = useState('all')
   const [search,      setSearch]      = useState('')
@@ -399,15 +477,20 @@ export default function TrialsPage() {
     const term = getEnrolmentTerm(await fetchAllTerms())
     const classCols = 'id, class_name, day_of_week, start_time, course_id'
     const classQuery = term?.id ? classesForTerm(term.id, classCols) : classesAllTerms(classCols)
-    const [subRes, classRes] = await Promise.all([
+    const [subRes, classRes, studentRes] = await Promise.all([
       supabase
         .from('trial_submissions')
         .select('*')
         .order('submitted_at', { ascending: false }),
       classQuery,
+      supabase
+        .from('students')
+        .select('id, full_name, family_id, status')
+        .order('full_name'),
     ])
     setSubmissions(subRes.data || [])
     setClasses(classRes.data || [])
+    setStudents((studentRes.data || []).filter(s => !REFERRER_EXCLUDED_STATUSES.includes((s.status || '').toLowerCase())))
     setLoading(false)
   }, [])
 
@@ -425,6 +508,32 @@ export default function TrialsPage() {
       }
       await supabase.from('trial_submissions').update({ status: 'enrolled', converted_at: new Date().toISOString() }).eq('id', id)
       setSubmissions(prev => prev.map(s => s.id === id ? { ...s, status: 'enrolled' } : s))
+
+      // Referral credit: if a CUBE family referred this student, apply $50 to
+      // BOTH families' invoices (shared rules in lib/referralCredits; skips
+      // automatically if a referral was already logged for this student).
+      const { data: fresh } = await supabase.from('trial_submissions')
+        .select('referrer_student_id, referrer_outside, student_name').eq('id', id).maybeSingle()
+      if (fresh?.referrer_student_id && !fresh.referrer_outside) {
+        if (!studentId) {
+          alert('Referral credit NOT applied: this trial has no linked student record yet. Log the referral from the Invoices page once the student exists.')
+        } else {
+          try {
+            const res = await logReferralWithCredits({
+              referringStudentId: fresh.referrer_student_id,
+              referredStudentId: studentId,
+              referredFirstName: (fresh.student_name || '').split(' ')[0],
+            })
+            if (res.skipped) {
+              // Already credited earlier — nothing to do.
+            } else {
+              alert(`Referral credits applied: $50 to the new family (${res.referredApplied ? 'on their current invoice' : 'held for their next invoice'}) and $50 to the referring family (${res.referringApplied ? 'on their draft invoice' : 'held for their next invoice'}).`)
+            }
+          } catch (e) {
+            alert('Enrolment converted, but the referral credit failed: ' + e.message + '\nYou can log it manually from the Invoices page.')
+          }
+        }
+      }
     } else {
       if (studentId) {
         await supabase.from('enrolments').update({ status: 'disenrol' }).eq('student_id', studentId)
@@ -533,6 +642,7 @@ export default function TrialsPage() {
                     key={sub.id}
                     sub={sub}
                     classes={classes}
+                    students={students}
                     onUpdate={handleUpdate}
                     onConvertDrop={handleConvertDrop}
                   />
