@@ -11,6 +11,7 @@ import { HOW_HEARD_CHANNELS, HOW_HEARD_COLORS, HOW_HEARD_UNKNOWN_COLOR, channelS
 import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { logReferralWithCredits } from '../../../lib/referralCredits'
+import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
@@ -155,6 +156,7 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
   const [notes,        setNotes]        = useState(sub.admin_notes || '')
   const [saving,       setSaving]       = useState(false)
   const [confirmAction, setConfirmAction] = useState(null) // 'convert' | 'drop' | null
+  const [refPicker,    setRefPicker]    = useState(null) // { rect } → referrer popover open
   const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
   const age   = daysSince(sub.submitted_at)
   const stale = ['new','contacted'].includes(sub.status) && age > 7
@@ -238,48 +240,53 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
                 families' invoices via lib/referralCredits. */}
             <div className="col-span-full flex items-center gap-2 flex-wrap">
               <span className="font-semibold">Referred by:</span>
-              <select
-                value={sub.referrer_outside ? 'outside' : (sub.referrer_student_id || '')}
-                onChange={async e => {
-                  const v = e.target.value
-                  const patch = v === 'outside'
-                    ? { referrer_student_id: null, referrer_outside: true }
-                    : { referrer_student_id: v || null, referrer_outside: false }
-                  // Keep the display/text field in sync when a student is picked.
-                  if (v && v !== 'outside') {
-                    const st = students.find(s => s.id === v)
-                    if (st) patch.referred_by = st.full_name
-                  }
-                  const prev = { referrer_student_id: sub.referrer_student_id ?? null, referrer_outside: !!sub.referrer_outside, referred_by: sub.referred_by ?? null }
-                  await supabase.from('trial_submissions').update(patch).eq('id', sub.id)
-                  onUpdate(sub.id, patch)
-                  registerUndoAction('referrer', async () => {
-                    await supabase.from('trial_submissions').update(prev).eq('id', sub.id)
-                    onUpdate(sub.id, prev)
-                  })
-                }}
-                className="min-w-[220px] border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]"
+              <button
+                type="button"
+                onClick={e => setRefPicker({ rect: e.currentTarget.getBoundingClientRect() })}
+                className="min-w-[220px] text-left border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs bg-white hover:border-[#325099] focus:outline-none focus:border-[#325099] flex items-center justify-between gap-2"
               >
-                <option value="">Select student…</option>
-                <option value="outside">Outside of CUBE</option>
-                {(() => {
-                  const { famGroups, singles } = referrerGroups(students || [])
-                  return (
-                    <>
-                      {famGroups.map(g => (
-                        <optgroup key={g.familyId} label={g.label}>
-                          {g.members.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                        </optgroup>
-                      ))}
-                      {singles.length > 0 && (
-                        <optgroup label="Other students">
-                          {singles.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                        </optgroup>
-                      )}
-                    </>
-                  )
-                })()}
-              </select>
+                <span className={sub.referrer_outside || sub.referrer_student_id ? 'text-[#2A2035] font-semibold' : 'text-[#2A2035]/40'}>
+                  {sub.referrer_outside
+                    ? 'Outside of CUBE'
+                    : (students.find(s => s.id === sub.referrer_student_id)?.full_name || 'Select student…')}
+                </span>
+                <span className="text-[#2A2035]/30">▾</span>
+              </button>
+              {refPicker && (
+                <SearchSelectPopover
+                  anchor={refPicker.rect}
+                  placeholder="Search student or family…"
+                  clearLabel="— not set —"
+                  options={(() => {
+                    const { famGroups, singles } = referrerGroups(students || [])
+                    return [
+                      { value: 'outside', label: 'Outside of CUBE', sub: 'Referrer isn’t a CUBE family — no credit' },
+                      ...famGroups.flatMap(g => g.members.map(s => ({ value: s.id, label: s.full_name, sub: g.label }))),
+                      ...singles.map(s => ({ value: s.id, label: s.full_name, sub: 'No family linked' })),
+                    ]
+                  })()}
+                  currentValue={sub.referrer_outside ? 'outside' : (sub.referrer_student_id || '')}
+                  onClose={() => setRefPicker(null)}
+                  onSelect={async v => {
+                    setRefPicker(null)
+                    const patch = v === 'outside'
+                      ? { referrer_student_id: null, referrer_outside: true }
+                      : { referrer_student_id: v || null, referrer_outside: false }
+                    // Keep the display/text field in sync when a student is picked.
+                    if (v && v !== 'outside') {
+                      const st = students.find(s => s.id === v)
+                      if (st) patch.referred_by = st.full_name
+                    }
+                    const prev = { referrer_student_id: sub.referrer_student_id ?? null, referrer_outside: !!sub.referrer_outside, referred_by: sub.referred_by ?? null }
+                    await supabase.from('trial_submissions').update(patch).eq('id', sub.id)
+                    onUpdate(sub.id, patch)
+                    registerUndoAction('referrer', async () => {
+                      await supabase.from('trial_submissions').update(prev).eq('id', sub.id)
+                      onUpdate(sub.id, prev)
+                    })
+                  }}
+                />
+              )}
               {sub.referrer_student_id && (
                 <span className="text-[11px] text-emerald-700">
                   {sub.status === 'enrolled' ? '$50 referral credits applied to both families' : '$50 credit applies to both families on enrolment'}
