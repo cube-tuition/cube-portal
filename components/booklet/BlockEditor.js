@@ -100,7 +100,7 @@ function StimulusLibraryPicker({ onPick, current }) {
     if (next && texts === null) {
       const { data } = await supabase
         .from('stimulus_texts')
-        .select('id, title, source, text_type, year, body')
+        .select('id, title, source, text_type, year, body, two_col')
         .order('updated_at', { ascending: false })
       setTexts(data || [])
     }
@@ -115,8 +115,8 @@ function StimulusLibraryPicker({ onPick, current }) {
     setSaveState('saving')
     const { data, error } = await supabase
       .from('stimulus_texts')
-      .insert({ title, source: (current?.source || '').trim() || null, text_type: 'Other', body: current.body })
-      .select('id, title, source, text_type, year, body')
+      .insert({ title, source: (current?.source || '').trim() || null, text_type: 'Other', body: current.body, two_col: !!current?.twoCol })
+      .select('id, title, source, text_type, year, body, two_col')
       .single()
     if (error) { setSaveState(''); alert('Could not save to the library: ' + error.message); return }
     setTexts(ts => (ts === null ? ts : [data, ...ts]))
@@ -685,7 +685,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'stimulus':
       return (
         <div className="space-y-2.5">
-          <StimulusLibraryPicker onPick={(t) => set({ title: t.title || '', source: t.source || '', body: t.body || '' })} current={{ title: block.title, source: block.source, body: block.body }} />
+          <StimulusLibraryPicker onPick={(t) => set({ title: t.title || '', source: t.source || '', body: t.body || '', twoCol: !!t.two_col })} current={{ title: block.title, source: block.source, body: block.body, twoCol: block.twoCol }} />
           <div className="grid grid-cols-2 gap-2">
             <div><label className={L}>Title (optional)</label><input className={I} value={block.title || ''} onChange={e => set({ title: e.target.value })} placeholder="e.g. Mother to Son" /></div>
             <div><label className={L}>Source / author (optional)</label><input className={I} value={block.source || ''} onChange={e => set({ source: e.target.value })} placeholder="e.g. Langston Hughes, 1922" /></div>

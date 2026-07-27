@@ -35,6 +35,7 @@ function TextEditorModal({ text, onClose, onSaved }) {
     year: text?.year ?? '',
     body: text?.body || '',
     notes: text?.notes || '',
+    two_col: text?.two_col || false,
   })
   const [saving, setSaving] = useState(false)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
@@ -49,6 +50,7 @@ function TextEditorModal({ text, onClose, onSaved }) {
       year: form.year === '' ? null : Number(form.year),
       body: form.body,
       notes: form.notes.trim() || null,
+      two_col: !!form.two_col,
       updated_at: new Date().toISOString(),
     }
     const { error } = text?.id
@@ -92,6 +94,10 @@ function TextEditorModal({ text, onClose, onSaved }) {
             <label className={LBL}>Text — line breaks are kept exactly (paste verse as-is; a blank line makes a stanza gap)</label>
             <textarea className={INP + ' font-mono text-[13px] resize-y'} rows={12} value={form.body} onChange={set('body')} />
           </div>
+          <label className="flex items-center gap-2 text-[12px] font-semibold text-[#325099] cursor-pointer select-none">
+            <input type="checkbox" checked={!!form.two_col} onChange={(e) => setForm((f) => ({ ...f, two_col: e.target.checked }))} className="accent-[#325099]" />
+            Lay out in two columns (good for long poems — stanzas flow across two columns)
+          </label>
           <div><label className={LBL}>Notes (internal — e.g. which classes it suits, question angles)</label>
             <textarea className={INP + ' resize-y'} rows={2} value={form.notes} onChange={set('notes')} /></div>
         </div>
@@ -199,6 +205,7 @@ export default function TextsStimuliPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${TYPE_CLS[t.text_type] || TYPE_CLS.Other}`}>{t.text_type}</span>
                   {t.year && <span className="text-[10px] text-[#2A2035]/40 font-semibold">Year {t.year}</span>}
+                  {t.two_col && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-[#BACBFF] bg-[#EEF4FF] text-[#325099]" title="Lays out in two columns">▍▍ 2-col</span>}
                   <span className="text-sm font-bold text-[#062E63]">{t.title}</span>
                   {t.source && <span className="text-xs italic text-[#2A2035]/45">— {t.source}</span>}
                   <div className="ml-auto flex items-center gap-2">
