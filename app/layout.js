@@ -1,6 +1,7 @@
 import { Outfit, Inter } from "next/font/google";
 import "./globals.css";
 import NoNumberScroll from "../components/NoNumberScroll";
+import NativePushRegistrar from "../components/NativePushRegistrar";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -15,6 +16,7 @@ const inter = Inter({
 export const metadata = {
   title: "CUBE Tuition · Student Portal",
   description: "Track your results, sign in to drop-in help, and access your booklets.",
+  manifest: "/manifest.webmanifest",
 };
 
 export default function RootLayout({ children }) {
@@ -25,6 +27,7 @@ export default function RootLayout({ children }) {
     >
       <body className="min-h-full flex flex-col">
         <NoNumberScroll />
+        <NativePushRegistrar />
         {children}
       </body>
     </html>

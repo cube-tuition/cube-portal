@@ -42,3 +42,9 @@ next-env.d.ts
 
 # build output
 /tmp/
+
+# Native app secrets — never commit (Firebase / APNs credentials)
+android/app/google-services.json
+ios/App/App/GoogleService-Info.plist
+*.p8
+*.keystore

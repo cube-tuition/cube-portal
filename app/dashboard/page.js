@@ -58,7 +58,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user ?? null
       if (!requireStudent(user, router)) return
       setAuthedUser(user)
 

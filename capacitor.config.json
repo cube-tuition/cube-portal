@@ -1,0 +1,27 @@
+{
+  "appId": "au.com.cubetuition.portal",
+  "appName": "CUBE Tuition",
+  "webDir": "capacitor-shell",
+  "server": {
+    "url": "https://portal.cubetuition.com.au",
+    "allowNavigation": ["portal.cubetuition.com.au", "*.supabase.co"]
+  },
+  "ios": {
+    "contentInset": "always"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "launchAutoHide": true,
+      "backgroundColor": "#F8FAFF",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#FFFFFF"
+    }
+  }
+}

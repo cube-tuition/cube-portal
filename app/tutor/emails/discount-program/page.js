@@ -122,7 +122,8 @@ export default function DiscountProgramEmailPage() {
   const sendTest = async () => {
     setTesting(true); setError(null); setTestSentTo(null)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user ?? null
       const email = user?.email || profile?.email
       if (!email) throw new Error('Could not determine your email address.')
       const res = await authedFetch('/api/send-discount-program-emails', {
