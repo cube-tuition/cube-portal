@@ -505,8 +505,47 @@ export default function TrialsPage() {
         .select('id, full_name, family_id, status')
         .order('full_name'),
     ])
-    setSubmissions(subRes.data || [])
-    setClasses(classRes.data || [])
+    const subs = subRes.data || []
+    let classList = classRes.data || []
+
+    // The class can be (re)assigned on the ENROLMENT row in the database
+    // explorer, which leaves trial_submissions.trial_class_id stale — and the
+    // "Assign class" dropdown looking empty. Read each trial's live enrolment
+    // class, prefer it, and heal the submission row so the two stay in sync.
+    const enrolIds = subs.map(s => s.enrolment_id).filter(Boolean)
+    const studentIds = subs.filter(s => !s.enrolment_id && s.converted_student_id).map(s => s.converted_student_id)
+    const [byId, byStudent] = await Promise.all([
+      enrolIds.length ? supabase.from('enrolments').select('id, class_id').in('id', enrolIds) : Promise.resolve({ data: [] }),
+      studentIds.length ? supabase.from('enrolments').select('student_id, class_id').in('student_id', studentIds).in('status', ['trial', 'trial complete']) : Promise.resolve({ data: [] }),
+    ])
+    const classByEnrol = Object.fromEntries((byId.data || []).map(r => [r.id, r.class_id]))
+    const classByStudent = {}
+    for (const r of (byStudent.data || [])) if (!(r.student_id in classByStudent)) classByStudent[r.student_id] = r.class_id
+    const healed = []
+    const merged = subs.map(s => {
+      const live = s.enrolment_id
+        ? classByEnrol[s.enrolment_id]
+        : (s.converted_student_id ? classByStudent[s.converted_student_id] : undefined)
+      // undefined = no enrolment row found; null = enrolment exists with no class
+      if (live !== undefined && live !== s.trial_class_id) {
+        healed.push({ id: s.id, val: live })
+        return { ...s, trial_class_id: live }
+      }
+      return s
+    })
+    for (const h of healed) supabase.from('trial_submissions').update({ trial_class_id: h.val }).eq('id', h.id).then(() => {})
+
+    // A live class can sit outside the enrolment-term list (assigned in the
+    // explorer for another term) — fetch those so the dropdown can show them.
+    const known = new Set(classList.map(c => c.id))
+    const missing = [...new Set(merged.map(s => s.trial_class_id).filter(id => id != null && !known.has(id)))]
+    if (missing.length) {
+      const { data: extra } = await supabase.from('classes').select(classCols).in('id', missing)
+      classList = [...classList, ...(extra || [])]
+    }
+
+    setSubmissions(merged)
+    setClasses(classList)
     setStudents((studentRes.data || []).filter(s => !REFERRER_EXCLUDED_STATUSES.includes((s.status || '').toLowerCase())))
     setLoading(false)
   }, [])
