@@ -694,6 +694,10 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
             <label className={L}>Text</label>
             <textarea className={TA} rows={10} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Well, son, I’ll tell you:\nLife for me ain’t been no crystal stair.\n…'} />
           </div>
+          <label className="flex items-center gap-2 text-[11px] font-semibold text-[#325099] cursor-pointer select-none">
+            <input type="checkbox" checked={!!block.twoCol} onChange={e => set({ twoCol: e.target.checked })} className="accent-[#325099]" />
+            Two columns (good for long poems — stanzas flow into two columns)
+          </label>
           <ImageField value={block.image} onChange={v => set({ image: v })} />
         </div>
       )
