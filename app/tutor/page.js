@@ -12,7 +12,6 @@ import { buildClassLabelMap } from '../../lib/classLabels'
 import ActionCentre from '../../components/ActionCentre'
 import TrialFunnel from '../../components/home/TrialFunnel'
 import CapacityBoard from '../../components/home/CapacityBoard'
-import AtRiskWatchlist from '../../components/home/AtRiskWatchlist'
 import CommandPalette from '../../components/home/CommandPalette'
 
 /*
@@ -396,12 +395,11 @@ export default function TutorHome() {
             doesn't even mount it or run its checks) */}
         {isAdmin && <ActionCentre authorized />}
 
-        {/* Director insight widgets — pipeline, capacity, retention */}
+        {/* Director insight widgets — pipeline, capacity */}
         {isAdmin && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
             <TrialFunnel />
             <CapacityBoard classes={classes} currentTermId={currentTerm?.id} classLabelMap={classLabelMap} />
-            <AtRiskWatchlist currentTerm={currentTerm} />
           </div>
         )}
 
