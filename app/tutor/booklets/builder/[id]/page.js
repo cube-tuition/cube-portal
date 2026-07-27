@@ -551,7 +551,7 @@ export default function BookletBuilderEditor() {
           <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
-      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} isMaths={isMathsSubj} syllabus={chemSyllabus} />
+      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} />
     </div>
     )
   }

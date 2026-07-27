@@ -703,6 +703,34 @@ function MasterDatabaseInner() {
     setBuilds(bs => bs.filter(x => x.id !== wb.id))
   }
 
+  // Duplicate an existing workbook build into a fresh, unlinked draft — e.g. copy
+  // the Year 5 booklet and adjust it into a Year 6 one, without rebuilding it. The
+  // copy keeps all content (blocks, cover, topic, doc type) but starts as a draft
+  // with no booklet_id, so you set its year/title in the builder and save it as a
+  // new curriculum booklet.
+  const [duplicating, setDuplicating] = useState(null)
+  const duplicateWorkbook = async (sourceId) => {
+    setDuplicating(sourceId)
+    // The list rows omit blocks/cover/etc., so pull the full source row first.
+    const { data: src, error: e1 } = await supabase.from('booklet_builds')
+      .select('title, year, subject, topic, blocks, doc_type, cover, syllabus_points, content, qbank_topic_ids')
+      .eq('id', sourceId).single()
+    if (e1 || !src) { setDuplicating(null); alert('Could not read the source workbook: ' + (e1?.message || 'not found')); return }
+    const { data, error } = await supabase.from('booklet_builds')
+      .insert({
+        title: `${src.title || 'Untitled workbook'} (copy)`,
+        year: src.year, subject: src.subject, topic: src.topic || null,
+        blocks: src.blocks || [], doc_type: src.doc_type || 'booklet',
+        cover: src.cover ?? null, syllabus_points: src.syllabus_points ?? [],
+        content: src.content ?? null, qbank_topic_ids: src.qbank_topic_ids ?? null,
+        status: 'draft', booklet_id: null,
+      })
+      .select('id').single()
+    setDuplicating(null)
+    if (error) { alert('Could not duplicate the workbook: ' + error.message); return }
+    router.push(`/tutor/booklets/builder/${data.id}`)
+  }
+
   useEffect(() => { if (staff) load() }, [staff, load])
 
   // Subjects for a year, narrowed to the hub scope when one is active.
@@ -936,6 +964,7 @@ function MasterDatabaseInner() {
                   </button>
                   <div className="flex items-center gap-3 shrink-0 text-[11px]">
                     <button onClick={() => router.push(`/tutor/booklets/builder/${wb.id}`)} className="font-semibold text-[#325099] hover:underline">Open →</button>
+                    <button onClick={() => duplicateWorkbook(wb.id)} disabled={duplicating === wb.id} className="text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-40" title="Copy this workbook into a new draft (e.g. for another year)">{duplicating === wb.id ? 'Duplicating…' : 'Duplicate'}</button>
                     <button onClick={() => deleteWorkbook(wb)} className="text-[#2A2035]/40 hover:text-rose-500">Delete</button>
                   </div>
                 </div>
@@ -1076,14 +1105,24 @@ function MasterDatabaseInner() {
                                 linked draft is created on first open. */}
                             <td className="px-5 py-3">
                               {buildByBookletId[b.id] ? (
-                                <button
-                                  onClick={() => router.push(`/tutor/booklets/builder/${buildByBookletId[b.id].id}`)}
-                                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80"
-                                  style={{ background: accentBg, color: accentColor }}
-                                  title="Open this workbook in the builder"
-                                >
-                                  Open builder ↗
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => router.push(`/tutor/booklets/builder/${buildByBookletId[b.id].id}`)}
+                                    className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80"
+                                    style={{ background: accentBg, color: accentColor }}
+                                    title="Open this workbook in the builder"
+                                  >
+                                    Open builder ↗
+                                  </button>
+                                  <button
+                                    onClick={() => duplicateWorkbook(buildByBookletId[b.id].id)}
+                                    disabled={duplicating === buildByBookletId[b.id].id}
+                                    className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40"
+                                    title="Duplicate this workbook into a new draft (e.g. for another year)"
+                                  >
+                                    {duplicating === buildByBookletId[b.id].id ? 'Duplicating…' : 'Duplicate'}
+                                  </button>
+                                </div>
                               ) : (
                                 <button
                                   onClick={() => openInBuilder(b)}

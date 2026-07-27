@@ -4,12 +4,25 @@ import { useEffect, useState, useRef } from 'react'
 import { coverHtml, levelTestCoverHtml, testTotalMarks, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems } from '../../lib/bookletRender'
 
 // Right-hand footer label for a doc. Level tests read "Year N Level test".
+// Footer right-hand label. The subject name is spelled out from the stored
+// subject (e.g. "Maths"/"Adv Maths" → "Mathematics", "English", "Chemistry")
+// so an English booklet reads "English Booklet", not "Mathematics Booklet".
+function subjectLabel(s) {
+  const v = String(s || '').trim()
+  if (!v) return 'Mathematics'
+  if (/english/i.test(v)) return 'English'
+  if (/chem/i.test(v)) return 'Chemistry'
+  if (/phys/i.test(v)) return 'Physics'
+  if (/math/i.test(v)) return 'Mathematics'
+  return v
+}
 function footerLabelFor(meta, { homework, quiz } = {}) {
   if (meta?.docType === 'pre_test') return `${meta.year ? `Year ${meta.year} ` : ''}Pre-test`
   if (meta?.docType === 'level_test') return `${meta.year ? `Year ${meta.year} ` : ''}Level test`
-  if (quiz) return 'Mathematics Revision Quiz'
-  if (homework) return 'Mathematics Homework'
-  return 'Mathematics Booklet'
+  const subject = subjectLabel(meta?.subject)
+  if (quiz) return `${subject} Revision Quiz`
+  if (homework) return `${subject} Homework`
+  return `${subject} Booklet`
 }
 
 /*
@@ -90,6 +103,31 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
     const result = []
     let cur = newPage(); result.push(cur)
     let countOnPage = 0
+    // Place a multi-part question one chunk (part) at a time: start a new page
+    // before any part explicitly marked "start on a new page" (data-break) and
+    // whenever the current part would overflow the page.
+    const placeChunks = (it) => {
+      for (const ch of it.chunks) {
+        const t2 = document.createElement('div')
+        t2.innerHTML = ch
+        const cel = t2.firstElementChild
+        if (!cel) continue
+        if (cel.getAttribute('data-break') === '1' && countOnPage > 0) {
+          cur = newPage(); result.push(cur); countOnPage = 0
+        }
+        cur.inner.appendChild(cel)
+        if (cur.page.scrollHeight > PAGE_H && countOnPage > 0) {
+          cur.inner.removeChild(cel)
+          cur = newPage(); result.push(cur)
+          cur.inner.appendChild(cel)
+          countOnPage = 0
+        }
+        if (it.homework) cur.homework = true
+        if (it.quiz) cur.quiz = true
+        cur.html.push(ch)
+        countOnPage++
+      }
+    }
     for (const it of items) {
       const tmp = document.createElement('div')
       tmp.innerHTML = it.html
@@ -98,6 +136,9 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
       if (it.pageBreakBefore && countOnPage > 0) {
         cur = newPage(); result.push(cur); countOnPage = 0
       }
+      // A question that asks to break before one of its parts is always split
+      // into per-part chunks (not only when it overflows).
+      if (it.forceChunks && it.chunks) { placeChunks(it); continue }
       cur.inner.appendChild(el)
       if (cur.page.scrollHeight > PAGE_H && countOnPage > 0) {
         cur.inner.removeChild(el)
@@ -110,23 +151,7 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
       // stretching the page.
       if (cur.page.scrollHeight > PAGE_H && it.chunks) {
         cur.inner.removeChild(el)
-        for (const ch of it.chunks) {
-          const t2 = document.createElement('div')
-          t2.innerHTML = ch
-          const cel = t2.firstElementChild
-          if (!cel) continue
-          cur.inner.appendChild(cel)
-          if (cur.page.scrollHeight > PAGE_H && countOnPage > 0) {
-            cur.inner.removeChild(cel)
-            cur = newPage(); result.push(cur)
-            cur.inner.appendChild(cel)
-            countOnPage = 0
-          }
-          if (it.homework) cur.homework = true
-          if (it.quiz) cur.quiz = true
-          cur.html.push(ch)
-          countOnPage++
-        }
+        placeChunks(it)
         continue
       }
       if (it.homework) cur.homework = true
@@ -158,7 +183,7 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
             <div className="bk-content">
               <p style={{ color: '#9aa3b2', fontSize: 15, textAlign: 'center', marginTop: 80 }}>Add blocks to see your booklet here.</p>
             </div>
-            <div dangerouslySetInnerHTML={{ __html: footerHtml(2) }} />
+            <div dangerouslySetInnerHTML={{ __html: footerHtml(2, footerLabelFor(meta)) }} />
           </div>
         ) : (
           pages.map((pg, i) => (

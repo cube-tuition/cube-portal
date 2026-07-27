@@ -278,14 +278,19 @@ function MathObjFields({ obj, upd }) {
             <div><label className={L}>x per square</label><input className={I} value={obj.xStep ?? ''} onChange={e => upd({ xStep: e.target.value })} placeholder="1" /></div>
             <div><label className={L}>y per square</label><input className={I} value={obj.yStep ?? ''} onChange={e => upd({ yStep: e.target.value })} placeholder="1" /></div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
               <input type="checkbox" checked={obj.grid !== false} onChange={e => upd({ grid: e.target.checked })} className="accent-[#325099]" />
               Show gridlines
             </label>
             <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
               <input type="checkbox" checked={obj.intercepts !== false} onChange={e => upd({ intercepts: e.target.checked })} className="accent-[#325099]" />
-              Show intercept labels
+              Show axis numbers
+            </label>
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none"
+              title="The (0, b) / (x, 0) coordinate points where a line crosses the axes. Untick so students read the gradient off the gridlines themselves.">
+              <input type="checkbox" checked={obj.interceptLabels !== false} onChange={e => upd({ interceptLabels: e.target.checked })} className="accent-[#325099]" />
+              Show intercept points
             </label>
           </div>
           <PointRows rows={toPointRows(obj.points)} onChange={points => upd({ points })} />
@@ -404,7 +409,27 @@ function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true }
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true }
+// A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
+const EMPTY_TABLE = () => ({ headerRow: false, width: '', align: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
+
+// Attach/edit/remove an optional table embedded in a block (block.table).
+// Mirrors the maths-object / blank-space "＋ Add" affordances.
+function EmbeddedTableSection({ block, set }) {
+  const t = block.table
+  if (!t) return (
+    <button type="button" onClick={() => set({ table: EMPTY_TABLE() })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add table</button>
+  )
+  return (
+    <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-[#325099]">Table</span>
+        <button type="button" onClick={() => set({ table: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+      </div>
+      <TableEditor block={t} set={patch => set({ table: { ...t, ...patch } })} />
+    </div>
+  )
+}
 function MathObjSection({ block, set, blank = true, maths = true, hideAdd = false, objKey = 'mathObj', name = 'maths object' }) {
   const obj = block[objKey]
   const cap = name.charAt(0).toUpperCase() + name.slice(1)
@@ -558,8 +583,11 @@ function TwoColField({ block, set }) {
   )
 }
 
-export default function BlockEditor({ block, onChange, isChem = false, isMaths = true, syllabus = [] }) {
+export default function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [] }) {
   const set = (patch) => onChange({ ...block, ...patch })
+  // Maths workbook/homework don't print marks (only the revision quiz does), so
+  // hide the Marks input there — but always show it in the revision quiz.
+  const showMarks = !hideMarks || block.section === 'revision'
 
   switch (block.type) {
     case 'section':
@@ -582,6 +610,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} maths={isMaths} />
+          <EmbeddedTableSection block={block} set={set} />
         </div>
       )
     case 'note':
@@ -590,6 +619,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (“- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Common mistakes:\n- Using diameter instead of radius\n- Forgetting to square the radius'} /></div>
           <TwoColField block={block} set={set} />
           <MathObjSection block={block} set={set} maths={isMaths} />
+          <EmbeddedTableSection block={block} set={set} />
         </div>
       )
     case 'definition':
@@ -600,6 +630,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} maths={isMaths} />
+          <EmbeddedTableSection block={block} set={set} />
         </div>
       )
     case 'worked':
@@ -610,6 +641,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} maths={isMaths} />
+          <EmbeddedTableSection block={block} set={set} />
         </div>
       )
     case 'steps':
@@ -618,6 +650,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <div><label className={L}>Title (optional — shown above the steps)</label><input className={I} value={block.heading || ''} onChange={e => set({ heading: e.target.value })} onKeyDown={e => onInlineKey(e, block.heading || '', v => set({ heading: v }))} placeholder="e.g. Solving a two-step equation" /></div>
           <div><label className={L}>Steps — one per line (auto-numbered)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Read the question carefully\nIdentify what is being asked\nChoose the correct formula\nSubstitute and solve'} /></div>
           <MathObjSection block={block} set={set} maths={isMaths} />
+          <EmbeddedTableSection block={block} set={set} />
         </div>
       )
     case 'image':
@@ -646,6 +679,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <div><label className={L}>Explanation (paragraphs, “- ” bullets, $…$ maths, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} /></div>
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
+          <EmbeddedTableSection block={block} set={set} />
         </div>
       )
     case 'stimulus':
@@ -667,7 +701,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
       return (
         <div className="space-y-2.5">
           <div><label className={L}>Question prompt</label><textarea className={TA} value={block.prompt} onChange={e => set({ prompt: e.target.value })} onKeyDown={e => onTextKey(e, block.prompt, v => set({ prompt: v }))} placeholder="Find the area of the following:" /></div>
-          <div className="grid grid-cols-[1fr_90px] gap-2 items-end">
+          <div className={showMarks ? 'grid grid-cols-[1fr_90px] gap-2 items-end' : ''}>
             <div className="flex items-end gap-3">
               <ImageField value={block.image} onChange={v => set({ image: v })} />
               {isMaths && !block.mathObj && (
@@ -677,17 +711,19 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
                 </button>
               )}
             </div>
-            <div><label className={L}>Marks</label><input className={I} value={block.marks} onChange={e => set({ marks: e.target.value })} placeholder="" /></div>
+            {showMarks && <div><label className={L}>Marks</label><input className={I} value={block.marks} onChange={e => set({ marks: e.target.value })} placeholder="" /></div>}
           </div>
           <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
-          <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} maths={isMaths} />
+          <EmbeddedTableSection block={block} set={set} />
+          <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} maths={isMaths} showMarks={showMarks} />
           {/* The question-level solution only applies to single questions; with
               parts, each part carries its own solution. */}
           {!(block.parts && block.parts.length) && (
             <>
               <div><label className={L}>Sample solution / answer (shown in Solutions copy)</label><textarea className={TA} value={block.solution} onChange={e => set({ solution: e.target.value })} onKeyDown={e => onTextKey(e, block.solution, v => set({ solution: v }))} placeholder={'a. 320 cm²\nb. 90 mm²'} /></div>
               <ImageField label="Solution diagram / image (Solutions copy)" value={block.solutionImage || ''} onChange={v => set({ solutionImage: v })} />
+              <MathObjSection block={block} set={set} blank={false} maths={isMaths} objKey="solutionMathObj" name="solution graph" />
               <AnswerSpace holder={block} patch={set} dflt={6} maths={isMaths} />
             </>
           )}
@@ -721,6 +757,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
             )}
           </div>
           <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
+          <EmbeddedTableSection block={block} set={set} />
           <div>
             <label className={L}>Options</label>
             <div className="space-y-1.5">
@@ -738,16 +775,16 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-[110px_90px_1fr] gap-2">
+          <div className={showMarks ? 'grid grid-cols-[110px_90px] gap-2' : 'grid grid-cols-[110px] gap-2'}>
             <div><label className={L}>Correct</label>
               <select className={I} value={block.answer} onChange={e => set({ answer: e.target.value })}>
                 <option value="">—</option>
                 {opts.map(o => <option key={o.k} value={o.k}>{o.k}</option>)}
               </select>
             </div>
-            <div><label className={L}>Marks</label><input className={I} value={block.marks ?? ''} onChange={e => set({ marks: e.target.value })} placeholder="1" /></div>
-            <div><label className={L}>Explanation (Solutions copy)</label><input className={I} value={block.explanation} onChange={e => set({ explanation: e.target.value })} onKeyDown={e => onInlineKey(e, block.explanation, v => set({ explanation: v }))} /></div>
+            {showMarks && <div><label className={L}>Marks</label><input className={I} value={block.marks ?? ''} onChange={e => set({ marks: e.target.value })} placeholder="1" /></div>}
           </div>
+          <div><label className={L}>Explanation (Solutions copy) — press Enter for a new paragraph</label><textarea className={TA} value={block.explanation} onChange={e => set({ explanation: e.target.value })} onKeyDown={e => onTextKey(e, block.explanation, v => set({ explanation: v }))} placeholder={'Because 20 − 12 ÷ 4 = 20 − 3 = 17.\n\nRemember: division comes before subtraction.'} /></div>
         </div>
       )
     }
@@ -805,23 +842,33 @@ function TableEditor({ block, set }) {
   const effPct = setVals.map(v => v ?? autoShare)
   const effTotal = effPct.reduce((s, v) => s + v, 0)
   const effScale = effTotal > 100 ? 100 / effTotal : 1
-  // Drag-to-resize a column from the divider above the grid (Excel-style).
+  // Drag a boundary (between column ci and ci+1) to resize — spreadsheet-style.
+  // The two neighbours TRADE width, keeping their combined size constant, so
+  // every other column is untouched and the handle tracks the cursor exactly
+  // (freezing an auto neighbour to its current share leaves the layout
+  // unchanged, so nothing jumps when a drag begins). ~56px is the trailing
+  // spacer column holding the per-row buttons.
+  const SPACER = 56
   const tableRef = useRef(null)
   const resizeRef = useRef(null)
   const startResize = (ci) => (e) => {
     e.preventDefault(); e.stopPropagation()
-    resizeRef.current = { ci, startX: e.clientX, startPct: effPct[ci], tw: tableRef.current?.offsetWidth || 600 }
+    const left = Math.round(effPct[ci]), right = Math.round(effPct[ci + 1])
+    resizeRef.current = { ci, startX: e.clientX, left, sum: left + right, dw: (tableRef.current?.offsetWidth || 600) - SPACER }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
   const moveResize = (e) => {
     const d = resizeRef.current
     if (!d) return
-    const dPct = ((e.clientX - d.startX) / d.tw) * 100
-    const v = String(Math.round(Math.min(90, Math.max(5, d.startPct + dPct))))
-    if (v !== colWidths[d.ci]) set({ colWidths: colWidths.map((w, i) => i === d.ci ? v : w) })
+    const MIN = 8
+    const dPct = ((e.clientX - d.startX) / Math.max(1, d.dw)) * 100
+    const left = Math.round(Math.min(d.sum - MIN, Math.max(MIN, d.left + dPct)))
+    const next = colWidths.map((w, i) => i === d.ci ? String(left) : i === d.ci + 1 ? String(d.sum - left) : w)
+    if (next[d.ci] !== colWidths[d.ci] || next[d.ci + 1] !== colWidths[d.ci + 1]) set({ colWidths: next })
   }
   const endResize = () => { resizeRef.current = null }
-  const resetColWidth = (ci) => set({ colWidths: colWidths.map((w, i) => i === ci ? '' : w) })
+  // Double-clicking a boundary returns both its columns to automatic width.
+  const resetBoundary = (ci) => set({ colWidths: colWidths.map((w, i) => (i === ci || i === ci + 1) ? '' : w) })
   const setCell = (r, c, v) => set({ rows: rows.map((row, ri) => ri === r ? row.map((cell, ci) => ci === c ? v : cell) : row) })
   const addRow = () => set({ rows: [...rows, Array(nCols || 1).fill('')] })
   const removeRow = () => { if (rows.length > 1) set({ rows: rows.slice(0, -1) }) }
@@ -928,31 +975,28 @@ function TableEditor({ block, set }) {
         )}
       </div>
       <div className="overflow-x-auto">
-        <table ref={tableRef} className="border-collapse w-full" style={{ tableLayout: 'fixed', minWidth: nCols * 72 + 60 }}>
+        <table ref={tableRef} className="border-collapse w-full" style={{ tableLayout: 'fixed', minWidth: nCols * 76 + SPACER }}>
           <colgroup>
-            {effPct.map((p, i) => <col key={i} style={{ width: `${p * effScale * 0.9}%` }} />)}
-            <col style={{ width: 60 }} />
+            {effPct.map((p, i) => <col key={i} style={{ width: `${p * effScale}%` }} />)}
+            <col style={{ width: SPACER }} />
           </colgroup>
           <tbody>
-            {/* Column controls — per column: live width label ("auto" = shares
-                leftover space), insert/delete buttons, and a draggable divider
-                on the right edge to resize the column (double-click resets). */}
+            {/* Column controls — each column shows its live width ("auto" = shares
+                the leftover space); its reorder/insert/delete buttons reveal on
+                hover. A divider sits on each boundary: drag to trade width with
+                the next column, double-click to reset both to auto. */}
             <tr>
               {rows[0]?.map((_, ci) => (
-                <td key={ci} className="p-0.5 relative">
-                  <div className="flex items-center justify-center gap-1">
-                    <span className={`text-[10px] tabular-nums ${setVals[ci] != null ? 'font-semibold text-[#325099]' : 'text-[#2A2035]/35'}`}
-                      title={setVals[ci] != null ? `This column is set to ${setVals[ci]}% of the table` : 'Automatic — shares the space left over'}>
-                      {setVals[ci] != null ? `${setVals[ci]}%` : 'auto'}
-                    </span>
-                    <div className="flex items-center opacity-30 hover:opacity-100 transition">
+                <td key={ci} className="p-0.5 relative group/col align-bottom">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <div className="flex items-center gap-0.5 h-5 opacity-0 group-hover/col:opacity-100 focus-within:opacity-100 transition">
                       {nCols > 1 && (
                         <button type="button" onClick={() => moveCol(ci, -1)} disabled={ci === 0} title="Move this column left"
-                          className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-xs leading-none">◀</button>
+                          className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-20 disabled:hover:bg-transparent text-xs leading-none">◀</button>
                       )}
                       {nCols > 1 && (
                         <button type="button" onClick={() => moveCol(ci, 1)} disabled={ci === nCols - 1} title="Move this column right"
-                          className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-xs leading-none">▶</button>
+                          className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-20 disabled:hover:bg-transparent text-xs leading-none">▶</button>
                       )}
                       <button type="button" onClick={() => insertColAt(ci + 1)} title="Insert a column to the right of this one"
                         className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] text-xs leading-none">＋</button>
@@ -961,16 +1005,22 @@ function TableEditor({ block, set }) {
                           className="w-5 h-5 flex items-center justify-center rounded text-rose-400 hover:text-rose-600 hover:bg-rose-50 text-xs leading-none">✕</button>
                       )}
                     </div>
+                    <span className={`text-[10px] tabular-nums leading-none ${setVals[ci] != null ? 'font-semibold text-[#325099]' : 'text-[#2A2035]/35'}`}
+                      title={setVals[ci] != null ? `This column is set to ${setVals[ci]}% of the table` : 'Automatic — shares the space left over'}>
+                      {setVals[ci] != null ? `${setVals[ci]}%` : 'auto'}
+                    </span>
                   </div>
-                  <div
-                    onPointerDown={startResize(ci)} onPointerMove={moveResize}
-                    onPointerUp={endResize} onPointerCancel={endResize}
-                    onDoubleClick={() => resetColWidth(ci)}
-                    title="Drag to resize this column · double-click to reset to auto"
-                    className="absolute top-0 -bottom-1 -right-[5px] w-2.5 cursor-col-resize touch-none flex justify-center group/rz"
-                  >
-                    <div className="w-[3px] h-full rounded pointer-events-none bg-[#C7D5F8] group-hover/rz:bg-[#325099] transition" />
-                  </div>
+                  {ci < nCols - 1 && (
+                    <div
+                      onPointerDown={startResize(ci)} onPointerMove={moveResize}
+                      onPointerUp={endResize} onPointerCancel={endResize}
+                      onDoubleClick={() => resetBoundary(ci)}
+                      title="Drag to resize these two columns · double-click to reset to auto"
+                      className="absolute top-0 bottom-0 -right-[7px] w-3.5 z-10 cursor-col-resize touch-none flex justify-center group/rz"
+                    >
+                      <div className="w-[3px] h-full rounded pointer-events-none bg-[#DBE3F6] group-hover/rz:bg-[#325099] transition" />
+                    </div>
+                  )}
                 </td>
               ))}
               <td />
@@ -1015,7 +1065,7 @@ function TableEditor({ block, set }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[10px] text-[#2A2035]/40">Use $…$ for maths and **bold** in cells. Use ▲▼ / ◀▶ to reorder rows and columns. Drag the blue dividers to resize columns — double-click one to set its column back to auto. Paste a copied table (Sheets, Excel, Word…) into any cell to fill the grid from there.</p>
+      <p className="text-[10px] text-[#2A2035]/40">Hover a row or column for its ▲▼ / ◀▶ reorder, insert and delete buttons. Drag a divider between two columns to resize them (double-click it to reset to auto). Use $…$ for maths and **bold** in cells. Paste a copied table (Sheets, Excel, Word…) into any cell to fill the grid from there.</p>
       {sumSet > 100 && (
         <p className="text-[10px] font-semibold text-amber-600">⚠ Column widths add up to {Math.round(sumSet)}% — they&apos;ll be squeezed to fit. Keep the total at 100% or less.</p>
       )}
@@ -1023,7 +1073,7 @@ function TableEditor({ block, set }) {
   )
 }
 
-function PartsEditor({ parts, onChange, maths = true }) {
+function PartsEditor({ parts, onChange, maths = true, showMarks = false }) {
   return (
     <div>
       <label className={L}>Parts (a, b, c…) — optional</label>
@@ -1032,11 +1082,26 @@ function PartsEditor({ parts, onChange, maths = true }) {
           <div key={i} className="border border-[#E8EDF8] rounded-lg p-2 bg-[#F8FAFF]">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[11px] font-bold text-[#325099]">{String.fromCharCode(97 + i)}.</span>
-              <button onClick={() => onChange(parts.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs">Remove</button>
+              <div className="flex items-center gap-3">
+                {showMarks && (
+                  <label className="flex items-center gap-1 text-[11px] text-[#325099]" title="Marks for this part">
+                    <input type="text" inputMode="numeric" value={p.marks || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, marks: e.target.value.replace(/[^\d]/g, '') } : x))} placeholder="—" className="w-10 px-1 py-0.5 text-center border border-[#E8EDF8] rounded text-[11px]" />
+                    marks
+                  </label>
+                )}
+                {i >= 1 && (
+                  <label className="flex items-center gap-1 text-[11px] text-[#325099] cursor-pointer" title="Force this part (and those after it) onto a new page">
+                    <input type="checkbox" checked={!!p.pageBreakBefore} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, pageBreakBefore: e.target.checked } : x))} />
+                    Start on new page
+                  </label>
+                )}
+                <button onClick={() => onChange(parts.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs">Remove</button>
+              </div>
             </div>
-            <input className={I + ' mb-1.5'} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} onKeyDown={e => onInlineKey(e, p.prompt || '', v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x)))} placeholder="Part prompt (optional)" />
+            <textarea className={TA + ' mb-1.5 min-h-[40px]'} rows={1} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.prompt || '', v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x)))} placeholder="Part prompt (optional)" />
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
             <div className="mt-1.5"><MathObjSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} blank={false} maths={maths} /></div>
+            <div className="mt-1.5"><EmbeddedTableSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} /></div>
             <textarea className={TA + ' mt-1.5'} value={p.solution || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, solution: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.solution || '', v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x)))} placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
             {/* Solution media (Solutions copy): a diagram/image and/or a maths object. */}
             <div className="mt-1.5 space-y-1.5">
