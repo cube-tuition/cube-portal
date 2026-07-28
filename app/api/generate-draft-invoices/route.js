@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { cashDiscountLine, CASH_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
 
 /*
  * POST /api/generate-draft-invoices
@@ -182,6 +183,17 @@ export async function POST(req) {
         }
       }
 
+      // ── Cash discount: cash-paying families get 10% off tuition lines ────
+      // Family payment method: cash if ANY family member is set to cash.
+      const paymentMethod = family.enrolments.some(e => studMap[e.student_id]?.payment_method === 'cash')
+        ? 'cash' : 'bank'
+      let cashDiscount = 0
+      if (paymentMethod === 'cash') {
+        const line = cashDiscountLine(subtotalIncGst)   // 10% of tuition, before flat credits
+        cashDiscount = -line.amount
+        lineItems.push(line)
+      }
+
       // ── Referral / other credits (unapplied: invoice_id = null) ──────────
       let totalCredits = 0
       const creditStudents = new Set(family.enrolments.map(e => e.student_id))
@@ -194,7 +206,7 @@ export async function POST(req) {
       }
 
       // All amounts are inc-GST; GST is a component of the total (total ÷ 11), not added on top
-      const total = Math.max(0, subtotalIncGst - siblingDiscount - multiCourseDiscount - totalCredits)
+      const total = Math.max(0, subtotalIncGst - siblingDiscount - multiCourseDiscount - cashDiscount - totalCredits)
 
       const seqNum = maxSeq + created + 1
 
@@ -209,10 +221,6 @@ export async function POST(req) {
           if (c.id) appliedCreditIds.push(c.id)
         }
       }
-
-      // Family payment method: cash if ANY family member is set to cash, else bank.
-      const paymentMethod = family.enrolments.some(e => studMap[e.student_id]?.payment_method === 'cash')
-        ? 'cash' : 'bank'
 
       const { error: insErr, data: newInvoice } = await sb.from('invoices').insert({
         term_id:              term_id,
@@ -229,7 +237,7 @@ export async function POST(req) {
         total:                total,
         due_date:             dueDateIso,
         line_items:           lineItems,
-        payment_instructions: PAYMENT_INSTRUCTIONS,
+        payment_instructions: paymentMethod === 'cash' ? CASH_PAYMENT_INSTRUCTIONS : PAYMENT_INSTRUCTIONS,
         email_sent:           false,
       }).select('id').single()
 

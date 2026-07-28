@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { isCashDiscountLine, cashDiscountFor } from '../../../lib/cashDiscount'
 
 /**
  * POST /api/refresh-invoice
@@ -49,7 +50,7 @@ export async function POST(req) {
     }
 
     let updated = 0
-    const newLineItems = lineItems.map(l => {
+    let newLineItems = lineItems.map(l => {
       if (l.type !== 'enrolment') return l
       const key = `${l.student_id}__${l.class_id}`
       const currentPrice = priceMap[key]
@@ -58,6 +59,18 @@ export async function POST(req) {
       updated++
       return { ...l, unit_price: currentPrice, amount: currentPrice }
     })
+
+    // Cash discount tracks the tuition lines — recompute it from the refreshed
+    // prices so it stays exactly 10% of tuition.
+    if (newLineItems.some(isCashDiscountLine)) {
+      const fresh = cashDiscountFor(newLineItems)
+      newLineItems = newLineItems.map(l => {
+        if (!isCashDiscountLine(l)) return l
+        if (l.amount === fresh.amount) return l
+        updated++
+        return { ...l, ...fresh }
+      })
+    }
 
     // Recalculate total = sum of all line item amounts (inc-GST, discounts already negative)
     const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
