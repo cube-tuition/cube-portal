@@ -6,7 +6,6 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import BookletContentView from '../../../../components/booklet/BookletContentView'
-import { buildSyllabusContent } from '../../../../lib/bookletContent'
 import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -570,11 +569,22 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
             <textarea value={form.notes} onChange={set('notes')} rows={2} placeholder="Any notes…" className={INP + ' resize-none'} />
           </div>
 
-          {/* Content */}
+          {/* Content — free text for most subjects. Chemistry generates it from the
+              syllabus dotpoints drawn on each section header in the builder, so a
+              typed summary here would only go stale. */}
           <div>
-            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Content <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
-            <textarea value={form.content} onChange={set('content')} rows={5} placeholder={'What\'s in this booklet? e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'} className={INP + ' resize-y'} />
-            <p className="text-[10px] text-[#2A2035]/40 mt-1">Shown via the “Content” link on the booklet row.</p>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Content{form.subject !== 'Chemistry' && <span className="font-normal text-[#2A2035]/40"> (optional)</span>}</label>
+            {form.subject === 'Chemistry' ? (
+              <p className="text-[11px] text-[#2A2035]/50 bg-[#F8FAFF] border border-[#E8EDF8] rounded-lg px-3 py-2.5">
+                Generated from the syllabus dotpoints each section header draws — edit it on the
+                booklet’s <span className="font-semibold">Content page</span> in the workbook builder.
+              </p>
+            ) : (
+              <>
+                <textarea value={form.content} onChange={set('content')} rows={5} placeholder={'What\'s in this booklet? e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'} className={INP + ' resize-y'} />
+                <p className="text-[10px] text-[#2A2035]/40 mt-1">Shown via the “Content” link on the booklet row.</p>
+              </>
+            )}
           </div>
 
           {/* PDFs */}
@@ -677,8 +687,11 @@ function MasterDatabaseInner() {
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
+        // `content` comes along because Chemistry booklets generate their content
+        // summary from the sections' drawn syllabus dotpoints — it lives on the
+        // build, not on the booklets row.
         .from('booklet_builds')
-        .select('id, title, year, subject, topic, status, booklet_id, updated_at')
+        .select('id, title, year, subject, topic, status, booklet_id, updated_at, content')
         .order('updated_at', { ascending: false }),
     ])
     setBooklets(data || [])
@@ -1222,22 +1235,45 @@ function MasterDatabaseInner() {
             </div>
             <div className="overflow-y-auto flex-1 px-6 py-5">
               {(() => {
-                // Chemistry content is generated live from the sections' drawn
-                // syllabus dotpoints; other subjects show their saved summary.
+                // Chemistry content is generated from the sections' drawn syllabus
+                // dotpoints — that lives on the linked BUILD (booklets rows have no
+                // blocks), so read it from there and fall back to any saved summary.
+                const build = buildByBookletId[viewContent.id]
                 const text = viewContent.subject === 'Chemistry'
-                  ? (buildSyllabusContent(viewContent.blocks) || viewContent.content)
+                  ? (build?.content || viewContent.content)
                   : viewContent.content
                 return (text && text.trim()) ? (
                   <BookletContentView text={text} />
                 ) : (
                   <div className="text-center py-8">
                     <p className="text-sm text-[#2A2035]/40">No content listed for this booklet yet.</p>
-                    <button
-                      onClick={() => { setEditingBooklet(viewContent); setViewContent(null) }}
-                      className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
-                    >
-                      Add content →
-                    </button>
+                    {viewContent.subject === 'Chemistry' ? (
+                      <>
+                        {/* Chemistry content isn't typed here — it's generated from the
+                            dotpoints each section header draws, so send them to the builder. */}
+                        <p className="text-[11px] text-[#2A2035]/40 mt-1 max-w-xs mx-auto">
+                          Chemistry content comes from the syllabus dotpoints drawn on each section header.
+                        </p>
+                        <button
+                          onClick={() => {
+                            const b = buildByBookletId[viewContent.id]
+                            setViewContent(null)
+                            if (b) router.push(`/tutor/booklets/builder/${b.id}`)
+                            else openInBuilder(viewContent)
+                          }}
+                          className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
+                        >
+                          Draw dotpoints in the builder →
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => { setEditingBooklet(viewContent); setViewContent(null) }}
+                        className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
+                      >
+                        Add content →
+                      </button>
+                    )}
                   </div>
                 )
               })()}

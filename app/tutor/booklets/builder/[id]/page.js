@@ -34,7 +34,7 @@ const SUBJECT_CODE = {
 }
 const subjectCode = (s) => SUBJECT_CODE[s] || (s || '')[0]?.toUpperCase() || ''
 // Standardised display name: "X.Y. Name" (year . subject-code . name).
-// Chemistry names like "M3W2" display as "M3L2" (Chemistry counts in Lessons).
+// Chemistry booklets are stored as "M3L2"; any legacy "M3W2" is shown as "M3L2".
 const formatBookletName = (year, subject, name) => {
   let base = (name || '').trim() || 'Untitled booklet'
   if (/chem/i.test(String(subject || ''))) base = base.replace(/^(M\d+)W(\d+)$/i, '$1L$2')
@@ -446,9 +446,12 @@ export default function BookletBuilderEditor() {
     ? [{ type: 'subtopic', label: 'Subheading', icon: '—' }, ...HW_BLOCK_TYPES]
     : HW_BLOCK_TYPES
   const yearOptions = isChem ? [11, 12] : YEARS
-  const chemMatch = /^M(\d*)W(\d*)$/i.exec(bk.title || '')
+  // Chemistry booklets are named M<module>L<lesson> — Chemistry counts in lessons,
+  // not weeks. Legacy "W" names still parse so older booklets keep their numbers
+  // in these inputs; editing either field rewrites the title in the L form.
+  const chemMatch = /^M(\d*)[LW](\d*)$/i.exec(bk.title || '')
   const chemModule = chemMatch ? chemMatch[1] : ''
-  const chemWeek = chemMatch ? chemMatch[2] : ''
+  const chemLesson = chemMatch ? chemMatch[2] : ''
 
   // Card lookup by id (block + its global index, so move up/down still spans the
   // whole content list even across page boundaries).
@@ -648,12 +651,12 @@ export default function BookletBuilderEditor() {
           {isChem ? (
             <div className="flex items-center gap-2">
               <input type="number" min="1" value={chemModule}
-                onChange={e => mutate({ title: `M${e.target.value.replace(/\D/g, '')}W${chemWeek}` })}
+                onChange={e => mutate({ title: `M${e.target.value.replace(/\D/g, '')}L${chemLesson}` })}
                 placeholder="Module #"
                 className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
-              <input type="number" min="1" value={chemWeek}
-                onChange={e => mutate({ title: `M${chemModule}W${e.target.value.replace(/\D/g, '')}` })}
-                placeholder="Week #"
+              <input type="number" min="1" value={chemLesson}
+                onChange={e => mutate({ title: `M${chemModule}L${e.target.value.replace(/\D/g, '')}` })}
+                placeholder="Lesson #"
                 className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
             </div>
           ) : isPreTest || isLevelTest ? (
