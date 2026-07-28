@@ -128,6 +128,7 @@ function InvoiceDashboardInner() {
   const [statusEditing,   setStatusEditing]   = useState(null)
   const [confirmUnsentId,   setConfirmUnsentId]   = useState(null) // invoice id pending unsent confirmation
   const [confirmPaidInv,    setConfirmPaidInv]    = useState(null) // invoice object pending paid confirmation
+  const [confirmPaidDate,   setConfirmPaidDate]   = useState('')   // yyyy-mm-dd payment date for the confirm modal
   const [sendModalInv,      setSendModalInv]      = useState(null)
   const [reminderModalInv,  setReminderModalInv]  = useState(null)
   const [emailTemplate,     setEmailTemplate]     = useState('')
@@ -525,16 +526,18 @@ function InvoiceDashboardInner() {
   }
 
   // ── Status change handler ─────────────────────────────────────────────────
-  const handleStatusChange = async (invoiceId, field, value) => {
+  // paidDate (yyyy-mm-dd) rides along when marking payment_status 'paid'.
+  const handleStatusChange = async (invoiceId, field, value, paidDate) => {
     setStatusEditing(invoiceId)
     try {
       const res = await authedFetch('/api/update-invoice-status', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: invoiceId, field, value }),
+        body: JSON.stringify({ invoice_id: invoiceId, field, value, paid_date: paidDate }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, [field]: value } : i))
+      const patch = data.patch || { [field]: value }
+      setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, ...patch } : i))
       // (Payment-confirmation emails on mark-as-paid were removed — marking
       // paid is now a pure status change.)
     } catch (e) { setError('Status update failed: ' + e.message) }
@@ -852,6 +855,7 @@ function InvoiceDashboardInner() {
                             {inv.payment_status && (
                               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PAYMENT_LABELS[inv.payment_status]?.cls || 'bg-[#F3F4F6] text-gray-500'}`}>
                                 {PAYMENT_LABELS[inv.payment_status]?.label || inv.payment_status}
+                                {inv.payment_status === 'paid' && inv.paid_date && ` · ${fmtDate(inv.paid_date)}`}
                               </span>
                             )}
                             {inv.is_legacy && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-gray-500">Legacy</span>}
@@ -1037,7 +1041,7 @@ function InvoiceDashboardInner() {
                             disabled={statusEditing === inv.id}
                             onChange={e => {
                               const val = e.target.value || null
-                              if (val === 'paid') { setConfirmPaidInv(inv); return }
+                              if (val === 'paid') { setConfirmPaidDate(new Date().toISOString().slice(0, 10)); setConfirmPaidInv(inv); return }
                               handleStatusChange(inv.id, 'payment_status', val)
                             }}
                             className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${PAYMENT_SELECT_CLS[inv.payment_status || ''] || PAYMENT_SELECT_CLS['']}`}
@@ -1427,6 +1431,17 @@ function InvoiceDashboardInner() {
               <p className="text-sm text-[#2A2035]">
                 You're marking this invoice as <strong>paid</strong> ({fmtMoney(confirmPaidInv.total)}).
               </p>
+              <div>
+                <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Payment date</label>
+                <input
+                  type="date"
+                  value={confirmPaidDate}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setConfirmPaidDate(e.target.value)}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]"
+                />
+                <p className="text-[10px] text-[#2A2035]/40 mt-1">The day the payment was actually received (defaults to today).</p>
+              </div>
             </div>
 
             {/* Actions */}
@@ -1439,7 +1454,7 @@ function InvoiceDashboardInner() {
               </button>
               <button
                 onClick={() => {
-                  handleStatusChange(confirmPaidInv.id, 'payment_status', 'paid')
+                  handleStatusChange(confirmPaidInv.id, 'payment_status', 'paid', confirmPaidDate || undefined)
                   setConfirmPaidInv(null)
                 }}
                 className="text-sm font-semibold text-white bg-[#065F46] hover:bg-[#047857] px-4 py-2 rounded-full transition"
