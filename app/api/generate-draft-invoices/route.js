@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { cashDiscountLine, CASH_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
+import { cashDiscountLine, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
 
 /*
  * POST /api/generate-draft-invoices
@@ -16,11 +16,7 @@ import { cashDiscountLine, CASH_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDi
  *   - Sets due_date = today + 14 days
  */
 
-const PAYMENT_INSTRUCTIONS =
-`Bank Transfer:
-Account name: CUBE Tuition
-BSB: 067-873  |  Account: 1616 0459
-Reference: [Reference]`
+const PAYMENT_INSTRUCTIONS = BANK_PAYMENT_INSTRUCTIONS
 
 export async function POST(req) {
   try {

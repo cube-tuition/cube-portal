@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { isCashDiscountLine, cashDiscountFor } from '../../../lib/cashDiscount'
+import { isCashDiscountLine, cashDiscountFor, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
 
 /**
  * POST /api/refresh-invoice
@@ -27,7 +27,12 @@ export async function POST(req) {
     const { data: inv, error: invErr } = await sb
       .from('invoices').select('*').eq('id', invoice_id).single()
     if (invErr || !inv) return Response.json({ error: 'Invoice not found' }, { status: 404 })
-    if (inv.status !== 'draft') return Response.json({ error: 'Can only refresh draft invoices' }, { status: 400 })
+    // Approved-but-not-synced invoices may be refreshed too (e.g. a family
+    // flips to cash after approval); anything already in Xero or paid is locked.
+    if (!['draft', 'approved'].includes(inv.status)) {
+      return Response.json({ error: 'Can only refresh draft or approved invoices' }, { status: 400 })
+    }
+    if (inv.payment_status === 'paid') return Response.json({ error: 'Invoice already paid' }, { status: 400 })
 
     const lineItems = inv.line_items || []
     const enrolLines = lineItems.filter(l => l.type === 'enrolment')
@@ -60,23 +65,44 @@ export async function POST(req) {
       return { ...l, unit_price: currentPrice, amount: currentPrice }
     })
 
-    // Cash discount tracks the tuition lines — recompute it from the refreshed
-    // prices so it stays exactly 10% of tuition.
-    if (newLineItems.some(isCashDiscountLine)) {
+    // ── Cash-discount sync — refresh is the "make it match reality" action ──
+    // Look up the CURRENT payment method of the students on the invoice: any
+    // cash-flagged student makes it a cash family. Then add, recompute, or
+    // remove the 10% line so the invoice always reflects the live flag.
+    const lineStudentIds = [...new Set(enrolLines.map(l => l.student_id).filter(Boolean))]
+    const { data: lineStudents } = await sb
+      .from('students').select('id, payment_method').in('id', lineStudentIds)
+    const isCashFamily = (lineStudents || []).some(s => s.payment_method === 'cash')
+
+    const hasCashLine = newLineItems.some(isCashDiscountLine)
+    if (isCashFamily) {
       const fresh = cashDiscountFor(newLineItems)
-      newLineItems = newLineItems.map(l => {
-        if (!isCashDiscountLine(l)) return l
-        if (l.amount === fresh.amount) return l
+      if (!hasCashLine) {
+        newLineItems = [...newLineItems, fresh]
         updated++
-        return { ...l, ...fresh }
-      })
+      } else {
+        newLineItems = newLineItems.map(l => {
+          if (!isCashDiscountLine(l)) return l
+          if (l.amount === fresh.amount) return l
+          updated++
+          return { ...l, ...fresh }
+        })
+      }
+    } else if (hasCashLine) {
+      // Family switched back to bank — drop the discount.
+      newLineItems = newLineItems.filter(l => !isCashDiscountLine(l))
+      updated++
     }
 
     // Recalculate total = sum of all line item amounts (inc-GST, discounts already negative)
     const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
 
     const { error: updateErr } = await sb.from('invoices')
-      .update({ line_items: newLineItems, subtotal: newTotal, total: newTotal })
+      .update({
+        line_items: newLineItems, subtotal: newTotal, total: newTotal,
+        payment_method: isCashFamily ? 'cash' : 'bank',
+        payment_instructions: isCashFamily ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS,
+      })
       .eq('id', invoice_id)
 
     if (updateErr) return Response.json({ error: updateErr.message }, { status: 500 })

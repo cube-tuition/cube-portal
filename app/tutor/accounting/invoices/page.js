@@ -938,18 +938,21 @@ function InvoiceDashboardInner() {
 
                       {/* Actions */}
                       <div className="px-5 py-3 bg-[#F8FAFF] border-t border-[#DEE7FF] flex items-center gap-2 flex-wrap">
+                        {/* Refresh re-syncs prices AND the cash-discount state from the
+                            live student flags — allowed on unpaid approved invoices too
+                            (e.g. a family flips to cash after approval). */}
+                        {(inv.status === 'draft' || (inv.status === 'approved' && inv.payment_status !== 'paid')) && (
+                          <button onClick={() => handleRefresh(inv)} disabled={refreshingId === inv.id}
+                            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
+                            {refreshingId === inv.id ? 'Refreshing…' : '↻ Refresh'}
+                          </button>
+                        )}
                         {inv.status === 'draft' && (
-                          <>
-                            <button onClick={() => handleRefresh(inv)} disabled={refreshingId === inv.id}
-                              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
-                              {refreshingId === inv.id ? 'Refreshing…' : '↻ Refresh'}
-                            </button>
-                            <button onClick={() => handleApprove(inv)} disabled={isApproving || warnings.length > 0}
-                              title={warnings.length > 0 ? `Resolve ${warnings.length} warning${warnings.length > 1 ? 's' : ''} before approving` : ''}
-                              className="text-xs font-semibold bg-[#062E63] text-white px-4 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
-                              {isApproving ? 'Approving…' : '✓ Approve'}
-                            </button>
-                          </>
+                          <button onClick={() => handleApprove(inv)} disabled={isApproving || warnings.length > 0}
+                            title={warnings.length > 0 ? `Resolve ${warnings.length} warning${warnings.length > 1 ? 's' : ''} before approving` : ''}
+                            className="text-xs font-semibold bg-[#062E63] text-white px-4 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+                            {isApproving ? 'Approving…' : '✓ Approve'}
+                          </button>
                         )}
                         {['approved', 'synced_to_xero'].includes(inv.status) && (
                           <button onClick={() => handleGeneratePdf(inv)} disabled={isGenPdf}
