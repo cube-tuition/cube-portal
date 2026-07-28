@@ -440,9 +440,11 @@ export default function BookletBuilderEditor() {
   const isEnglish = /english/i.test(bk.subject || '')
   const isMathsSubj = /maths/i.test(bk.subject || '')
   const paletteHides = (t) => (t.type === 'mathobj' && !isMathsSubj) || (t.type === 'stimulus' && !isEnglish)
-  // English homework is one flexible list (no Foundational/Developmental split);
-  // teachers add their own subheadings, so the homework palette offers one.
-  const hwPaletteTypes = isEnglish
+  // English and Chemistry homework are one flexible list (no Foundational /
+  // Developmental split); teachers add their own subheadings, so the homework
+  // palette offers one.
+  const flatHomework = isEnglish || isChem
+  const hwPaletteTypes = flatHomework
     ? [{ type: 'subtopic', label: 'Subheading', icon: '—' }, ...HW_BLOCK_TYPES]
     : HW_BLOCK_TYPES
   const yearOptions = isChem ? [11, 12] : YEARS
@@ -586,7 +588,7 @@ export default function BookletBuilderEditor() {
         </div>
       ) : activeSection === 'homework' ? (
         <div className="space-y-2.5">
-          {!isEnglish && (
+          {!flatHomework && (
             <div>
               <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">Adding to</p>
               <div className="flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
@@ -797,8 +799,8 @@ export default function BookletBuilderEditor() {
               </div>
             )
           ) : activeSection === 'homework' ? (
-            isEnglish ? (
-              // English: one flexible homework list with teacher-authored subheadings.
+            flatHomework ? (
+              // English & Chemistry: one flexible homework list with teacher-authored subheadings.
               hwBlocks.length === 0 ? (
                 <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No homework yet — add questions and your own subheadings from the palette.</div>
               ) : (
