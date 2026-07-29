@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { fmtMoney, fmtDate } from '../../lib/format'
 import { generateInvoicePdf } from '../../lib/invoicePdf'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
+import { CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../lib/cashDiscount'
 
 function daysOverdue(dueDate) {
   if (!dueDate) return 0
@@ -11,8 +12,24 @@ function daysOverdue(dueDate) {
   return Math.max(0, Math.floor(ms / 86400000))
 }
 
+/*
+ * How this family actually pays, for the email's "how to pay" section.
+ *
+ * Prefers the invoice's own payment_instructions — kept in step with the
+ * payment method by the generator, the Refresh action and the payment-method
+ * switch — so a cash family is never sent bank details. [Reference] is filled
+ * the same way the PDF fills it.
+ */
+function paymentDetailsFor(inv) {
+  const fallback = inv?.payment_method === 'cash' ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS
+  return (inv?.payment_instructions || fallback)
+    .replace('[Invoice Number]', inv?.invoice_number || '')
+    .replace('[Reference]', inv?.reference_code || inv?.invoice_number || '')
+}
+
 export function buildEmailBody(inv, template, termName) {
   return (template || '')
+    .replace(/\{\{paymentDetails\}\}/g, paymentDetailsFor(inv))
     .replace(/\{\{guardian\}\}/g,     inv.parent_name ? inv.parent_name.split(' ')[0] : 'there')
     .replace(/\{\{studentNames\}\}/g, (inv.student_names || []).join(', ') || inv.parent_name || '—')
     .replace(/\{\{term\}\}/g,         termName || '')
