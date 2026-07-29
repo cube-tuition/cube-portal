@@ -25,6 +25,11 @@ const SUBJECT_FAMILY = {
 }
 const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
 
+// A class still being taught. Inactive classes (e.g. a 1:1 whose student left)
+// keep their row for history but are hidden from the curriculum, calendar and
+// dashboards. Legacy rows with no status count as active.
+const isLiveClass = (c) => (c?.status || 'active') === 'active'
+
 // Subject inferred from a course code like "9.M1" / "7.E" / "11.C" — the same
 // rule the class-tab filter uses.
 function subjectFromCourseCode(code) {
@@ -945,7 +950,7 @@ function BookletsPageInner() {
     // Classes are per-term rows (the rollover copies them), so scope to the
     // current term or each class shows once per term it has existed in.
     const term = getEnrolmentTerm(await fetchAllTerms())
-    const cols = 'id, class_name, day_of_week, start_time, teacher, courses(course_code)'
+    const cols = 'id, class_name, day_of_week, start_time, teacher, status, courses(course_code)'
     let { data } = term?.id ? await classesForTerm(term.id, cols) : { data: null }
     if (!data?.length) {
       // Term with no classes yet — fall back to all terms (mirrors the tutor
@@ -954,6 +959,9 @@ function BookletsPageInner() {
     }
     if (!data) return
     const filtered = data.filter(c => {
+      // Inactive classes (e.g. a 1:1 whose student left) are gone from the
+      // curriculum entirely — they have no schedule left to show.
+      if (!isLiveClass(c)) return false
       const code = c.courses?.course_code || ''
       const yr   = parseInt(code.split('.')[0])
       return yr === activeYear && subjectFromCourseCode(code) === activeSub
@@ -1320,7 +1328,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
       const firstName = (staff.full_name || '').split(' ')[0]
 
       // Classes for this term where teacher name starts with tutor's first name
-      const teacherCols = 'id, class_name, teacher, day_of_week, start_time, end_time, courses(course_code)'
+      const teacherCols = 'id, class_name, teacher, day_of_week, start_time, end_time, status, courses(course_code)'
       const { data: rows } = term?.id
         ? await classesForTerm(term.id, teacherCols)
             .ilike('teacher', firstName + '%')
@@ -1328,10 +1336,14 @@ function TutorCurriculumPage({ staff, scope = null }) {
             .order('start_time')
         : { data: null }
 
-      // Hub scope: keep only classes whose course belongs to the subject family.
-      const inScope = (list) => scope
-        ? list.filter(c => SUBJECT_FAMILY[scope].includes(subjectFromCourseCode(c.courses?.course_code)))
-        : list
+      // Hub scope: keep only live classes whose course belongs to the subject
+      // family (inactive classes are dropped from the curriculum entirely).
+      const inScope = (list) => {
+        const live = list.filter(isLiveClass)
+        return scope
+          ? live.filter(c => SUBJECT_FAMILY[scope].includes(subjectFromCourseCode(c.courses?.course_code)))
+          : live
+      }
       const cls = inScope(rows || [])
 
       // If no classes found in current term, fall back to all terms (tutor may
