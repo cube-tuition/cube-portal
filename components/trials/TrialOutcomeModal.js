@@ -50,11 +50,15 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
     ;(async () => {
       setLoading(true)
       if (!sub.converted_student_id) { if (active) { setGroups([]); setLoading(false) }; return }
+      // Only trial lessons: trial_feedback is written (and required) while the
+      // enrolment is a trial, so it marks the lesson as part of the trial and
+      // keeps an already-enrolled student's ongoing lessons out of this list.
       const { data: rows } = await supabase
         .from('attendance')
         .select('id, class_id, session_date, status, trial_feedback')
         .eq('student_id', sub.converted_student_id)
         .in('status', ['present', 'late'])
+        .not('trial_feedback', 'is', null)
         .order('session_date', { ascending: true })
       const classIds = [...new Set((rows || []).map(r => r.class_id).filter(Boolean))]
       const { data: classRows } = classIds.length

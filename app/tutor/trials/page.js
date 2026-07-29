@@ -17,6 +17,10 @@ import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
 
+// A standard CUBE trial is two lessons per subject. Used for the progress badge
+// only — nothing is enforced; staff decide when a trial is done.
+const TRIAL_LESSONS = 2
+
 // Group students into <optgroup> buckets: proper families (shared family_id)
 // first, then family-less students individually.
 function referrerGroups(students) {
@@ -186,16 +190,20 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
               <span className="text-[11px] text-[#325099]/60">{subjects}</span>
             )}
             {stale && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Stale {age}d</span>}
-            {/* Trial lessons attended — a standard trial is 2, so 2+ reads as done. */}
-            {progress?.attended > 0 && (
+            {/* Trial progress, counted per subject: green only once EVERY
+                trialled subject has had its lessons. Hover for the split. */}
+            {progress?.lessons > 0 && (
               <span
                 className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full ${
-                  progress.attended >= 2
+                  progress.lessons >= TRIAL_LESSONS
                     ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
                     : 'text-[#325099] bg-[#F0F4FF] border-[#DEE7FF]'}`}
-                title={`${progress.attended} trial lesson(s) attended · ${progress.withFeedback} with tutor feedback`}
+                title={progress.subjects > 1
+                  ? `Trial lessons per subject — ${progress.breakdown}`
+                  : `${progress.lessons} of ${TRIAL_LESSONS} trial lessons attended`}
               >
-                {progress.attended} lesson{progress.attended === 1 ? '' : 's'}
+                {progress.lessons}/{TRIAL_LESSONS} lesson{progress.lessons === 1 ? '' : 's'}
+                {progress.subjects > 1 && ` · ${progress.subjects} subjects`}
               </span>
             )}
           </div>
@@ -573,21 +581,40 @@ export default function TrialsPage() {
       classList = [...classList, ...(extra || [])]
     }
 
-    // Trial lesson progress per student — how many trial lessons they've
-    // actually attended and how many carry tutor feedback. Drives the "n/2"
-    // badge so staff can see at a glance who's ready for the outcome email.
+    // Trial lesson progress per student. A trial runs per SUBJECT — someone
+    // trialling Maths and English sits two sets of lessons — so progress is
+    // counted per class and reported as the least-advanced one. Summing rows
+    // across classes would read "3 lessons" for a student who has had two
+    // Maths lessons and one English.
+    //
+    // trial_feedback marks a lesson as a trial lesson: SessionMarker only
+    // writes it while the enrolment is a trial (and requires it), so counting
+    // those rows also stops the tally growing once the student enrols.
     const allStudentIds = [...new Set(merged.map(s => s.converted_student_id).filter(Boolean))]
     if (allStudentIds.length) {
       const { data: att } = await supabase
         .from('attendance')
-        .select('student_id, trial_feedback')
+        .select('student_id, class_id, trial_feedback')
         .in('student_id', allStudentIds)
         .in('status', ['present', 'late'])
-      const prog = {}
+      const perClass = {}   // studentId → { classId: lessons }
       for (const a of att || []) {
-        const p = (prog[a.student_id] ||= { attended: 0, withFeedback: 0 })
-        p.attended++
-        if ((a.trial_feedback || '').trim()) p.withFeedback++
+        if (!(a.trial_feedback || '').trim()) continue
+        const byClass = (perClass[a.student_id] ||= {})
+        byClass[a.class_id] = (byClass[a.class_id] || 0) + 1
+      }
+      const classNameById = Object.fromEntries(classList.map(c => [c.id, c.class_name]))
+      const prog = {}
+      for (const [studentId, byClass] of Object.entries(perClass)) {
+        const counts = Object.values(byClass)
+        prog[studentId] = {
+          // The trial is only done when every subject has had its lessons.
+          lessons: Math.min(...counts),
+          subjects: counts.length,
+          breakdown: Object.entries(byClass)
+            .map(([cid, n]) => `${classNameById[cid] || `Class ${cid}`}: ${n}/${TRIAL_LESSONS}`)
+            .join(' · '),
+        }
       }
       setTrialProgress(prog)
     } else {
