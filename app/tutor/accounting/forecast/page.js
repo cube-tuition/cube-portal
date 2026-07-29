@@ -344,10 +344,23 @@ export default function ForecastPage() {
 
     const classProfit    = classIncome - classTeacherCost
     const oneOnOneProfit = oneOnOneIncome - oneOnOneTeacherCost
-    const totalProfit    = afterGst - totalExpenses - totalDiscount
-    // Company tax is charged on profit however it was collected, so it comes off
-    // the total. A loss pays no tax.
-    const afterTax       = totalProfit - Math.max(0, totalProfit) * TAX_RATE
+
+    // Hypothetical split: cash income is modelled as untaxed, bank income taxed at
+    // the company rate — the same "what is cash potentially worth" framing as the
+    // GST treatment above. (Company tax is really payable on profit however it is
+    // collected; this is a projection, not a tax position.)
+    //
+    // Costs are apportioned by each side's share of GROSS income, because a
+    // cash-paying student consumes the same teaching as a bank-paying one on the
+    // same fee. Splitting them by tutor pay method — as this once did — compares
+    // two unrelated facts and makes the cash side look ruinous.
+    const totalCosts   = totalExpenses + totalDiscount
+    const cashShareOfIncome = totalIncome > 0 ? cashEnrolIncome / totalIncome : 0
+    const cashProfit   = cashEnrolIncome - totalCosts * cashShareOfIncome
+    const bankProfit   = bankEnrolIncome / 1.1 - totalCosts * (1 - cashShareOfIncome)
+    const totalProfit  = cashProfit + bankProfit
+    // Only the bank side is taxed, and a loss on it pays no tax.
+    const afterTax     = totalProfit - Math.max(0, bankProfit) * TAX_RATE
 
     // Physical cash flow, NOT a profit split: money taken in cash from families
     // against wages paid out in cash to tutors. Which families pay cash and which
@@ -360,7 +373,7 @@ export default function ForecastPage() {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
       siblingDiscount, multiCourseDiscount, totalDiscount,
-      classProfit, oneOnOneProfit, cashPosition, totalProfit, afterTax,
+      classProfit, oneOnOneProfit, cashPosition, cashProfit, bankProfit, totalProfit, afterTax,
     }
   }, [classMetrics, fixedCosts, invoices])
 
@@ -535,14 +548,19 @@ export default function ForecastPage() {
     const siblingDiscount    = invoices.reduce((s, i) => s + Number(i.sibling_discount || 0), 0)
     const multiCourseDiscount= invoices.reduce((s, i) => s + Number(i.multi_course_discount || 0), 0)
     const totalDiscount      = siblingDiscount + multiCourseDiscount
-    const totalProfit        = afterGst - totalExpenses - totalDiscount
-    // Match live tax formula: no cash distinction in play, and a loss pays no tax.
-    const afterTax           = totalProfit - Math.max(0, totalProfit) * TAX_RATE
+    // Same cash-untaxed split as the live summary: costs apportioned by share of
+    // gross income, only the bank side taxed.
+    const totalCosts         = totalExpenses + totalDiscount
+    const cashShareOfIncome  = totalIncome > 0 ? cashIncome / totalIncome : 0
+    const cashProfit         = cashIncome - totalCosts * cashShareOfIncome
+    const bankProfit         = (totalIncome - cashIncome) / 1.1 - totalCosts * (1 - cashShareOfIncome)
+    const totalProfit        = cashProfit + bankProfit
+    const afterTax           = totalProfit - Math.max(0, bankProfit) * TAX_RATE
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
       siblingDiscount, multiCourseDiscount, totalDiscount,
-      totalProfit, afterTax,
+      cashProfit, bankProfit, totalProfit, afterTax,
     }
   }, [playMetrics, playFixedCosts, invoices])
 
@@ -764,6 +782,12 @@ export default function ForecastPage() {
                   </div>
                 )}
                 <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total Profit</span><span className={s.totalProfit * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.totalProfit * m)}</span></div>
+                {s.cashProfit != null && (
+                  <div className="flex justify-between text-xs"><span className="text-[#325099]/70 pl-2">↳ Cash profit (untaxed)</span><span className="font-semibold">{fmt(s.cashProfit * m)}</span></div>
+                )}
+                {s.bankProfit != null && (
+                  <div className="flex justify-between text-xs"><span className="text-[#325099]/70 pl-2">↳ Bank profit (taxed 25%)</span><span className="font-semibold">{fmt(s.bankProfit * m)}</span></div>
+                )}
                 <div className="flex justify-between text-xs font-bold"><span className="text-[#325099]/70">After Tax (25%)</span><span className={s.afterTax * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.afterTax * m)}</span></div>
               </>)
             })()}
@@ -819,7 +843,7 @@ export default function ForecastPage() {
                   ['Net of GST', fmt(summary.afterGst), 'cash exempt · bank ÷ 1.1', '#062E63'],
                   ['Total expenses', fmt(summary.totalExpenses), `tutors + ${fmt(summary.fixedTermly)} fixed`, '#062E63'],
                   ['Net profit', fmt(summary.totalProfit), margin !== null ? `${margin}% margin` : '—', summary.totalProfit >= 0 ? '#047857' : '#B23A3A'],
-                  ['After tax (25%)', fmt(summary.afterTax), '25% of net profit', summary.afterTax >= 0 ? '#047857' : '#B23A3A'],
+                  ['After tax (25%)', fmt(summary.afterTax), 'bank profit taxed · cash exempt', summary.afterTax >= 0 ? '#047857' : '#B23A3A'],
                   ['Empty seats', String(emptySeats), 'across group classes (cap 7)', emptySeats > 8 ? '#92400E' : '#062E63'],
                 ]
                 return kpis.map(([label, value, sub, color]) => (
