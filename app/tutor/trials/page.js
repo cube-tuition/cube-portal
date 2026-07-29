@@ -12,6 +12,7 @@ import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { logReferralWithCredits } from '../../../lib/referralCredits'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
+import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
@@ -150,7 +151,7 @@ function StatsBar({ submissions }) {
 }
 
 // ── Trial card ────────────────────────────────────────────────────────────────
-function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
+function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, onOutcomeEmail }) {
   const [expanded,     setExpanded]     = useState(false)
   const [editNotes,    setEditNotes]    = useState(false)
   const [notes,        setNotes]        = useState(sub.admin_notes || '')
@@ -185,6 +186,18 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
               <span className="text-[11px] text-[#325099]/60">{subjects}</span>
             )}
             {stale && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Stale {age}d</span>}
+            {/* Trial lessons attended — a standard trial is 2, so 2+ reads as done. */}
+            {progress?.attended > 0 && (
+              <span
+                className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full ${
+                  progress.attended >= 2
+                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    : 'text-[#325099] bg-[#F0F4FF] border-[#DEE7FF]'}`}
+                title={`${progress.attended} trial lesson(s) attended · ${progress.withFeedback} with tutor feedback`}
+              >
+                {progress.attended} lesson{progress.attended === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-[#325099]/50 mt-0.5">
             {sub.parent_name && <span className="mr-2">{sub.parent_name}</span>}
@@ -411,6 +424,18 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop }) {
               ))}
             </select>
 
+            {/* Trial outcome email — the tutors' per-lesson feedback plus how to
+                continue. No completion gate: staff read the feedback and decide. */}
+            {sub.converted_student_id && sub.status !== 'declined' && (
+              <button
+                onClick={onOutcomeEmail}
+                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+                title="Compose the trial outcome email — tutor feedback and next steps"
+              >
+                ✉ Outcome email
+              </button>
+            )}
+
             {/* Convert / Drop with double confirmation */}
             {sub.status !== 'enrolled' && sub.status !== 'declined' && (
               confirmAction ? (
@@ -474,6 +499,10 @@ export default function TrialsPage() {
   const [filterStage, setFilterStage] = useState('all')
   const [search,      setSearch]      = useState('')
   const [showArchive, setShowArchive] = useState(false)
+  // studentId → { attended, withFeedback } for the trial-lesson badge
+  const [trialProgress, setTrialProgress] = useState({})
+  // the trial whose outcome-email composer is open
+  const [outcomeSub,  setOutcomeSub]  = useState(null)
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -542,6 +571,27 @@ export default function TrialsPage() {
     if (missing.length) {
       const { data: extra } = await supabase.from('classes').select(classCols).in('id', missing)
       classList = [...classList, ...(extra || [])]
+    }
+
+    // Trial lesson progress per student — how many trial lessons they've
+    // actually attended and how many carry tutor feedback. Drives the "n/2"
+    // badge so staff can see at a glance who's ready for the outcome email.
+    const allStudentIds = [...new Set(merged.map(s => s.converted_student_id).filter(Boolean))]
+    if (allStudentIds.length) {
+      const { data: att } = await supabase
+        .from('attendance')
+        .select('student_id, trial_feedback')
+        .in('student_id', allStudentIds)
+        .in('status', ['present', 'late'])
+      const prog = {}
+      for (const a of att || []) {
+        const p = (prog[a.student_id] ||= { attended: 0, withFeedback: 0 })
+        p.attended++
+        if ((a.trial_feedback || '').trim()) p.withFeedback++
+      }
+      setTrialProgress(prog)
+    } else {
+      setTrialProgress({})
     }
 
     setSubmissions(merged)
@@ -701,6 +751,8 @@ export default function TrialsPage() {
                     students={students}
                     onUpdate={handleUpdate}
                     onConvertDrop={handleConvertDrop}
+                    progress={trialProgress[sub.converted_student_id]}
+                    onOutcomeEmail={() => setOutcomeSub(sub)}
                   />
                 ))}
               </div>
@@ -709,6 +761,13 @@ export default function TrialsPage() {
         )}
       </div>
 
+      {outcomeSub && (
+        <TrialOutcomeModal
+          sub={outcomeSub}
+          onClose={() => setOutcomeSub(null)}
+          onSent={() => setOutcomeSub(null)}
+        />
+      )}
     </div>
   )
 }
