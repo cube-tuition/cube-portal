@@ -255,6 +255,20 @@ export default function ForecastPage() {
     [tutors, rateMatrix, courseModes]
   )
 
+  // ── Cash-paying students ─────────────────────────────────────────────────────
+  // Cash income is treated as GST-exempt across this page — deliberately, to show
+  // the potential value of taking payment in cash. Bank income attracts GST
+  // (÷ 1.1). Which families pay cash comes from the invoice payment_method.
+  const cashStudentIds = useMemo(() => new Set(
+    invoices
+      .filter(i => i.payment_method === 'cash')
+      .flatMap(i => {
+        if (i.student_id) return [i.student_id]
+        return (i.line_items || []).filter(l => l.type === 'enrolment').map(l => l.student_id)
+      })
+      .filter(Boolean)
+  ), [invoices])
+
   // ── Compute class-level metrics ──────────────────────────────────────────────
   const classMetrics = useMemo(() => {
     return classes.map(cls => {
@@ -264,6 +278,10 @@ export default function ForecastPage() {
         ? activeEnrols.reduce((s, e) => s + Number(e.price || 0), 0) / studentCount
         : 0
       const termIncome   = activeEnrols.reduce((s, e) => s + Number(e.price || 0), 0)
+      // How much of this class's income comes from cash-paying families. The Play
+      // tab carries the share so a hypothetical scenario applies GST the same way.
+      const cashIncome   = activeEnrols.reduce((s, e) => s + (cashStudentIds.has(e.student_id) ? Number(e.price || 0) : 0), 0)
+      const cashShare    = termIncome > 0 ? cashIncome / termIncome : 0
       const lessonHrs    = lessonHoursFromClass(cls)
       const lessonCount  = LESSONS_PER_TERM
       const { rate, tutor } = getRateForClass(cls) || {}
@@ -281,14 +299,14 @@ export default function ForecastPage() {
 
       return {
         ...cls,
-        studentCount, termFee, termIncome, lessonHrs, lessonCount,
+        studentCount, termFee, termIncome, cashIncome, cashShare, lessonHrs, lessonCount,
         teacherRate: rate, teacherName: cls.teacher,
         weeklyTeacherFee, termlyTeacherFee, superApplies, superAmount,
         totalTeacherCost, termProfit,
         is1on1: oneOnOne, studentName,
       }
     })
-  }, [classes, getRateForClass, courseModes])
+  }, [classes, getRateForClass, courseModes, cashStudentIds])
 
   // ── Compute summary totals ───────────────────────────────────────────────────
   const summary = useMemo(() => {
@@ -299,25 +317,11 @@ export default function ForecastPage() {
     const oneOnOneIncome = oneOnOne.reduce((s, c) => s + c.termIncome, 0)
     const totalIncome   = classIncome + oneOnOneIncome
 
-    // Identify cash-paying student IDs from invoice payment_method.
-    // Cash invoices are GST-exempt; bank invoices attract GST (÷1.1).
-    // Use enrolment prices (same source as totalIncome) to ensure afterGst ≤ totalIncome.
-    const cashStudentIds = new Set(
-      invoices
-        .filter(i => i.payment_method === 'cash')
-        .flatMap(i => {
-          if (i.student_id) return [i.student_id]
-          return (i.line_items || []).filter(l => l.type === 'enrolment').map(l => l.student_id)
-        })
-        .filter(Boolean)
-    )
-    let cashEnrolIncome = 0, bankEnrolIncome = 0
-    for (const cls of classMetrics) {
-      for (const e of (cls.enrolments || []).filter(e => e.status === 'active')) {
-        if (cashStudentIds.has(e.student_id)) cashEnrolIncome += Number(e.price || 0)
-        else bankEnrolIncome += Number(e.price || 0)
-      }
-    }
+    // Cash is GST-exempt, bank attracts GST (÷ 1.1). Per-class cash income comes
+    // from classMetrics, which uses enrolment prices — the same source as
+    // totalIncome — so afterGst can never exceed it.
+    const cashEnrolIncome = classMetrics.reduce((s, c) => s + c.cashIncome, 0)
+    const bankEnrolIncome = totalIncome - cashEnrolIncome
     const afterGst = cashEnrolIncome + bankEnrolIncome / 1.1
 
     const classTeacherCost   = grouped.reduce((s, c) => s + c.totalTeacherCost, 0)
@@ -488,7 +492,7 @@ export default function ForecastPage() {
     if (tab === 'play' && !playInit && classMetrics.length > 0 && tutors.length > 0) {
       setPlayClasses(classMetrics.map(c => ({
         id: c.id, class_name: c.class_name, teacher: c.teacher,
-        studentCount: c.studentCount, termFee: c.termFee,
+        studentCount: c.studentCount, termFee: c.termFee, cashShare: c.cashShare,
         lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
         teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
         is1on1: c.is1on1, studentName: c.studentName,
@@ -517,7 +521,10 @@ export default function ForecastPage() {
     const classIncome    = grouped.reduce((s, c) => s + c.termIncome, 0)
     const oneOnOneIncome = oneOnOne.reduce((s, c) => s + c.termIncome, 0)
     const totalIncome    = classIncome + oneOnOneIncome
-    const afterGst       = totalIncome / 1.1
+    // Cash stays GST-exempt here too, at each class's live cash share, so an
+    // unedited scenario nets the same as the Overview tab.
+    const cashIncome     = playMetrics.reduce((s, c) => s + c.termIncome * (c.cashShare || 0), 0)
+    const afterGst       = cashIncome + (totalIncome - cashIncome) / 1.1
     const classTeacherCost    = grouped.reduce((s, c) => s + c.totalTeacherCost, 0)
     const oneOnOneTeacherCost = oneOnOne.reduce((s, c) => s + c.totalTeacherCost, 0)
     const fixedTermly    = playFixedCosts.reduce((s, fc) => {
