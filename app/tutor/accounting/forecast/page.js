@@ -6,37 +6,20 @@ import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
 import { getEnrolmentTerm } from '@/lib/terms'
 import { isOneToOneClass } from '@/lib/classFormat'
+import { LESSONS_PER_TERM, SUPER_RATE, lessonHoursFromClass, rateForClass } from '@/lib/teacherCost'
 import {
   ComposedChart, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, LabelList,
 } from 'recharts'
 
 const TAX_RATE   = 0.25   // 25% company tax
-const SUPER_RATE = 0.12   // 12% superannuation
-const LESSONS_PER_TERM = 10
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function parseTimeToMins(t) {
-  if (!t) return 0
-  const [h, m] = String(t).split(':').map(Number)
-  return h * 60 + (m || 0)
-}
-function lessonHoursFromClass(cls) {
-  const diff = parseTimeToMins(cls.end_time) - parseTimeToMins(cls.start_time)
-  return Math.max(0, diff / 60)
-}
-function yearBandFromClassName(name) {
-  if (!name) return null
-  const m = name.match(/Y(\d+)/i)
-  if (!m) return null
-  const y = parseInt(m[1])
-  if (y <= 6)  return '1-6'
-  if (y <= 8)  return '7-8'
-  if (y <= 10) return '9-10'
-  return '11-12'
-}
-// 1:1 vs group is now driven by courses.delivery_mode (with a name fallback),
-// via the shared lib/classFormat helper. See isOneToOneClass usage below.
+// Lesson hours, year bands, hourly rates and super all come from lib/teacherCost,
+// which the accounting dashboard uses too — the page kept its own copies and they
+// drifted (year-less classes were priced at $0 instead of the 'other' band).
+// 1:1 vs group is driven by courses.delivery_mode (with a name fallback), via the
+// shared lib/classFormat helper. See isOneToOneClass usage below.
 function sortByYear(rows) {
   return [...rows].sort((a, b) => {
     const ya = parseInt((a.class_name || '').match(/Y(\d+)/i)?.[1] || '99')
@@ -261,16 +244,10 @@ export default function ForecastPage() {
   useEffect(() => { loadTerm() }, [loadTerm])
 
   // ── Rate lookup helper ───────────────────────────────────────────────────────
-  const getRateForClass = useCallback((cls) => {
-    const firstName = cls.teacher?.split(' ')[0]?.toLowerCase()
-    if (!firstName) return null
-    const tutor = tutors.find(t => t.full_name.toLowerCase().startsWith(firstName))
-    if (!tutor) return null
-    const band = yearBandFromClassName(cls.class_name)
-    const mode = isOneToOneClass(cls, courseModes) ? 'tutor' : 'class'
-    const row  = rateMatrix.find(r => r.tutor_id === tutor.id && r.year_band === band && r.mode === mode)
-    return { rate: row ? Number(row.hourly_rate) : null, tutor }
-  }, [tutors, rateMatrix, courseModes])
+  const getRateForClass = useCallback(
+    (cls) => rateForClass(cls, { tutors, rateMatrix, courseModes }),
+    [tutors, rateMatrix, courseModes]
+  )
 
   // ── Compute class-level metrics ──────────────────────────────────────────────
   const classMetrics = useMemo(() => {
