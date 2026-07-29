@@ -1007,8 +1007,11 @@ function InvoiceDashboardInner() {
                             ↗ View PDF
                           </a>
                         )}
-                        {/* Add Credit */}
-                        {inv.status !== 'voided' && inv.status !== 'draft' && (() => {
+                        {/* Add Credit — not once the invoice is paid. A credit
+                            raised after payment belongs on the family's next
+                            invoice, where an unapplied credit (invoice_id null)
+                            is picked up automatically when it's generated. */}
+                        {inv.status !== 'voided' && inv.status !== 'draft' && inv.payment_status !== 'paid' && (() => {
                           const members = [...new Map(
                             (inv.line_items || []).filter(l => l.type === 'enrolment')
                               .map(l => [l.student_id, { id: l.student_id, full_name: l.student_name }])
