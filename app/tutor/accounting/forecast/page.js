@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
 import { getEnrolmentTerm } from '@/lib/terms'
+import { classesForTerm } from '@/lib/classes'
 import { isOneToOneClass } from '@/lib/classFormat'
 import { LESSONS_PER_TERM, SUPER_RATE, lessonHoursFromClass, rateForClass } from '@/lib/teacherCost'
 import {
@@ -214,8 +215,11 @@ export default function ForecastPage() {
   const [historyEnrols, setHistoryEnrols] = useState([])  // active enrolments with term + price
   useEffect(() => {
     supabase.from('enrolments')
-      .select('id, price, status, classes!inner(term_id)')
+      .select('id, price, status, classes!inner(term_id, status)')
       .eq('status', 'active')
+      // Same exclusion as loadTerm, so the trend can't count revenue the term
+      // forecast leaves out.
+      .or('status.eq.active,status.is.null', { referencedTable: 'classes' })
       .then(({ data }) => setHistoryEnrols(data || []))
   }, [])
 
@@ -225,11 +229,13 @@ export default function ForecastPage() {
     setLoading(true); setError(null)
     try {
       const [{ data: cls }, { data: inv }] = await Promise.all([
-        supabase.from('classes')
-          .select(`id, class_name, course_id, teacher, start_time, end_time,
+        // Inactive classes are finished business — their students have left, but
+        // the class row (and its teacher) survives the term. Costing them would
+        // book teacher pay against no income. Legacy rows have no status yet.
+        classesForTerm(termId, `id, class_name, course_id, teacher, start_time, end_time,
             enrolments!inner(id, student_id, price, status, students(full_name)),
             lessons(id, is_makeup)`)
-          .eq('term_id', termId),
+          .or('status.eq.active,status.is.null'),
         supabase.from('invoices')
           .select('sibling_discount, multi_course_discount, total, payment_method, student_id, line_items')
           .eq('term_id', termId)
