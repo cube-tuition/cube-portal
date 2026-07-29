@@ -81,6 +81,10 @@ function getWarnings(inv, prevUnpaid) {
   if (missingTime.length)                             w.push(`${missingTime.length} missing time`)
   const creditTotal = (inv.line_items || []).filter(l => l.type === 'credit').reduce((s, l) => s + Math.abs(l.amount || 0), 0)
   if (creditTotal > (inv.subtotal || 0) * 0.5 && creditTotal > 50) w.push('unusual credit')
+  // Drifted out of step with reality after generation — the class was deleted or
+  // the student left, but the invoice stayed and is ageing into "overdue".
+  // stale_reasons is built in the loader (it needs class + student lookups).
+  for (const r of inv.stale_reasons || []) w.push(r)
   return w
 }
 
@@ -267,6 +271,13 @@ function InvoiceDashboardInner() {
         : { data: [] }
       const guardianMap = Object.fromEntries((guardians || []).map(g => [g.student_id, g]))
 
+      // Student status, so an invoice still billing someone who has left can be
+      // flagged rather than quietly ageing into "overdue".
+      const { data: invStudents } = allStudentIds.length
+        ? await supabase.from('students').select('id, full_name, status').in('id', allStudentIds)
+        : { data: [] }
+      const studentStatusMap = Object.fromEntries((invStudents || []).map(s => [s.id, s]))
+
       // Load previous unpaid invoices
       const familyIds = (invs || []).map(i => i.family_id).filter(Boolean)
       let prevUnpaidSet = new Set()
@@ -313,6 +324,32 @@ function InvoiceDashboardInner() {
         const guardian        = guardianMap[firstStudentId] || {}
         const studentNames    = [...new Set(effectiveLineItems.filter(l => l.type === 'enrolment').map(l => l.student_name))]
 
+        // An invoice can drift out of step with reality after it's generated:
+        // the class behind a line item gets deleted, or the student leaves. The
+        // enrolment goes, the invoice doesn't — so it quietly ages into
+        // "overdue" as phantom debt (see the orphaned Term 3 drafts left behind
+        // when Y11 Ext 1 Maths was deleted).
+        //
+        // Only money still being chased matters: a PAID invoice is settled
+        // history, and every family who leaves eventually turns their old paid
+        // invoices "inactive". Flagging those would bury the real ones.
+        const staleReasons = []
+        if (inv.payment_status !== 'paid') {
+          const goneClasses = [...new Set(effectiveLineItems
+            .filter(l => l.type === 'enrolment' && l.class_id != null && !classMap[l.class_id])
+            .map(l => l.class_name || `class #${l.class_id}`))]
+          if (goneClasses.length) {
+            staleReasons.push(`${goneClasses.join(', ')} — no longer a class this term`)
+          }
+          const goneStudents = [...new Set(enrolStudentIds
+            .map(id => studentStatusMap[id])
+            .filter(s => s?.status === 'inactive')
+            .map(s => s.full_name))]
+          if (goneStudents.length) {
+            staleReasons.push(`${goneStudents.join(', ')} — no longer an active student`)
+          }
+        }
+
         return {
           ...inv,
           line_items:   effectiveLineItems,
@@ -322,6 +359,7 @@ function InvoiceDashboardInner() {
           student_names: studentNames,
           prev_unpaid:  prevUnpaidSet.has(inv.family_id),
           is_legacy:    isLegacy,
+          stale_reasons: staleReasons,
         }
       })
 
