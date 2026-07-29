@@ -834,8 +834,19 @@ function FamiliesView() {
   const familyPayMethod = (f) => (f.students.some(s => s.payment_method === 'cash') ? 'cash' : 'bank')
   const setFamilyPayMethod = async (f, method) => {
     const ids = f.students.map(s => s.id)
-    const { error } = await supabase.from(T_STUDENTS).update({ payment_method: method }).in('id', ids)
-    if (error) { alert('Could not update payment method: ' + error.message); return }
+    // Goes through the API so the family's unpaid invoices are re-priced with
+    // it — writing payment_method alone leaves them labelled cash but charged
+    // (and worded) as bank transfer.
+    const res  = await authedFetch('/api/set-payment-method', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_ids: ids, method }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { alert('Could not update payment method: ' + (data.error || res.status)); return }
+    if (data.repriced > 0) {
+      alert(`Payment method updated. ${data.repriced} unpaid invoice${data.repriced === 1 ? '' : 's'} re-priced — re-send if already emailed.`)
+    }
     setFamilies(prev => prev.map(fam => fam.key === f.key
       ? { ...fam, students: fam.students.map(s => ({ ...s, payment_method: method })) }
       : fam))
@@ -2207,10 +2218,21 @@ export default function DatabasePage() {
       const row = rows.find(r => r[pkCol] === rowId)
       let error
       if (col === 'payment_method') {
+        // Via the API so the family's unpaid invoices are re-priced with it
+        // (same path as the Families view toggle).
         const sids = row?._studentIds || []
-        ;({ error } = sids.length
-          ? await supabase.from(T_STUDENTS).update({ payment_method: newVal }).in('id', sids)
-          : { error: null })
+        if (sids.length) {
+          const res  = await authedFetch('/api/set-payment-method', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ student_ids: sids, method: newVal }),
+          })
+          const data = await res.json().catch(() => ({}))
+          error = res.ok ? null : { message: data.error || `HTTP ${res.status}` }
+          if (res.ok && data.repriced > 0) {
+            alert(`${data.repriced} unpaid invoice${data.repriced === 1 ? '' : 's'} re-priced — re-send if already emailed.`)
+          }
+        } else { error = null }
       } else {
         const gids = row?._guardianIds?.length ? row._guardianIds : [rowId]
         ;({ error } = await supabase.from(T_PARENTS).update({ [col]: newVal }).in('id', gids))

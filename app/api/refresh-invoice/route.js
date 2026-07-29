@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { isCashDiscountLine, cashDiscountFor, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
+import { syncCashDiscountLines, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
 
 /**
  * POST /api/refresh-invoice
@@ -74,28 +74,12 @@ export async function POST(req) {
       .from('students').select('id, payment_method').in('id', lineStudentIds)
     const isCashFamily = (lineStudents || []).some(s => s.payment_method === 'cash')
 
-    const hasCashLine = newLineItems.some(isCashDiscountLine)
-    if (isCashFamily) {
-      const fresh = cashDiscountFor(newLineItems)
-      if (!hasCashLine) {
-        newLineItems = [...newLineItems, fresh]
-        updated++
-      } else {
-        newLineItems = newLineItems.map(l => {
-          if (!isCashDiscountLine(l)) return l
-          if (l.amount === fresh.amount) return l
-          updated++
-          return { ...l, ...fresh }
-        })
-      }
-    } else if (hasCashLine) {
-      // Family switched back to bank — drop the discount.
-      newLineItems = newLineItems.filter(l => !isCashDiscountLine(l))
-      updated++
-    }
+    const cashSync = syncCashDiscountLines(newLineItems, isCashFamily)
+    newLineItems = cashSync.lineItems
+    if (cashSync.changed) updated++
 
     // Recalculate total = sum of all line item amounts (inc-GST, discounts already negative)
-    const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
+    const newTotal = totalFromLineItems(newLineItems)
 
     const { error: updateErr } = await sb.from('invoices')
       .update({
