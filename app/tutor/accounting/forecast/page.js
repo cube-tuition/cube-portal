@@ -32,6 +32,38 @@ function sortByYear(rows) {
 function fmt(n) { return `$${Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function fmtN(n) { return Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
+/*
+ * Every reduction actually applied to a term's invoices: sibling and multi-course
+ * discounts, the 10% cash discount, referral rewards, absence credits and manual
+ * adjustments. Income here is projected from enrolment prices, so anything an
+ * invoice knocks off has to be subtracted or the forecast counts money that will
+ * never arrive.
+ *
+ * Line items are the source of truth. The sibling_discount / multi_course_discount
+ * columns duplicate a subset of them and go stale when an invoice is regenerated
+ * (live data has invoices whose column says $100 while the line items — which
+ * reconcile to invoice.total — say nothing), so reading both would double-count.
+ * Anything that is not an enrolment line and carries a negative amount counts,
+ * which means new reduction types are picked up without touching this.
+ */
+function invoiceReductions(invoices = []) {
+  const r = { sibling: 0, multiCourse: 0, cash: 0, creditsOther: 0 }
+  for (const inv of invoices) {
+    for (const l of inv.line_items || []) {
+      if (l.type === 'enrolment') continue
+      const amt = -Number(l.amount || 0)          // reductions are stored negative
+      if (!amt) continue
+      const reason = l.reason || ''
+      if (l.type === 'discount' && l.cash) r.cash += amt
+      else if (l.type === 'discount' && /sibling/i.test(reason)) r.sibling += amt
+      else if (l.type === 'discount' && /multi[- ]?course/i.test(reason)) r.multiCourse += amt
+      else r.creditsOther += amt
+    }
+  }
+  r.total = r.sibling + r.multiCourse + r.cash + r.creditsOther
+  return r
+}
+
 // ── Waterfall chart ───────────────────────────────────────────────────────────
 function WaterfallChart({ s }) {
   const gst      = s.totalIncome - s.afterGst
@@ -338,9 +370,12 @@ export default function ForecastPage() {
     }, 0)
     const totalExpenses = classTeacherCost + oneOnOneTeacherCost + fixedTermly
 
-    const siblingDiscount    = invoices.reduce((s, i) => s + Number(i.sibling_discount || 0), 0)
-    const multiCourseDiscount = invoices.reduce((s, i) => s + Number(i.multi_course_discount || 0), 0)
-    const totalDiscount      = siblingDiscount + multiCourseDiscount
+    const reductions         = invoiceReductions(invoices)
+    const siblingDiscount    = reductions.sibling
+    const multiCourseDiscount = reductions.multiCourse
+    const cashDiscount       = reductions.cash
+    const creditsOther       = reductions.creditsOther
+    const totalDiscount      = reductions.total
 
     const classProfit    = classIncome - classTeacherCost
     const oneOnOneProfit = oneOnOneIncome - oneOnOneTeacherCost
@@ -372,7 +407,7 @@ export default function ForecastPage() {
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
-      siblingDiscount, multiCourseDiscount, totalDiscount,
+      siblingDiscount, multiCourseDiscount, cashDiscount, creditsOther, totalDiscount,
       classProfit, oneOnOneProfit, cashPosition, cashProfit, bankProfit, totalProfit, afterTax,
     }
   }, [classMetrics, fixedCosts, invoices])
@@ -544,10 +579,13 @@ export default function ForecastPage() {
       return s + (fc.frequency === 'monthly' ? amt * 3 : amt / 4)
     }, 0)
     const totalExpenses      = classTeacherCost + oneOnOneTeacherCost + fixedTermly
-    // Carry actual discounts from invoices (same as live)
-    const siblingDiscount    = invoices.reduce((s, i) => s + Number(i.sibling_discount || 0), 0)
-    const multiCourseDiscount= invoices.reduce((s, i) => s + Number(i.multi_course_discount || 0), 0)
-    const totalDiscount      = siblingDiscount + multiCourseDiscount
+    // Carry actual invoice reductions from the live term (same as live)
+    const reductions         = invoiceReductions(invoices)
+    const siblingDiscount    = reductions.sibling
+    const multiCourseDiscount= reductions.multiCourse
+    const cashDiscount       = reductions.cash
+    const creditsOther       = reductions.creditsOther
+    const totalDiscount      = reductions.total
     // Same cash-untaxed split as the live summary: costs apportioned by share of
     // gross income, only the bank side taxed.
     const totalCosts         = totalExpenses + totalDiscount
@@ -559,7 +597,7 @@ export default function ForecastPage() {
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
-      siblingDiscount, multiCourseDiscount, totalDiscount,
+      siblingDiscount, multiCourseDiscount, cashDiscount, creditsOther, totalDiscount,
       cashProfit, bankProfit, totalProfit, afterTax,
     }
   }, [playMetrics, playFixedCosts, invoices])
@@ -750,10 +788,12 @@ export default function ForecastPage() {
         </div>
         {/* Discounts (live only) */}
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
-          <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Discounts</p>
+          <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Discounts &amp; credits</p>
           <div className="space-y-1">
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Multi-course</span><span className="font-semibold">{fmt((s.multiCourseDiscount ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Sibling</span><span className="font-semibold">{fmt((s.siblingDiscount ?? 0) * m)}</span></div>
+            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Cash discount (10%)</span><span className="font-semibold">{fmt((s.cashDiscount ?? 0) * m)}</span></div>
+            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Credits &amp; adjustments</span><span className="font-semibold">{fmt((s.creditsOther ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt((s.totalDiscount ?? 0) * m)}</span></div>
           </div>
         </div>
