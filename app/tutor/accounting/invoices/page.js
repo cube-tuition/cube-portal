@@ -12,7 +12,6 @@ import { generateInvoicePdf } from '../../../../lib/invoicePdf'
 import { XeroBanner } from '../../../../components/invoices/XeroBanner'
 import { AddCreditModal } from '../../../../components/invoices/AddCreditModal'
 import { ReferralModal } from '../../../../components/invoices/ReferralModal'
-import { TopUpInvoiceModal } from '../../../../components/invoices/TopUpInvoiceModal'
 import { buildEmailBody, SendEmailModal } from '../../../../components/invoices/SendEmailModal'
 import { logReferralWithCredits } from '../../../../lib/referralCredits'
 
@@ -127,7 +126,6 @@ function InvoiceDashboardInner() {
   const [successMsg, setSuccessMsg] = useState(null)
   const [creditModal,   setCreditModal]   = useState(null)  // { invoiceId, members }
   const [referralModal, setReferralModal] = useState(false)
-  const [topUpModal,    setTopUpModal]    = useState(null)  // invoice object
   const [allStudents,   setAllStudents]   = useState([])
   const [statusEditing,   setStatusEditing]   = useState(null)
   const [confirmUnsentId,   setConfirmUnsentId]   = useState(null) // invoice id pending unsent confirmation
@@ -1022,13 +1020,6 @@ function InvoiceDashboardInner() {
                             </button>
                           )
                         })()}
-                        {/* Top-up (only on paid invoices) */}
-                        {inv.payment_status === 'paid' && (
-                          <button onClick={() => setTopUpModal(inv)}
-                            className="text-xs font-semibold text-[#7C3AED] border border-[#EDE9FE] bg-white hover:bg-[#F5F3FF] px-4 py-1.5 rounded-full transition">
-                            + Top-up
-                          </button>
-                        )}
                         {/* Three status dropdowns */}
                         <div className="ml-auto flex gap-1.5">
                           <select
@@ -1413,14 +1404,6 @@ function InvoiceDashboardInner() {
           students={allStudents}
           onClose={() => setReferralModal(false)}
           onSave={handleLogReferral}
-        />
-      )}
-      {topUpModal && (
-        <TopUpInvoiceModal
-          inv={topUpModal}
-          allStudents={allStudents}
-          onClose={() => setTopUpModal(null)}
-          onCreated={() => { setTopUpModal(null); loadInvoices() }}
         />
       )}
       {sendModalInv && (

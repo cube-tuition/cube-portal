@@ -1345,7 +1345,6 @@ export default function DatabasePage() {
   // Invoices
   const [invoiceTermId, setInvoiceTermId]       = useState(null)
   const [creditModal, setCreditModal]           = useState(null)  // { invoiceId, members } | null
-  const [topUpModal,  setTopUpModal]            = useState(null)  // invoice card object | null  (new invoice modal)
   const [referralModal, setReferralModal]       = useState(false)
   const [allStudentsForReferral, setAllStudentsForReferral] = useState([])
   const [generatingInvoices, setGeneratingInvoices] = useState(false)
@@ -5988,15 +5987,6 @@ export default function DatabasePage() {
         </div>
       )}
 
-      {/* ── Top-up Invoice Modal ─────────────────────────────────────────────── */}
-      {topUpModal && (
-        <TopUpInvoiceModal
-          inv={topUpModal}
-          onClose={() => setTopUpModal(null)}
-          onCreated={() => { setTopUpModal(null); setReloadKey(k => k + 1) }}
-        />
-      )}
-
       {/* ── Add Enrolment Modal ──────────────────────────────────────────────── */}
       {showAddEnrolmentModal && (
         <AddEnrolmentModal
@@ -6426,169 +6416,6 @@ function AddEnrolmentModal({ onClose, onCreated }) {
   )
 }
 
-// ── New Invoice Modal ─────────────────────────────────────────────────────────
-function TopUpInvoiceModal({ inv, onClose, onCreated }) {
-  const [enrolments, setEnrolments] = useState([])   // new enrolments only (added after invoice)
-  const [checked,    setChecked]    = useState({})
-  const [loading,    setLoading]    = useState(true)
-  const [saving,     setSaving]     = useState(false)
-  const [error,      setError]      = useState('')
-
-  const memberIds = inv.members.map(m => m.id)
-  const genCutoff = inv.generated_at ? new Date(inv.generated_at) : null
-
-  useEffect(() => {
-    if (!memberIds.length || !inv.term_id) { setLoading(false); return }
-    ;(async () => {
-      const { data: termClasses } = await supabase
-        .from(T_CLASSES).select('id, class_name').eq('term_id', inv.term_id)
-      const termClassIds = (termClasses || []).map(c => c.id)
-      if (!termClassIds.length) { setLoading(false); return }
-
-      const classNameMap = Object.fromEntries((termClasses || []).map(c => [c.id, c.class_name]))
-
-      const { data: enrRows } = await supabase
-        .from(T_ENROLMENTS)
-        .select('id, student_id, class_id, price, created_at')
-        .in('student_id', memberIds)
-        .in('class_id', termClassIds)
-        .order('created_at', { ascending: true })
-
-      const allRows = (enrRows || []).map(e => ({
-        key:         `${e.student_id}__${e.class_id}`,
-        enrolmentId: e.id,
-        studentId:   e.student_id,
-        studentName: inv.members.find(m => m.id === e.student_id)?.full_name ?? '—',
-        classId:     e.class_id,
-        className:   classNameMap[e.class_id] ?? '—',
-        price:       Number(e.price ?? 0),
-        createdAt:   e.created_at,
-      }))
-
-      // Show all enrolments; pre-tick those added after the invoice was last generated
-      const newRows = allRows
-      const initChecked = Object.fromEntries(newRows.map(r => [r.key, !genCutoff || new Date(r.createdAt) > genCutoff]))
-
-      setEnrolments(newRows)
-      setChecked(initChecked)
-      setLoading(false)
-    })()
-  }, [])
-
-  const checkedRows = enrolments.filter(e => checked[e.key])
-
-  // Multi-course discount: -$50 per student being topped up who already had enrolments at invoice generation time
-  const studentsWithDiscount = [...new Set(checkedRows.map(e => e.studentId))].filter(id =>
-    inv.members.find(m => m.id === id)?.enrolments?.length > 0
-  )
-  const multiCourseDiscount  = studentsWithDiscount.length * 50
-
-  // Price is already pro-rated on the enrolment — no further pro-rating needed
-  const subtotal = checkedRows.reduce((s, e) => s + e.price, 0)
-  const total    = Math.max(0, subtotal - multiCourseDiscount)
-
-  const fmt = n => `$${Number(n).toFixed(2).replace(/\.00$/, '')}`
-  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
-
-  const handleSubmit = async () => {
-    if (!checkedRows.length) return
-    setSaving(true); setError('')
-    const payload = {
-      term_id:              inv.term_id,
-      family_id:            inv.family_id   ?? null,
-      student_id:           inv.student_id  ?? null,
-      subtotal:             subtotal,
-      sibling_discount:     0,
-      multi_course_discount: multiCourseDiscount,
-      total:                total,
-      status:               'unpaid',
-    }
-    const { error: err } = await supabase.from(T_INVOICES).insert(payload)
-    if (err) { setError(err.message); setSaving(false); return }
-    onCreated()
-  }
-
-  // Group enrolments by student for display
-  const byStudent = {}
-  for (const e of enrolments) {
-    if (!byStudent[e.studentId]) byStudent[e.studentId] = { name: e.studentName, rows: [] }
-    byStudent[e.studentId].rows.push(e)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="px-6 py-5 border-b border-[#E8D5FF] bg-gradient-to-r from-[#FAF5FF] to-[#F3E8FF]">
-          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#7C3AED]/60 mb-0.5">New invoice</p>
-          <h2 className="text-base font-bold text-[#2A2035] font-display">{inv.displayName} — {inv.termName}</h2>
-          <p className="text-[11px] text-[#2A2035]/50 mt-0.5">Select enrolments to include. New enrolments are pre-ticked. Prices are already pro-rated.</p>
-        </div>
-
-        <div className="overflow-y-auto px-6 py-5 flex flex-col gap-5 flex-1">
-          {loading ? (
-            <p className="text-sm text-[#2A2035]/50 italic text-center py-4">Loading enrolments…</p>
-          ) : enrolments.length === 0 ? (
-            <p className="text-sm text-[#2A2035]/50 italic text-center py-4">No enrolments found for this family in this term.</p>
-          ) : (
-            <>
-              {Object.values(byStudent).map(({ name, rows }) => (
-                <div key={name}>
-                  <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-2">{name}</p>
-                  <div className="space-y-1.5">
-                    {rows.map(e => {
-                      const isChecked = !!checked[e.key]
-                      return (
-                        <label key={e.key} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition ${isChecked ? 'border-[#7C3AED] bg-[#FAF5FF]' : 'border-[#DEE7FF] bg-white hover:bg-[#F8FAFF]'}`}>
-                          <input type="checkbox" checked={isChecked} onChange={() => setChecked(p => ({ ...p, [e.key]: !p[e.key] }))} className="accent-[#7C3AED] w-3.5 h-3.5 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-[#2A2035]">{e.className}</p>
-                            <p className="text-[10px] text-[#2A2035]/50">Added {fmtDate(e.createdAt)}</p>
-                          </div>
-                          <p className="text-xs font-bold text-[#7C3AED] shrink-0">{fmt(e.price)}</p>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-
-              {/* Totals */}
-              {checkedRows.length > 0 && (
-                <div className="rounded-xl border border-[#E8D5FF] bg-[#FAF5FF] px-4 py-3 space-y-1.5">
-                  <div className="flex justify-between text-xs text-[#2A2035]/60">
-                    <span>Subtotal</span>
-                    <span className="tabular-nums font-semibold">{fmt(subtotal)}</span>
-                  </div>
-                  {multiCourseDiscount > 0 && (
-                    <div className="flex justify-between text-xs text-[#7C3AED]">
-                      <span>Multi-course discount ({studentsWithDiscount.length}× −$50)</span>
-                      <span className="tabular-nums">−{fmt(multiCourseDiscount)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-sm font-bold text-[#2A2035] pt-1.5 border-t border-[#E8D5FF]">
-                    <span>Total</span>
-                    <span className="tabular-nums text-[#7C3AED]">{fmt(total)}</span>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {error && <p className="text-xs text-[#B23A3A] bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-        </div>
-
-        <div className="px-6 py-4 border-t border-[#E8D5FF] bg-[#FAF5FF] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-          <button onClick={handleSubmit} disabled={saving || !checkedRows.length}
-            className="px-4 py-2 text-xs font-semibold text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40 disabled:cursor-not-allowed">
-            {saving ? 'Creating…' : `Create invoice (${fmt(total)})`}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 // ── Searchable select popover — the explorer's standard cell dropdown ─────────
 // Used by every in-grid dropdown (enrolment class, scheduled teacher, and all
 // singleSelect columns): type to filter, ↑/↓ + Enter to choose, Esc or
