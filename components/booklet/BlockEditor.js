@@ -516,8 +516,9 @@ function AnswerSpace({ holder, patch, dflt = 3, maths = true }) {
   )
 }
 
-// Layout controls for a block's image: position (below / float with text
-// wrapping) and width as a % of the container. Only shown once an image is set.
+// Layout controls for a block's image: position (below / centred / float with
+// text wrapping) and width as a % of the container. Only shown once an image is
+// set.
 function ImageLayoutFields({ block, set }) {
   if (!block.image) return null
   return (
@@ -526,6 +527,7 @@ function ImageLayoutFields({ block, set }) {
         <label className={L}>Image position</label>
         <select className={I} value={block.imagePos || 'below'} onChange={e => set({ imagePos: e.target.value === 'below' ? '' : e.target.value })}>
           <option value="below">Below text</option>
+          <option value="center">Centred</option>
           <option value="left">Left — text wraps</option>
           <option value="right">Right — text wraps</option>
         </select>
@@ -1104,6 +1106,9 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false }) {
             </div>
             <textarea className={TA + ' mb-1.5 min-h-[40px]'} rows={1} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.prompt || '', v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x)))} placeholder="Part prompt (optional)" />
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
+            {/* The renderer already honours a part's imagePos/imageWidth — these
+                give them a control, so a part diagram can be centred or resized. */}
+            <ImageLayoutFields block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} />
             <div className="mt-1.5"><MathObjSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} blank={false} maths={maths} /></div>
             <div className="mt-1.5"><EmbeddedTableSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} /></div>
             <textarea className={TA + ' mt-1.5'} value={p.solution || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, solution: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.solution || '', v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x)))} placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
