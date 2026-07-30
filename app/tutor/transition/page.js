@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
-import { T_CLASSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS, T_TERM_TRANSITIONS, T_CLASS_BOOKLETS } from '../../../lib/tables'
+import { T_CLASSES, T_COURSES, T_ENROLMENTS, T_STUDENTS, T_PARENTS, T_TERMS, T_TERM_TRANSITIONS, T_CLASS_BOOKLETS } from '../../../lib/tables'
 import { fmtDate } from '../../../lib/format'
 
 /*
@@ -40,6 +40,12 @@ const STEPS = [
 
 // ── Utility helpers ────────────────────────────────────────────────────────
 
+// Year 11 teaches a three-term curriculum: the HSC course starts in Term 4, by
+// which point the cohort is Year 12. So rolling into Term 4 promotes each Year 11
+// class onto its Year 12 course. "Y11 Chemistry 1:1" → "Y12 Chemistry 1:1";
+// only a standalone 11 is touched, so "11am" in a name survives.
+const promoteName = (name) => String(name || '').replace(/\bY?11\b/g, (m) => m.replace('11', '12'))
+
 
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function TransitionPage() {
@@ -65,6 +71,7 @@ export default function TransitionPage() {
   // Step 2 + 3 shared data
   const [enrolments, setEnrolments] = useState([])  // enriched rows
   const [classes, setClasses]       = useState([])  // classes in fromTerm
+  const [courses, setCourses]       = useState([])  // all courses (for Y11 → Y12 promotion)
   const [dataLoaded, setDataLoaded] = useState(false)
 
   // Step 2 (review only — everyone rolls over)
@@ -139,6 +146,10 @@ export default function TransitionPage() {
       if (clsQuery.error) throw new Error(`Classes query failed: ${clsQuery.error.message}`)
 
       const cls = clsQuery.data || []
+
+      // Courses drive the Year 11 → Year 12 promotion when rolling into Term 4.
+      const { data: crs } = await supabase.from(T_COURSES).select('id, course_code, course_name')
+      setCourses(crs || [])
 
       const classMap = Object.fromEntries(cls.map(c => [c.id, c]))
       const classIds = cls.map(c => c.id)
@@ -230,20 +241,33 @@ export default function TransitionPage() {
       const skipped   = []
       let createdEnrolments = 0
       const createdClassObjs = []
+      // Year 11 → Year 12 promotions for this run, keyed by source class.
+      const promoteById = Object.fromEntries(promotion.promote.map(p => [p.cls.id, p]))
+      const promotedClasses = []
 
       for (const origCls of classesToRoll) {
-        if (existingSources.has(origCls.id) || existingNames.has((origCls.class_name || '').toLowerCase())) {
-          skipped.push(origCls.class_name); continue
+        const promo = promoteById[origCls.id]
+        // A promoted class lands under its Year 12 name, so the name-based
+        // duplicate check has to look for that name, not the Year 11 one.
+        const newName = promo ? promoteName(origCls.class_name) : origCls.class_name
+        if (existingSources.has(origCls.id) || existingNames.has((newName || '').toLowerCase())) {
+          skipped.push(newName); continue
         }
 
         // Strip PK + auto columns before inserting; record provenance
         const { id: origId, created_at, source_class_id, ...clsFields } = origCls
         const { data: newCls, error: clsErr } = await supabase
           .from(T_CLASSES)
-          .insert({ ...clsFields, term_id: toTermId, source_class_id: origId })
+          .insert({
+            ...clsFields,
+            ...(promo ? { course_id: promo.toCourse.id, class_name: newName } : {}),
+            term_id: toTermId,
+            source_class_id: origId,
+          })
           .select().single()
         if (clsErr) throw clsErr
         createdClassObjs.push(newCls)
+        if (promo) promotedClasses.push({ from: origCls.class_name, to: newName, fromCode: promo.fromCode, toCode: promo.toCourse.course_code })
 
         if (copyEnrolments) {
           const pct = parseFloat(feeIncreasePct) || 0
@@ -269,19 +293,32 @@ export default function TransitionPage() {
         // Carry the class's curriculum: booklet assignments + uploaded weekly
         // PDFs are keyed by class_id, so without this the new term's class
         // tabs start empty on the Curriculum page.
-        const { data: asg } = await supabase.from('class_booklet_assignments')
-          .select('booklet_id, term_number, week').eq('class_id', origId)
-        if (asg?.length) {
-          await supabase.from('class_booklet_assignments')
-            .insert(asg.map(a => ({ ...a, class_id: newCls.id })))
+        // A promoted class is a different course, so its Year 11 material does
+        // not apply — it starts with an empty Year 12 curriculum instead.
+        if (!promo) {
+          const { data: asg } = await supabase.from('class_booklet_assignments')
+            .select('booklet_id, term_number, week').eq('class_id', origId)
+          if (asg?.length) {
+            await supabase.from('class_booklet_assignments')
+              .insert(asg.map(a => ({ ...a, class_id: newCls.id })))
+          }
+          const { data: cbs } = await supabase.from(T_CLASS_BOOKLETS)
+            .select('term_number, week, booklet_name, storage_path, storage_paths, storage_filenames')
+            .eq('class_id', origId)
+          if (cbs?.length) {
+            await supabase.from(T_CLASS_BOOKLETS)
+              .insert(cbs.map(b => ({ ...b, class_id: newCls.id })))
+          }
         }
-        const { data: cbs } = await supabase.from(T_CLASS_BOOKLETS)
-          .select('term_number, week, booklet_name, storage_path, storage_paths, storage_filenames')
-          .eq('class_id', origId)
-        if (cbs?.length) {
-          await supabase.from(T_CLASS_BOOKLETS)
-            .insert(cbs.map(b => ({ ...b, class_id: newCls.id })))
-        }
+      }
+
+      // Move the promoted cohort up a year. The year guard makes this idempotent,
+      // so re-running the rollover never double-promotes anyone.
+      let promotedStudentIds = []
+      if (promotedClasses.length && promotingStudentIds.length) {
+        const { data: bumped } = await supabase.from(T_STUDENTS)
+          .update({ year: '12' }).in('id', promotingStudentIds).eq('year', '11').select('id')
+        promotedStudentIds = (bumped || []).map(r => r.id)
       }
 
       // Audit record — who ran this rollover and what it created
@@ -298,6 +335,9 @@ export default function TransitionPage() {
             skipped,
             copy_enrolments:    copyEnrolments,
             fee_increase_pct:   parseFloat(feeIncreasePct) || 0,
+            promoted_classes:   promotedClasses,
+            promoted_students:  promotedStudentIds.length,
+            promotion_blocked:  promotion.blocked.map(b => ({ class_name: b.cls.class_name, course_code: b.fromCode })),
           },
         }).select('id').single()
         auditId = audit?.id ?? null
@@ -308,6 +348,9 @@ export default function TransitionPage() {
         createdEnrolments,
         skipped,
         createdClassIds:   createdClassObjs.map(c => c.id),
+        promotedClasses,
+        promotedStudentIds,
+        blocked:           promotion.blocked.map(b => ({ class_name: b.cls.class_name, course_code: b.fromCode })),
         auditId,
       })
       setRolloverDone(true)
@@ -337,6 +380,13 @@ export default function TransitionPage() {
         await supabase.from(T_CLASSES).delete().in('id', createdClassIds)
       }
 
+      // 3. Undo the Year 11 → Year 12 promotion for exactly the students it moved.
+      const { promotedStudentIds = [] } = rolloverResult
+      if (promotedStudentIds.length) {
+        await supabase.from(T_STUDENTS)
+          .update({ year: '11' }).in('id', promotedStudentIds).eq('year', '12')
+      }
+
       // Mark the audit record cancelled
       if (rolloverResult.auditId) {
         await supabase.from(T_TERM_TRANSITIONS)
@@ -361,6 +411,41 @@ export default function TransitionPage() {
   const fromTerm          = terms.find(t => t.id === fromTermId)
   const toTerm            = terms.find(t => t.id === toTermId)
   const allSelected       = classes.length > 0 && Object.values(selectedClasses).every(Boolean)
+
+  // ── Year 11 → Year 12 promotion (Term 4 rollovers only) ───────────────────
+  // Each selected 11.x class is matched to the 12.x course with the same suffix
+  // ("11.M3C" → "12.M3C"). Suffixes with no Year 12 course (e.g. 11.E1C EALD
+  // English) can't be promoted: those classes roll over unchanged as Year 11 and
+  // are listed so the missing course can be created and the rollover re-run.
+  // Cheap to derive each render (a term has a few dozen classes), and plain
+  // code keeps the React Compiler's memoization intact.
+  const promotion = (() => {
+    if (Number(toTerm?.term_number) !== 4) return { active: false, promote: [], blocked: [] }
+    const byId   = Object.fromEntries(courses.map(c => [c.id, c]))
+    const byCode = Object.fromEntries(courses.map(c => [String(c.course_code || '').toUpperCase(), c]))
+    const rows = classes
+      .filter(cls => (selectedClasses[cls.id] ?? true))
+      .map(cls => {
+        const code = String(byId[cls.course_id]?.course_code || '')
+        const dot  = code.indexOf('.')
+        if (dot < 0 || Number(code.slice(0, dot)) !== 11) return null
+        return { cls, fromCode: code, toCourse: byCode[`12.${code.slice(dot + 1)}`.toUpperCase()] || null }
+      })
+      .filter(Boolean)
+    return {
+      active:  true,
+      promote: rows.filter(r => r.toCourse),
+      blocked: rows.filter(r => !r.toCourse),
+    }
+  })()
+
+  // Students who move up a year with their promoted classes.
+  const promotingStudentIds = (() => {
+    const ids = new Set(promotion.promote.map(p => p.cls.id))
+    return [...new Set(enrolments
+      .filter(e => ids.has(e.class_id) && String(e.year) === '11')
+      .map(e => e.student_id))]
+  })()
 
   if (loading && !terms.length) return (
     <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center">
@@ -618,6 +703,60 @@ export default function TransitionPage() {
               )}
             </div>
 
+            {/* Year 11 → Year 12 promotion notice (Term 4 rollovers) */}
+            {promotion.active && (promotion.promote.length > 0 || promotion.blocked.length > 0) && (
+              <div className="border border-[#BACBFF] bg-[#F0F4FF] rounded-xl px-4 py-3.5 mb-6">
+                <p className="text-sm font-semibold text-[#062E63]">
+                  ↑ {toTerm?.name} starts the Year 12 course
+                </p>
+                <p className="text-xs text-[#325099]/70 mt-1">
+                  Year 11 runs a three-term curriculum, so these classes roll over onto their
+                  Year 12 course and their students move up to Year 12. A promoted class starts
+                  with an empty curriculum — its Year 11 booklets aren&apos;t carried across.
+                </p>
+
+                {promotion.promote.length > 0 && (
+                  <ul className="mt-3 space-y-1">
+                    {promotion.promote.map(p => (
+                      <li key={p.cls.id} className="text-xs text-[#062E63] flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold">{p.cls.class_name}</span>
+                        <span className="text-[#325099]/50">{p.fromCode}</span>
+                        <span className="text-[#325099]/50">→</span>
+                        <span className="font-semibold">{promoteName(p.cls.class_name)}</span>
+                        <span className="text-[#325099]/50">{p.toCourse.course_code}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {promotingStudentIds.length > 0 && (
+                  <p className="text-[11px] font-semibold text-[#325099] mt-2">
+                    {promotingStudentIds.length} student{promotingStudentIds.length !== 1 ? 's' : ''} will
+                    be moved from Year 11 to Year 12.
+                  </p>
+                )}
+
+                {promotion.blocked.length > 0 && (
+                  <div className="mt-3 border-t border-[#BACBFF] pt-3">
+                    <p className="text-xs font-semibold text-amber-700">
+                      ⚠ {promotion.blocked.length} class{promotion.blocked.length !== 1 ? 'es' : ''} can&apos;t
+                      be promoted — no Year 12 course exists for them
+                    </p>
+                    <ul className="mt-1 space-y-0.5">
+                      {promotion.blocked.map(b => (
+                        <li key={b.cls.id} className="text-xs text-amber-800/80">
+                          {b.cls.class_name} <span className="text-amber-800/50">({b.fromCode} → 12.{b.fromCode.split('.')[1]} missing)</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-[11px] text-amber-800/70 mt-1.5">
+                      These roll over unchanged as Year 11. Create the missing Year 12 course, then
+                      reset and re-run this rollover to promote them.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Class list */}
             <div className="border border-[#DEE7FF] rounded-xl overflow-hidden mb-6">
               <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-2.5 flex items-center justify-between">
@@ -676,6 +815,18 @@ export default function TransitionPage() {
                   {rolloverResult.skipped?.length > 0 && (
                     <p className="text-xs text-[#065F46]/70 mt-1">
                       Skipped (already existed): {rolloverResult.skipped.join(', ')}
+                    </p>
+                  )}
+                  {rolloverResult.promotedClasses?.length > 0 && (
+                    <p className="text-xs text-[#065F46]/70 mt-1">
+                      Promoted to Year 12: {rolloverResult.promotedClasses.map(p => p.to).join(', ')}
+                      {rolloverResult.promotedStudentIds?.length > 0 &&
+                        ` · ${rolloverResult.promotedStudentIds.length} student${rolloverResult.promotedStudentIds.length !== 1 ? 's' : ''} moved to Year 12`}
+                    </p>
+                  )}
+                  {rolloverResult.blocked?.length > 0 && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      ⚠ Still Year 11 (no Year 12 course): {rolloverResult.blocked.map(b => b.class_name).join(', ')}
                     </p>
                   )}
                 </div>

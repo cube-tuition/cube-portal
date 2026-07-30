@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import BookletContentView from '../../../../components/booklet/BookletContentView'
 import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
+import { curriculumTerms } from '../../../../lib/terms'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -403,7 +404,6 @@ function FileCell({ booklet, type, accentColor, accentBg, onUpdated }) {
   )
 }
 
-const TERMS = [1, 2, 3, 4]
 const INP   = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 
@@ -421,6 +421,14 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
     notes:        booklet?.notes        ?? '',
     content:      booklet?.content      ?? '',
   })
+
+  // Terms follow the year level (Year 11 has no Term 4). A value already stored
+  // outside that range stays selectable so editing can't silently clear it.
+  const termOptions = useCallback(() => {
+    const base = curriculumTerms(form.year)
+    const cur = Number(form.term_number)
+    return Number.isFinite(cur) && cur > 0 && !base.includes(cur) ? [...base, cur].sort() : base
+  }, [form.year, form.term_number])()
 
   // Existing files (edit mode)
   const [existingPdfPaths,  setExistingPdfPaths]  = useState(
@@ -554,7 +562,7 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Term <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
               <select value={form.term_number} onChange={set('term_number')} className={INP}>
                 <option value="">—</option>
-                {TERMS.map(t => <option key={t} value={t}>Term {t}</option>)}
+                {termOptions.map(t => <option key={t} value={t}>Term {t}</option>)}
               </select>
             </div>
             <div>

@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, curriculumTerms, isTermOutOfCurriculum } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
@@ -302,10 +302,12 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
 
   if (loading) return <div className="py-6 text-center"><p className="text-[10px] text-[#2A2035]/30 animate-pulse">Loading…</p></div>
 
+  // Year 11 runs a three-term curriculum (see curriculumTerms).
+  const terms = curriculumTerms(year)
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
-        {[1, 2, 3, 4].map(term => (
+      <div className={`grid grid-cols-2 gap-3 mt-3 ${terms.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+        {terms.map(term => (
           <div key={term} className="flex flex-col min-w-0">
             <div className="flex items-center justify-between px-3 py-1.5 rounded-lg mb-2" style={{ background: accentBg }}>
               <span className="text-[10px] font-bold tracking-wide" style={{ color: accentColor }}>Term {term}</span>
@@ -407,8 +409,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
 }
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
-const TERMS = [1, 2, 3, 4]
-const INP      = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+const INP      ='w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 // ── Booklet Modal (add + edit) ────────────────────────────────────────────────
 function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defaultWeek, onClose, onSaved }) {
@@ -430,6 +431,15 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
   const [saving, setSaving] = useState(false)
   const [err, setErr]       = useState('')
   const fileRef             = useRef()
+
+  // Terms available for the year on the form. A value already stored outside
+  // that range (a Year 11 booklet left in Term 4) stays selectable so opening
+  // the modal can't quietly drop it.
+  const termOptions = useMemo(() => {
+    const base = curriculumTerms(form.year)
+    const cur = Number(form.term_number)
+    return Number.isFinite(cur) && cur > 0 && !base.includes(cur) ? [...base, cur].sort() : base
+  }, [form.year, form.term_number])
 
   // ── Syllabus content picker ────────────────────────────────────────────────
   // Chapters/sections from the master syllabus for this year+subject. Ticked
@@ -596,7 +606,10 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Term <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
               <select value={form.term_number} onChange={set('term_number')} className={INP}>
                 <option value="">—</option>
-                {TERMS.map(t => <option key={t} value={t}>Term {t}</option>)}
+                {/* Terms follow the year level, so Year 11 can't be filed under
+                    Term 4. An out-of-range value already on the row stays
+                    listed, so editing an old booklet never silently clears it. */}
+                {termOptions.map(t => <option key={t} value={t}>Term {t}</option>)}
               </select>
             </div>
             <div>
@@ -1132,8 +1145,30 @@ function BookletsPageInner() {
           </div>
         ) : (
           <div className="pb-12">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {TERMS.map(termNum => {
+            {/* A booklet filed outside the year's terms (a Year 11 booklet left in
+                Term 4) has no column to appear in, so name it here rather than
+                letting it drop out of the page silently. */}
+            {(() => {
+              const stray = visible.filter(b => isTermOutOfCurriculum(activeYear, b.term_number))
+              return stray.length === 0 ? null : (
+                <div className="mb-4 border border-amber-300 bg-amber-50 rounded-xl px-4 py-3">
+                  <p className="text-xs font-semibold text-amber-800">
+                    ⚠ {stray.length} booklet{stray.length !== 1 ? 's' : ''} filed outside the
+                    Year {activeYear} curriculum ({curriculumTerms(activeYear).length} terms)
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {stray.map(b => (
+                      <li key={b.id} className="text-xs text-amber-800/80">
+                        {b.booklet_name} <span className="text-amber-800/50">— T{b.term_number}{b.week ? ` W${b.week}` : ''}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[11px] text-amber-800/70 mt-1.5">Edit each one to move it into a valid term.</p>
+                </div>
+              )
+            })()}
+            <div className={`grid grid-cols-2 gap-4 ${curriculumTerms(activeYear).length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+              {curriculumTerms(activeYear).map(termNum => {
                 const byWeek = {}
                 visible.filter(b => b.term_number === termNum).forEach(b => {
                   if (b.week != null) byWeek[b.week] = b
@@ -1430,6 +1465,10 @@ function TutorCurriculumPage({ staff, scope = null }) {
   const subject     = inferSubject(activeClass)
   const accent      = getAccentColor(subject)
   const accentBg    = getAccentBg(subject)
+  // Year level comes from the course code ("11.M3C" → 11), so the grid shows
+  // three terms for a Year 11 class and four for everyone else.
+  const activeYear  = parseInt((activeClass?.courses?.course_code || '').split('.')[0])
+  const gridTerms   = curriculumTerms(activeYear)
 
   const totalAssigned = assignments.length
 
@@ -1543,10 +1582,10 @@ function TutorCurriculumPage({ staff, scope = null }) {
               </div>
             )}
 
-            {/* ── 4-term curriculum grid ──────────────────────────────────── */}
+            {/* ── Curriculum grid (3 terms for Year 11, 4 otherwise) ───────── */}
             {!loadingAsgn && totalAssigned > 0 && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {[1, 2, 3, 4].map(termNum => {
+              <div className={`grid grid-cols-2 gap-3 ${gridTerms.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+                {gridTerms.map(termNum => {
                   const isCurTerm  = termNum === curTermNum
                   const termColor  = isCurTerm ? accent    : '#64748B'
                   const termBgCol  = isCurTerm ? accentBg  : '#F1F5F9'
