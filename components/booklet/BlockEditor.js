@@ -411,7 +411,7 @@ function MathObjFields({ obj, upd }) {
 // object and/or a plain blank space beneath the text.
 const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true }
 // A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
-const EMPTY_TABLE = () => ({ headerRow: false, width: '', align: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
+const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
 
 // Attach/edit/remove an optional table embedded in a block (block.table).
 // Mirrors the maths-object / blank-space "＋ Add" affordances.
@@ -722,7 +722,8 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
           <EmbeddedTableSection block={block} set={set} />
-          <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} maths={isMaths} showMarks={showMarks} />
+          <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} maths={isMaths} showMarks={showMarks}
+            cols={block.partsCols} onCols={v => set({ partsCols: v })} />
           {/* The question-level solution only applies to single questions; with
               parts, each part carries its own solution. */}
           {!(block.parts && block.parts.length) && (
@@ -941,11 +942,19 @@ function TableEditor({ block, set }) {
   // The slider stores '' at 100 so untouched tables keep rendering exactly as before.
   const widthPct = (() => { const w = Number(block.width); return Number.isFinite(w) && w >= 25 && w < 100 ? w : 100 })()
   const ALIGNS = [['left', '⇤', 'Align left'], ['', '↔', 'Centre'], ['right', '⇥', 'Align right']]
+  // The renderer centres on anything that isn't 'left'/'right', so blocks built in
+  // code often carry align:'center'. Fold it onto '' so Centre reads as selected.
+  const curAlign = block.align === 'left' || block.align === 'right' ? block.align : ''
   return (
     <div className="space-y-2.5">
       <div className="flex items-center gap-4 flex-wrap">
         <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer">
           <input type="checkbox" checked={!!block.headerRow} onChange={e => set({ headerRow: e.target.checked })} /> Header row
+        </label>
+        {/* A header column styles the left-hand cells of every row as headings —
+            for tables read across the rows (unit → example) rather than down. */}
+        <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer">
+          <input type="checkbox" checked={!!block.headerCol} onChange={e => set({ headerCol: e.target.checked })} /> Header column
         </label>
         <div className="flex items-center gap-1.5 text-[11px] text-[#2A2035]/50">
           <span>Rows</span>
@@ -969,16 +978,26 @@ function TableEditor({ block, set }) {
           />
           <span className="w-8 text-center font-semibold text-[#2A2035]">{widthPct === 100 ? 'Full' : `${widthPct}%`}</span>
         </div>
-        {widthPct < 100 && (
+        {/* Alignment is always shown so it's findable, but a full-width table has
+            no room to move — it already spans the page. At Full the buttons are
+            disabled and say so, rather than vanishing. */}
+        <div className="flex items-center gap-1.5">
           <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden">
             {ALIGNS.map(([v, icon, tip]) => (
-              <button key={v || 'center'} type="button" onClick={() => set({ align: v })} title={tip}
+              <button key={v || 'center'} type="button" disabled={widthPct >= 100}
+                onClick={() => set({ align: v })}
+                title={widthPct >= 100 ? 'Set a width below Full to align the table' : tip}
                 className={`w-7 h-6 flex items-center justify-center text-xs leading-none transition ${
-                  (block.align || '') === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'
+                  widthPct >= 100
+                    ? 'text-[#2A2035]/25 cursor-not-allowed'
+                    : curAlign === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'
                 }`}>{icon}</button>
             ))}
           </div>
-        )}
+          {widthPct >= 100 && (
+            <span className="text-[10px] text-[#2A2035]/40">narrow the table to align it</span>
+          )}
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table ref={tableRef} className="border-collapse w-full" style={{ tableLayout: 'fixed', minWidth: nCols * 76 + SPACER }}>
@@ -1041,8 +1060,9 @@ function TableEditor({ block, set }) {
                       onKeyDown={e => onInlineKey(e, cell, v => setCell(ri, ci, v))}
                       onPaste={e => handleCellPaste(ri, ci, e)}
                       rows={1}
-                      placeholder={block.headerRow && ri === 0 ? 'Header' : ''}
-                      className={`w-full min-w-0 align-middle border border-[#DEE7FF] rounded px-2 py-1 text-xs text-center resize-y focus:outline-none focus:border-[#325099] ${block.headerRow && ri === 0 ? 'bg-[#EEF1F5] font-semibold' : 'bg-white'}`}
+                      placeholder={(block.headerRow && ri === 0) || (block.headerCol && ci === 0) ? 'Header' : ''}
+                      className={`w-full min-w-0 align-middle border border-[#DEE7FF] rounded px-2 py-1 text-xs text-center resize-y focus:outline-none focus:border-[#325099] ${
+                        (block.headerRow && ri === 0) || (block.headerCol && ci === 0) ? 'bg-[#EEF1F5] font-semibold' : 'bg-white'}`}
                     />
                   </td>
                 ))}
@@ -1071,7 +1091,6 @@ function TableEditor({ block, set }) {
           </tbody>
         </table>
       </div>
-      <p className="text-[10px] text-[#2A2035]/40">Hover a row or column for its ▲▼ / ◀▶ reorder, insert and delete buttons. Drag a divider between two columns to resize them (double-click it to reset to auto). Use $…$ for maths and **bold** in cells. Paste a copied table (Sheets, Excel, Word…) into any cell to fill the grid from there.</p>
       {sumSet > 100 && (
         <p className="text-[10px] font-semibold text-amber-600">⚠ Column widths add up to {Math.round(sumSet)}% — they&apos;ll be squeezed to fit. Keep the total at 100% or less.</p>
       )}
@@ -1079,10 +1098,35 @@ function TableEditor({ block, set }) {
   )
 }
 
-function PartsEditor({ parts, onChange, maths = true, showMarks = false }) {
+function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, onCols }) {
+  const twoCol = Number(cols) === 2
   return (
     <div>
-      <label className={L}>Parts (a, b, c…) — optional</label>
+      <div className="flex items-center justify-between gap-3 mb-0.5">
+        <label className={L + ' mb-0'}>Parts (a, b, c…) — optional</label>
+        {/* Short parts (conversions, "find the volume of each") read much better
+            side by side, which is how the printed workbooks lay them out. */}
+        {parts.length >= 2 && onCols && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-[#7C89A8]">Layout</span>
+            <div className="inline-flex rounded-md border border-[#E8EDF8] overflow-hidden">
+              {[['', 'One column'], ['2', 'Two columns']].map(([v, label]) => (
+                <button key={v || '1'} type="button" onClick={() => onCols(v)}
+                  className={`px-2 py-0.5 text-[11px] font-semibold cursor-pointer ${
+                    (v === '2') === twoCol ? 'bg-[#325099] text-white' : 'bg-white text-[#325099] hover:bg-[#F0F4FF]'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      {twoCol && (
+        <p className="text-[11px] text-[#7C89A8] mb-1.5">
+          Parts sit two per row. Keep prompts and answer space short — a two-column
+          question can’t split across pages, so it must fit on one.
+        </p>
+      )}
       <div className="space-y-2">
         {parts.map((p, i) => (
           <div key={i} className="border border-[#E8EDF8] rounded-lg p-2 bg-[#F8FAFF]">
@@ -1095,7 +1139,9 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false }) {
                     marks
                   </label>
                 )}
-                {i >= 1 && (
+                {/* Two-column parts render as one grid, so the renderer ignores
+                    per-part page breaks — don't offer a checkbox that does nothing. */}
+                {i >= 1 && !twoCol && (
                   <label className="flex items-center gap-1 text-[11px] text-[#325099] cursor-pointer" title="Force this part (and those after it) onto a new page">
                     <input type="checkbox" checked={!!p.pageBreakBefore} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, pageBreakBefore: e.target.checked } : x))} />
                     Start on new page
