@@ -252,6 +252,7 @@ function MathObjFields({ obj, upd }) {
             <option value="numberline">Number line</option>
             <option value="boxplot">Box plot</option>
             <option value="histogram">Histogram</option>
+            <option value="dotplot">Dot plot</option>
             <option value="stemleaf">Stem-and-leaf plot</option>
             <option value="xytable">Table of values</option>
           </select>
@@ -370,6 +371,22 @@ function MathObjFields({ obj, upd }) {
           </>
         )
       })()}
+      {obj.objType === 'dotplot' && (
+        <>
+          <div><label className={L}>Data values (comma or space separated)</label>
+            <textarea className={TA} value={obj.dpData ?? ''} onChange={e => upd({ dpData: e.target.value })} placeholder="2, 3, 3, 4, 4, 4, 5, 5, 7" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className={L}>Title (optional)</label><input className={I} value={obj.dpTitle ?? ''} onChange={e => upd({ dpTitle: e.target.value })} placeholder="e.g. Siblings per student" /></div>
+            <div><label className={L}>X-axis label (optional)</label><input className={I} value={obj.dpXLabel ?? ''} onChange={e => upd({ dpXLabel: e.target.value })} placeholder="e.g. Number of siblings" /></div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div><label className={L}>Axis min (optional)</label><input className={I} value={obj.dpMin ?? ''} onChange={e => upd({ dpMin: e.target.value })} placeholder="auto" /></div>
+            <div><label className={L}>Axis max (optional)</label><input className={I} value={obj.dpMax ?? ''} onChange={e => upd({ dpMax: e.target.value })} placeholder="auto" /></div>
+            <div><label className={L}>Tick step</label><input className={I} value={obj.dpStep ?? ''} onChange={e => upd({ dpStep: e.target.value })} placeholder="1" /></div>
+          </div>
+          <p className="text-[10px] text-[#2A2035]/45">One dot per value, counted for you. Min/max only widen the axis — they can never hide data — so set them to show a value with no dots.</p>
+        </>
+      )}
       {obj.objType === 'stemleaf' && (
         <>
           <div><label className={L}>Data values (comma or space separated)</label>
@@ -409,7 +426,7 @@ function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true }
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true }
 // A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
 const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
 
