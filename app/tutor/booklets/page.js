@@ -259,6 +259,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
   const [loading,     setLoading]     = useState(true)
   const [assignSlot,  setAssignSlot]  = useState(null)
   const [viewContent, setViewContent] = useState(null)
+  const [editing,     setEditing]     = useState(null)  // full booklets row being edited
   const [dragA,       setDragA]       = useState(null)  // assignment being dragged
   const [overSlot,    setOverSlot]    = useState(null)  // 'term-week' under the drag
 
@@ -298,6 +299,14 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
       await supabase.from('class_booklet_assignments').update({ term_number: term, week }).eq('id', a.id)
     }
     load()
+  }
+
+  // The joined booklets(...) above is a partial row (no notes / term_number /
+  // week), and BookletModal writes all of those columns — so open it on a fresh
+  // full row rather than the partial one, or saving would null the missing fields.
+  const openEdit = async (bookletId) => {
+    const { data, error } = await supabase.from('booklets').select('*').eq('id', bookletId).single()
+    if (!error && data) setEditing(data)
   }
 
   if (loading) return <div className="py-6 text-center"><p className="text-[10px] text-[#2A2035]/30 animate-pulse">Loading…</p></div>
@@ -345,6 +354,8 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                       </div>
                       <div className="px-3 pb-2 flex items-center justify-between gap-1">
                         <div className="flex items-center gap-2">
+                          <button onClick={() => openEdit(a.booklet_id)}
+                            className="text-[9px] font-semibold text-[#325099] hover:underline transition">Edit</button>
                           <button onClick={() => handleUnassign(a.id)}
                             className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
                           <button onClick={() => setViewContent(b)}
@@ -401,6 +412,15 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
           accentBg={accentBg}
           onClose={() => setAssignSlot(null)}
           onAssigned={() => { setAssignSlot(null); load() }}
+        />
+      )}
+      {editing && (
+        <BookletModal
+          booklet={editing}
+          defaultYear={year}
+          defaultSubject={subject}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load() }}
         />
       )}
       <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
