@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { coverHtml, levelTestCoverHtml, testTotalMarks, footerHtml, BOOKLET_CSS, WATERMARK_SVG, bookletRenderItems } from '../../lib/bookletRender'
+import { splitToFit } from '../../lib/paginate'
 
 // Right-hand footer label for a doc. Level tests read "Year N Level test".
 // Footer right-hand label. The subject name is spelled out from the stored
@@ -146,12 +147,35 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
         cur.inner.appendChild(el)
         countOnPage = 0
       }
-      // Even alone the item is taller than a page: a multi-part question falls
-      // back to per-part chunks so it breaks between parts instead of
-      // stretching the page.
-      if (cur.page.scrollHeight > PAGE_H && it.chunks) {
-        cur.inner.removeChild(el)
-        placeChunks(it)
+      // Even alone the item is taller than a page. A multi-part question falls
+      // back to per-part chunks; anything else (writing lines, a long table, a
+      // big callout) is split by splitToFit, so the page stays exactly A4
+      // rather than stretching and printing as a sliced, footer-clipped PDF.
+      if (cur.page.scrollHeight > PAGE_H) {
+        if (it.chunks) {
+          cur.inner.removeChild(el)
+          placeChunks(it)
+          continue
+        }
+        const fits = () => cur.page.scrollHeight <= PAGE_H
+        let rest = splitToFit(el, fits)
+        // Record AFTER trimming — el has just had its overflow moved out.
+        if (it.homework) cur.homework = true
+        if (it.quiz) cur.quiz = true
+        cur.html.push(el.outerHTML)
+        countOnPage++
+        let guard = 0
+        while (rest && guard++ < 200) {
+          cur = newPage(); result.push(cur); countOnPage = 0
+          cur.inner.appendChild(rest)
+          const more = splitToFit(rest, fits)
+          if (it.homework) cur.homework = true
+          if (it.quiz) cur.quiz = true
+          cur.html.push(rest.outerHTML)
+          countOnPage++
+          if (more === rest) break
+          rest = more
+        }
         continue
       }
       if (it.homework) cur.homework = true
