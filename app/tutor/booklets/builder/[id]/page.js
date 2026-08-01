@@ -6,6 +6,10 @@ import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../../../../lib/tables'
+
+// A booklet stops being "Not Started" once it has this many blocks in it; the
+// builder promotes the linked curriculum row to "In Progress" on the next save.
+const AUTO_IN_PROGRESS_BLOCKS = 5
 import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS, DEFAULT_LT_INSTRUCTIONS, DEFAULT_LT_TOTALS } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import { bookletPdfName } from '../../../../../lib/bookletNaming'
@@ -62,6 +66,9 @@ export default function BookletBuilderEditor() {
   const bkRef = useRef(null)
   useEffect(() => { bkRef.current = bk })
   const savingRef = useRef(false), pendingRef = useRef(false)
+  // Set once the "In Progress" promotion has been attempted, so the extra write
+  // doesn't ride along with every autosave.
+  const promotedRef = useRef(false)
 
   // Which page is being edited, and (for homework) which subsection new blocks
   // land in. The cover is automatic (page 1) and has no editable section.
@@ -148,6 +155,19 @@ export default function BookletBuilderEditor() {
           updated_at: new Date().toISOString(),
         }).eq('id', b.id)
       } while (pendingRef.current)
+
+      // Once a booklet has real content in it, it is no longer "Not Started".
+      // Promote the linked curriculum row on the way past — guarded in the query
+      // so a booklet already In Progress / Needs Improvement / Complete is never
+      // knocked backwards, and only attempted once per session.
+      const b = bkRef.current
+      if (!promotedRef.current && b?.booklet_id && (b.blocks?.length || 0) >= AUTO_IN_PROGRESS_BLOCKS) {
+        promotedRef.current = true
+        await supabase.from(T_BOOKLETS)
+          .update({ status: 'In Progress' })
+          .eq('id', b.booklet_id)
+          .or('status.is.null,status.eq.Not Started')
+      }
       setDirty(false)
     } finally { savingRef.current = false; setSaving(false) }
   }, [])
