@@ -272,7 +272,13 @@ export default function SessionDetailPage() {
               </span>
             )}
           </div>
-          <WeekBooklet cls={cls} term={term} week={bookletWeek} isAdmin={isAdmin} />
+          {/* dateISO + staff enable the workbook-feedback boxes under the
+              booklet; the class overview renders WeekBooklet without them. */}
+          <WeekBooklet
+            cls={cls} term={term} week={bookletWeek} isAdmin={isAdmin}
+            dateISO={dateISO} staff={staff}
+            readOnly={!isAdmin && !!subAssignment && staff?.id !== subAssignment?.sub_tutor_id}
+          />
         </div>
         <SessionMarker
           classId={classId}

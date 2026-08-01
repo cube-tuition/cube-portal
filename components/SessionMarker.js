@@ -102,7 +102,6 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const [notesFromCube,   setNotesFromCube]   = useState('')
   const [notesSaveStatus, setNotesSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'error'
   const [notesGeneral,    setNotesGeneral]    = useState('')
-  const [notesWorkbook,   setNotesWorkbook]   = useState('')
   const [notesHomework,   setNotesHomework]   = useState('')
   const [term, setTerm] = useState(null)
   const [booklet, setBooklet] = useState(null)
@@ -327,7 +326,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       // Load lesson notes (admin "Notes from CUBE" + tutor "Notes to CUBE" fields)
       const { data: lessonRow } = await supabase
         .from('lessons')
-        .select('id, notes, notes_general, notes_workbook, notes_homework, has_rq')
+        .select('id, notes, notes_general, notes_homework, has_rq')
         .eq('class_id', classId)
         .eq('lesson_date', dateISO)
         .eq('is_makeup', false)
@@ -336,7 +335,6 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         setLessonId(lessonRow.id)
         setNotesFromCube(lessonRow.notes || '')
         setNotesGeneral(lessonRow.notes_general || '')
-        setNotesWorkbook(lessonRow.notes_workbook || '')
         setNotesHomework(lessonRow.notes_homework || '')
         setRqEnabled(lessonRow.has_rq !== false)   // null/true ⇒ has RQ; false ⇒ no RQ
       }
@@ -453,15 +451,18 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
 
     // Save "Notes to CUBE" (general / workbook / homework) onto the lesson row.
     // If no lesson row exists yet, create a minimal one so the notes have a home.
+    // notes_workbook is intentionally absent: workbook feedback moved to
+    // <WorkbookFeedback> under the booklet, which owns its own columns. Older
+    // lessons still carry notes_workbook text, so it is left untouched here
+    // rather than written back as null.
     const notesPayload = {
       notes_general:  notesGeneral.trim()  || null,
-      notes_workbook: notesWorkbook.trim() || null,
       notes_homework: notesHomework.trim() || null,
     }
     // Record whether this week has a revision quiz (weeks 2–9 only; 1 & 10 never do).
     const rqApplicable = bookletWeek !== 1 && bookletWeek !== 10
     if (rqApplicable) notesPayload.has_rq = rqEnabled
-    const hasAnyNote = notesGeneral.trim() || notesWorkbook.trim() || notesHomework.trim()
+    const hasAnyNote = notesGeneral.trim() || notesHomework.trim()
     if (hasAnyNote || lessonId || rqApplicable) {
       try {
         if (lessonId) {
@@ -518,7 +519,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             week: weekLabel,
             markedBy: staff?.full_name || null,
             hasRq: (bookletWeek !== 1 && bookletWeek !== 10) ? rqEnabled : false,
-            notes: { general: notesGeneral.trim(), workbook: notesWorkbook.trim(), homework: notesHomework.trim() },
+            notes: { general: notesGeneral.trim(), homework: notesHomework.trim() },
             students: studentsPayload,
           }),
         }).catch((e) => console.warn('Session-saved email failed (save itself succeeded):', e))
@@ -628,13 +629,11 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
           />
           <NotesGroup
             label="Notes to CUBE"
-            sub="Tutor → admin. How the session went, workbook tweaks, homework set."
+            sub="Tutor → admin. How the session went, homework set."
             editable={staff?.role === 'tutor' && !readOnly}
             sections={[
               { key: 'general',  label: 'General',                  value: notesGeneral,  onChange: setNotesGeneral,
                 placeholder: staff?.role === 'tutor' ? 'How the session went, blockers, asks…' : 'Nothing from the tutor yet.' },
-              { key: 'workbook', label: 'Workbook changes / fixes', value: notesWorkbook, onChange: setNotesWorkbook,
-                placeholder: staff?.role === 'tutor' ? 'Typos, unclear questions, suggested edits…' : '—' },
               { key: 'homework', label: 'Homework given',           value: notesHomework, onChange: setNotesHomework,
                 placeholder: staff?.role === 'tutor' ? 'Pages, exercises, extra practice assigned…' : '—' },
             ]}

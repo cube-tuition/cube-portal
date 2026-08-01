@@ -593,7 +593,14 @@ export default function ClassOverviewPage() {
                             {term ? (term.name || `Term ${term.term_number}`) : ''}
                           </span>
                         </div>
-                        <WeekBooklet cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin} />
+                        {/* dateISO + staff turn on the workbook-feedback boxes
+                            under the booklet: they attribute the report to this
+                            session, so they need the date being marked. */}
+                        <WeekBooklet
+                          cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin}
+                          dateISO={d} staff={staff}
+                          readOnly={!isAdmin && !!subAssignments[d] && staff?.id !== subAssignments[d]?.sub_tutor_id}
+                        />
                       </div>
                     )}
                     {!isCancelled && !isMoved && (

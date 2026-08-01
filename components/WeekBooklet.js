@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { T_CLASS_BOOKLETS } from '../lib/tables'
 import { bookletPdfName } from '../lib/bookletNaming'
 import ExamPdfButtons from './ExamPdfButtons'
+import WorkbookFeedback from './WorkbookFeedback'
 
 /*
  * <WeekBooklet cls={...} term={...} week={N} isAdmin={bool} />
@@ -16,7 +17,7 @@ import ExamPdfButtons from './ExamPdfButtons'
  * storage_paths = full jsonb array of all paths).
  */
 
-export default function WeekBooklet({ cls, term, week, isAdmin }) {
+export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, readOnly }) {
   const eligible = !!(cls?.id && term?.term_number && week >= 1 && week <= 10)
 
   const [booklet,          setBooklet]          = useState(null)
@@ -304,6 +305,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
     }
 
     return (
+      <>
       <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
         <div className="px-5 md:px-6 py-4 border-b border-[#DEE7FF] flex items-center gap-3 bg-[#F8FAFF]">
           <WeekChip n={week} />
@@ -385,6 +387,21 @@ export default function WeekBooklet({ cls, term, week, isAdmin }) {
           </div>
         )}
       </div>
+      {/* Feedback needs a specific lesson to attribute to, and a curriculum
+          booklet row to write onto — so it appears only on an individual
+          lesson page, and not for exams (their booklets row is a shim kept in
+          step with qbank_exams). */}
+      {dateISO && !ab.is_exam && (
+        <WorkbookFeedback
+          booklet={ab}
+          classId={cls?.id}
+          dateISO={dateISO}
+          className={cls?.class_name}
+          staff={staff}
+          readOnly={readOnly}
+        />
+      )}
+      </>
     )
   }
 

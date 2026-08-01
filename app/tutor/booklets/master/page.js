@@ -6,6 +6,9 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import BookletContentView from '../../../../components/booklet/BookletContentView'
+import BookletNotesModal from '../../../../components/booklet/BookletNotesModal'
+import BookletChecklistModal from '../../../../components/booklet/BookletChecklistModal'
+import { openTotal } from '../../../../lib/bookletChecklist'
 import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 import { curriculumTerms } from '../../../../lib/terms'
 
@@ -574,7 +577,8 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
           {/* Notes */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Notes <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
-            <textarea value={form.notes} onChange={set('notes')} rows={2} placeholder="Any notes…" className={INP + ' resize-none'} />
+            <textarea value={form.notes} onChange={set('notes')} rows={6} placeholder="Notes about this booklet — what to emphasise, what to skip, how it went, anything the next tutor should know…" className={INP + ' resize-y leading-relaxed'} />
+            <p className="text-[10px] text-[#2A2035]/40 mt-1">Staff only — never shown to students and never printed in the PDF.</p>
           </div>
 
           {/* Content — free text for most subjects. Chemistry generates it from the
@@ -670,6 +674,8 @@ function MasterDatabaseInner() {
   const [skillDraft,     setSkillDraft]     = useState('')
   const [editingBooklet, setEditingBooklet] = useState(null)
   const [viewContent,    setViewContent]    = useState(null)   // booklet whose content modal is open
+  const [notesFor,       setNotesFor]       = useState(null)   // booklet whose notes modal is open
+  const [listFor,        setListFor]        = useState(null)   // booklet whose checklist is open
   const [deleteBooklet,  setDeleteBooklet]  = useState(null)   // booklet pending deletion
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting,       setDeleting]       = useState(false)
@@ -691,7 +697,7 @@ function MasterDatabaseInner() {
     const [{ data }, { data: bd }] = await Promise.all([
       supabase
         .from('booklets')
-        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, content, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
+        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
@@ -1039,13 +1045,32 @@ function MasterDatabaseInner() {
                           <tr key={b.id} className="border-b border-[#F0F4FF] last:border-0 hover:bg-[#F8FAFF] transition-colors">
                             <td className="px-5 py-3 font-semibold text-[#2A2035]">
                               <div>{bookletLabel(b)}</div>
-                              {b.notes && <div className="text-[10px] text-[#2A2035]/40 mt-0.5 font-normal">{b.notes}</div>}
-                              <button
-                                onClick={() => setViewContent(b)}
-                                className="mt-1 text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition"
-                              >
-                                📄 Content
-                              </button>
+                              {b.notes && <div className="text-[10px] text-[#2A2035]/40 mt-0.5 font-normal whitespace-pre-line leading-snug">{b.notes}</div>}
+                              <div className="mt-1 flex items-center gap-2.5">
+                                <button
+                                  onClick={() => setViewContent(b)}
+                                  className="text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition"
+                                >
+                                  📄 Content
+                                </button>
+                                {/* Notes only appear once written — an always-on "+ Note" crowded the row. */}
+                                {b.notes && (
+                                  <button
+                                    onClick={() => setNotesFor(b)}
+                                    title="Read or edit notes"
+                                    className="text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition"
+                                  >
+                                    📝 Notes
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => setListFor(b)}
+                                  title={openTotal(b) ? `${openTotal(b)} open item${openTotal(b) === 1 ? '' : 's'} to fix or consider` : 'Fixes and suggestions for this booklet'}
+                                  className={`text-[10px] font-semibold transition ${openTotal(b) ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/50 hover:text-[#325099] hover:underline'}`}
+                                >
+                                  {`\u2611 Checklist${openTotal(b) ? ` ${openTotal(b)}` : ''}`}
+                                </button>
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-[#2A2035]/50">{b.term_number ? `T${b.term_number}` : '—'}</td>
                             <td className="px-4 py-3 text-[#2A2035]/50">{b.week ?? '—'}</td>
@@ -1230,6 +1255,21 @@ function MasterDatabaseInner() {
           onSaved={() => { setEditingBooklet(null); load() }}
         />
       )}
+
+      <BookletChecklistModal
+        booklet={listFor}
+        title={listFor ? bookletLabel(listFor) : ''}
+        staff={staff}
+        onClose={() => setListFor(null)}
+        onChanged={(l) => setBooklets(bs => bs.map(x => (x.id === listFor.id ? { ...x, ...l } : x)))}
+      />
+
+      <BookletNotesModal
+        booklet={notesFor}
+        title={notesFor ? bookletLabel(notesFor) : ''}
+        onClose={() => setNotesFor(null)}
+        onSaved={(notes) => setBooklets(bs => bs.map(x => (x.id === notesFor.id ? { ...x, notes } : x)))}
+      />
 
       {viewContent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) setViewContent(null) }}>

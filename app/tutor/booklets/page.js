@@ -9,6 +9,9 @@ import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
 import BookletContentView from '../../../components/booklet/BookletContentView'
+import BookletNotesModal from '../../../components/booklet/BookletNotesModal'
+import BookletChecklistModal from '../../../components/booklet/BookletChecklistModal'
+import { openTotal } from '../../../lib/bookletChecklist'
 
 const SUBJECTS_BY_YEAR = {
   11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
@@ -64,6 +67,39 @@ const bookletLabel = (b) => {
   // Chemistry names like "M3W2" display as "M3L2" (Chemistry counts in Lessons).
   return `${b.year}.${code}. ${fmtWorkbookCode(b.booklet_name, b.subject)}`
 }
+
+// Notes affordance on a booklet card. Reads as "Notes" once something is
+// written and a dimmer "+ Note" when the booklet has none, so an empty booklet
+// still shows where notes go without shouting about it.
+// `size` is a full class name, not an interpolated value — Tailwind only
+// compiles classes it can see as literal strings.
+const NotesButton = ({ has, onClick, size = 'text-[10px]' }) => has ? (
+  <button
+    onClick={onClick}
+    title="Read or edit notes"
+    className={`${size} font-semibold text-[#325099]/70 hover:text-[#325099] hover:underline transition`}
+  >📝 Notes</button>
+) : null
+
+// Improvement checklist affordance. The badge is the number of OPEN items across
+// both lists, so a booklet with outstanding fixes reads at a glance.
+const ChecklistButton = ({ booklet, onClick, size = 'text-[10px]' }) => {
+  const n = openTotal(booklet)
+  return (
+    <button
+      onClick={onClick}
+      title={n ? `${n} open item${n === 1 ? '' : 's'} to fix or consider` : 'Fixes and suggestions for this booklet'}
+      className={`${size} font-semibold transition ${
+        n ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/50 hover:text-[#325099] hover:underline'}`}
+    >☑ Checklist{n ? ` ${n}` : ''}</button>
+  )
+}
+
+// Multi-line note preview on a card. Clipped to a few lines rather than one, so
+// a real note is legible at a glance; the full text lives in BookletNotesModal.
+const NotePreview = ({ text }) => text ? (
+  <p className="text-[10px] text-[#2A2035]/45 leading-snug whitespace-pre-line line-clamp-3">{text}</p>
+) : null
 
 // Workbook status badge — mirrors the master database's status column.
 const STATUS_BADGE_CLS = {
@@ -254,11 +290,13 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
 }
 
 // ── Class Term Board ──────────────────────────────────────────────────────────
-function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
+function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   const [assignments, setAssignments] = useState([])
   const [loading,     setLoading]     = useState(true)
   const [assignSlot,  setAssignSlot]  = useState(null)
   const [viewContent, setViewContent] = useState(null)
+  const [notesFor,    setNotesFor]    = useState(null)  // booklet whose notes are open
+  const [listFor,     setListFor]     = useState(null)  // booklet whose checklist is open
   const [editing,     setEditing]     = useState(null)  // full booklets row being edited
   const [dragA,       setDragA]       = useState(null)  // assignment being dragged
   const [overSlot,    setOverSlot]    = useState(null)  // 'term-week' under the drag
@@ -267,7 +305,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
     setLoading(true)
     const { data } = await supabase
       .from('class_booklet_assignments')
-      .select('id, booklet_id, term_number, week, booklets(booklet_name, year, subject, topic, status, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
+      .select('id, booklet_id, term_number, week, booklets(id, booklet_name, year, subject, topic, status, notes, fixes, suggestions, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
       .eq('class_id', cls.id)
     setAssignments(data || [])
     setLoading(false)
@@ -301,9 +339,10 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
     load()
   }
 
-  // The joined booklets(...) above is a partial row (no notes / term_number /
-  // week), and BookletModal writes all of those columns — so open it on a fresh
-  // full row rather than the partial one, or saving would null the missing fields.
+  // The joined booklets(...) above is a partial row (no term_number / week),
+  // and BookletModal writes all of those columns — so open it on a fresh full
+  // row rather than the partial one, or saving would null the missing fields.
+  // BookletNotesModal is safe on the partial row: it only ever writes `notes`.
   const openEdit = async (bookletId) => {
     const { data, error } = await supabase.from('booklets').select('*').eq('id', bookletId).single()
     if (!error && data) setEditing(data)
@@ -351,6 +390,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                         </div>
                         <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                         {b.topic && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{b.topic}</p>}
+                        {b.notes && <div className="mt-1"><NotePreview text={b.notes} /></div>}
                       </div>
                       <div className="px-3 pb-2 flex items-center justify-between gap-1">
                         <div className="flex items-center gap-2">
@@ -360,6 +400,8 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
                             className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
                           <button onClick={() => setViewContent(b)}
                             className="text-[9px] font-semibold text-[#325099]/60 hover:text-[#325099] transition">📄 Content</button>
+                          <NotesButton has={!!b.notes} size="text-[9px]" onClick={() => setNotesFor(b)} />
+                          <ChecklistButton booklet={b} size="text-[9px]" onClick={() => setListFor(b)} />
                         </div>
                         {b.is_exam ? (
                           <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
@@ -424,6 +466,23 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg }) {
         />
       )}
       <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
+      <BookletNotesModal
+        booklet={notesFor}
+        title={notesFor ? (notesFor.is_exam ? notesFor.booklet_name : bookletLabel(notesFor)) : ''}
+        onClose={() => setNotesFor(null)}
+        onSaved={(notes) => setAssignments(rows => rows.map(r => (
+          r.booklet_id === notesFor.id ? { ...r, booklets: { ...r.booklets, notes } } : r
+        )))}
+      />
+      <BookletChecklistModal
+        booklet={listFor}
+        title={listFor ? (listFor.is_exam ? listFor.booklet_name : bookletLabel(listFor)) : ''}
+        staff={staff}
+        onClose={() => setListFor(null)}
+        onChanged={(l) => setAssignments(rows => rows.map(r => (
+          r.booklet_id === listFor.id ? { ...r, booklets: { ...r.booklets, ...l } } : r
+        )))}
+      />
     </>
   )
 }
@@ -712,7 +771,8 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
           {/* Notes */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Notes <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
-            <textarea value={form.notes} onChange={set('notes')} rows={2} placeholder="Any notes about this booklet…" className={INP + ' resize-none'} />
+            <textarea value={form.notes} onChange={set('notes')} rows={6} placeholder="Notes about this booklet — what to emphasise, what to skip, how it went, anything the next tutor should know…" className={INP + ' resize-y leading-relaxed'} />
+            <p className="text-[10px] text-[#2A2035]/40 mt-1">Staff only — never shown to students and never printed in the PDF.</p>
           </div>
           {/* PDF uploads */}
           <div>
@@ -951,6 +1011,8 @@ function BookletsPageInner() {
   const [editing, setEditing]       = useState(null)
   const [creating, setCreating]     = useState(false)   // "+ New booklet" (inserts into the master DB)
   const [viewContent, setViewContent] = useState(null)
+  const [notesFor, setNotesFor]       = useState(null)  // booklet whose notes are open
+  const [listFor, setListFor]         = useState(null)  // booklet whose checklist is open
   const [assignSlot, setAssignSlot] = useState(null) // { term, week }
   const [dragB,      setDragB]      = useState(null) // booklet being dragged (General grid)
   const [overGSlot,  setOverGSlot]  = useState(null) // 'term-week' under the drag
@@ -971,7 +1033,7 @@ function BookletsPageInner() {
     setLoading(true)
     const { data } = await supabase
       .from('booklets')
-      .select('id, booklet_name, year, subject, topic, status, term_number, week, notes, content, file_path, file_paths, is_exam, exam_id, syllabus_points')
+      .select('id, booklet_name, year, subject, topic, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, is_exam, exam_id, syllabus_points')
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
@@ -1155,7 +1217,7 @@ function BookletsPageInner() {
           const cls         = classes.find(c => c.id === activeClass)
           const accentColor = getAccentColor(activeSub)
           const accentBg    = getAccentBg(activeSub)
-          return cls ? <ClassTermBoard key={cls.id} cls={cls} year={activeYear} subject={activeSub} accentColor={accentColor} accentBg={accentBg} /> : null
+          return cls ? <ClassTermBoard key={cls.id} cls={cls} year={activeYear} subject={activeSub} accentColor={accentColor} accentBg={accentBg} staff={staff} /> : null
         })()}
 
         {/* General curriculum (booklets from master DB, shown when General tab active or no classes) */}
@@ -1250,9 +1312,7 @@ function BookletsPageInner() {
                                   <StatusBadge status={b.status} />
                                 </div>
                                 <p className="text-[12px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
-                                {b.notes && (
-                                  <p className="text-[10px] text-[#2A2035]/45 line-clamp-1">{b.notes}</p>
-                                )}
+                                <NotePreview text={b.notes} />
                               </div>
                               <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
                                 <div className="flex gap-2.5">
@@ -1260,6 +1320,8 @@ function BookletsPageInner() {
                                     className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
                                   <button onClick={() => setViewContent(b)}
                                     className="text-[10px] font-semibold text-[#325099]/70 hover:underline">Content</button>
+                                  <NotesButton has={!!b.notes} onClick={() => setNotesFor(b)} />
+                                  <ChecklistButton booklet={b} onClick={() => setListFor(b)} />
                                   <button onClick={async () => {
                                     await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                     load()
@@ -1347,6 +1409,19 @@ function BookletsPageInner() {
 
       {/* Modals */}
       <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
+      <BookletNotesModal
+        booklet={notesFor}
+        title={notesFor ? (notesFor.is_exam ? notesFor.booklet_name : bookletLabel(notesFor)) : ''}
+        onClose={() => setNotesFor(null)}
+        onSaved={(notes) => setBooklets(bs => bs.map(x => (x.id === notesFor.id ? { ...x, notes } : x)))}
+      />
+      <BookletChecklistModal
+        booklet={listFor}
+        title={listFor ? (listFor.is_exam ? listFor.booklet_name : bookletLabel(listFor)) : ''}
+        staff={staff}
+        onClose={() => setListFor(null)}
+        onChanged={(l) => setBooklets(bs => bs.map(x => (x.id === listFor.id ? { ...x, ...l } : x)))}
+      />
       {(editing || creating) && (
         <BookletModal
           booklet={editing}
