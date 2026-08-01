@@ -66,6 +66,12 @@ export default function BookletBuilderEditor() {
   const bkRef = useRef(null)
   useEffect(() => { bkRef.current = bk })
   const savingRef = useRef(false), pendingRef = useRef(false)
+  // The updated_at we last read or wrote. Every save is conditional on it, so a
+  // page holding a stale copy of `blocks` can never overwrite a newer version —
+  // the whole array is written wholesale, so without this one tab silently
+  // discards another's work (or a change made outside the builder).
+  const versionRef = useRef(null)
+  const [conflict, setConflict] = useState(false)
   // Set once the "In Progress" promotion has been attempted, so the extra write
   // doesn't ride along with every autosave.
   const promotedRef = useRef(false)
@@ -114,6 +120,7 @@ export default function BookletBuilderEditor() {
           blocks: Array.isArray(data.blocks) ? data.blocks : [],
           syllabus_points: Array.isArray(data.syllabus_points) ? data.syllabus_points : [],
         })
+        versionRef.current = data.updated_at
         if (title !== data.title) setDirty(true)  // persist the corrected name
       }
       setLoading(false)
@@ -146,14 +153,26 @@ export default function BookletBuilderEditor() {
         // Chemistry: the content summary is generated from the sections' drawn
         // dotpoints (section header + its points). Other subjects keep free text.
         const contentVal = b.subject === 'Chemistry' ? buildSyllabusContent(b.blocks) : (b.content ?? null)
-        await supabase.from(T_BOOKLET_BUILDS).update({
+        const stamp = new Date().toISOString()
+        let q = supabase.from(T_BOOKLET_BUILDS).update({
           title: b.title, year: b.year ? Number(b.year) : null, subject: b.subject, topic: b.topic,
           content: contentVal, blocks: b.blocks,
           cover: b.cover ?? null,
           syllabus_points: allPoints,
           qbank_topic_ids: Array.isArray(b.qbank_topic_ids) ? b.qbank_topic_ids : null,
-          updated_at: new Date().toISOString(),
+          updated_at: stamp,
         }).eq('id', b.id)
+        // Only write if the row is still the version we loaded.
+        q = versionRef.current == null ? q.is('updated_at', null) : q.eq('updated_at', versionRef.current)
+        const { data: hit, error } = await q.select('id')
+        if (error) throw error
+        if (!hit || !hit.length) {
+          // Somebody else has saved since we loaded. Stop rather than clobber
+          // them, and let the user decide what to keep.
+          setConflict(true)
+          return
+        }
+        versionRef.current = stamp
       } while (pendingRef.current)
 
       // Once a booklet has real content in it, it is no longer "Not Started".
@@ -173,10 +192,10 @@ export default function BookletBuilderEditor() {
   }, [])
 
   useEffect(() => {
-    if (loading || !dirty) return
+    if (loading || !dirty || conflict) return
     const t = setTimeout(() => save(), 900)
     return () => clearTimeout(t)
-  }, [dirty, bk, loading, save])
+  }, [dirty, bk, loading, save, conflict])
 
   // Measure where content actually breaks into A4 pages — identical stage + logic
   // to the live preview / PDF export (lib/bookletExport) — and group the content
@@ -650,11 +669,34 @@ export default function BookletBuilderEditor() {
         <div className="max-w-[1500px] mx-auto px-5 py-3 flex items-center gap-3 flex-wrap">
           <button onClick={() => router.push(back.href)} className="text-[#325099] text-sm hover:underline">{back.label}</button>
           <div className="flex-1 min-w-[200px] text-base font-semibold text-[#2A2035] px-2 py-1 truncate" title="Auto-formatted from Year · Subject · Booklet name">{formatBookletName(bk.year, bk.subject, bk.title)}</div>
-          <span className="text-[11px] text-[#2A2035]/40">{saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}</span>
+          <span className={`text-[11px] ${conflict ? 'text-[#B23A3A] font-bold' : 'text-[#2A2035]/40'}`}>
+            {conflict ? 'Not saved' : saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}
+          </span>
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
           <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? 'Saving…' : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
         </div>
+        {/* Someone else saved this workbook while it was open here. Autosave has
+            stopped rather than overwrite them; the choice of which copy to keep
+            is the user's, so nothing is discarded automatically. */}
+        {conflict && (
+          <div className="max-w-[1500px] mx-auto px-5 pb-3">
+            <div className="rounded-xl border border-[#FDE68A] bg-[#FEF3C7] px-4 py-3 flex flex-wrap items-center gap-3">
+              <span className="text-lg leading-none">⚠</span>
+              <p className="text-[11px] font-semibold text-[#92400E] flex-1 min-w-[240px]">
+                This workbook was saved somewhere else while you had it open, so your changes have
+                <strong> not</strong> been saved — saving now would wipe out that other version.
+                Reload to get the newer copy (your unsaved edits here will be lost), or copy anything
+                you need out first.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="shrink-0 px-3 py-1.5 text-xs font-semibold text-white bg-[#B45309] rounded-lg hover:bg-[#92400E] transition"
+              >Reload the newer version</button>
+            </div>
+          </div>
+        )}
+
         {/* Meta row — Year is a dropdown; Booklet name is typed. The subject is
             fixed per workbook (set from its subject hub on creation) and shown
             read-only. The full name auto-formats as "Year.SubjectCode. Name". */}
