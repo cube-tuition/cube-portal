@@ -25,9 +25,15 @@ const escapeHtml = (s) =>
     .replace(/>/g, '&gt;')
     .replace(/\n/g, '<br/>')
 
+// Inside maths, a bare "*" is almost always someone typing multiplication, and
+// KaTeX would otherwise set it as a raised literal asterisk. Turn it into
+// \times. A doubled "**" is left alone — that is the bold marker, and boldify()
+// handles it after KaTeX has run.
+const starToTimes = (tex) => tex.replace(/(?<!\*)\*(?!\*)/g, ' \\times ')
+
 function renderMath(tex, displayMode) {
   try {
-    return katex.renderToString(tex, {
+    return katex.renderToString(starToTimes(tex), {
       displayMode,
       throwOnError: false,
       strict: false,
