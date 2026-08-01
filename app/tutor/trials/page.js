@@ -669,8 +669,25 @@ export default function TrialsPage() {
       }
     } else {
       if (studentId) {
-        await supabase.from('enrolments').update({ status: 'disenrol' }).eq('student_id', studentId)
-        await supabase.from('students').update({ status: 'quit trial' }).eq('id', studentId)
+        // ONLY the trial enrolments — same guard the convert branch above uses.
+        // Without it this disenrolled every enrolment the student had: a trial
+        // declined for an existing student wiped their real, paid classes, and
+        // the term rollover (which only carries active/trial rows) then dropped
+        // them from the new term entirely.
+        const today = new Date().toISOString().split('T')[0]
+        await supabase.from('enrolments')
+          .update({ status: 'disenrol', ended_at: today, end_reason: 'Trial declined' })
+          .eq('student_id', studentId)
+          .in('status', ['trial', 'trial complete'])
+
+        // Only mark the student as having quit if this was their only tie to
+        // CUBE. Someone already attending other classes has not quit because
+        // one trial for a different subject was declined.
+        const { data: remaining } = await supabase.from('enrolments')
+          .select('id').eq('student_id', studentId).eq('status', 'active').limit(1)
+        if (!remaining?.length) {
+          await supabase.from('students').update({ status: 'quit trial' }).eq('id', studentId)
+        }
       }
       await supabase.from('trial_submissions').update({ status: 'declined' }).eq('id', id)
       setSubmissions(prev => prev.map(s => s.id === id ? { ...s, status: 'declined' } : s))
