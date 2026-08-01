@@ -6,8 +6,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import BookletContentView from '../../../../components/booklet/BookletContentView'
-import BookletNotesModal from '../../../../components/booklet/BookletNotesModal'
-import BookletChecklistModal from '../../../../components/booklet/BookletChecklistModal'
+import BookletInfoModal from '../../../../components/booklet/BookletInfoModal'
 import { openTotal } from '../../../../lib/bookletChecklist'
 import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 import { curriculumTerms } from '../../../../lib/terms'
@@ -668,14 +667,8 @@ function MasterDatabaseInner() {
   const [search,     setSearch]     = useState('')
   const [showAdd,    setShowAdd]    = useState(false)
 
-  const [editingTopic,   setEditingTopic]   = useState(null)
-  const [topicDraft,     setTopicDraft]     = useState('')
-  const [editingSkill,   setEditingSkill]   = useState(null)
-  const [skillDraft,     setSkillDraft]     = useState('')
   const [editingBooklet, setEditingBooklet] = useState(null)
-  const [viewContent,    setViewContent]    = useState(null)   // booklet whose content modal is open
-  const [notesFor,       setNotesFor]       = useState(null)   // booklet whose notes modal is open
-  const [listFor,        setListFor]        = useState(null)   // booklet whose checklist is open
+  const [infoFor,        setInfoFor]        = useState(null)   // booklet whose info modal is open
   const [deleteBooklet,  setDeleteBooklet]  = useState(null)   // booklet pending deletion
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting,       setDeleting]       = useState(false)
@@ -840,20 +833,6 @@ function MasterDatabaseInner() {
     } finally {
       setDeleting(false)
     }
-  }
-
-  const saveTopic = async (id, topic) => {
-    const val = topic.trim() || null
-    await supabase.from('booklets').update({ topic: val }).eq('id', id)
-    setBooklets(bs => bs.map(b => b.id === id ? { ...b, topic: val } : b))
-    setEditingTopic(null)
-  }
-
-  const saveSkill = async (id, skill) => {
-    const val = skill.trim() || null
-    await supabase.from('booklets').update({ skill: val }).eq('id', id)
-    setBooklets(bs => bs.map(b => b.id === id ? { ...b, skill: val } : b))
-    setEditingSkill(null)
   }
 
   const tabBooklets = booklets.filter(b => {
@@ -1026,182 +1005,83 @@ function MasterDatabaseInner() {
                     <div className="flex-1 h-px bg-[#E8EDF8]" />
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-[#E8EDF8] overflow-hidden shadow-sm">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-[#F0F4FF] bg-[#F8FAFF]">
-                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Booklet Name</th>
-                          <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-16">Term</th>
-                          <th className="text-left px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-14">Week</th>
-                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Topic</th>
-                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-32">Skill</th>
-                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 w-40">Status</th>
-                          <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Builder</th>
-                          <th className="px-4 py-3 w-12"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bks.map(b => (
-                          <tr key={b.id} className="border-b border-[#F0F4FF] last:border-0 hover:bg-[#F8FAFF] transition-colors">
-                            <td className="px-5 py-3 font-semibold text-[#2A2035]">
-                              <div>{bookletLabel(b)}</div>
-                              {b.notes && <div className="text-[10px] text-[#2A2035]/40 mt-0.5 font-normal whitespace-pre-line leading-snug">{b.notes}</div>}
-                              <div className="mt-1 flex items-center gap-2.5">
-                                <button
-                                  onClick={() => setViewContent(b)}
-                                  className="text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition"
-                                >
-                                  📄 Content
-                                </button>
-                                {/* Notes only appear once written — an always-on "+ Note" crowded the row. */}
-                                {b.notes && (
-                                  <button
-                                    onClick={() => setNotesFor(b)}
-                                    title="Read or edit notes"
-                                    className="text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition"
-                                  >
-                                    📝 Notes
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => setListFor(b)}
-                                  title={openTotal(b) ? `${openTotal(b)} open item${openTotal(b) === 1 ? '' : 's'} to fix or consider` : 'Fixes and suggestions for this booklet'}
-                                  className={`text-[10px] font-semibold transition ${openTotal(b) ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/50 hover:text-[#325099] hover:underline'}`}
-                                >
-                                  {`\u2611 Checklist${openTotal(b) ? ` ${openTotal(b)}` : ''}`}
-                                </button>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-[#2A2035]/50">{b.term_number ? `T${b.term_number}` : '—'}</td>
-                            <td className="px-4 py-3 text-[#2A2035]/50">{b.week ?? '—'}</td>
+                  {/* Two per row: with only a name, Info, status and the
+                      builder button left, one booklet per full-width row wasted
+                      most of the line. Drops to one column on narrow screens. */}
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
+                    {bks.map(b => (
+                      <div key={b.id}
+                        className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-[#2A2035] truncate">{bookletLabel(b)}</p>
+                          {/* Info — term, week, topic, skill, content, notes and the
+                              improvement checklists all live in this modal. */}
+                          <button
+                            onClick={() => setInfoFor(b)}
+                            title={openTotal(b) ? `${openTotal(b)} open item${openTotal(b) === 1 ? '' : 's'} on the improvement checklist` : 'All info for this booklet'}
+                            className={`mt-0.5 text-[10px] font-semibold transition ${openTotal(b) ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/70 hover:text-[#325099] hover:underline'}`}
+                          >
+                            {`\u2139\uFE0F Info${openTotal(b) ? ` \u00B7 ${openTotal(b)}` : ''}`}
+                          </button>
+                        </div>
 
-                            {/* Inline topic edit */}
-                            <td className="px-5 py-3">
-                              {editingTopic === b.id ? (
-                                <div className="flex items-center gap-1">
-                                  <select
-                                    autoFocus
-                                    value={topicDraft}
-                                    onChange={e => setTopicDraft(e.target.value)}
-                                    className="w-full border border-[#325099] rounded px-2 py-1 text-xs focus:outline-none bg-white"
-                                  >
-                                    <option value="">— No topic —</option>
-                                    {topicBank.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                                  </select>
-                                  <button onClick={() => saveTopic(b.id, topicDraft)}
-                                    className="text-[10px] font-bold text-[#059669] hover:text-[#065F46] shrink-0">✓</button>
-                                  <button onClick={() => setEditingTopic(null)}
-                                    className="text-[10px] font-bold text-[#2A2035]/30 hover:text-red-400 shrink-0">✕</button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => { setEditingTopic(b.id); setTopicDraft(b.topic || '') }}
-                                  className={`text-left hover:underline transition truncate max-w-[120px] block ${
-                                    b.topic ? 'text-[#2A2035]/60' : 'text-[#2A2035]/20 italic'
-                                  }`}
-                                >
-                                  {b.topic || 'set topic…'}
-                                </button>
-                              )}
-                            </td>
+                        <select
+                          value={b.status || 'Not Started'}
+                          onChange={e => saveStatus(b.id, e.target.value)}
+                          className={`shrink-0 text-[10px] font-semibold rounded-full px-2 py-1 border cursor-pointer focus:outline-none transition ${STATUS_CLS[b.status || 'Not Started']}`}
+                          title="Workbook status"
+                        >
+                          {WORKBOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
 
-                            {/* Inline skill edit */}
-                            <td className="px-5 py-3">
-                              {editingSkill === b.id ? (
-                                <div className="flex items-center gap-1">
-                                  <select
-                                    autoFocus
-                                    value={skillDraft}
-                                    onChange={e => setSkillDraft(e.target.value)}
-                                    className="w-full border border-[#325099] rounded px-2 py-1 text-xs focus:outline-none bg-white"
-                                  >
-                                    <option value="">— No skill —</option>
-                                    {skillBank.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                  </select>
-                                  <button onClick={() => saveSkill(b.id, skillDraft)}
-                                    className="text-[10px] font-bold text-[#059669] hover:text-[#065F46] shrink-0">✓</button>
-                                  <button onClick={() => setEditingSkill(null)}
-                                    className="text-[10px] font-bold text-[#2A2035]/30 hover:text-red-400 shrink-0">✕</button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => { setEditingSkill(b.id); setSkillDraft(b.skill || '') }}
-                                  className={`text-left hover:underline transition truncate max-w-[120px] block ${
-                                    b.skill ? 'text-[#2A2035]/60' : 'text-[#2A2035]/20 italic'
-                                  }`}
-                                >
-                                  {b.skill || 'set skill…'}
-                                </button>
-                              )}
-                            </td>
-
-                            {/* Status */}
-                            <td className="px-5 py-3">
-                              <select
-                                value={b.status || 'Not Started'}
-                                onChange={e => saveStatus(b.id, e.target.value)}
-                                className={`text-[10px] font-semibold rounded-full px-2 py-1 border cursor-pointer focus:outline-none transition ${STATUS_CLS[b.status || 'Not Started']}`}
-                                title="Workbook status"
-                              >
-                                {WORKBOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                            </td>
-
-                            {/* Builder — every workbook opens in the builder; a
-                                linked draft is created on first open. */}
-                            <td className="px-5 py-3">
-                              {buildByBookletId[b.id] ? (
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => router.push(`/tutor/booklets/builder/${buildByBookletId[b.id].id}`)}
-                                    className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80"
-                                    style={{ background: accentBg, color: accentColor }}
-                                    title="Open this workbook in the builder"
-                                  >
-                                    Open builder ↗
-                                  </button>
-                                  <button
-                                    onClick={() => duplicateWorkbook(buildByBookletId[b.id].id)}
-                                    disabled={duplicating === buildByBookletId[b.id].id}
-                                    className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40"
-                                    title="Duplicate this workbook into a new draft (e.g. for another year)"
-                                  >
-                                    {duplicating === buildByBookletId[b.id].id ? 'Duplicating…' : 'Duplicate'}
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => openInBuilder(b)}
-                                  disabled={openingBuilder === b.id}
-                                  className="text-[10px] font-semibold px-2.5 py-1 rounded-lg border border-dashed border-[#BACBFF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40"
-                                  title="Create this workbook in the builder and open it"
-                                >
-                                  {openingBuilder === b.id ? 'Opening…' : '＋ Open in builder'}
-                                </button>
-                              )}
-                            </td>
-
-                            {/* Edit / Delete */}
-                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {/* Builder — every workbook opens in the builder; a linked
+                            draft is created on first open. */}
+                        <div className="shrink-0">
+                          {buildByBookletId[b.id] ? (
+                            <div className="flex items-center gap-1.5">
                               <button
-                                onClick={() => setEditingBooklet(b)}
-                                className="text-[10px] font-semibold text-[#325099]/50 hover:text-[#325099] transition"
-                                title="Edit booklet"
+                                onClick={() => router.push(`/tutor/booklets/builder/${buildByBookletId[b.id].id}`)}
+                                className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap"
+                                style={{ background: accentBg, color: accentColor }}
+                                title="Open this workbook in the builder"
                               >
-                                Edit
+                                Open builder ↗
                               </button>
                               <button
-                                onClick={() => { setDeleteBooklet(b); setDeleteConfirmText('') }}
-                                className="ml-3 text-[10px] font-semibold text-red-400/70 hover:text-red-600 transition"
-                                title="Delete booklet"
+                                onClick={() => duplicateWorkbook(buildByBookletId[b.id].id)}
+                                disabled={duplicating === buildByBookletId[b.id].id}
+                                className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40 whitespace-nowrap"
+                                title="Duplicate this workbook into a new draft (e.g. for another year)"
                               >
-                                Delete
+                                {duplicating === buildByBookletId[b.id].id ? '…' : 'Duplicate'}
                               </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => openInBuilder(b)}
+                              disabled={openingBuilder === b.id}
+                              className="text-[10px] font-semibold px-2.5 py-1 rounded-lg border border-dashed border-[#BACBFF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40 whitespace-nowrap"
+                              title="Create this workbook in the builder and open it"
+                            >
+                              {openingBuilder === b.id ? 'Opening…' : '＋ Open in builder'}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2.5 pl-1 border-l border-[#F0F4FF]">
+                          <button
+                            onClick={() => setEditingBooklet(b)}
+                            className="text-[10px] font-semibold text-[#325099]/50 hover:text-[#325099] transition"
+                            title="Edit booklet"
+                          >Edit</button>
+                          <button
+                            onClick={() => { setDeleteBooklet(b); setDeleteConfirmText('') }}
+                            className="text-[10px] font-semibold text-red-400/70 hover:text-red-600 transition"
+                            title="Delete booklet"
+                          >Delete</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )
@@ -1256,79 +1136,19 @@ function MasterDatabaseInner() {
         />
       )}
 
-      <BookletChecklistModal
-        booklet={listFor}
-        title={listFor ? bookletLabel(listFor) : ''}
+      {/* Chemistry content is generated from the sections' drawn syllabus
+          dotpoints — that lives on the linked BUILD (booklets rows have no
+          blocks) — so pass it in as the Content override. */}
+      <BookletInfoModal
+        booklet={infoFor}
+        title={infoFor ? bookletLabel(infoFor) : ''}
         staff={staff}
-        onClose={() => setListFor(null)}
-        onChanged={(l) => setBooklets(bs => bs.map(x => (x.id === listFor.id ? { ...x, ...l } : x)))}
+        content={infoFor && infoFor.subject === 'Chemistry'
+          ? (buildByBookletId[infoFor.id]?.content || infoFor.content)
+          : undefined}
+        onClose={() => setInfoFor(null)}
+        onChanged={(p) => setBooklets(bs => bs.map(x => (x.id === infoFor.id ? { ...x, ...p } : x)))}
       />
-
-      <BookletNotesModal
-        booklet={notesFor}
-        title={notesFor ? bookletLabel(notesFor) : ''}
-        onClose={() => setNotesFor(null)}
-        onSaved={(notes) => setBooklets(bs => bs.map(x => (x.id === notesFor.id ? { ...x, notes } : x)))}
-      />
-
-      {viewContent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) setViewContent(null) }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
-            <div className="flex items-start justify-between px-6 py-4 border-b border-[#F0F4FF]">
-              <div>
-                <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">Booklet content</p>
-                <h2 className="text-sm font-bold text-[#062E63]">{bookletLabel(viewContent)}</h2>
-              </div>
-              <button onClick={() => setViewContent(null)} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
-            </div>
-            <div className="overflow-y-auto flex-1 px-6 py-5">
-              {(() => {
-                // Chemistry content is generated from the sections' drawn syllabus
-                // dotpoints — that lives on the linked BUILD (booklets rows have no
-                // blocks), so read it from there and fall back to any saved summary.
-                const build = buildByBookletId[viewContent.id]
-                const text = viewContent.subject === 'Chemistry'
-                  ? (build?.content || viewContent.content)
-                  : viewContent.content
-                return (text && text.trim()) ? (
-                  <BookletContentView text={text} />
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-sm text-[#2A2035]/40">No content listed for this booklet yet.</p>
-                    {viewContent.subject === 'Chemistry' ? (
-                      <>
-                        {/* Chemistry content isn't typed here — it's generated from the
-                            dotpoints each section header draws, so send them to the builder. */}
-                        <p className="text-[11px] text-[#2A2035]/40 mt-1 max-w-xs mx-auto">
-                          Chemistry content comes from the syllabus dotpoints drawn on each section header.
-                        </p>
-                        <button
-                          onClick={() => {
-                            const b = buildByBookletId[viewContent.id]
-                            setViewContent(null)
-                            if (b) router.push(`/tutor/booklets/builder/${b.id}`)
-                            else openInBuilder(viewContent)
-                          }}
-                          className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
-                        >
-                          Draw dotpoints in the builder →
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => { setEditingBooklet(viewContent); setViewContent(null) }}
-                        className="mt-3 text-xs font-semibold text-[#325099] hover:underline"
-                      >
-                        Add content →
-                      </button>
-                    )}
-                  </div>
-                )
-              })()}
-            </div>
-          </div>
-        </div>
-      )}
 
       {deleteBooklet && (() => {
         const confirmTarget = (deleteBooklet.booklet_name || '').trim()

@@ -9,8 +9,7 @@ import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
 import BookletContentView from '../../../components/booklet/BookletContentView'
-import BookletNotesModal from '../../../components/booklet/BookletNotesModal'
-import BookletChecklistModal from '../../../components/booklet/BookletChecklistModal'
+import BookletInfoModal from '../../../components/booklet/BookletInfoModal'
 import { openTotal } from '../../../lib/bookletChecklist'
 
 const SUBJECTS_BY_YEAR = {
@@ -68,35 +67,23 @@ const bookletLabel = (b) => {
   return `${b.year}.${code}. ${fmtWorkbookCode(b.booklet_name, b.subject)}`
 }
 
-// Notes affordance on a booklet card. Reads as "Notes" once something is
-// written and a dimmer "+ Note" when the booklet has none, so an empty booklet
-// still shows where notes go without shouting about it.
-// `size` is a full class name, not an interpolated value — Tailwind only
-// compiles classes it can see as literal strings.
-const NotesButton = ({ has, onClick, size = 'text-[10px]' }) => has ? (
-  <button
-    onClick={onClick}
-    title="Read or edit notes"
-    className={`${size} font-semibold text-[#325099]/70 hover:text-[#325099] hover:underline transition`}
-  >📝 Notes</button>
-) : null
-
-// Improvement checklist affordance. The badge is the number of OPEN items across
-// both lists, so a booklet with outstanding fixes reads at a glance.
-const ChecklistButton = ({ booklet, onClick, size = 'text-[10px]' }) => {
+// One Info button per card — opens the consolidated booklet modal (details,
+// content, notes, improvement checklists). Badged amber with the number of open
+// checklist items so a booklet with outstanding fixes reads at a glance.
+const InfoButton = ({ booklet, onClick, size = 'text-[10px]' }) => {
   const n = openTotal(booklet)
   return (
     <button
       onClick={onClick}
-      title={n ? `${n} open item${n === 1 ? '' : 's'} to fix or consider` : 'Fixes and suggestions for this booklet'}
+      title={n ? `${n} open item${n === 1 ? '' : 's'} on the improvement checklist` : 'All info for this booklet'}
       className={`${size} font-semibold transition ${
-        n ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/50 hover:text-[#325099] hover:underline'}`}
-    >☑ Checklist{n ? ` ${n}` : ''}</button>
+        n ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/70 hover:text-[#325099] hover:underline'}`}
+    >ℹ️ Info{n ? ` · ${n}` : ''}</button>
   )
 }
 
 // Multi-line note preview on a card. Clipped to a few lines rather than one, so
-// a real note is legible at a glance; the full text lives in BookletNotesModal.
+// a real note is legible at a glance; the full text lives in the Info modal.
 const NotePreview = ({ text }) => text ? (
   <p className="text-[10px] text-[#2A2035]/45 leading-snug whitespace-pre-line line-clamp-3">{text}</p>
 ) : null
@@ -113,28 +100,6 @@ const StatusBadge = ({ status }) => status ? (
     {status}
   </span>
 ) : null
-
-// Read-only modal that shows what's inside a booklet (its content field), so
-// teachers can see what a curriculum booklet covers.
-function ContentModal({ booklet, onClose }) {
-  if (!booklet) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
-        <div className="flex items-start justify-between px-6 py-4 border-b border-[#F0F4FF]">
-          <div>
-            <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">Booklet content</p>
-            <h2 className="text-sm font-bold text-[#062E63]">{bookletLabel(booklet)}</h2>
-          </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
-        </div>
-        <div className="overflow-y-auto flex-1 px-6 py-5">
-          <BookletContentView text={booklet.content} />
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ── Class Assign Modal ────────────────────────────────────────────────────────
 function ClassAssignModal({ classId, className, year, subject, term, week, accentColor, accentBg, onClose, onAssigned }) {
@@ -294,9 +259,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   const [assignments, setAssignments] = useState([])
   const [loading,     setLoading]     = useState(true)
   const [assignSlot,  setAssignSlot]  = useState(null)
-  const [viewContent, setViewContent] = useState(null)
-  const [notesFor,    setNotesFor]    = useState(null)  // booklet whose notes are open
-  const [listFor,     setListFor]     = useState(null)  // booklet whose checklist is open
+  const [infoFor,     setInfoFor]     = useState(null)  // booklet whose info modal is open
   const [editing,     setEditing]     = useState(null)  // full booklets row being edited
   const [dragA,       setDragA]       = useState(null)  // assignment being dragged
   const [overSlot,    setOverSlot]    = useState(null)  // 'term-week' under the drag
@@ -342,7 +305,8 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   // The joined booklets(...) above is a partial row (no term_number / week),
   // and BookletModal writes all of those columns — so open it on a fresh full
   // row rather than the partial one, or saving would null the missing fields.
-  // BookletNotesModal is safe on the partial row: it only ever writes `notes`.
+  // BookletInfoModal is safe on the partial row: it re-reads the full booklets
+  // row on open, and each of its writes touches only its own column.
   const openEdit = async (bookletId) => {
     const { data, error } = await supabase.from('booklets').select('*').eq('id', bookletId).single()
     if (!error && data) setEditing(data)
@@ -398,10 +362,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                             className="text-[9px] font-semibold text-[#325099] hover:underline transition">Edit</button>
                           <button onClick={() => handleUnassign(a.id)}
                             className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
-                          <button onClick={() => setViewContent(b)}
-                            className="text-[9px] font-semibold text-[#325099]/60 hover:text-[#325099] transition">📄 Content</button>
-                          <NotesButton has={!!b.notes} size="text-[9px]" onClick={() => setNotesFor(b)} />
-                          <ChecklistButton booklet={b} size="text-[9px]" onClick={() => setListFor(b)} />
+                          <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
                         </div>
                         {b.is_exam ? (
                           <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
@@ -465,22 +426,13 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
           onSaved={() => { setEditing(null); load() }}
         />
       )}
-      <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
-      <BookletNotesModal
-        booklet={notesFor}
-        title={notesFor ? (notesFor.is_exam ? notesFor.booklet_name : bookletLabel(notesFor)) : ''}
-        onClose={() => setNotesFor(null)}
-        onSaved={(notes) => setAssignments(rows => rows.map(r => (
-          r.booklet_id === notesFor.id ? { ...r, booklets: { ...r.booklets, notes } } : r
-        )))}
-      />
-      <BookletChecklistModal
-        booklet={listFor}
-        title={listFor ? (listFor.is_exam ? listFor.booklet_name : bookletLabel(listFor)) : ''}
+      <BookletInfoModal
+        booklet={infoFor}
+        title={infoFor ? (infoFor.is_exam ? infoFor.booklet_name : bookletLabel(infoFor)) : ''}
         staff={staff}
-        onClose={() => setListFor(null)}
-        onChanged={(l) => setAssignments(rows => rows.map(r => (
-          r.booklet_id === listFor.id ? { ...r, booklets: { ...r.booklets, ...l } } : r
+        onClose={() => setInfoFor(null)}
+        onChanged={(p) => setAssignments(rows => rows.map(r => (
+          r.booklet_id === infoFor.id ? { ...r, booklets: { ...r.booklets, ...p } } : r
         )))}
       />
     </>
@@ -1010,9 +962,7 @@ function BookletsPageInner() {
   const [addPrefill, setAddPrefill] = useState({})
   const [editing, setEditing]       = useState(null)
   const [creating, setCreating]     = useState(false)   // "+ New booklet" (inserts into the master DB)
-  const [viewContent, setViewContent] = useState(null)
-  const [notesFor, setNotesFor]       = useState(null)  // booklet whose notes are open
-  const [listFor, setListFor]         = useState(null)  // booklet whose checklist is open
+  const [infoFor, setInfoFor]         = useState(null)  // booklet whose info modal is open
   const [assignSlot, setAssignSlot] = useState(null) // { term, week }
   const [dragB,      setDragB]      = useState(null) // booklet being dragged (General grid)
   const [overGSlot,  setOverGSlot]  = useState(null) // 'term-week' under the drag
@@ -1318,10 +1268,7 @@ function BookletsPageInner() {
                                 <div className="flex gap-2.5">
                                   <button onClick={() => setEditing(b)}
                                     className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
-                                  <button onClick={() => setViewContent(b)}
-                                    className="text-[10px] font-semibold text-[#325099]/70 hover:underline">Content</button>
-                                  <NotesButton has={!!b.notes} onClick={() => setNotesFor(b)} />
-                                  <ChecklistButton booklet={b} onClick={() => setListFor(b)} />
+                                  <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
                                   <button onClick={async () => {
                                     await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                     load()
@@ -1408,19 +1355,12 @@ function BookletsPageInner() {
       )}
 
       {/* Modals */}
-      <ContentModal booklet={viewContent} onClose={() => setViewContent(null)} />
-      <BookletNotesModal
-        booklet={notesFor}
-        title={notesFor ? (notesFor.is_exam ? notesFor.booklet_name : bookletLabel(notesFor)) : ''}
-        onClose={() => setNotesFor(null)}
-        onSaved={(notes) => setBooklets(bs => bs.map(x => (x.id === notesFor.id ? { ...x, notes } : x)))}
-      />
-      <BookletChecklistModal
-        booklet={listFor}
-        title={listFor ? (listFor.is_exam ? listFor.booklet_name : bookletLabel(listFor)) : ''}
+      <BookletInfoModal
+        booklet={infoFor}
+        title={infoFor ? (infoFor.is_exam ? infoFor.booklet_name : bookletLabel(infoFor)) : ''}
         staff={staff}
-        onClose={() => setListFor(null)}
-        onChanged={(l) => setBooklets(bs => bs.map(x => (x.id === listFor.id ? { ...x, ...l } : x)))}
+        onClose={() => setInfoFor(null)}
+        onChanged={(p) => setBooklets(bs => bs.map(x => (x.id === infoFor.id ? { ...x, ...p } : x)))}
       />
       {(editing || creating) && (
         <BookletModal
