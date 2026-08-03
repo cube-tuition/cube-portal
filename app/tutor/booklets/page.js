@@ -82,12 +82,6 @@ const InfoButton = ({ booklet, onClick, size = 'text-[10px]' }) => {
   )
 }
 
-// Multi-line note preview on a card. Clipped to a few lines rather than one, so
-// a real note is legible at a glance; the full text lives in the Info modal.
-const NotePreview = ({ text }) => text ? (
-  <p className="text-[10px] text-[#2A2035]/45 leading-snug whitespace-pre-line line-clamp-3">{text}</p>
-) : null
-
 // Workbook status badge — mirrors the master database's status column.
 const STATUS_BADGE_CLS = {
   'Complete':          'bg-emerald-100 text-emerald-800',
@@ -260,7 +254,6 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   const [loading,     setLoading]     = useState(true)
   const [assignSlot,  setAssignSlot]  = useState(null)
   const [infoFor,     setInfoFor]     = useState(null)  // booklet whose info modal is open
-  const [editing,     setEditing]     = useState(null)  // full booklets row being edited
   const [dragA,       setDragA]       = useState(null)  // assignment being dragged
   const [overSlot,    setOverSlot]    = useState(null)  // 'term-week' under the drag
 
@@ -300,16 +293,6 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
       await supabase.from('class_booklet_assignments').update({ term_number: term, week }).eq('id', a.id)
     }
     load()
-  }
-
-  // The joined booklets(...) above is a partial row (no term_number / week),
-  // and BookletModal writes all of those columns — so open it on a fresh full
-  // row rather than the partial one, or saving would null the missing fields.
-  // BookletInfoModal is safe on the partial row: it re-reads the full booklets
-  // row on open, and each of its writes touches only its own column.
-  const openEdit = async (bookletId) => {
-    const { data, error } = await supabase.from('booklets').select('*').eq('id', bookletId).single()
-    if (!error && data) setEditing(data)
   }
 
   if (loading) return <div className="py-6 text-center"><p className="text-[10px] text-[#2A2035]/30 animate-pulse">Loading…</p></div>
@@ -354,12 +337,9 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                         </div>
                         <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                         {b.topic && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{b.topic}</p>}
-                        {b.notes && <div className="mt-1"><NotePreview text={b.notes} /></div>}
                       </div>
                       <div className="px-3 pb-2 flex items-center justify-between gap-1">
                         <div className="flex items-center gap-2">
-                          <button onClick={() => openEdit(a.booklet_id)}
-                            className="text-[9px] font-semibold text-[#325099] hover:underline transition">Edit</button>
                           <button onClick={() => handleUnassign(a.id)}
                             className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
                           <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
@@ -417,20 +397,14 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
           onAssigned={() => { setAssignSlot(null); load() }}
         />
       )}
-      {editing && (
-        <BookletModal
-          booklet={editing}
-          defaultYear={year}
-          defaultSubject={subject}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load() }}
-        />
-      )}
+      {/* The joined booklets(...) row above is partial (no term_number / week),
+          which BookletInfoModal handles: it re-reads the full booklets row on
+          open, and each of its saves writes only its own columns. */}
       <BookletInfoModal
         booklet={infoFor}
         title={infoFor ? (infoFor.is_exam ? infoFor.booklet_name : bookletLabel(infoFor)) : ''}
         staff={staff}
-        onClose={() => setInfoFor(null)}
+        onClose={() => { setInfoFor(null); load() }}
         onChanged={(p) => setAssignments(rows => rows.map(r => (
           r.booklet_id === infoFor.id ? { ...r, booklets: { ...r.booklets, ...p } } : r
         )))}
@@ -960,7 +934,6 @@ function BookletsPageInner() {
   const [activeYear, setActiveYear] = useState(8)
   const [activeSub, setActiveSub]   = useState('Maths')
   const [addPrefill, setAddPrefill] = useState({})
-  const [editing, setEditing]       = useState(null)
   const [creating, setCreating]     = useState(false)   // "+ New booklet" (inserts into the master DB)
   const [infoFor, setInfoFor]         = useState(null)  // booklet whose info modal is open
   const [assignSlot, setAssignSlot] = useState(null) // { term, week }
@@ -1262,12 +1235,9 @@ function BookletsPageInner() {
                                   <StatusBadge status={b.status} />
                                 </div>
                                 <p className="text-[12px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
-                                <NotePreview text={b.notes} />
                               </div>
                               <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
                                 <div className="flex gap-2.5">
-                                  <button onClick={() => setEditing(b)}
-                                    className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
                                   <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
                                   <button onClick={async () => {
                                     await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
@@ -1359,18 +1329,19 @@ function BookletsPageInner() {
         booklet={infoFor}
         title={infoFor ? (infoFor.is_exam ? infoFor.booklet_name : bookletLabel(infoFor)) : ''}
         staff={staff}
-        onClose={() => setInfoFor(null)}
+        onClose={() => { setInfoFor(null); load() }}
         onChanged={(p) => setBooklets(bs => bs.map(x => (x.id === infoFor.id ? { ...x, ...p } : x)))}
       />
-      {(editing || creating) && (
+      {/* Add only — editing an existing booklet happens in the Info modal. */}
+      {creating && (
         <BookletModal
-          booklet={editing}
+          booklet={null}
           defaultYear={activeYear}
           defaultSubject={activeSub}
           defaultTerm={addPrefill.term_number}
           defaultWeek={addPrefill.week}
-          onClose={() => { setEditing(null); setCreating(false); setAddPrefill({}) }}
-          onSaved={() => { setEditing(null); setCreating(false); setAddPrefill({}); load() }}
+          onClose={() => { setCreating(false); setAddPrefill({}) }}
+          onSaved={() => { setCreating(false); setAddPrefill({}); load() }}
         />
       )}
     </div>

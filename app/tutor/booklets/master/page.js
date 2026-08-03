@@ -301,111 +301,6 @@ function ManageSkillsPanel({ year, subject, accentColor, accentBg, onClose, onSk
   )
 }
 
-// ── Inline file upload cell ───────────────────────────────────────────────────
-function FileCell({ booklet, type, accentColor, accentBg, onUpdated }) {
-  const isPdf  = type === 'pdf'
-  const paths  = isPdf
-    ? (booklet.file_paths?.length ? booklet.file_paths : (booklet.file_path ? [booklet.file_path] : []))
-    : (booklet.word_paths || [])
-  const names  = isPdf ? (booklet.pdf_filenames || []) : (booklet.word_filenames || [])
-  const bucket = 'booklets'
-
-  const fileRef   = useRef()
-  const [uploading, setUploading]   = useState(false)
-  const [deletingIdx, setDeletingIdx] = useState(null)
-
-  const handleUpload = async (e) => {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    setUploading(true)
-    const newPaths = [...paths]
-    const newNames = [...names]
-    for (const file of files) {
-      const ext      = file.name.split('.').pop()
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const path     = `y${booklet.year}/${booklet.subject?.toLowerCase()}/${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`
-      const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true })
-      if (!error) {
-        newPaths.push(path)
-        newNames.push(file.name.replace(/\.[^.]+$/, ''))
-      }
-    }
-    const update = isPdf
-      ? { file_path: newPaths[0] ?? null, file_paths: newPaths, pdf_filenames: newNames }
-      : { word_paths: newPaths, word_filenames: newNames }
-    await supabase.from('booklets').update(update).eq('id', booklet.id)
-    onUpdated({ ...booklet, ...update })
-    setUploading(false)
-    e.target.value = ''
-  }
-
-  const handleDelete = async (idx) => {
-    if (deletingIdx !== idx) { setDeletingIdx(idx); setTimeout(() => setDeletingIdx(null), 3000); return }
-    await supabase.storage.from(bucket).remove([paths[idx]])
-    const newPaths = paths.filter((_, i) => i !== idx)
-    const newNames = names.filter((_, i) => i !== idx)
-    const update = isPdf
-      ? { file_path: newPaths[0] ?? null, file_paths: newPaths, pdf_filenames: newNames }
-      : { word_paths: newPaths, word_filenames: newNames }
-    await supabase.from('booklets').update(update).eq('id', booklet.id)
-    onUpdated({ ...booklet, ...update })
-    setDeletingIdx(null)
-  }
-
-  const getUrl = (path) => {
-    const { data } = supabase.storage.from(bucket).getPublicUrl(path)
-    return data?.publicUrl ?? null
-  }
-
-  const accept = isPdf ? 'application/pdf' : '.docx,.doc,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  const label  = isPdf ? 'PDF' : 'DOC'
-  const color  = isPdf ? accentColor : '#0F766E'
-  const bg     = isPdf ? accentBg    : '#F0FDF4'
-
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      {paths.map((path, i) => {
-        const url      = getUrl(path)
-        const filename = names[i] || (isPdf ? `PDF ${i + 1}` : `Doc ${i + 1}`)
-        return (
-          <div key={path} className="flex items-center gap-0.5 group/file">
-            {url ? (
-              <a href={url} target="_blank" rel="noopener noreferrer"
-                className="text-[10px] font-bold px-2 py-0.5 rounded-l-lg hover:opacity-80 transition max-w-[100px] truncate"
-                style={{ background: bg, color }}
-                title={filename}
-              >
-                {filename}
-              </a>
-            ) : (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-l-lg max-w-[100px] truncate"
-                style={{ background: bg, color }} title={filename}>{filename}</span>
-            )}
-            <button
-              onClick={() => handleDelete(i)}
-              className="text-[10px] px-1 py-0.5 rounded-r-lg opacity-0 group-hover/file:opacity-100 transition font-bold"
-              style={{ background: bg, color: deletingIdx === i ? '#EF4444' : color }}
-              title={deletingIdx === i ? 'Click again to confirm delete' : 'Remove'}
-            >
-              {deletingIdx === i ? '✕' : '×'}
-            </button>
-          </div>
-        )
-      })}
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={uploading}
-        className="text-[10px] font-bold px-2 py-0.5 rounded-lg border border-dashed transition disabled:opacity-50 hover:opacity-80"
-        style={{ borderColor: color, color, background: 'transparent' }}
-        title={`Upload ${label}`}
-      >
-        {uploading ? '…' : `+ ${label}`}
-      </button>
-      <input ref={fileRef} type="file" accept={accept} multiple className="hidden" onChange={handleUpload} />
-    </div>
-  )
-}
-
 const INP   = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 
@@ -667,7 +562,6 @@ function MasterDatabaseInner() {
   const [search,     setSearch]     = useState('')
   const [showAdd,    setShowAdd]    = useState(false)
 
-  const [editingBooklet, setEditingBooklet] = useState(null)
   const [infoFor,        setInfoFor]        = useState(null)   // booklet whose info modal is open
   const [deleteBooklet,  setDeleteBooklet]  = useState(null)   // booklet pending deletion
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
@@ -690,7 +584,7 @@ function MasterDatabaseInner() {
     const [{ data }, { data: bd }] = await Promise.all([
       supabase
         .from('booklets')
-        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames, word_paths, word_filenames')
+        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames')
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
@@ -1070,11 +964,6 @@ function MasterDatabaseInner() {
 
                         <div className="shrink-0 flex items-center gap-2.5 pl-1 border-l border-[#F0F4FF]">
                           <button
-                            onClick={() => setEditingBooklet(b)}
-                            className="text-[10px] font-semibold text-[#325099]/50 hover:text-[#325099] transition"
-                            title="Edit booklet"
-                          >Edit</button>
-                          <button
                             onClick={() => { setDeleteBooklet(b); setDeleteConfirmText('') }}
                             className="text-[10px] font-semibold text-red-400/70 hover:text-red-600 transition"
                             title="Delete booklet"
@@ -1112,6 +1001,7 @@ function MasterDatabaseInner() {
         />
       )}
 
+      {/* Add only — editing an existing booklet happens in the Info modal. */}
       {showAdd && (
         <BookletFormModal
           booklet={null}
@@ -1121,18 +1011,6 @@ function MasterDatabaseInner() {
           skillBank={skillBank}
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); load() }}
-        />
-      )}
-
-      {editingBooklet && (
-        <BookletFormModal
-          booklet={editingBooklet}
-          defaultYear={activeYear}
-          defaultSubject={activeSub}
-          topicBank={topicBank}
-          skillBank={skillBank}
-          onClose={() => setEditingBooklet(null)}
-          onSaved={() => { setEditingBooklet(null); load() }}
         />
       )}
 
@@ -1146,7 +1024,9 @@ function MasterDatabaseInner() {
         content={infoFor && infoFor.subject === 'Chemistry'
           ? (buildByBookletId[infoFor.id]?.content || infoFor.content)
           : undefined}
-        onClose={() => setInfoFor(null)}
+        topicBank={topicBank}
+        skillBank={skillBank}
+        onClose={() => { setInfoFor(null); load() }}
         onChanged={(p) => setBooklets(bs => bs.map(x => (x.id === infoFor.id ? { ...x, ...p } : x)))}
       />
 
