@@ -3244,10 +3244,11 @@ export default function DatabasePage() {
     })
     if (refErr) { alert('Failed to log referral: ' + refErr.message); return }
 
-    // Apply $50 to an invoice as its own credit line and recompute the total —
-    // including the cash discount, which is 10% of everything else.
+    // Apply $50 to an invoice as its own DISCOUNT line (a referral is revenue
+    // forgone, not money owed back — "credit" means absences) and recompute the
+    // total, including the cash discount, which is 10% of everything else.
     const applyToInvoice = async (inv, label) => {
-      const patch = invoiceTotalsPatch([...(inv.line_items || []), { type: 'credit', reason: label, amount: -50 }])
+      const patch = invoiceTotalsPatch([...(inv.line_items || []), { type: 'discount', reason: label, amount: -50 }])
       await supabase.from(T_INVOICES).update(patch).eq('id', inv.id)
     }
 

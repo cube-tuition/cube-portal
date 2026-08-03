@@ -652,10 +652,15 @@ export default function TrialsPage() {
           alert('Referral credit NOT applied: this trial has no linked student record yet. Log the referral from the Invoices page once the student exists.')
         } else {
           try {
+            // The referring student's first name goes on the new family's
+            // discount line ("Referral Discount: referred by Monica").
+            const { data: referrer } = await supabase.from('students')
+              .select('full_name').eq('id', fresh.referrer_student_id).maybeSingle()
             const res = await logReferralWithCredits({
               referringStudentId: fresh.referrer_student_id,
               referredStudentId: studentId,
-              referredFirstName: (fresh.student_name || '').split(' ')[0],
+              referredFirstName:  (fresh.student_name || '').split(' ')[0],
+              referringFirstName: (referrer?.full_name || '').split(' ')[0],
             })
             if (res.skipped) {
               // Already credited earlier — nothing to do.

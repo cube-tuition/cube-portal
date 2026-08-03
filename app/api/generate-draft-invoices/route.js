@@ -67,7 +67,7 @@ export async function POST(req) {
     // NOTE: id is required — it's how applied credits get linked to the new
     // invoice below (without it they stay "held" and would double-apply).
     const { data: credits } = await sb
-      .from('student_credits').select('id, student_id, amount, reason')
+      .from('student_credits').select('id, student_id, amount, reason, notes')
       .in('student_id', studentIds).is('invoice_id', null) // unapplied credits
     const creditsByStudent = {}
     for (const c of credits || []) {
@@ -177,12 +177,20 @@ export async function POST(req) {
         }
       }
 
-      // ── Referral / other credits (unapplied: invoice_id = null) ──────────
+      // ── Held credits from last term (unapplied: invoice_id = null) ───────
+      // A referral is revenue forgone, so it lands as a DISCOUNT line; absence
+      // and cancellation credits are money owed back and stay CREDIT lines.
+      // The two post to different accounts in Xero.
       const creditStudents = new Set(family.enrolments.map(e => e.student_id))
       for (const sid of creditStudents) {
         for (const c of creditsByStudent[sid] || []) {
           const amt = parseFloat(c.amount) || 0
-          lineItems.push({ type: 'credit', reason: c.reason, amount: -amt })
+          const isReferral = /^referral/i.test(c.reason || '')
+          // reason is a machine key for some sources ('referral_referred',
+          // 'missed_lesson'); notes carry the human wording when there is any.
+          const label = (c.notes || '').trim()
+            || (isReferral ? 'Referral discount' : String(c.reason || 'Credit').replace(/_/g, ' '))
+          lineItems.push({ type: isReferral ? 'discount' : 'credit', reason: label, amount: -amt })
         }
       }
 

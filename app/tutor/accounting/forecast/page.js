@@ -47,7 +47,7 @@ function fmtN(n) { return Number(n || 0).toLocaleString('en-AU', { minimumFracti
  * which means new reduction types are picked up without touching this.
  */
 function invoiceReductions(invoices = []) {
-  const r = { sibling: 0, multiCourse: 0, cash: 0, creditsOther: 0 }
+  const r = { sibling: 0, multiCourse: 0, cash: 0, referral: 0, creditsOther: 0 }
   for (const inv of invoices) {
     for (const l of inv.line_items || []) {
       if (l.type === 'enrolment') continue
@@ -57,10 +57,13 @@ function invoiceReductions(invoices = []) {
       if (l.type === 'discount' && l.cash) r.cash += amt
       else if (l.type === 'discount' && /sibling/i.test(reason)) r.sibling += amt
       else if (l.type === 'discount' && /multi[- ]?course/i.test(reason)) r.multiCourse += amt
+      // Referrals are discounts (revenue forgone); credits are money owed back
+      // for absences. They post to different Xero accounts, so count them apart.
+      else if (/referral/i.test(reason)) r.referral += amt
       else r.creditsOther += amt
     }
   }
-  r.total = r.sibling + r.multiCourse + r.cash + r.creditsOther
+  r.total = r.sibling + r.multiCourse + r.cash + r.referral + r.creditsOther
   return r
 }
 
@@ -204,7 +207,8 @@ export default function ForecastPage() {
   const [clDateFrom,       setClDateFrom]       = useState('')
   const [clDateTo,         setClDateTo]         = useState('')
   const [clShowAll,        setClShowAll]        = useState(false)
-  const [addEntryModal,    setAddEntryModal]     = useState(false)
+  // null = closed, 'new' = adding, otherwise the id of the row being edited.
+  const [entryModal,       setEntryModal]        = useState(null)
   const [entryForm,        setEntryForm]         = useState({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
   const [entrySaving,      setEntrySaving]       = useState(false)
 
@@ -374,6 +378,7 @@ export default function ForecastPage() {
     const siblingDiscount    = reductions.sibling
     const multiCourseDiscount = reductions.multiCourse
     const cashDiscount       = reductions.cash
+    const referralDiscount   = reductions.referral
     const creditsOther       = reductions.creditsOther
     const totalDiscount      = reductions.total
 
@@ -407,7 +412,7 @@ export default function ForecastPage() {
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
-      siblingDiscount, multiCourseDiscount, cashDiscount, creditsOther, totalDiscount,
+      siblingDiscount, multiCourseDiscount, cashDiscount, referralDiscount, creditsOther, totalDiscount,
       classProfit, oneOnOneProfit, cashPosition, cashProfit, bankProfit, totalProfit, afterTax,
     }
   }, [classMetrics, fixedCosts, invoices])
@@ -584,6 +589,7 @@ export default function ForecastPage() {
     const siblingDiscount    = reductions.sibling
     const multiCourseDiscount= reductions.multiCourse
     const cashDiscount       = reductions.cash
+    const referralDiscount   = reductions.referral
     const creditsOther       = reductions.creditsOther
     const totalDiscount      = reductions.total
     // Same cash-untaxed split as the live summary: costs apportioned by share of
@@ -597,7 +603,7 @@ export default function ForecastPage() {
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
-      siblingDiscount, multiCourseDiscount, cashDiscount, creditsOther, totalDiscount,
+      siblingDiscount, multiCourseDiscount, cashDiscount, referralDiscount, creditsOther, totalDiscount,
       cashProfit, bankProfit, totalProfit, afterTax,
     }
   }, [playMetrics, playFixedCosts, invoices])
@@ -660,19 +666,36 @@ export default function ForecastPage() {
 
   useEffect(() => { if (tab === 'cashlog') loadCashLog() }, [tab, loadCashLog])
 
-  const handleAddEntry = async () => {
+  const openAddEntry = () => {
+    setEntryForm({ date: new Date().toISOString().slice(0, 10), direction: 'inflow', type: 'invoice', description: '', amount: '' })
+    setEntryModal('new')
+  }
+  // Amounts are stored signed but always typed as a positive number, so an edit
+  // shows the magnitude and re-applies the sign from the direction on save.
+  const openEditEntry = (e) => {
+    setEntryForm({
+      date: e.date || '', direction: e.direction, type: e.type,
+      description: e.description || '', amount: String(Math.abs(Number(e.amount) || 0)),
+    })
+    setEntryModal(e.id)
+  }
+
+  const handleSaveEntry = async () => {
     if (!entryForm.date || !entryForm.amount || !entryForm.type) return
     setEntrySaving(true)
-    const term = terms.find(t => t.id === termId)
     const signed = entryForm.direction === 'outflow' ? -Math.abs(Number(entryForm.amount)) : Math.abs(Number(entryForm.amount))
-    const { error: err } = await supabase.from('cash_log').insert({
+    const fields = {
       date: entryForm.date, direction: entryForm.direction, type: entryForm.type,
       description: entryForm.description.trim() || null, amount: signed,
-      term_id: term?.id || null,
-    })
+    }
+    // A new row is stamped with the term being viewed; an edit leaves term_id
+    // alone, so re-dating a line can't silently move it to another term's books.
+    const { error: err } = entryModal === 'new'
+      ? await supabase.from('cash_log').insert({ ...fields, term_id: terms.find(t => t.id === termId)?.id || null })
+      : await supabase.from('cash_log').update(fields).eq('id', entryModal)
     setEntrySaving(false)
     if (err) { setError(err.message); return }
-    setAddEntryModal(false)
+    setEntryModal(null)
     setEntryForm({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
     loadCashLog()
   }
@@ -793,6 +816,7 @@ export default function ForecastPage() {
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Multi-course</span><span className="font-semibold">{fmt((s.multiCourseDiscount ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Sibling</span><span className="font-semibold">{fmt((s.siblingDiscount ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Cash discount (10%)</span><span className="font-semibold">{fmt((s.cashDiscount ?? 0) * m)}</span></div>
+            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Referral</span><span className="font-semibold">{fmt((s.referralDiscount ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Credits &amp; adjustments</span><span className="font-semibold">{fmt((s.creditsOther ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt((s.totalDiscount ?? 0) * m)}</span></div>
           </div>
@@ -1417,7 +1441,7 @@ export default function ForecastPage() {
                   <p className="text-xs text-[#325099]/60 mt-0.5">Track all cash inflows and outflows</p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => { setAddEntryModal(true); setEntryForm({ date: new Date().toISOString().slice(0,10), direction: 'inflow', type: 'invoice', description: '', amount: '' }) }}
+                  <button onClick={openAddEntry}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
                     + Add Entry
                   </button>
@@ -1474,15 +1498,26 @@ export default function ForecastPage() {
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-[#325099]/70 capitalize">{e.type}</td>
-                          <td className="px-4 py-2.5 text-[#062E63] max-w-xs truncate">{e.description || '—'}</td>
+                          <td className="px-4 py-2.5 text-[#062E63] max-w-xs truncate">
+                            {e.description || '—'}
+                            {/* Booked by the invoice being marked paid, not typed
+                                in — deleting it here won't un-pay the invoice. */}
+                            {e.invoice_id && (
+                              <span title="Added automatically when this cash invoice was marked paid"
+                                className="ml-1.5 align-middle text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#EEF4FF] text-[#325099]">auto</span>
+                            )}
+                          </td>
                           <td className={`px-4 py-2.5 font-semibold tabular-nums ${Number(e.amount) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
                             {Number(e.amount) >= 0 ? '+' : ''}{fmt(Number(e.amount))}
                           </td>
                           <td className={`px-4 py-2.5 font-semibold tabular-nums ${e.running >= 0 ? 'text-[#062E63]' : 'text-red-600'}`}>
                             {fmt(e.running)}
                           </td>
-                          <td className="px-4 py-2.5">
-                            <button onClick={() => handleDeleteEntry(e.id)} className="text-red-400 hover:text-red-600 transition">✕</button>
+                          <td className="px-4 py-2.5 whitespace-nowrap">
+                            <button onClick={() => openEditEntry(e)} title="Edit this entry"
+                              className="text-[#325099]/40 hover:text-[#325099] transition mr-2">✎</button>
+                            <button onClick={() => handleDeleteEntry(e.id)} title="Delete this entry"
+                              className="text-red-400 hover:text-red-600 transition">✕</button>
                           </td>
                         </tr>
                       ))}
@@ -1505,17 +1540,25 @@ export default function ForecastPage() {
           )
         })()}
 
-        {/* Add Entry Modal */}
-        {addEntryModal && (() => {
+        {/* Add / Edit Entry Modal */}
+        {entryModal && (() => {
           const types = entryForm.direction === 'inflow' ? ['invoice', 'gift', 'withdrawal'] : ['wages', 'return']
           const canSave = entryForm.date && entryForm.amount && entryForm.type
+          const isNew = entryModal === 'new'
+          const linked = !isNew && cashLog.find(e => e.id === entryModal)?.invoice_id
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-[#062E63]">Add Cash Entry</h2>
-                  <button onClick={() => setAddEntryModal(false)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
+                  <h2 className="text-sm font-bold text-[#062E63]">{isNew ? 'Add Cash Entry' : 'Edit Cash Entry'}</h2>
+                  <button onClick={() => setEntryModal(null)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
                 </div>
+                {linked && (
+                  <p className="text-[11px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2 leading-relaxed">
+                    This line was added automatically when its cash invoice was marked paid. Your edits are kept,
+                    but un-marking that invoice still removes the line.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-[#325099]">Date</label>
@@ -1550,10 +1593,10 @@ export default function ForecastPage() {
                   <p className="text-[10px] text-[#325099]/40">Enter as a positive number — direction is set above</p>
                 </div>
                 <div className="flex gap-2 pt-1">
-                  <button onClick={() => setAddEntryModal(false)} className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-                  <button onClick={handleAddEntry} disabled={entrySaving || !canSave}
+                  <button onClick={() => setEntryModal(null)} className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+                  <button onClick={handleSaveEntry} disabled={entrySaving || !canSave}
                     className="flex-1 px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
-                    {entrySaving ? 'Saving…' : 'Add Entry'}
+                    {entrySaving ? 'Saving…' : isNew ? 'Add Entry' : 'Save Changes'}
                   </button>
                 </div>
               </div>

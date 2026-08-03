@@ -92,6 +92,33 @@ function getWarnings(inv, prevUnpaid) {
   return w
 }
 
+/*
+ * What "+ Add line" can add. The type is picked from this list rather than
+ * always being an adjustment, because the type decides the wording, which
+ * bucket the finance view counts it in, and which Xero account it posts to:
+ *   discount   — revenue we chose not to charge (referral, family, other)
+ *   credit     — money owed back for lessons not delivered (absences)
+ *   adjustment — neither of those (a payment already made, a correction)
+ * `label(detail)` builds the printed wording so it stays consistent.
+ */
+const NEW_LINE_PRESETS = [
+  { id: 'referral', type: 'discount', name: 'Referral discount',
+    detailLabel: 'Who referred / was referred', detailPlaceholder: 'e.g. referred by the Ma family',
+    label: (d) => d ? `Referral Discount: ${d}` : 'Referral Discount' },
+  { id: 'family', type: 'discount', name: 'Family discount',
+    detailLabel: 'Detail (optional)', detailPlaceholder: 'e.g. staff family',
+    label: (d) => d ? `Family Discount: ${d}` : 'Family Discount' },
+  { id: 'discount', type: 'discount', name: 'Other discount',
+    detailLabel: 'Description', detailPlaceholder: 'e.g. Goodwill discount',
+    label: (d) => d || 'Discount' },
+  { id: 'credit', type: 'credit', name: 'Credit',
+    detailLabel: 'Description', detailPlaceholder: 'e.g. Absence — Y6 Maths, Week 8',
+    label: (d) => d || 'Credit' },
+  { id: 'adjustment', type: 'adjustment', name: 'Adjustment (neither)',
+    detailLabel: 'Description', detailPlaceholder: 'e.g. Part payment made 9 July',
+    label: (d) => d || 'Adjustment' },
+]
+
 // Order credit lines: dated ones (absences — "… on Tuesday 23 Jun 2026") first,
 // chronologically, then undated credits (referral rewards etc.) in saved order.
 const CREDIT_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 }
@@ -497,14 +524,26 @@ function InvoiceDashboardInner() {
     if (error) { setError('Failed to save line: ' + error.message); return false }
     return true
   }
-  const saveLineEdit = async ({ reason, amount }) => {
+  const saveLineEdit = async ({ reason, amount, preset }) => {
     const { invoiceId, index } = lineModal
     const inv = invoices.find(i => i.id === invoiceId)
     if (!inv) return
     const items = [...(inv.line_items || [])]
     const amt = Number(amount)
     if (index == null) {
-      items.push({ type: 'adjustment', reason: reason.trim() || 'Adjustment', amount: amt })
+      // The picker decides the line's type, so a hand-added line lands in the
+      // right bucket (and the right Xero account) instead of always being an
+      // adjustment — which is how absence credits ended up labelled as
+      // adjustments and referrals as credits.
+      const p = NEW_LINE_PRESETS.find(x => x.id === preset) || NEW_LINE_PRESETS[NEW_LINE_PRESETS.length - 1]
+      const label = p.label(reason.trim())
+      items.push({
+        type: p.type,
+        reason: label,
+        // Discounts and credits are always deductions; an adjustment keeps the
+        // sign typed, so it can add a charge as well.
+        amount: p.type === 'adjustment' ? amt : -Math.abs(amt),
+      })
     } else {
       const l = { ...items[index] }
       if (l.type === 'enrolment') {
@@ -593,10 +632,14 @@ function InvoiceDashboardInner() {
 
   // ── Referral handler — shared credit rules live in lib/referralCredits ────
   const handleLogReferral = async ({ referringStudentId, referredStudentId }) => {
-    const referredFirst = (allStudents.find(s => s.id === referredStudentId)?.full_name || '').split(' ')[0]
+    const referredFirst  = (allStudents.find(s => s.id === referredStudentId)?.full_name || '').split(' ')[0]
+    const referringFirst = (allStudents.find(s => s.id === referringStudentId)?.full_name || '').split(' ')[0]
     let result
     try {
-      result = await logReferralWithCredits({ referringStudentId, referredStudentId, referredFirstName: referredFirst })
+      result = await logReferralWithCredits({
+        referringStudentId, referredStudentId,
+        referredFirstName: referredFirst, referringFirstName: referringFirst,
+      })
     } catch (e) {
       setError(e.message); return
     }
@@ -621,6 +664,13 @@ function InvoiceDashboardInner() {
       setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, ...patch } : i))
       // (Payment-confirmation emails on mark-as-paid were removed — marking
       // paid is now a pure status change.)
+      // A cash invoice books itself into the cash log; say so, since the money
+      // now appears on a screen the person marking it paid isn't looking at.
+      if (data.cash_log === 'added') setSuccessMsg('Marked as paid, and added to the cash log.')
+      else if (data.cash_log === 'removed') setSuccessMsg('Payment cleared, and the cash log entry was removed.')
+      else if (typeof data.cash_log === 'string' && data.cash_log.startsWith('failed')) {
+        setError(`Marked as paid, but the cash log entry could not be added (${data.cash_log.slice(8)}). Add it by hand.`)
+      }
     } catch (e) { setError('Status update failed: ' + e.message) }
     setStatusEditing(null)
   }
@@ -940,9 +990,17 @@ function InvoiceDashboardInner() {
                               </span>
                             )}
                             {inv.is_legacy && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-gray-500">Legacy</span>}
+                            {/* Cash invoices are deliberately never pushed — that
+                                money lives in the cash log — so "Not synced"
+                                would nag about something that is already right. */}
                             {inv.xero_invoice_id
                               ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#ECFDF5] text-[#065F46]">✓ Xero</span>
-                              : xeroConnected && inv.status !== 'draft' && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-gray-400">Not synced</span>
+                              : xeroConnected && inv.status !== 'draft' && (
+                                  inv.payment_method === 'cash'
+                                    ? <span title="Cash invoices aren't sent to Xero — they're recorded in the cash log"
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Cash · not in Xero</span>
+                                    : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-gray-400">Not synced</span>
+                                )
                             }
                             {warnings.map(w => <Warning key={w} text={w} />)}
                           </div>
@@ -1582,7 +1640,11 @@ function InvoiceDashboardInner() {
 // ── Edit / add invoice line modal (drafts only) ───────────────────────────────
 function EditLineModal({ initial, onClose, onSave }) {
   const isNew = initial.index == null
-  const isNegType = initial.type === 'discount' || initial.type === 'credit'
+  const [preset, setPreset] = useState(NEW_LINE_PRESETS[0].id)
+  const p = NEW_LINE_PRESETS.find(x => x.id === preset) || NEW_LINE_PRESETS[0]
+  // A new line's type comes from the picker; an existing line keeps its own.
+  const lineType = isNew ? p.type : initial.type
+  const isNegType = lineType === 'discount' || lineType === 'credit'
   const [reason, setReason] = useState(initial.reason || '')
   const [amount, setAmount] = useState(initial.amount === '' ? '' : String(initial.amount))
   const [saving, setSaving] = useState(false)
@@ -1590,7 +1652,7 @@ function EditLineModal({ initial, onClose, onSave }) {
   const submit = async () => {
     if (amount === '' || Number.isNaN(Number(amount))) return
     setSaving(true)
-    await onSave({ reason, amount })
+    await onSave({ reason, amount, preset })
     setSaving(false)
   }
 
@@ -1603,13 +1665,38 @@ function EditLineModal({ initial, onClose, onSave }) {
           </h3>
           <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
         </div>
+        {isNew && (
+          <div>
+            <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Line type</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {NEW_LINE_PRESETS.map(x => (
+                <button key={x.id} type="button" onClick={() => setPreset(x.id)}
+                  className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition text-left ${
+                    preset === x.id
+                      ? 'border-[#325099] bg-[#F0F4FF] text-[#062E63]'
+                      : 'border-[#DEE7FF] text-[#2A2035]/60 hover:border-[#325099]'}`}>
+                  {x.name}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-[#2A2035]/40 mt-1.5">
+              Discounts are revenue not charged; credits are money owed back for lessons not delivered.
+              They report separately and post to different Xero accounts.
+            </p>
+          </div>
+        )}
         <div>
           <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">
-            {initial.type === 'enrolment' ? 'Class description' : 'Description'}
+            {initial.type === 'enrolment' ? 'Class description' : isNew ? p.detailLabel : 'Description'}
           </label>
           <input type="text" value={reason} onChange={e => setReason(e.target.value)}
-            placeholder={isNew ? 'e.g. Trial lesson fee / Goodwill discount' : ''}
+            placeholder={isNew ? p.detailPlaceholder : ''}
             className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+          {isNew && (
+            <p className="text-[10px] text-[#2A2035]/40 mt-1">
+              Prints as “{p.label(reason.trim())}”.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Amount ($)</label>
