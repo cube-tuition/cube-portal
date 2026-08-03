@@ -7,7 +7,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
   const [activeTab,     setActiveTab]     = useState('global')
   const [accounts,      setAccounts]      = useState([])
   const [xeroItems,     setXeroItems]     = useState([])
-  const [settings,      setSettings]      = useState({ enrolment_account_code: '', discount_account_code: '', credit_account_code: '' })
+  const [settings,      setSettings]      = useState({ enrolment_account_code: '', enrolment_1on1_account_code: '', discount_account_code: '', credit_account_code: '' })
   const [loadingAcc,    setLoadingAcc]    = useState(false)
   const [accError,      setAccError]      = useState(null)
   const [saving,        setSaving]        = useState(false)
@@ -32,9 +32,10 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
       setAccounts(accRes.accounts)
       setXeroItems(xeroItemsRes.items || [])
       if (settRes && !settRes.error) setSettings({
-        enrolment_account_code: settRes.enrolment_account_code || '',
-        discount_account_code:  settRes.discount_account_code  || '',
-        credit_account_code:    settRes.credit_account_code    || '',
+        enrolment_account_code:      settRes.enrolment_account_code      || '',
+        enrolment_1on1_account_code: settRes.enrolment_1on1_account_code || '',
+        discount_account_code:       settRes.discount_account_code       || '',
+        credit_account_code:         settRes.credit_account_code         || '',
       })
       const names = itemMappingRes.courseNames || []
       setCourseNames(names)
@@ -108,6 +109,9 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
             <span className="text-xs text-[#325099]/60">
               Last sync: {xeroResult.pushed} pushed
               {xeroResult.skipped ? `, ${xeroResult.skipped} already in Xero` : ''}
+              {/* Cash invoices are held back on purpose — say so, or a smaller
+                  "pushed" number than expected looks like a failure. */}
+              {xeroResult.cash_skipped ? `, ${xeroResult.cash_skipped} cash (not sent)` : ''}
               {xeroResult.errors?.length ? `, ${xeroResult.errors.length} errors` : ''}
             </span>
           )}
@@ -172,13 +176,21 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
               {activeTab === 'global' && (
                 <div className="px-4 py-4">
                   <p className="text-[11px] text-[#325099]/50 mb-3">
-                    Fallback account codes used for line items that have no Xero item mapping (e.g. discounts, credits, or unmapped courses).
+                    Fallback account codes for line items with no Xero item mapping (discounts, credits, or unmapped courses).
                   </p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <AccountSelect field="enrolment_account_code" label="Tuition fees (fallback)" />
-                    <AccountSelect field="discount_account_code"  label="Discounts" />
-                    <AccountSelect field="credit_account_code"    label="Credits" />
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {/* Classes and 1:1s post to different revenue accounts in
+                        Xero. Leave the 1:1 one blank to send both to the class
+                        account, as before. */}
+                    <AccountSelect field="enrolment_account_code"      label="Tuition fees — classes" />
+                    <AccountSelect field="enrolment_1on1_account_code" label="Tuition fees — 1:1" />
+                    <AccountSelect field="discount_account_code"       label="Discounts" />
+                    <AccountSelect field="credit_account_code"         label="Credits" />
                   </div>
+                  <p className="text-[11px] text-[#325099]/40 mt-2">
+                    A 1:1 line is recognised from its course’s delivery mode (class name as a fallback).
+                    Leave “1:1” unset and those lines use the class account.
+                  </p>
                   <div className="flex justify-end mt-4">
                     <button onClick={handleSaveGlobal} disabled={saving}
                       className="text-xs font-semibold bg-[#062E63] text-white px-5 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">

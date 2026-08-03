@@ -27,7 +27,8 @@ export async function POST(req) {
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
     const body = await req.json()
-    const allowed = ['enrolment_account_code', 'discount_account_code', 'credit_account_code', 'tax_type']
+    const allowed = ['enrolment_account_code', 'enrolment_1on1_account_code',
+      'discount_account_code', 'credit_account_code', 'tax_type']
     const update = {}
     for (const k of allowed) if (body[k] !== undefined) update[k] = body[k] || null
     update.updated_at = new Date().toISOString()

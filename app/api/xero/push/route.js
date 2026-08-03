@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { upsertXeroContacts, createXeroInvoicesBatch } from '../../../../lib/xero'
+import { isOneToOneClass } from '../../../../lib/classFormat'
 
 // 2 Xero API calls total (batch contacts + batch invoices) — fast and safe
 export const maxDuration = 60
@@ -35,7 +36,7 @@ export async function POST(req) {
   }
 
   // Fetch unpushed invoices that have line_items (new format)
-  const { data: invoices, error: invErr } = await supabase
+  const { data: allInvoices, error: invErr } = await supabase
     .from('invoices')
     .select('*')
     .eq('term_id', term_id)
@@ -44,7 +45,20 @@ export async function POST(req) {
     .not('line_items', 'is', null)
     .order('id')
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
-  if (!invoices?.length) return NextResponse.json({ pushed: 0, message: 'No new invoices to push' })
+
+  // Cash invoices never go to Xero — that money is tracked in the portal's cash
+  // log instead. Filtered here rather than in the query so nulls (legacy rows,
+  // which mean bank) still push, and so the count can be reported back.
+  const cashSkipped = (allInvoices || []).filter(i => i.payment_method === 'cash')
+  const invoices    = (allInvoices || []).filter(i => i.payment_method !== 'cash')
+  if (!invoices.length) {
+    return NextResponse.json({
+      pushed: 0, cash_skipped: cashSkipped.length,
+      message: cashSkipped.length
+        ? `No new invoices to push — ${cashSkipped.length} cash invoice${cashSkipped.length === 1 ? '' : 's'} excluded.`
+        : 'No new invoices to push',
+    })
+  }
 
   // ── Load Xero settings + per-course item mappings ────────────────────────────
   const [{ data: xeroSettings }, { data: itemMappings }] = await Promise.all([
@@ -57,6 +71,25 @@ export async function POST(req) {
       .filter(m => m.item_code)
       .map(m => [m.class_name, m.item_code])
   )
+
+  // ── 1:1 vs group class, for the split tuition fallback accounts ─────────────
+  // CUBE keeps separate revenue accounts in Xero for classes and 1:1s. The
+  // signal is courses.delivery_mode via the class, with the class name as the
+  // fallback — the same rule the forecast uses (lib/classFormat).
+  const [{ data: classRows }, { data: courseRows }] = await Promise.all([
+    supabase.from('classes').select('id, class_name, course_id'),
+    supabase.from('courses').select('id, delivery_mode'),
+  ])
+  const deliveryModeByCourse = Object.fromEntries((courseRows || []).map(c => [c.id, c.delivery_mode]))
+  const classById = Object.fromEntries((classRows || []).map(c => [c.id, c]))
+  // Classes are per-term rows, so a name can appear more than once; 1:1-ness is
+  // a property of the course, so any row of that name answers the question.
+  const classByName = {}
+  for (const c of classRows || []) if (!classByName[c.class_name]) classByName[c.class_name] = c
+  const isOneToOneLine = (l) => {
+    const cls = classById[l.class_id] || classByName[l.class_name] || { class_name: l.class_name }
+    return isOneToOneClass(cls, deliveryModeByCourse)
+  }
 
   // ── Step 1: collect all student IDs to fetch guardians in one query ──────────
   const allStudentIds = [...new Set(invoices.flatMap(inv =>
@@ -106,8 +139,13 @@ export async function POST(req) {
         const itemCode = itemCodeByClass[l.class_name]
         if (itemCode) {
           item.ItemCode = itemCode
-        } else if (xeroSettings?.enrolment_account_code) {
-          item.AccountCode = xeroSettings.enrolment_account_code
+        } else {
+          // Separate revenue accounts for 1:1s and classes; a blank 1:1 code
+          // means "not split yet", so it falls back to the class account.
+          const code = isOneToOneLine(l)
+            ? (xeroSettings?.enrolment_1on1_account_code || xeroSettings?.enrolment_account_code)
+            : xeroSettings?.enrolment_account_code
+          if (code) item.AccountCode = code
         }
         return item
       }
@@ -150,7 +188,7 @@ export async function POST(req) {
     })
   }
 
-  if (!built.length) return NextResponse.json({ pushed: 0, skipped: skipped.length, errors: [] })
+  if (!built.length) return NextResponse.json({ pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, errors: [] })
 
   // ── Step 3: deduplicate contacts, batch-upsert in ONE Xero call ──────────────
   const contactKeyOrder = []
@@ -188,7 +226,7 @@ export async function POST(req) {
   }
 
   // ── Step 5: save Xero IDs back to Supabase ───────────────────────────────────
-  const results = { pushed: 0, skipped: skipped.length, errors: [] }
+  const results = { pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, errors: [] }
   const now     = new Date().toISOString()
 
   for (let i = 0; i < built.length; i++) {
