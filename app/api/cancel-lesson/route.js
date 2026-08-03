@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { invoiceTotalsPatch } from '../../../lib/cashDiscount'
 
 /**
  * POST /api/cancel-lesson
@@ -124,15 +125,20 @@ export async function POST(req) {
         }).select('id').single()
         studentCreditId = credit?.id
 
-        // Deduct from invoice total AND add credit line item so it shows on the invoice
+        // Add the credit as its own line and re-total from the lines, so a cash
+        // invoice's 10% is re-priced off the now-smaller amount.
         const { data: invRow } = await sb.from('invoices').select('total, line_items').eq('id', openInvoice.id).single()
         const existingItems = Array.isArray(invRow?.line_items) ? invRow.line_items : []
         const creditLineItem = { type: 'credit', reason: creditReason, amount: -creditAmount, student_id }
-        const newTotal = Math.max(0, Number(invRow?.total ?? openInvoice.total) - creditAmount)
-        await sb.from('invoices').update({
-          total: newTotal,
-          line_items: [...existingItems, creditLineItem],
-        }).eq('id', openInvoice.id)
+        // Legacy invoices carry no line items at all — re-summing those would
+        // zero the total, so those keep deducting from the stored total.
+        const update = existingItems.length
+          ? invoiceTotalsPatch([...existingItems, creditLineItem])
+          : {
+              total: Math.max(0, Number(invRow?.total ?? openInvoice.total) - creditAmount),
+              line_items: [creditLineItem],
+            }
+        await sb.from('invoices').update(update).eq('id', openInvoice.id)
       } else {
         // Hold credit for next term
         heldForNextTerm = true

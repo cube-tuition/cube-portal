@@ -13,7 +13,12 @@ import { XeroBanner } from '../../../../components/invoices/XeroBanner'
 import { AddCreditModal } from '../../../../components/invoices/AddCreditModal'
 import { ReferralModal } from '../../../../components/invoices/ReferralModal'
 import { buildEmailBody, SendEmailModal } from '../../../../components/invoices/SendEmailModal'
+import { SendReceiptModal } from '../../../../components/invoices/SendReceiptModal'
 import { logReferralWithCredits } from '../../../../lib/referralCredits'
+import {
+  invoiceTotalsPatch, isCashDiscountLine, isManualCashLine,
+  markCashLineManual, clearCashLineManual,
+} from '../../../../lib/cashDiscount'
 
 /*
  * Invoice Dashboard — /tutor/accounting/invoices
@@ -132,6 +137,7 @@ function InvoiceDashboardInner() {
   const [confirmPaidInv,    setConfirmPaidInv]    = useState(null) // invoice object pending paid confirmation
   const [confirmPaidDate,   setConfirmPaidDate]   = useState('')   // yyyy-mm-dd payment date for the confirm modal
   const [sendModalInv,      setSendModalInv]      = useState(null)
+  const [receiptModalInv,   setReceiptModalInv]   = useState(null)  // paid invoice whose receipt modal is open
   const [reminderModalInv,  setReminderModalInv]  = useState(null)
   const [emailTemplate,     setEmailTemplate]     = useState('')
   const [emailSubjectTmpl,  setEmailSubjectTmpl]  = useState('')
@@ -231,15 +237,30 @@ function InvoiceDashboardInner() {
         .order('invoice_number', { ascending: true })
       if (invErr) throw invErr
 
+      // Live enrolments in this term's classes — the legacy branch below needs
+      // them, and the stale check uses them to tell a class that VANISHED from
+      // one that was deleted and re-created (same name, new row) with the
+      // student still enrolled.
+      let enrs = []
+      if (classIds.length) {
+        const res = await supabase
+          .from('enrolments').select('id, student_id, class_id, price, status')
+          .in('class_id', classIds).in('status', ['active', 'trial'])
+        enrs = res.data || []
+      }
+      const activeClassNamesByStudent = {}
+      for (const e of enrs) {
+        const nm = classMap[e.class_id]?.class_name
+        if (!nm) continue
+        ;(activeClassNamesByStudent[e.student_id] ||= new Set()).add(nm)
+      }
+
       // For legacy invoices (no line_items), load enrolments directly
       const legacyInvs = (invs || []).filter(i => !i.line_items?.length)
       let legacyEnrolMap = {} // student_id[] per invoice id
       let legacyStudMap  = {} // student by id
 
       if (legacyInvs.length && classIds.length) {
-        const { data: enrs } = await supabase
-          .from('enrolments').select('id, student_id, class_id, price, status')
-          .in('class_id', classIds).in('status', ['active', 'trial'])
         const { data: studs } = await supabase
           .from('students').select('id, full_name, family_id')
           .in('id', (enrs || []).map(e => e.student_id))
@@ -332,12 +353,26 @@ function InvoiceDashboardInner() {
         // history, and every family who leaves eventually turns their old paid
         // invoices "inactive". Flagging those would bury the real ones.
         const staleReasons = []
-        if (inv.payment_status !== 'paid') {
-          const goneClasses = [...new Set(effectiveLineItems
+        // Voided invoices are as settled as paid ones — nobody is chasing that
+        // money, so drift in their line items is not a problem worth flagging.
+        if (inv.payment_status !== 'paid' && inv.status !== 'voided') {
+          const goneLines = effectiveLineItems
             .filter(l => l.type === 'enrolment' && l.class_id != null && !classMap[l.class_id])
+          // A dead class id where the student still actively attends a class of
+          // the same name means the class was deleted and re-created — the money
+          // is right and only the line's class_id is stale (Refresh can't fix
+          // it: it matches lines by class_id).
+          const replaced = [...new Set(goneLines
+            .filter(l => l.class_name && activeClassNamesByStudent[l.student_id]?.has(l.class_name))
+            .map(l => l.class_name))]
+          const removed = [...new Set(goneLines
+            .filter(l => !(l.class_name && activeClassNamesByStudent[l.student_id]?.has(l.class_name)))
             .map(l => l.class_name || `class #${l.class_id}`))]
-          if (goneClasses.length) {
-            staleReasons.push(`${goneClasses.join(', ')} — no longer a class this term`)
+          if (removed.length) {
+            staleReasons.push(`${removed.join(', ')} — no longer a class this term`)
+          }
+          if (replaced.length) {
+            staleReasons.push(`${replaced.join(', ')} — this class was re-created since the invoice was generated; the student is still enrolled and the amount is right, but the line points at the old class`)
           }
           const goneStudents = [...new Set(enrolStudentIds
             .map(id => studentStatusMap[id])
@@ -454,10 +489,11 @@ function InvoiceDashboardInner() {
   // ── Manual line editing (drafts only) ───────────────────────────────────
   // lineModal: { invoiceId, index, type, reason, amount } — index null = add new line
   const [lineModal, setLineModal] = useState(null)
+  // Editing any line moves the cash discount with it — it is 10% of everything
+  // else on the invoice — so save the re-priced patch, not a bare re-sum.
   const recomputeAndSave = async (invoiceId, items) => {
-    const newTotal = Math.max(0, items.reduce((s, l) => s + (Number(l.amount) || 0), 0))
     const { error } = await supabase.from('invoices')
-      .update({ line_items: items, subtotal: newTotal, total: newTotal }).eq('id', invoiceId)
+      .update(invoiceTotalsPatch(items)).eq('id', invoiceId)
     if (error) { setError('Failed to save line: ' + error.message); return false }
     return true
   }
@@ -478,6 +514,9 @@ function InvoiceDashboardInner() {
       } else if (l.type === 'discount' || l.type === 'credit') {
         l.reason = reason.trim() || l.reason
         l.amount = -Math.abs(amt)
+        // Typing an amount into the cash discount pins it: the automatic 10%
+        // would otherwise overwrite it on the next credit, edit or Refresh.
+        if (isCashDiscountLine(l)) Object.assign(l, markCashLineManual(l))
       } else {
         l.reason = reason.trim() || l.reason
         l.amount = amt
@@ -485,6 +524,13 @@ function InvoiceDashboardInner() {
       items[index] = l
     }
     if (await recomputeAndSave(invoiceId, items)) { setLineModal(null); await loadInvoices() }
+  }
+  // Hand a pinned cash discount back to the automatic 10%.
+  const resetCashLine = async (inv, index) => {
+    const items = [...(inv.line_items || [])]
+    if (!items[index]) return
+    items[index] = clearCashLineManual(items[index])
+    if (await recomputeAndSave(inv.id, items)) await loadInvoices()
   }
   const removeLine = async (inv, index) => {
     const l = (inv.line_items || [])[index]
@@ -514,9 +560,8 @@ function InvoiceDashboardInner() {
       const REASON_LABELS = { missed_lesson: 'Missed lesson', late_start: 'Late start', other: 'Adjustment' }
       const who   = (inv.line_items || []).find(l => l.student_id === studentId)?.student_name?.split(' ')[0]
       const label = `${REASON_LABELS[reason] || 'Adjustment'}${notes?.trim() ? ' — ' + notes.trim() : ''}${who ? ' (' + who + ')' : ''}`
-      const newLineItems = [...(inv.line_items || []), { type: 'credit', reason: label, amount: -amt }]
-      const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
-      await supabase.from('invoices').update({ line_items: newLineItems, subtotal: newTotal, total: newTotal }).eq('id', invoiceId)
+      const patch = invoiceTotalsPatch([...(inv.line_items || []), { type: 'credit', reason: label, amount: -amt }])
+      await supabase.from('invoices').update(patch).eq('id', invoiceId)
     }
     setCreditModal(null)
     await loadInvoices()
@@ -863,7 +908,7 @@ function InvoiceDashboardInner() {
                   const editable      = inv.status === 'draft'
                   const lineActions = (l) => editable ? (
                     <td className="py-1.5 pl-2 text-right whitespace-nowrap w-12">
-                      <button onClick={() => setLineModal({ invoiceId: inv.id, index: l._idx, type: l.type, reason: l.type === 'enrolment' ? (l.class_name || '') : (l.reason || ''), amount: Math.abs(Number(l.amount) || 0) })}
+                      <button onClick={() => setLineModal({ invoiceId: inv.id, index: l._idx, type: l.type, cash: isCashDiscountLine(l), reason: l.type === 'enrolment' ? (l.class_name || '') : (l.reason || ''), amount: Math.abs(Number(l.amount) || 0) })}
                         title="Edit this line" className="text-[#325099]/40 hover:text-[#325099] px-1">✎</button>
                       <button onClick={() => removeLine(inv, l._idx)}
                         title="Remove this line" className="text-[#325099]/40 hover:text-[#DC2626] px-1">✕</button>
@@ -939,7 +984,20 @@ function InvoiceDashboardInner() {
                             ))}
                             {discountLines.map((l, i) => (
                               <tr key={`d${i}`} className="border-b border-[#F0F4FF] last:border-0">
-                                <td className="py-1.5 text-[#7C3AED] italic" colSpan={2}>{l.reason}</td>
+                                <td className="py-1.5 text-[#7C3AED] italic" colSpan={2}>
+                                  {l.reason}
+                                  {isManualCashLine(l) && (
+                                    <>
+                                      <span title="Set by hand — the automatic 10% will not overwrite it"
+                                        className="not-italic ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#F5F3FF] text-[#7C3AED]">manual</span>
+                                      {editable && (
+                                        <button onClick={() => resetCashLine(inv, l._idx)}
+                                          title="Go back to the automatic 10%"
+                                          className="not-italic ml-1 text-[9px] font-semibold text-[#325099]/50 hover:text-[#325099] hover:underline">↺ auto</button>
+                                      )}
+                                    </>
+                                  )}
+                                </td>
                                 <td className="py-1.5 text-right text-[#7C3AED]">({fmtMoney(Math.abs(l.amount))})</td>
                                 {lineActions(l)}
                               </tr>
@@ -1083,6 +1141,23 @@ function InvoiceDashboardInner() {
                             <option value="paid">Paid</option>
                             <option value="overdue">Overdue</option>
                           </select>
+                          {inv.payment_status === 'paid' && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => setReceiptModalInv(inv)}
+                                disabled={!inv.parent_email || inv.status === 'draft' || inv.status === 'voided'}
+                                title={!inv.parent_email ? 'No email on file' : inv.status === 'draft' ? 'Approve invoice first' : 'Email the family a payment receipt'}
+                                className="text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0] hover:bg-[#D1FAE5] disabled:opacity-40"
+                              >
+                                🧾 {inv.receipt_sent_at ? 'Resend receipt' : 'Send receipt'}
+                              </button>
+                              {inv.receipt_sent_at && (
+                                <span className="text-[10px] text-[#065F46]/70" title="Last receipt sent">
+                                  Receipt {fmtDate(inv.receipt_sent_at)}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {inv.payment_status === 'overdue' && (
                             <div className="flex items-center gap-1.5">
                               <button
@@ -1422,6 +1497,17 @@ function InvoiceDashboardInner() {
           }}
         />
       )}
+      {receiptModalInv && (
+        <SendReceiptModal
+          inv={receiptModalInv}
+          term={term}
+          onClose={() => setReceiptModalInv(null)}
+          onSent={(id, receiptSentAt) => {
+            setReceiptModalInv(null)
+            setInvoices(prev => prev.map(i => i.id === id ? { ...i, receipt_sent_at: receiptSentAt || new Date().toISOString() } : i))
+          }}
+        />
+      )}
       {reminderModalInv && (
         <SendEmailModal
           inv={reminderModalInv}
@@ -1537,6 +1623,12 @@ function EditLineModal({ initial, onClose, onSave }) {
                 ? 'Positive adds a charge; negative applies a deduction.'
                 : 'The invoice total recalculates automatically.'}
           </p>
+          {initial.cash && (
+            <p className="text-[10px] text-[#7C3AED] mt-1.5 leading-relaxed">
+              Normally 10% of the invoice after the other discounts and credits. Saving an amount here
+              pins it, so later credits and Refresh leave it alone — use “↺ auto” on the line to hand it back.
+            </p>
+          )}
         </div>
         <div className="flex gap-2 justify-end pt-1">
           <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>

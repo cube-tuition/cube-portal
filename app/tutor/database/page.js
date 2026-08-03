@@ -9,6 +9,7 @@ import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import { buildClassLabelMap } from '../../../lib/classLabels'
+import { invoiceTotalsPatch } from '../../../lib/cashDiscount'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
 import { TABLE_META, dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue, fieldType, fieldEditorKind, linkedRef, formatDisplay } from '../../../lib/tableMeta'
@@ -3243,11 +3244,11 @@ export default function DatabasePage() {
     })
     if (refErr) { alert('Failed to log referral: ' + refErr.message); return }
 
-    // Apply $50 to an invoice as its own credit line and recompute the total.
+    // Apply $50 to an invoice as its own credit line and recompute the total —
+    // including the cash discount, which is 10% of everything else.
     const applyToInvoice = async (inv, label) => {
-      const newLineItems = [...(inv.line_items || []), { type: 'credit', reason: label, amount: -50 }]
-      const newTotal = Math.max(0, newLineItems.reduce((s, l) => s + (Number(l.amount) || 0), 0))
-      await supabase.from(T_INVOICES).update({ line_items: newLineItems, subtotal: newTotal, total: newTotal }).eq('id', inv.id)
+      const patch = invoiceTotalsPatch([...(inv.line_items || []), { type: 'credit', reason: label, amount: -50 }])
+      await supabase.from(T_INVOICES).update(patch).eq('id', inv.id)
     }
 
     // Immediate $50 credit for referred student → their current unpaid, non-voided invoice

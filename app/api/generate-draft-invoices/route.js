@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { cashDiscountLine, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
+import { cashDiscountFor, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
 
 /*
  * POST /api/generate-draft-invoices
@@ -134,7 +134,6 @@ export async function POST(req) {
 
       // Build line items — prices are stored inc-GST as-is
       const lineItems = []
-      let subtotalIncGst = 0
 
       for (const e of family.enrolments) {
         const s   = studMap[e.student_id]
@@ -142,7 +141,6 @@ export async function POST(req) {
         // Use the enrolment's own price; fall back to the class's course price
         // when it has none (otherwise the line would bill as $0).
         const fee = (e.price != null ? parseFloat(e.price) : parseFloat(cls?.courses?.course_price)) || 0  // inc-GST
-        subtotalIncGst += fee
         lineItems.push({
           student_id:   e.student_id,
           student_name: s?.full_name || '—',
@@ -179,30 +177,25 @@ export async function POST(req) {
         }
       }
 
-      // ── Cash discount: cash-paying families get 10% off tuition lines ────
-      // Family payment method: cash if ANY family member is set to cash.
-      const paymentMethod = family.enrolments.some(e => studMap[e.student_id]?.payment_method === 'cash')
-        ? 'cash' : 'bank'
-      let cashDiscount = 0
-      if (paymentMethod === 'cash') {
-        const line = cashDiscountLine(subtotalIncGst)   // 10% of tuition, before flat credits
-        cashDiscount = -line.amount
-        lineItems.push(line)
-      }
-
       // ── Referral / other credits (unapplied: invoice_id = null) ──────────
-      let totalCredits = 0
       const creditStudents = new Set(family.enrolments.map(e => e.student_id))
       for (const sid of creditStudents) {
         for (const c of creditsByStudent[sid] || []) {
           const amt = parseFloat(c.amount) || 0
-          totalCredits += amt
           lineItems.push({ type: 'credit', reason: c.reason, amount: -amt })
         }
       }
 
+      // ── Cash discount: 10% off, applied LAST ─────────────────────────────
+      // The base is what is left after the sibling, multi-course and credit
+      // lines above, so this has to stay the final push.
+      // Family payment method: cash if ANY family member is set to cash.
+      const paymentMethod = family.enrolments.some(e => studMap[e.student_id]?.payment_method === 'cash')
+        ? 'cash' : 'bank'
+      if (paymentMethod === 'cash') lineItems.push(cashDiscountFor(lineItems))
+
       // All amounts are inc-GST; GST is a component of the total (total ÷ 11), not added on top
-      const total = Math.max(0, subtotalIncGst - siblingDiscount - multiCourseDiscount - cashDiscount - totalCredits)
+      const total = totalFromLineItems(lineItems)
 
       const seqNum = maxSeq + created + 1
 
