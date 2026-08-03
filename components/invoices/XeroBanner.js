@@ -109,9 +109,10 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
             <span className="text-xs text-[#325099]/60">
               Last sync: {xeroResult.pushed} pushed
               {xeroResult.skipped ? `, ${xeroResult.skipped} already in Xero` : ''}
-              {/* Cash invoices are held back on purpose — say so, or a smaller
-                  "pushed" number than expected looks like a failure. */}
+              {/* Cash invoices and drafts are held back on purpose — say so, or
+                  a smaller "pushed" number than expected looks like a failure. */}
               {xeroResult.cash_skipped ? `, ${xeroResult.cash_skipped} cash (not sent)` : ''}
+              {xeroResult.draft_skipped ? `, ${xeroResult.draft_skipped} still draft` : ''}
               {xeroResult.errors?.length ? `, ${xeroResult.errors.length} errors` : ''}
             </span>
           )}

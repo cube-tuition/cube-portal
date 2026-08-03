@@ -28,35 +28,46 @@ export async function POST(req) {
   if (!term_id) return NextResponse.json({ error: 'term_id required' }, { status: 400 })
 
   if (reset_ids?.length) {
+    // Back to 'approved' as well as clearing the Xero ids — the invoice is no
+    // longer synced, and only approved invoices are eligible to push, so
+    // leaving it 'synced_to_xero' would make a reset invoice unpushable.
     await supabase.from('invoices').update({
       xero_invoice_id: null,
       xero_contact_id: null,
       xero_pushed_at:  null,
+      status:          'approved',
     }).in('id', reset_ids)
   }
 
-  // Fetch unpushed invoices that have line_items (new format)
+  // Candidates: not yet in Xero, with line_items (new format), and never
+  // voided. Drafts are fetched only so the count can be reported back.
   const { data: allInvoices, error: invErr } = await supabase
     .from('invoices')
     .select('*')
     .eq('term_id', term_id)
     .is('xero_invoice_id', null)
-    .not('status', 'eq', 'voided')
+    .in('status', ['draft', 'approved'])
     .not('line_items', 'is', null)
     .order('id')
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
 
+  // A draft is still being worked on — approving it is the moment it becomes
+  // the family's real bill, so that is the moment it may go to Xero.
+  const draftSkipped = (allInvoices || []).filter(i => i.status !== 'approved')
   // Cash invoices never go to Xero — that money is tracked in the portal's cash
   // log instead. Filtered here rather than in the query so nulls (legacy rows,
   // which mean bank) still push, and so the count can be reported back.
-  const cashSkipped = (allInvoices || []).filter(i => i.payment_method === 'cash')
-  const invoices    = (allInvoices || []).filter(i => i.payment_method !== 'cash')
+  const approved    = (allInvoices || []).filter(i => i.status === 'approved')
+  const cashSkipped = approved.filter(i => i.payment_method === 'cash')
+  const invoices    = approved.filter(i => i.payment_method !== 'cash')
   if (!invoices.length) {
+    const why = [
+      cashSkipped.length  ? `${cashSkipped.length} cash invoice${cashSkipped.length === 1 ? '' : 's'} excluded` : null,
+      draftSkipped.length ? `${draftSkipped.length} still in draft` : null,
+    ].filter(Boolean).join(', ')
     return NextResponse.json({
-      pushed: 0, cash_skipped: cashSkipped.length,
-      message: cashSkipped.length
-        ? `No new invoices to push — ${cashSkipped.length} cash invoice${cashSkipped.length === 1 ? '' : 's'} excluded.`
-        : 'No new invoices to push',
+      pushed: 0, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length,
+      message: why ? `No new invoices to push — ${why}.` : 'No new invoices to push',
     })
   }
 
@@ -188,7 +199,7 @@ export async function POST(req) {
     })
   }
 
-  if (!built.length) return NextResponse.json({ pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, errors: [] })
+  if (!built.length) return NextResponse.json({ pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, errors: [] })
 
   // ── Step 3: deduplicate contacts, batch-upsert in ONE Xero call ──────────────
   const contactKeyOrder = []
@@ -226,7 +237,7 @@ export async function POST(req) {
   }
 
   // ── Step 5: save Xero IDs back to Supabase ───────────────────────────────────
-  const results = { pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, errors: [] }
+  const results = { pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, errors: [] }
   const now     = new Date().toISOString()
 
   for (let i = 0; i < built.length; i++) {
