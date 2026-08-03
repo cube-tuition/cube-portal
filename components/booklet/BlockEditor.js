@@ -653,9 +653,10 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
         </div>
       )
     case 'worked':
+    case 'derivation':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Step-by-step working for the example…'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={block.type === 'derivation' ? 'Proof of the formula, line by line…' : 'Step-by-step working for the example…'} /></div>
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
