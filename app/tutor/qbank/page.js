@@ -10,7 +10,7 @@ import {
   T_QBANK_QUESTIONS, T_QBANK_QUESTION_IMAGES,
 } from '../../../lib/tables'
 import {
-  fetchTaxonomy, deleteQbankImage, qbankImageUrl,
+  fetchTaxonomy, deleteQbankImage, qbankImageUrl, duplicateQuestion,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
   buildTaxonomyMaps, labelForQuestion,
   SUBJECT_FAMILIES, SCOPE_LABEL,
@@ -42,6 +42,7 @@ function QuestionBankInner() {
   const [loadingQ, setLoadingQ] = useState(true)
   const [usageMap, setUsageMap] = useState({})
   const [usagePop, setUsagePop] = useState(null)   // { usage, rect } — where-is-it-used popover
+  const [duplicatingId, setDuplicatingId] = useState(null)   // question being copied
 
   // filters
   const [activeSubject, setActiveSubject] = useState(scope || 'Maths')   // master subject tab
@@ -154,6 +155,21 @@ function QuestionBankInner() {
     loadQuestions()
   }
 
+  // Copy a question and go straight to editing the copy — an exact duplicate is
+  // only useful once it has been changed, and two identical questions in the
+  // list are nobody's goal.
+  const handleDuplicate = async (q) => {
+    setDuplicatingId(q.id)
+    try {
+      const { id, warnings } = await duplicateQuestion(q.id, profile?.full_name)
+      if (warnings.length) alert(warnings.join('\n'))
+      router.push(`/tutor/qbank/${id}/edit?subject=${scope}`)
+    } catch (e) {
+      alert('Could not duplicate this question: ' + (e.message || e))
+      setDuplicatingId(null)
+    }
+  }
+
   const clearFilters = () => { setYear(''); setTopicId(''); setSubtopicId(''); setSkillId(''); setDifficulty(''); setQtype(''); setSearch('') }
   const hasFilter = year || topicId || subtopicId || skillId || difficulty || qtype || search
 
@@ -175,8 +191,9 @@ function QuestionBankInner() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* No "Additional Questions" link here — the subject hub already has
+                that card, and two doors to the same screen is one too many. */}
             <Link href={`/tutor/qbank/categories${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
-            <Link href={`/tutor/qbank/worksheets${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Additional Questions</Link>
             <Link href={`/tutor/qbank/generate${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition">Generate worksheet</Link>
             <Link href={`/tutor/qbank/new${scope ? `?subject=${scope}` : ''}`} className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
           </div>
@@ -316,6 +333,12 @@ function QuestionBankInner() {
                     {nParts > 0 && <span className="text-[11px] text-[#2A2035]/40">{nParts} part{nParts === 1 ? '' : 's'}</span>}
                     {imgs.length > 0 && <span className="text-[11px] text-[#2A2035]/40">🖼 {imgs.length}</span>}
                     <Link href={`/tutor/qbank/${q.id}/edit?subject=${scope}`} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</Link>
+                    <button
+                      onClick={() => handleDuplicate(q)}
+                      disabled={duplicatingId != null}
+                      title="Make a copy of this question and open it for editing"
+                      className="text-[11px] font-semibold text-[#325099]/70 hover:text-[#325099] hover:underline disabled:opacity-40 disabled:no-underline"
+                    >{duplicatingId === q.id ? 'Copying…' : 'Duplicate'}</button>
                     <button onClick={() => handleDelete(q)} className="text-[11px] text-[#DC2626] hover:underline">Delete</button>
                   </div>
                 </div>
