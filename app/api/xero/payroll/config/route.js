@@ -57,7 +57,7 @@ export async function GET(req) {
 /**
  * POST /api/xero/payroll/config
  * Saves calendar/earnings-rate settings and/or the employee map.
- * body: { payroll_calendar_id?, earnings_rate_id?, send_rate?, map?: [{staff_id, staff_table, xero_employee_id, xero_name}] }
+ * body: { payroll_calendar_id?, earnings_rate_id?, payroll_from?, map?: [{staff_id, staff_table, xero_employee_id, xero_name}] }
  */
 export async function POST(req) {
   try {
@@ -67,8 +67,9 @@ export async function POST(req) {
     const sb = adminSb()
 
     const s = {}
+    // send_rate is gone: the portal's rate is always sent, one earnings line per
+    // rate (see setPayslipHours). The column stays on the table, unread.
     for (const k of ['payroll_calendar_id', 'earnings_rate_id', 'payroll_from']) if (body[k] !== undefined) s[k] = body[k] || null
-    if (body.send_rate !== undefined) s.send_rate = !!body.send_rate
     if (Object.keys(s).length) {
       s.id = 1; s.updated_at = new Date().toISOString()
       const { error } = await sb.from('xero_payroll_settings').upsert(s)

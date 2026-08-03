@@ -90,11 +90,15 @@ export async function POST(req) {
         x.amount += Number(s.hours || 0) * Number(s.rate_snapshot || 0)
         continue
       }
-      const t = (byTutor[s.tutor_id] ||= { hours: 0, rates: new Set(), shiftIds: [], catchupHours: 0 })
-      t.hours += Number(s.hours || 0)
+      const t = (byTutor[s.tutor_id] ||= { hours: 0, byRate: new Map(), shiftIds: [], catchupHours: 0 })
+      const hrs = Number(s.hours || 0)
+      t.hours += hrs
       t.shiftIds.push(s.id)
-      if (s.work_date < payRun.periodStart) t.catchupHours += Number(s.hours || 0)
-      if (s.rate_snapshot != null) t.rates.add(Number(s.rate_snapshot))
+      if (s.work_date < payRun.periodStart) t.catchupHours += hrs
+      // Bucket by $/h — a fortnight commonly mixes rates and each one becomes its
+      // own earnings line, so a single blended line never reaches Xero.
+      const rate = s.rate_snapshot != null ? Number(s.rate_snapshot) : null
+      t.byRate.set(rate, (t.byRate.get(rate) || 0) + hrs)
     }
     if (!Object.keys(byTutor).length) {
       const cashNote = excludedCash.length
@@ -116,14 +120,19 @@ export async function POST(req) {
       if (!map) { skipped.push({ staffId, reason: 'not matched to a Xero employee' }); continue }
       const slip = payslipByEmp[map.xero_employee_id]
       if (!slip) { skipped.push({ name: map.xero_name || staffId, reason: 'no payslip in the Xero pay run (is the employee on this pay calendar?)' }); continue }
-      const ratePerUnit = settings.send_rate && agg.rates.size === 1 ? [...agg.rates][0] : undefined
+      // One earnings line per rate, highest first. Unpriced hours (rate null)
+      // fall back to the employee's Xero pay-template rate.
+      const lines = [...agg.byRate.entries()]
+        .map(([rate, hrs]) => ({ rate, hours: Math.round(hrs * 100) / 100 }))
+        .filter(l => l.hours > 0)
+        .sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))
       try {
-        await setPayslipHours(slip.payslipId, { earningsRateId: settings.earnings_rate_id, hours, ratePerUnit })
+        await setPayslipHours(slip.payslipId, { earningsRateId: settings.earnings_rate_id, lines })
         // Stamp the shifts with this Xero run so they drop out of future
         // pushes once the run is posted.
         await sb.from('shifts').update({ xero_pay_run_id: payRun.id }).in('id', agg.shiftIds)
         pushed.push({
-          name: slip.name || map.xero_name, hours, rate: ratePerUnit ?? null,
+          name: slip.name || map.xero_name, hours, lines,
           catchupHours: Math.round(agg.catchupHours * 100) / 100 || 0,
         })
       } catch (e) {

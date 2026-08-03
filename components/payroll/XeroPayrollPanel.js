@@ -15,6 +15,16 @@ import { authedFetch } from '../../lib/authedFetch'
 
 const BTN = 'text-sm font-semibold px-4 py-2 rounded-full transition disabled:opacity-50'
 
+// "@ $60/h" for one rate, "8h @ $60/h + 6h @ $50/h" when the fortnight mixed
+// rates — each becomes its own earnings line on the Xero payslip.
+function rateBreakdown(lines) {
+  if (!lines?.length) return ''
+  const part = (l) => `${l.hours}h @ ${l.rate != null ? `$${l.rate}/h` : 'Xero’s rate'}`
+  return lines.length === 1
+    ? `@ ${lines[0].rate != null ? `$${lines[0].rate}/h` : 'Xero’s rate'}`
+    : `(${lines.map(part).join(' + ')})`
+}
+
 export default function XeroPayrollButtons({ run, canPush }) {
   const [setupOpen, setSetupOpen] = useState(false)
   const [pushing, setPushing] = useState(false)
@@ -67,7 +77,7 @@ export default function XeroPayrollButtons({ run, canPush }) {
               </p>
               {result.pushed.map((p, i) => (
                 <p key={i} className="text-[#2A2035]/60">
-                  · {p.name}: {p.hours}h{p.rate != null ? ` @ $${p.rate}/h` : ''}
+                  · {p.name}: {p.hours}h {rateBreakdown(p.lines)}
                   {p.catchupHours > 0 && <span className="text-[#5B21B6]"> (incl. {p.catchupHours}h earlier catch-up, e.g. holidays)</span>}
                 </p>
               ))}
@@ -95,7 +105,7 @@ function SetupModal({ onClose }) {
   const [err, setErr] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [settings, setSettings] = useState({ payroll_calendar_id: '', earnings_rate_id: '', send_rate: false, payroll_from: '' })
+  const [settings, setSettings] = useState({ payroll_calendar_id: '', earnings_rate_id: '', payroll_from: '' })
   const [map, setMap] = useState({})         // staff_id -> xero_employee_id
 
   useEffect(() => {          // load once on mount
@@ -108,7 +118,6 @@ function SetupModal({ onClose }) {
         if (data.settings) setSettings({
           payroll_calendar_id: data.settings.payroll_calendar_id || '',
           earnings_rate_id:    data.settings.earnings_rate_id || '',
-          send_rate:           !!data.settings.send_rate,
           payroll_from:        data.settings.payroll_from || '',
         })
         const m = {}
@@ -187,11 +196,11 @@ function SetupModal({ onClose }) {
                   </select>
                 </div>
               </div>
-              <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
-                <input type="checkbox" checked={settings.send_rate}
-                  onChange={e => setSettings(s => ({ ...s, send_rate: e.target.checked }))} className="accent-[#325099]" />
-                Also send the portal’s $/hour with the hours (off = Xero uses each employee’s pay-template rate; only sent when all of a teacher’s shifts share one rate)
-              </label>
+              <p className="text-[11px] text-[#2A2035]/60">
+                The portal’s $/hour is always sent. A fortnight that mixes rates becomes one
+                earnings line per rate on the payslip, so mixed-rate teachers are paid correctly;
+                Xero’s pay-template rate is used only for a shift with no rate on it.
+              </p>
               <div className="w-56">
                 <label className={L}>Push hours from (cutover date)</label>
                 <input type="date" className={SEL} value={settings.payroll_from || ''}
