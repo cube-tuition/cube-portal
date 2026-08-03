@@ -8,7 +8,7 @@ export async function POST(req) {
     const auth = await requireApiRole(req, ['admin', 'director'])
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-    const { invoice_id, email_to, subject, body, pdf_base64, pdf_filename, is_reminder, test } = await req.json()
+    const { invoice_id, email_to, subject, body, pdf_base64, pdf_filename, is_reminder, kind, test } = await req.json()
 
     if (!invoice_id || !email_to) {
       return NextResponse.json({ error: 'Missing invoice_id or email_to' }, { status: 400 })
@@ -63,18 +63,25 @@ export async function POST(req) {
       return NextResponse.json({ success: true, test: true })
     }
 
-    // An overdue reminder records the reminder timestamp (the invoice was already
-    // delivered); a first send marks the invoice as delivered.
+    // What the send updates depends on what was sent: a receipt records
+    // receipt_sent_at (the invoice was delivered long ago — delivery_status
+    // must not be touched); an overdue reminder records the reminder
+    // timestamp; a first send marks the invoice as delivered.
     const sb = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
     )
     const sentAt = new Date().toISOString()
-    await sb.from('invoices')
-      .update(is_reminder ? { reminder_sent_at: sentAt } : { delivery_status: 'sent' })
-      .eq('id', invoice_id)
+    const patch = kind === 'receipt' ? { receipt_sent_at: sentAt }
+      : is_reminder ? { reminder_sent_at: sentAt }
+      : { delivery_status: 'sent' }
+    await sb.from('invoices').update(patch).eq('id', invoice_id)
 
-    return NextResponse.json({ success: true, reminder_sent_at: is_reminder ? sentAt : undefined })
+    return NextResponse.json({
+      success: true,
+      reminder_sent_at: is_reminder ? sentAt : undefined,
+      receipt_sent_at: kind === 'receipt' ? sentAt : undefined,
+    })
   } catch (err) {
     console.error('[send-invoice] Error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
