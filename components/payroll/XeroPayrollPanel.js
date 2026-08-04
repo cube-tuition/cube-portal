@@ -72,7 +72,7 @@ export default function XeroPayrollButtons({ run, canPush }) {
           {result.success && (
             <>
               <p className="text-[#065F46] font-semibold">
-                ✓ Draft pay run in Xero ({result.payRun.periodStart} – {result.payRun.periodEnd}) — {result.pushed.length} teacher{result.pushed.length === 1 ? '' : 's'} updated.
+                ✓ Draft pay run in Xero ({result.payRun.periodStart} – {result.payRun.periodEnd}, paying {result.payRun.paymentDate || '—'}) — {result.pushed.length} teacher{result.pushed.length === 1 ? '' : 's'} updated.
                 {' '}Review and post it in Xero to finalise PAYG, super and STP.
               </p>
               {result.pushed.map((p, i) => (

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../../../lib/apiAuth'
-import { listPayRuns, getPayRun, createDraftPayRun, setPayslipHours, PayrollScopeError } from '../../../../../lib/xeroPayroll'
+import { listPayRuns, getPayRun, createDraftPayRun, setPayslipHours, setPayRunPaymentDate, PayrollScopeError } from '../../../../../lib/xeroPayroll'
 
 function adminSb() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
@@ -48,6 +48,19 @@ export async function POST(req) {
     else payRun = await createDraftPayRun(settings.payroll_calendar_id)
     if (!payRun.periodStart || !payRun.periodEnd) {
       throw new Error('Xero did not return the draft pay run period')
+    }
+
+    // Correct the payment date. The calendar's default can sit INSIDE the
+    // fortnight (its "first payment date" was set that way); the real pay day
+    // is the Monday after the period ends — or today, when pushing later than
+    // that. Never moves an already-later date backwards.
+    const todaySydney = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney' }).format(new Date())
+    const dayAfterEnd = new Date(payRun.periodEnd + 'T00:00:00Z')
+    dayAfterEnd.setUTCDate(dayAfterEnd.getUTCDate() + 1)
+    const targetPayDate = [dayAfterEnd.toISOString().slice(0, 10), todaySydney].sort().pop()
+    if (payRun.paymentDate && payRun.paymentDate < targetPayDate) {
+      await setPayRunPaymentDate(payRun.id, targetPayDate)
+      payRun.paymentDate = targetPayDate
     }
 
     // Candidate hours: everything approved from the payroll cutover date up to
@@ -148,7 +161,7 @@ export async function POST(req) {
 
     return NextResponse.json({
       success: true,
-      payRun: { id: payRun.id, periodStart: payRun.periodStart, periodEnd: payRun.periodEnd, status: payRun.status },
+      payRun: { id: payRun.id, periodStart: payRun.periodStart, periodEnd: payRun.periodEnd, paymentDate: payRun.paymentDate, status: payRun.status },
       windowDiffers,
       portalPeriod: windowDiffers ? [periodStart, periodEnd] : null,
       pushed, skipped,
