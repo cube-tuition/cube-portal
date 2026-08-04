@@ -12,7 +12,7 @@ import { buildClassLabelMap } from '../../../lib/classLabels'
 import { invoiceTotalsPatch } from '../../../lib/cashDiscount'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
-import { TABLE_META, dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue, fieldType, fieldEditorKind, linkedRef, formatDisplay } from '../../../lib/tableMeta'
+import { TABLE_META, dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue, normalizeValue, fieldType, fieldEditorKind, linkedRef, formatDisplay } from '../../../lib/tableMeta'
 import { setUndoHandler, announceUndo } from '../../../lib/undo'
 import { useReferenceData } from '../../../lib/dbReference'
 import LinkedRecordBadge from '../../../components/db/LinkedRecordBadge'
@@ -2147,15 +2147,17 @@ export default function DatabasePage() {
       setPriceConfirm({ rowId, col, oldVal, newVal })
       return
     }
-    // Soft validation from lib/tableMeta — warns, never blocks silently or rewrites.
+    // Normalise first (e.g. a typed "4pm" or "9.30" becomes "16:00"/"09:30" on
+    // time columns), then soft-validate — warns, never blocks silently.
+    const metaTable = isGuardianCol(col) ? T_PARENTS : (VIRTUAL[selectedTable]?.realTable ?? selectedTable)
+    const metaCol   = isGuardianCol(col) ? PARENT_COL_MAP[col] : col
+    const normValue = normalizeValue(metaTable, metaCol, editValue)
     {
-      const metaTable = isGuardianCol(col) ? T_PARENTS : (VIRTUAL[selectedTable]?.realTable ?? selectedTable)
-      const metaCol   = isGuardianCol(col) ? PARENT_COL_MAP[col] : col
-      const warning   = validateValue(metaTable, metaCol, editValue === '' ? null : editValue)
+      const warning = validateValue(metaTable, metaCol, normValue === '' ? null : normValue)
       if (warning && !window.confirm(`⚠ ${warning}\n\nSave anyway?`)) { setEditingCell(null); return }
     }
     setEditingCell(null); setSaving(true)
-    const newVal = editValue.trim() === '' ? null : editValue.trim()  // whitespace never persists
+    const newVal = normValue.trim() === '' ? null : normValue.trim()  // whitespace never persists
     const prevRows = rows
     const oldVal = rows.find(r => r[pkCol] === rowId)?.[col] ?? null
     if (String(oldVal ?? '') === String(newVal ?? '')) { setSaving(false); return } // no change
@@ -5194,6 +5196,18 @@ export default function DatabasePage() {
                                 // Date → native date picker (only when value is blank or ISO date)
                                 if (ek === 'date' && (editValue === '' || /^\d{4}-\d{2}-\d{2}$/.test(editValue))) return (
                                   <input ref={editInputRef} type="date" value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                                )
+                                // Time → native time picker (24h, arrow keys, no typos). Only when
+                                // the value is blank or already a clean time — a legacy value like
+                                // "4pm" falls through to the text input, where normalizeValue fixes
+                                // it on save rather than the picker silently discarding it.
+                                if (ek === 'time' && (editValue === '' || /^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(editValue))) return (
+                                  <input ref={editInputRef} type="time" value={editValue.slice(0, 5)} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
+                                )
+                                // Datetime → native picker (no editable datetime columns today, but
+                                // the branch keeps future ones from landing in the text fallback).
+                                if (ek === 'datetime' && (editValue === '' || !Number.isNaN(Date.parse(editValue)))) return (
+                                  <input ref={editInputRef} type="datetime-local" value={editValue ? editValue.slice(0, 16) : ''} onChange={e => setEditValue(e.target.value)} onBlur={handleCellSave} onKeyDown={handleCellKeyDown} className="w-full px-2 py-1.5 bg-[#EEF4FF] border-2 border-[#325099] text-[#2A2035] focus:outline-none text-xs" style={{ width:w }} />
                                 )
                                 // Single-select dropdown (metadata, dynamic ref list, or legacy map)
                                 // — the explorer's standard searchable popover.
