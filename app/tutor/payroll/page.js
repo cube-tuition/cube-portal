@@ -28,11 +28,6 @@ import { buildPayslipPdfBase64, buildPayslipEmailHtml, payslipSubject } from '..
 import { TEST_RECIPIENT } from '../../../lib/emailConfig'
 import XeroPayrollButtons from '../../../components/payroll/XeroPayrollPanel'
 
-// Xero Bills CSV defaults — edit here if your chart of accounts differs.
-const XERO_ACCOUNT_CODE = '477'         // 477 = Wages & Salaries (AU default)
-const XERO_TAX_TYPE     = 'BAS Excluded'
-const DUE_DAYS_AFTER    = 3              // bill DueDate = period_end + N days
-
 /*
  * Admin payroll review — term-aligned fortnights.
  *
@@ -525,34 +520,6 @@ export default function PayrollPage() {
     }
   }
 
-  // Export approved shifts to Xero Bills CSV. One line per shift; one bill
-  // (= one InvoiceNumber) per tutor.
-  const exportCsv = async () => {
-    if (!run) return
-    try {
-      // Re-fetch only shifts attached to this run (i.e. approved).
-      const { data: rows, error: e } = await supabase
-        .from(T_SHIFTS)
-        .select('id, work_date, start_time, end_time, hours, rate_snapshot, notes, kind, tutor_id, tutors!shifts_tutor_id_fkey(full_name, email)')
-        .eq('pay_run_id', run.id)
-        .order('tutor_id').order('work_date')
-      if (e) throw e
-      if (!rows || rows.length === 0) {
-        alert('No approved shifts to export.')
-        return
-      }
-      const csv = buildXeroCsv(rows, run)
-      downloadBlob(csv, `cube-payroll-${run.period_start}.csv`, 'text/csv;charset=utf-8')
-
-      // Best-effort status flip — non-fatal if the user already exported once
-      const { error: rpcErr } = await supabase.rpc('mark_pay_run_exported', { p_pay_run: run.id })
-      if (rpcErr && !/must be approved/i.test(rpcErr.message)) console.warn(rpcErr)
-      await reload()
-    } catch (e) {
-      alert('Export failed: ' + (e.message || String(e)))
-    }
-  }
-
   // Tab + term navigation handlers
   const selectFortnight = (idx) => {
     if (idx === fortnight) return
@@ -898,22 +865,6 @@ export default function PayrollPage() {
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <XeroPayrollButtons run={run} canPush={['approved', 'exported', 'paid'].includes(run?.status)} />
-              {(run?.status === 'approved' || run?.status === 'exported' || run?.status === 'paid') ? (
-                <button
-                  onClick={exportCsv}
-                  className="text-sm font-semibold text-[#062E63] bg-white border border-[#DEE7FF] hover:bg-[#F8FAFF] px-4 py-2 rounded-full transition"
-                >
-                  {run.status === 'exported' || run.status === 'paid' ? 'Re-export CSV' : 'Export Xero CSV'}
-                </button>
-              ) : (
-                <button
-                  disabled
-                  title="Approve the run first"
-                  className="text-sm font-semibold text-[#2A2035]/40 bg-white border border-[#DEE7FF] px-4 py-2 rounded-full cursor-not-allowed"
-                >
-                  Export Xero CSV
-                </button>
-              )}
               {(run?.status === 'approved' || run?.status === 'exported' || run?.status === 'paid') && (
                 <>
                   <button onClick={openPreview} disabled={sendingPayslips || !byTutor.length}
@@ -1007,97 +958,6 @@ export default function PayrollPage() {
       })()}
     </div>
   )
-}
-
-// ─── Xero Bills CSV helpers ─────────────────────────────────────────────────
-// Format docs: Xero → Business → Bills → Import. Required columns marked *.
-// We emit one row per shift; multiple rows sharing an InvoiceNumber are
-// imported as line items on a single bill.
-function buildXeroCsv(rows, run) {
-  const cols = [
-    '*ContactName',
-    'EmailAddress',
-    '*InvoiceNumber',
-    'Reference',
-    '*InvoiceDate',
-    '*DueDate',
-    '*Description',
-    '*Quantity',
-    '*UnitAmount',
-    '*AccountCode',
-    '*TaxType',
-  ]
-
-  const invDate = ddmmyyyy(run.period_end)
-  const dueDate = ddmmyyyy(addDays(run.period_end, DUE_DAYS_AFTER))
-  const ref     = `CUBE Payroll ${run.period_start} → ${run.period_end}`
-
-  // Stable invoice number per tutor per run, e.g. "CUBE-2026-05-18-AMBER"
-  const invNumberFor = (tutor) => {
-    const slug = (tutor?.full_name || tutor?.xero_contact_name || 'tutor')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 30)
-    return `CUBE-${run.period_start}-${slug}`
-  }
-
-  const lines = [cols.join(',')]
-  for (const r of rows) {
-    const tutor = r.tutors
-    const contactName = tutor?.full_name || ''
-    const email = tutor?.email || ''
-    const inv   = invNumberFor(tutor)
-    const desc  = (r.notes ? r.notes.replace(/^Auto:\s*/, '') : r.kind) +
-                  ` · ${ddmmm(r.work_date)} ${(r.start_time || '').slice(0,5)}–${(r.end_time || '').slice(0,5)}`
-    const qty   = Number(r.hours || 0).toFixed(2)
-    const unit  = Number(r.rate_snapshot || 0).toFixed(2)
-
-    lines.push([
-      csvCell(contactName),
-      csvCell(email),
-      csvCell(inv),
-      csvCell(ref),
-      csvCell(invDate),
-      csvCell(dueDate),
-      csvCell(desc),
-      qty,
-      unit,
-      csvCell(XERO_ACCOUNT_CODE),
-      csvCell(XERO_TAX_TYPE),
-    ].join(','))
-  }
-  return lines.join('\n')
-}
-
-function csvCell(v) {
-  const s = String(v ?? '')
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-function ddmmyyyy(iso) {
-  const [y, m, d] = (iso || '').split('-')
-  return `${d}/${m}/${y}`
-}
-function ddmmm(iso) {
-  if (!iso) return ''
-  const d = new Date(iso + 'T00:00:00')
-  return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
-}
-function addDays(iso, n) {
-  const d = new Date(iso + 'T00:00:00')
-  d.setDate(d.getDate() + n)
-  return d.toISOString().slice(0, 10)
-}
-function downloadBlob(content, filename, type) {
-  const blob = new Blob([content], { type })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 // ─── One shift row — inline-editable while pay run is 'open' ────────────────

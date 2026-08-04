@@ -3,6 +3,7 @@
     "app/api/xero/push/route.js": { "maxDuration": 60 }
   },
   "crons": [
+    { "path": "/api/xero/payroll/reconcile", "schedule": "0 20 * * *" },
     { "path": "/api/sync-students", "schedule": "0 14 * * *" },
     { "path": "/api/sync-classes",  "schedule": "0 14 * * *" },
     { "path": "/api/sync-quizzes",  "schedule": "0 14 * * *" },
