@@ -459,9 +459,14 @@ export default function PayrollPage() {
     return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, paymentDate, payMethod, shifts, weeks, hours, gross, superAmount, superYtd, total: gross + superAmount }
   }
 
+  // Emailed payslips go to bank-transfer teachers only. Cash teachers are paid
+  // in person outside Xero/STP, so an emailed "payslip" would overstate what the
+  // formal payroll covers; their pay lives in the cash schedule + cash log.
+  const payslipTutors = useMemo(() => byTutor.filter(t => t.payGroup !== 'cash'), [byTutor])
+
   const buildPayslips = async () => {
     const out = []
-    for (const g of byTutor) {
+    for (const g of payslipTutors) {
       const data = payslipDataFor(g)
       const pdf_base64 = await buildPayslipPdfBase64(data)
       out.push({
@@ -499,8 +504,8 @@ export default function PayrollPage() {
     if (!run || !['approved', 'exported', 'paid'].includes(run.status)) {
       alert('Payslips can be sent once the pay run is approved.'); return
     }
-    if (!byTutor.length) { alert('No shifts in this run.'); return }
-    if (!test && !confirm(`Send payslips to ${byTutor.length} teacher${byTutor.length === 1 ? '' : 's'}? Each gets their own PDF payslip.`)) return
+    if (!payslipTutors.length) { alert('No bank-paid teachers in this run — cash teachers don\'t get emailed payslips.'); return }
+    if (!test && !confirm(`Send payslips to ${payslipTutors.length} bank-paid teacher${payslipTutors.length === 1 ? '' : 's'}? Cash-paid teachers are skipped. Each gets their own PDF payslip.`)) return
     setSendingPayslips(true); setPayslipResults(null); setPayslipNote(null)
     try {
       let payslips = await buildPayslips()
@@ -871,9 +876,10 @@ export default function PayrollPage() {
                     className="text-sm font-semibold text-[#325099] bg-white border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-50">
                     👁 Preview
                   </button>
-                  <button onClick={() => sendPayslips(false)} disabled={sendingPayslips}
+                  <button onClick={() => sendPayslips(false)} disabled={sendingPayslips || !payslipTutors.length}
+                    title="Bank-transfer teachers only — cash-paid teachers are skipped"
                     className="text-sm font-semibold text-white bg-[#325099] hover:bg-[#062E63] px-4 py-2 rounded-full transition disabled:opacity-50">
-                    {sendingPayslips ? 'Sending…' : `📄 Send payslips (${byTutor.length})`}
+                    {sendingPayslips ? 'Sending…' : `📄 Send payslips (${payslipTutors.length})`}
                   </button>
                   <button onClick={() => sendPayslips(true)} disabled={sendingPayslips}
                     title="Send one sample payslip to CUBE staff"
