@@ -212,12 +212,20 @@ export default function ForecastPage() {
   const [entryForm,        setEntryForm]         = useState({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
   const [entrySaving,      setEntrySaving]       = useState(false)
 
+  // Surfaces a failed supporting query in the page's error banner instead of
+  // silently rendering $0s — a broken auth session once made every figure on
+  // this page quietly wrong because these loaders discarded their errors.
+  const reportError = useCallback((label) => (error) => {
+    if (error) setError(`${label}: ${error.message}`)
+  }, [])
+
   // ── Load terms ──────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.from('terms').select('id, name, year, term_number, start_date, end_date')
       .order('year', { ascending: false })
       .order('term_number', { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        reportError('Terms failed to load')(error)
         setTerms(data || [])
         // The term being TAUGHT now (getCurrentTerm), not the term a new student
         // would join (getEnrolmentTerm) — mid-term, the enrolment term is the
@@ -226,7 +234,7 @@ export default function ForecastPage() {
         if (current) setTermId(current.id)
         else if (data?.length) setTermId(data[0].id)
       })
-  }, [])
+  }, [reportError])
 
   // ── Load supporting data (tutors, rate matrix, fixed costs) ─────────────────
   useEffect(() => {
@@ -235,20 +243,23 @@ export default function ForecastPage() {
     Promise.all([
       supabase.from('tutors').select('id, full_name, pay_method'),
       supabase.from('directors').select('id, full_name, pay_method'),
-    ]).then(([t, d]) => setTutors(
-      [
-        ...(t.data || []).map(x => ({ ...x, staff_table: 'tutors' })),
-        ...(d.data || []).map(x => ({ ...x, staff_table: 'directors' })),
-      ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
-    ))
+    ]).then(([t, d]) => {
+      reportError('Teachers failed to load')(t.error || d.error)
+      setTutors(
+        [
+          ...(t.data || []).map(x => ({ ...x, staff_table: 'tutors' })),
+          ...(d.data || []).map(x => ({ ...x, staff_table: 'directors' })),
+        ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+      )
+    })
     supabase.from('current_tutor_rates').select('tutor_id, year_band, mode, hourly_rate')
-      .then(({ data }) => setRateMatrix(data || []))
+      .then(({ data, error }) => { reportError('Tutor rates failed to load')(error); setRateMatrix(data || []) })
     supabase.from('fixed_costs').select('*').order('frequency').order('name')
-      .then(({ data }) => setFixedCosts(data || []))
+      .then(({ data, error }) => { reportError('Fixed costs failed to load')(error); setFixedCosts(data || []) })
     // Per-course 1:1 vs group flag — robust source for is1on1 (name is fallback).
     supabase.from('courses').select('id, delivery_mode')
-      .then(({ data }) => setCourseModes(Object.fromEntries((data || []).map(c => [c.id, c.delivery_mode]))))
-  }, [])
+      .then(({ data, error }) => { reportError('Courses failed to load')(error); setCourseModes(Object.fromEntries((data || []).map(c => [c.id, c.delivery_mode]))) })
+  }, [reportError])
 
   // ── Cross-term history (for the Overview trend + vs-last-term deltas) ───────
   const [historyEnrols, setHistoryEnrols] = useState([])  // active enrolments with term + price
@@ -259,8 +270,8 @@ export default function ForecastPage() {
       // Same exclusion as loadTerm, so the trend can't count revenue the term
       // forecast leaves out.
       .or('status.eq.active,status.is.null', { referencedTable: 'classes' })
-      .then(({ data }) => setHistoryEnrols(data || []))
-  }, [])
+      .then(({ data, error }) => { reportError('Trend history failed to load')(error); setHistoryEnrols(data || []) })
+  }, [reportError])
 
   // ── Load term-specific data ──────────────────────────────────────────────────
   const loadTerm = useCallback(async () => {
@@ -430,8 +441,8 @@ export default function ForecastPage() {
       .eq('direction', 'outflow')
       .gte('date', term.start_date)
       .lte('date', term.end_date)
-      .then(({ data }) => setTermOutflows(data || []))
-  }, [tab, termId, terms])
+      .then(({ data, error }) => { reportError('Cash outflows failed to load')(error); setTermOutflows(data || []) })
+  }, [tab, termId, terms, reportError])
 
   // ── Analyst insights (Overview tab) ──────────────────────────────────────────
   const CLASS_CAP = 7
@@ -661,10 +672,11 @@ export default function ForecastPage() {
       if (from) query = query.gte('date', from)
       if (to)   query = query.lte('date', to)
     }
-    const { data } = await query
+    const { data, error: err } = await query
+    reportError('Cash log failed to load')(err)
     setCashLog(data || [])
     setCashLogLoading(false)
-  }, [termId, terms, clDateFrom, clDateTo, clShowAll])
+  }, [termId, terms, clDateFrom, clDateTo, clShowAll, reportError])
 
   useEffect(() => { if (tab === 'cashlog') loadCashLog() }, [tab, loadCashLog])
 
@@ -704,7 +716,9 @@ export default function ForecastPage() {
 
   const handleDeleteEntry = async (id) => {
     if (!confirm('Delete this entry?')) return
-    await supabase.from('cash_log').delete().eq('id', id)
+    const { error: err } = await supabase.from('cash_log').delete().eq('id', id)
+    // Only drop the row from view if the delete actually happened.
+    if (err) { setError(`Delete failed: ${err.message}`); return }
     setCashLog(prev => prev.filter(e => e.id !== id))
   }
 
