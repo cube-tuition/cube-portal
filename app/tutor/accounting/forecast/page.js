@@ -262,10 +262,13 @@ export default function ForecastPage() {
   }, [reportError])
 
   // ── Cross-term history (for the Overview trend + vs-last-term deltas) ───────
+  // The trend only ever reads price and term_id, so that's all this fetches.
+  // It still grows with total enrolment history; if that ever gets heavy the
+  // fix is a server-side per-term aggregate, not a wider select.
   const [historyEnrols, setHistoryEnrols] = useState([])  // active enrolments with term + price
   useEffect(() => {
     supabase.from('enrolments')
-      .select('id, price, status, classes!inner(term_id, status)')
+      .select('price, classes!inner(term_id)')
       .eq('status', 'active')
       // Same exclusion as loadTerm, so the trend can't count revenue the term
       // forecast leaves out.
