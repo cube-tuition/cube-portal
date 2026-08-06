@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
-import { getEnrolmentTerm } from '@/lib/terms'
+import { getCurrentTerm } from '@/lib/terms'
 import { classesForTerm } from '@/lib/classes'
 import { isOneToOneClass } from '@/lib/classFormat'
 import { LESSONS_PER_TERM, SUPER_RATE, lessonHoursFromClass, rateForClass } from '@/lib/teacherCost'
@@ -219,7 +219,10 @@ export default function ForecastPage() {
       .order('term_number', { ascending: false })
       .then(({ data }) => {
         setTerms(data || [])
-        const current = getEnrolmentTerm(data || [])
+        // The term being TAUGHT now (getCurrentTerm), not the term a new student
+        // would join (getEnrolmentTerm) — mid-term, the enrolment term is the
+        // NEXT one, which opened the page on a term with only partial enrolments.
+        const current = getCurrentTerm(data || [])
         if (current) setTermId(current.id)
         else if (data?.length) setTermId(data[0].id)
       })
