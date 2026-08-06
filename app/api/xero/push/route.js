@@ -146,8 +146,11 @@ export async function POST(req) {
         ].filter(Boolean).join(' — ')
         const item = { Description: description, Quantity: 1, UnitAmount: Math.abs(Number(l.amount)) }
         // Use a Xero item code if mapped — Xero resolves the account internally.
-        // Fall back to the global enrolment account code if no item mapping exists.
-        const itemCode = itemCodeByClass[l.class_name]
+        // Mappings are keyed by the class's canonical name, so resolve the line's
+        // class_id first: a renamed line label ("… (Holiday 6 lessons)") still
+        // finds its course's mapping. Fall back to the global account if unmapped.
+        const canonicalName = classById[l.class_id]?.class_name || l.class_name
+        const itemCode = itemCodeByClass[canonicalName] ?? itemCodeByClass[l.class_name]
         if (itemCode) {
           item.ItemCode = itemCode
         } else {

@@ -36,11 +36,19 @@ export async function GET(req) {
 
   if (mapErr) return NextResponse.json({ error: mapErr.message }, { status: 500 })
 
+  // Invoice lines can carry a customised label ("… (Holiday 6 lessons)") while
+  // still pointing at their class via class_id. Collapse every label variant
+  // back to the class's canonical name so each course appears exactly once.
+  const lines = (courseResult.data || [])
+    .flatMap(inv => (inv.line_items || []))
+    .filter(l => l.type === 'enrolment' && l.class_name)
+  const classIds = [...new Set(lines.map(l => l.class_id).filter(Boolean))]
+  const { data: classRows } = classIds.length
+    ? await sb.from('classes').select('id, class_name').in('id', classIds)
+    : { data: [] }
+  const nameById = Object.fromEntries((classRows || []).map(c => [c.id, c.class_name]))
   const courseNames = [...new Set(
-    (courseResult.data || [])
-      .flatMap(inv => (inv.line_items || []))
-      .filter(l => l.type === 'enrolment' && l.class_name)
-      .map(l => l.class_name)
+    lines.map(l => nameById[l.class_id] || l.class_name)
   )].sort()
 
   return NextResponse.json({ mappings: mappings || [], courseNames })
