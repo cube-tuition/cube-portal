@@ -1,12 +1,11 @@
 import Airtable from 'airtable'
 import { createClient } from '@supabase/supabase-js'
 import { T_QUIZ_RESULTS, T_STUDENTS } from '../../../lib/tables'
+import { requireCronSecret } from '../../../lib/apiAuth'
 
 export async function GET(request) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = requireCronSecret(request)
+  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
   try {
     const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY })
