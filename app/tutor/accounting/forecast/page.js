@@ -621,6 +621,16 @@ export default function ForecastPage() {
     }
   }, [playMetrics, playFixedCosts, invoices])
 
+  // Sorted once per change — the editable table re-renders on every keystroke,
+  // and each render (plus each onChange) was re-filtering and re-sorting the
+  // whole class list from scratch.
+  const playGroups = useMemo(() => sortByYear(playMetrics.filter(c => !c.is1on1)), [playMetrics])
+  const playOnes   = useMemo(() => sortByYear(playMetrics.filter(c => c.is1on1)),  [playMetrics])
+  const editPlayClass = (rows) => (i, field, value) => {
+    const id = rows[i]?.id
+    if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
+  }
+
   // ── Fixed cost handlers ──────────────────────────────────────────────────────
   const handleAddCost = async () => {
     if (!costDraft.name.trim() || !costDraft.amount) return
@@ -1378,31 +1388,16 @@ export default function ForecastPage() {
             {/* Play class table */}
             <div className="space-y-6">
               <h2 className="text-sm font-bold text-[#062E63]">Class-by-Class</h2>
-              {playMetrics.filter(c => !c.is1on1).length > 0 && (
+              {playGroups.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-[#325099]/60 uppercase tracking-wider">Group Classes</p>
-                  <ClassTable
-                    rows={sortByYear(playMetrics.filter(c => !c.is1on1))}
-                    editable
-                    onChange={(i, field, value) => {
-                      const id = sortByYear(playMetrics.filter(x => !x.is1on1))[i]?.id
-                      if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-                    }}
-                  />
+                  <ClassTable rows={playGroups} editable onChange={editPlayClass(playGroups)} />
                 </div>
               )}
-              {playMetrics.filter(c => c.is1on1).length > 0 && (
+              {playOnes.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-[#325099]/60 uppercase tracking-wider">1-on-1 Sessions</p>
-                  <ClassTable
-                    rows={sortByYear(playMetrics.filter(c => c.is1on1))}
-                    editable
-                    hideStudents
-                    onChange={(i, field, value) => {
-                      const id = sortByYear(playMetrics.filter(x => x.is1on1))[i]?.id
-                      if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-                    }}
-                  />
+                  <ClassTable rows={playOnes} editable hideStudents onChange={editPlayClass(playOnes)} />
                 </div>
               )}
             </div>
