@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
-import { getEnrolmentTerm } from '@/lib/terms'
+import { getCurrentTerm } from '@/lib/terms'
 import { classesForTerm } from '@/lib/classes'
 import { isOneToOneClass } from '@/lib/classFormat'
 import { LESSONS_PER_TERM, SUPER_RATE, lessonHoursFromClass, rateForClass } from '@/lib/teacherCost'
@@ -212,18 +212,29 @@ export default function ForecastPage() {
   const [entryForm,        setEntryForm]         = useState({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
   const [entrySaving,      setEntrySaving]       = useState(false)
 
+  // Surfaces a failed supporting query in the page's error banner instead of
+  // silently rendering $0s — a broken auth session once made every figure on
+  // this page quietly wrong because these loaders discarded their errors.
+  const reportError = useCallback((label) => (error) => {
+    if (error) setError(`${label}: ${error.message}`)
+  }, [])
+
   // ── Load terms ──────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.from('terms').select('id, name, year, term_number, start_date, end_date')
       .order('year', { ascending: false })
       .order('term_number', { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        reportError('Terms failed to load')(error)
         setTerms(data || [])
-        const current = getEnrolmentTerm(data || [])
+        // The term being TAUGHT now (getCurrentTerm), not the term a new student
+        // would join (getEnrolmentTerm) — mid-term, the enrolment term is the
+        // NEXT one, which opened the page on a term with only partial enrolments.
+        const current = getCurrentTerm(data || [])
         if (current) setTermId(current.id)
         else if (data?.length) setTermId(data[0].id)
       })
-  }, [])
+  }, [reportError])
 
   // ── Load supporting data (tutors, rate matrix, fixed costs) ─────────────────
   useEffect(() => {
@@ -232,32 +243,38 @@ export default function ForecastPage() {
     Promise.all([
       supabase.from('tutors').select('id, full_name, pay_method'),
       supabase.from('directors').select('id, full_name, pay_method'),
-    ]).then(([t, d]) => setTutors(
-      [
-        ...(t.data || []).map(x => ({ ...x, staff_table: 'tutors' })),
-        ...(d.data || []).map(x => ({ ...x, staff_table: 'directors' })),
-      ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
-    ))
+    ]).then(([t, d]) => {
+      reportError('Teachers failed to load')(t.error || d.error)
+      setTutors(
+        [
+          ...(t.data || []).map(x => ({ ...x, staff_table: 'tutors' })),
+          ...(d.data || []).map(x => ({ ...x, staff_table: 'directors' })),
+        ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+      )
+    })
     supabase.from('current_tutor_rates').select('tutor_id, year_band, mode, hourly_rate')
-      .then(({ data }) => setRateMatrix(data || []))
+      .then(({ data, error }) => { reportError('Tutor rates failed to load')(error); setRateMatrix(data || []) })
     supabase.from('fixed_costs').select('*').order('frequency').order('name')
-      .then(({ data }) => setFixedCosts(data || []))
+      .then(({ data, error }) => { reportError('Fixed costs failed to load')(error); setFixedCosts(data || []) })
     // Per-course 1:1 vs group flag — robust source for is1on1 (name is fallback).
     supabase.from('courses').select('id, delivery_mode')
-      .then(({ data }) => setCourseModes(Object.fromEntries((data || []).map(c => [c.id, c.delivery_mode]))))
-  }, [])
+      .then(({ data, error }) => { reportError('Courses failed to load')(error); setCourseModes(Object.fromEntries((data || []).map(c => [c.id, c.delivery_mode]))) })
+  }, [reportError])
 
   // ── Cross-term history (for the Overview trend + vs-last-term deltas) ───────
+  // The trend only ever reads price and term_id, so that's all this fetches.
+  // It still grows with total enrolment history; if that ever gets heavy the
+  // fix is a server-side per-term aggregate, not a wider select.
   const [historyEnrols, setHistoryEnrols] = useState([])  // active enrolments with term + price
   useEffect(() => {
     supabase.from('enrolments')
-      .select('id, price, status, classes!inner(term_id, status)')
+      .select('price, classes!inner(term_id)')
       .eq('status', 'active')
       // Same exclusion as loadTerm, so the trend can't count revenue the term
       // forecast leaves out.
       .or('status.eq.active,status.is.null', { referencedTable: 'classes' })
-      .then(({ data }) => setHistoryEnrols(data || []))
-  }, [])
+      .then(({ data, error }) => { reportError('Trend history failed to load')(error); setHistoryEnrols(data || []) })
+  }, [reportError])
 
   // ── Load term-specific data ──────────────────────────────────────────────────
   const loadTerm = useCallback(async () => {
@@ -269,8 +286,7 @@ export default function ForecastPage() {
         // the class row (and its teacher) survives the term. Costing them would
         // book teacher pay against no income. Legacy rows have no status yet.
         classesForTerm(termId, `id, class_name, course_id, teacher, start_time, end_time,
-            enrolments!inner(id, student_id, price, status, students(full_name)),
-            lessons(id, is_makeup)`)
+            enrolments!inner(id, student_id, price, status, students(full_name))`)
           .or('status.eq.active,status.is.null'),
         supabase.from('invoices')
           .select('sibling_discount, multi_course_discount, total, payment_method, student_id, line_items')
@@ -428,8 +444,8 @@ export default function ForecastPage() {
       .eq('direction', 'outflow')
       .gte('date', term.start_date)
       .lte('date', term.end_date)
-      .then(({ data }) => setTermOutflows(data || []))
-  }, [tab, termId, terms])
+      .then(({ data, error }) => { reportError('Cash outflows failed to load')(error); setTermOutflows(data || []) })
+  }, [tab, termId, terms, reportError])
 
   // ── Analyst insights (Overview tab) ──────────────────────────────────────────
   const CLASS_CAP = 7
@@ -608,6 +624,16 @@ export default function ForecastPage() {
     }
   }, [playMetrics, playFixedCosts, invoices])
 
+  // Sorted once per change — the editable table re-renders on every keystroke,
+  // and each render (plus each onChange) was re-filtering and re-sorting the
+  // whole class list from scratch.
+  const playGroups = useMemo(() => sortByYear(playMetrics.filter(c => !c.is1on1)), [playMetrics])
+  const playOnes   = useMemo(() => sortByYear(playMetrics.filter(c => c.is1on1)),  [playMetrics])
+  const editPlayClass = (rows) => (i, field, value) => {
+    const id = rows[i]?.id
+    if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
+  }
+
   // ── Fixed cost handlers ──────────────────────────────────────────────────────
   const handleAddCost = async () => {
     if (!costDraft.name.trim() || !costDraft.amount) return
@@ -621,12 +647,23 @@ export default function ForecastPage() {
     setCostDraft({ name: '', amount: '', frequency: 'yearly' })
   }
   const handleDeleteCost = async (id) => {
-    await supabase.from('fixed_costs').delete().eq('id', id)
+    const { error: err } = await supabase.from('fixed_costs').delete().eq('id', id)
+    if (err) { setError(`Delete failed: ${err.message}`); return }
     setFixedCosts(prev => prev.filter(c => c.id !== id))
   }
-  const handleUpdateCost = async (id, field, value) => {
+  // Typing updates local state only (keeps the forecast live while you type);
+  // the row is saved once, on blur — not one UPDATE per keystroke.
+  const handleEditCost = (id, field, value) => {
     setFixedCosts(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-    await supabase.from('fixed_costs').update({ [field]: field === 'amount' ? Number(value) : value }).eq('id', id)
+  }
+  const handleSaveCost = async (id, field, value) => {
+    const { error: err } = await supabase.from('fixed_costs')
+      .update({ [field]: field === 'amount' ? Number(value) : value }).eq('id', id)
+    if (err) setError(`Fixed cost failed to save: ${err.message}`)
+  }
+  const handleUpdateCost = async (id, field, value) => {   // select: one event = save now
+    handleEditCost(id, field, value)
+    await handleSaveCost(id, field, value)
   }
 
   // ── Play-around reset ────────────────────────────────────────────────────────
@@ -659,10 +696,11 @@ export default function ForecastPage() {
       if (from) query = query.gte('date', from)
       if (to)   query = query.lte('date', to)
     }
-    const { data } = await query
+    const { data, error: err } = await query
+    reportError('Cash log failed to load')(err)
     setCashLog(data || [])
     setCashLogLoading(false)
-  }, [termId, terms, clDateFrom, clDateTo, clShowAll])
+  }, [termId, terms, clDateFrom, clDateTo, clShowAll, reportError])
 
   useEffect(() => { if (tab === 'cashlog') loadCashLog() }, [tab, loadCashLog])
 
@@ -702,7 +740,9 @@ export default function ForecastPage() {
 
   const handleDeleteEntry = async (id) => {
     if (!confirm('Delete this entry?')) return
-    await supabase.from('cash_log').delete().eq('id', id)
+    const { error: err } = await supabase.from('cash_log').delete().eq('id', id)
+    // Only drop the row from view if the delete actually happened.
+    if (err) { setError(`Delete failed: ${err.message}`); return }
     setCashLog(prev => prev.filter(e => e.id !== id))
   }
 
@@ -1280,11 +1320,13 @@ export default function ForecastPage() {
                       return (
                         <tr key={fc.id} className="hover:bg-[#F8FAFF]">
                           <td className="px-4 py-2.5">
-                            <input value={fc.name} onChange={e => handleUpdateCost(fc.id, 'name', e.target.value)}
+                            <input value={fc.name} onChange={e => handleEditCost(fc.id, 'name', e.target.value)}
+                              onBlur={e => handleSaveCost(fc.id, 'name', e.target.value)}
                               className="border border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-2 py-0.5 text-sm w-full focus:outline-none" />
                           </td>
                           <td className="px-4 py-2.5">
-                            <input type="number" value={fc.amount} onChange={e => handleUpdateCost(fc.id, 'amount', e.target.value)}
+                            <input type="number" value={fc.amount} onChange={e => handleEditCost(fc.id, 'amount', e.target.value)}
+                              onBlur={e => handleSaveCost(fc.id, 'amount', e.target.value)}
                               className="border border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-2 py-0.5 text-sm w-24 focus:outline-none" />
                           </td>
                           <td className="px-4 py-2.5">
@@ -1349,31 +1391,16 @@ export default function ForecastPage() {
             {/* Play class table */}
             <div className="space-y-6">
               <h2 className="text-sm font-bold text-[#062E63]">Class-by-Class</h2>
-              {playMetrics.filter(c => !c.is1on1).length > 0 && (
+              {playGroups.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-[#325099]/60 uppercase tracking-wider">Group Classes</p>
-                  <ClassTable
-                    rows={sortByYear(playMetrics.filter(c => !c.is1on1))}
-                    editable
-                    onChange={(i, field, value) => {
-                      const id = sortByYear(playMetrics.filter(x => !x.is1on1))[i]?.id
-                      if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-                    }}
-                  />
+                  <ClassTable rows={playGroups} editable onChange={editPlayClass(playGroups)} />
                 </div>
               )}
-              {playMetrics.filter(c => c.is1on1).length > 0 && (
+              {playOnes.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-[#325099]/60 uppercase tracking-wider">1-on-1 Sessions</p>
-                  <ClassTable
-                    rows={sortByYear(playMetrics.filter(c => c.is1on1))}
-                    editable
-                    hideStudents
-                    onChange={(i, field, value) => {
-                      const id = sortByYear(playMetrics.filter(x => x.is1on1))[i]?.id
-                      if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-                    }}
-                  />
+                  <ClassTable rows={playOnes} editable hideStudents onChange={editPlayClass(playOnes)} />
                 </div>
               )}
             </div>
