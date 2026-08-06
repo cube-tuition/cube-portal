@@ -634,12 +634,23 @@ export default function ForecastPage() {
     setCostDraft({ name: '', amount: '', frequency: 'yearly' })
   }
   const handleDeleteCost = async (id) => {
-    await supabase.from('fixed_costs').delete().eq('id', id)
+    const { error: err } = await supabase.from('fixed_costs').delete().eq('id', id)
+    if (err) { setError(`Delete failed: ${err.message}`); return }
     setFixedCosts(prev => prev.filter(c => c.id !== id))
   }
-  const handleUpdateCost = async (id, field, value) => {
+  // Typing updates local state only (keeps the forecast live while you type);
+  // the row is saved once, on blur — not one UPDATE per keystroke.
+  const handleEditCost = (id, field, value) => {
     setFixedCosts(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-    await supabase.from('fixed_costs').update({ [field]: field === 'amount' ? Number(value) : value }).eq('id', id)
+  }
+  const handleSaveCost = async (id, field, value) => {
+    const { error: err } = await supabase.from('fixed_costs')
+      .update({ [field]: field === 'amount' ? Number(value) : value }).eq('id', id)
+    if (err) setError(`Fixed cost failed to save: ${err.message}`)
+  }
+  const handleUpdateCost = async (id, field, value) => {   // select: one event = save now
+    handleEditCost(id, field, value)
+    await handleSaveCost(id, field, value)
   }
 
   // ── Play-around reset ────────────────────────────────────────────────────────
@@ -1296,11 +1307,13 @@ export default function ForecastPage() {
                       return (
                         <tr key={fc.id} className="hover:bg-[#F8FAFF]">
                           <td className="px-4 py-2.5">
-                            <input value={fc.name} onChange={e => handleUpdateCost(fc.id, 'name', e.target.value)}
+                            <input value={fc.name} onChange={e => handleEditCost(fc.id, 'name', e.target.value)}
+                              onBlur={e => handleSaveCost(fc.id, 'name', e.target.value)}
                               className="border border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-2 py-0.5 text-sm w-full focus:outline-none" />
                           </td>
                           <td className="px-4 py-2.5">
-                            <input type="number" value={fc.amount} onChange={e => handleUpdateCost(fc.id, 'amount', e.target.value)}
+                            <input type="number" value={fc.amount} onChange={e => handleEditCost(fc.id, 'amount', e.target.value)}
+                              onBlur={e => handleSaveCost(fc.id, 'amount', e.target.value)}
                               className="border border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-2 py-0.5 text-sm w-24 focus:outline-none" />
                           </td>
                           <td className="px-4 py-2.5">
