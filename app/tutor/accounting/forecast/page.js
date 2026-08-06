@@ -272,8 +272,7 @@ export default function ForecastPage() {
         // the class row (and its teacher) survives the term. Costing them would
         // book teacher pay against no income. Legacy rows have no status yet.
         classesForTerm(termId, `id, class_name, course_id, teacher, start_time, end_time,
-            enrolments!inner(id, student_id, price, status, students(full_name)),
-            lessons(id, is_makeup)`)
+            enrolments!inner(id, student_id, price, status, students(full_name))`)
           .or('status.eq.active,status.is.null'),
         supabase.from('invoices')
           .select('sibling_discount, multi_course_discount, total, payment_method, student_id, line_items')
