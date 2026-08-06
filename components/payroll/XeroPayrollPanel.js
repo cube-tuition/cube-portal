@@ -213,7 +213,7 @@ function SetupModal({ onClose }) {
                 <div className="space-y-1.5">
                   {(cfg.staff || []).map(s => (
                     <div key={s.id} className="grid grid-cols-[1fr_260px] gap-3 items-center">
-                      <span className="text-sm text-[#2A2035] truncate">{s.full_name} <span className="text-[10px] text-[#2A2035]/40">({s.staff_table === 'directors' ? 'director' : 'tutor'})</span></span>
+                      <span className="text-sm text-[#2A2035] truncate">{s.full_name} <span className="text-[10px] text-[#2A2035]/40">({s.staff_table === 'directors' ? 'director' : 'tutor'}{s.active === false ? ' · inactive' : ''})</span></span>
                       <select className={SEL} value={map[s.id] || ''}
                         onChange={e => setMap(m => ({ ...m, [s.id]: e.target.value }))}>
                         <option value="">— not in Xero Payroll —</option>

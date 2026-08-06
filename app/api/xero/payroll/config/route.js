@@ -21,12 +21,17 @@ export async function GET(req) {
   const [{ data: settings }, { data: map }, { data: tutors }, { data: directors }] = await Promise.all([
     sb.from('xero_payroll_settings').select('*').eq('id', 1).maybeSingle(),
     sb.from('xero_employee_map').select('*'),
-    sb.from('tutors').select('id, full_name, email').order('full_name'),
+    sb.from('tutors').select('id, full_name, email, active').order('full_name'),
     sb.from('directors').select('id, full_name, email').order('full_name'),
   ])
 
+  // Inactive tutors are hidden — unless they still hold a mapping, which must
+  // stay visible so it can be unset rather than lingering invisibly.
+  const mappedIds = new Set((map || []).map(m => m.staff_id))
   const staff = [
-    ...(tutors || []).map(t => ({ ...t, staff_table: 'tutors' })),
+    ...(tutors || [])
+      .filter(t => t.active !== false || mappedIds.has(t.id))
+      .map(t => ({ ...t, staff_table: 'tutors' })),
     ...(directors || []).map(d => ({ ...d, staff_table: 'directors' })),
   ].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
 
