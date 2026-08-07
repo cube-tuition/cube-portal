@@ -1165,6 +1165,21 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                     Start on new page
                   </label>
                 )}
+                {/* A part can be a multiple-choice sub-question: ticking this
+                    gives it its own options and answer, and the renderer then
+                    prints the option list instead of writing lines. */}
+                <label className="flex items-center gap-1 text-[11px] text-[#325099] cursor-pointer" title="Make this part multiple choice">
+                  <input
+                    type="checkbox"
+                    checked={!!(p.options && p.options.length)}
+                    onChange={e => onChange(parts.map((x, j) => j === i
+                      ? (e.target.checked
+                          ? { ...x, options: [{ k: 'A', t: '' }, { k: 'B', t: '' }, { k: 'C', t: '' }, { k: 'D', t: '' }], answer: x.answer || '' }
+                          : { ...x, options: [], answer: '' })
+                      : x))}
+                  />
+                  MCQ
+                </label>
                 <button onClick={() => onChange(parts.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs">Remove</button>
               </div>
             </div>
@@ -1175,13 +1190,62 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
             <ImageLayoutFields block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} />
             <div className="mt-1.5"><MathObjSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} blank={false} maths={maths} /></div>
             <div className="mt-1.5"><EmbeddedTableSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} /></div>
+            {/* Options + answer for a multiple-choice part. Letters are
+                positional, matching the standalone MCQ block. */}
+            {!!(p.options && p.options.length) && (
+              <div className="mt-1.5 rounded-lg border border-[#DEE7FF] bg-white p-2">
+                <label className={L}>Options</label>
+                <div className="space-y-1.5">
+                  {p.options.map((o, oi) => (
+                    <div key={oi} className="flex items-center gap-2">
+                      <span className={`w-5 text-xs font-bold ${o.k === p.answer && p.answer ? 'text-[#16A34A]' : 'text-[#325099]'}`}>{o.k}.</span>
+                      <input
+                        className={I}
+                        value={o.t}
+                        onChange={e => onChange(parts.map((x, j) => j === i
+                          ? { ...x, options: x.options.map((y, k) => k === oi ? { ...y, t: e.target.value } : y) } : x))}
+                        onKeyDown={e => onInlineKey(e, o.t, v => onChange(parts.map((x, j) => j === i
+                          ? { ...x, options: x.options.map((y, k) => k === oi ? { ...y, t: v } : y) } : x)))}
+                      />
+                      <button
+                        onClick={() => onChange(parts.map((x, j) => j === i
+                          ? { ...x, options: x.options.filter((_, k) => k !== oi).map((y, k) => ({ ...y, k: 'ABCDEFGH'[k] })) } : x))}
+                        className="text-rose-400 hover:text-rose-600 text-xs shrink-0"
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-end gap-3 mt-1.5">
+                  <button
+                    onClick={() => onChange(parts.map((x, j) => j === i
+                      ? { ...x, options: [...x.options, { k: 'ABCDEFGH'[x.options.length] || 'Z', t: '' }] } : x))}
+                    className="text-[11px] font-semibold text-[#325099] hover:underline"
+                  >＋ Add option</button>
+                  <div className="ml-auto">
+                    <label className={L}>Correct</label>
+                    <select
+                      className={I}
+                      value={p.answer || ''}
+                      onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, answer: e.target.value } : x))}
+                    >
+                      <option value="">—</option>
+                      {p.options.map(o => <option key={o.k} value={o.k}>{o.k}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
             <textarea className={TA + ' mt-1.5'} value={p.solution || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, solution: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.solution || '', v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x)))} placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
             {/* Solution media (Solutions copy): a diagram/image and/or a maths object. */}
             <div className="mt-1.5 space-y-1.5">
               <ImageField label="Solution diagram / image (Solutions copy)" value={p.solutionImage || ''} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, solutionImage: v } : x))} />
               <MathObjSection block={p} set={patch => onChange(parts.map((x, j) => j === i ? { ...x, ...patch } : x))} blank={false} maths={maths} objKey="solutionMathObj" name="solution object" />
             </div>
-            <div className="mt-1.5"><AnswerSpace holder={p} patch={obj => onChange(parts.map((x, j) => j === i ? { ...x, ...obj } : x))} maths={maths} /></div>
+            {/* An MCQ part prints its options where the writing lines would go,
+                so the answer-space control has nothing to act on. */}
+            {!(p.options && p.options.length) && (
+              <div className="mt-1.5"><AnswerSpace holder={p} patch={obj => onChange(parts.map((x, j) => j === i ? { ...x, ...obj } : x))} maths={maths} /></div>
+            )}
           </div>
         ))}
       </div>
