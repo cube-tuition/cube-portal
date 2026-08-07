@@ -54,6 +54,8 @@ function QuestionBankInner() {
   const [qtype, setQtype] = useState('')   // '' | 'mcq' | 'extended'
   const [search, setSearch] = useState('')
   const [usageTab, setUsageTab] = useState('all')   // all | used | unused
+  // Sort is a view preference, not a filter — "Clear" leaves it alone.
+  const [sortBy, setSortBy] = useState('newest')    // newest | oldest | difficulty-asc | difficulty-desc
   const [audienceTab, setAudienceTab] = useState('all')   // all | exam (CUBE) | student
 
   const loadQuestions = useCallback(async () => {
@@ -142,11 +144,24 @@ function QuestionBankInner() {
     () => (audienceTab === 'all' ? scoped : scoped.filter((q) => q.audience === audienceTab)),
     [scoped, audienceTab],
   )
-  const filtered = useMemo(() => audienceScoped.filter((q) => {
+  const usageFiltered = useMemo(() => audienceScoped.filter((q) => {
     if (usageTab === 'all') return true
     const used = (usageMap[q.id]?.count || 0) > 0
     return usageTab === 'used' ? used : !used
   }), [audienceScoped, usageTab, usageMap])
+
+  // Sort last, so it applies to whatever the filters left. Difficulty ties fall
+  // back to newest-first, which is the list's natural order — otherwise a bank
+  // of same-difficulty questions would come back in an arbitrary order.
+  const sorted = useMemo(() => {
+    const byNewest = (a, b) => new Date(b.created_at) - new Date(a.created_at)
+    const arr = [...usageFiltered]
+    if (sortBy === 'oldest') arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    else if (sortBy === 'difficulty-asc') arr.sort((a, b) => (a.difficulty - b.difficulty) || byNewest(a, b))
+    else if (sortBy === 'difficulty-desc') arr.sort((a, b) => (b.difficulty - a.difficulty) || byNewest(a, b))
+    else arr.sort(byNewest)
+    return arr
+  }, [usageFiltered, sortBy])
 
   const handleDelete = async (q) => {
     if (!confirm('Delete this question permanently?')) return
@@ -263,6 +278,21 @@ function QuestionBankInner() {
           />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search text…"
             className="flex-1 min-w-[120px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
+          {/* Sort sits with the filters but is deliberately not cleared by
+              "Clear" — it's how you're looking at the list, not what's in it. */}
+          <label className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[11px] text-[#2A2035]/45">Sort</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white cursor-pointer focus:outline-none focus:border-[#325099]"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="difficulty-asc">Difficulty: easiest first</option>
+              <option value="difficulty-desc">Difficulty: hardest first</option>
+            </select>
+          </label>
           {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline">Clear</button> : null}
         </div>
 
@@ -299,14 +329,14 @@ function QuestionBankInner() {
         <div className="mt-4 space-y-3">
           {loadingQ ? (
             <p className="text-center text-sm text-[#2A2035]/40 py-12 animate-pulse">Loading questions…</p>
-          ) : filtered.length === 0 ? (
+          ) : sorted.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
               <p className="text-sm text-[#2A2035]/50">{questions.length === 0 ? 'No questions yet.' : 'No questions match these filters.'}</p>
               {questions.length === 0 && (
                 <Link href="/tutor/qbank/new" className="inline-block mt-3 px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold">Add the first question</Link>
               )}
             </div>
-          ) : filtered.map((q) => {
+          ) : sorted.map((q) => {
             const l = labelFor(q)
             const nParts = q.qbank_question_parts?.length || 0
             const imgs = q.qbank_question_images || []
