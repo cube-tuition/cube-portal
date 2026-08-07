@@ -63,7 +63,11 @@ function invoiceReductions(invoices = []) {
       else r.creditsOther += amt
     }
   }
-  r.total = r.sibling + r.multiCourse + r.cash + r.referral + r.creditsOther
+  // The forecast assumes full attendance, so credits and adjustments — absence
+  // make-goods, balance transfers, one-off goodwill — are deliberately NOT in
+  // the total the projection subtracts. Pricing discounts are; they apply
+  // regardless of attendance. creditsOther is kept for display only.
+  r.total = r.sibling + r.multiCourse + r.cash + r.referral
   return r
 }
 
@@ -857,7 +861,7 @@ export default function ForecastPage() {
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Sibling</span><span className="font-semibold">{fmt((s.siblingDiscount ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Cash discount (10%)</span><span className="font-semibold">{fmt((s.cashDiscount ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Referral</span><span className="font-semibold">{fmt((s.referralDiscount ?? 0) * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Credits &amp; adjustments</span><span className="font-semibold">{fmt((s.creditsOther ?? 0) * m)}</span></div>
+            <div className="flex justify-between text-xs text-[#325099]/40"><span>Credits &amp; adjustments <span className="text-[10px]">(not counted — assumes full attendance)</span></span><span className="font-semibold">{fmt((s.creditsOther ?? 0) * m)}</span></div>
             <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt((s.totalDiscount ?? 0) * m)}</span></div>
           </div>
         </div>
