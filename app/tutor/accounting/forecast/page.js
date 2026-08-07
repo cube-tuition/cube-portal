@@ -357,6 +357,7 @@ export default function ForecastPage() {
         ...cls,
         studentCount, termFee, termIncome, cashIncome, cashShare, lessonHrs, lessonCount,
         teacherRate: rate, teacherName: cls.teacher,
+        tutorId: tutor?.id ?? null, tutorName: tutor?.full_name ?? null,
         weeklyTeacherFee, termlyTeacherFee, superApplies, superAmount,
         totalTeacherCost, termProfit,
         is1on1: oneOnOne, studentName,
@@ -1038,14 +1039,17 @@ export default function ForecastPage() {
               ].filter(c => c.amount > 0).sort((a, b) => b.amount - a.amount)
               const maxCat = Math.max(1, ...cats.map(c => c.amount))
 
-              // Per-tutor wage bill
+              // Per-tutor wage bill, grouped by the RESOLVED staff record — two
+              // teachers sharing a first name stay separate rows. Unresolved
+              // names group under the raw text they were typed as.
               const byTutor = {}
               for (const c of classMetrics) {
-                const name = (c.teacher || '—').split(' ')[0]
-                if (!byTutor[name]) byTutor[name] = { name, classes: 0, hours: 0, cost: 0 }
-                byTutor[name].classes++
-                byTutor[name].hours += c.lessonHrs * c.lessonCount
-                byTutor[name].cost  += c.totalTeacherCost
+                const key = c.tutorId ?? `unresolved:${c.teacher || '—'}`
+                const name = (c.tutorName ?? c.teacher ?? '—').split(' ')[0]
+                if (!byTutor[key]) byTutor[key] = { name, classes: 0, hours: 0, cost: 0 }
+                byTutor[key].classes++
+                byTutor[key].hours += c.lessonHrs * c.lessonCount
+                byTutor[key].cost  += c.totalTeacherCost
               }
               const tutorRows = Object.values(byTutor).filter(t => t.cost > 0).sort((a, b) => b.cost - a.cost)
               const wageBill = tutorRows.reduce((s, t) => s + t.cost, 0) || 1
