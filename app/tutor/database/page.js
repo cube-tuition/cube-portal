@@ -1957,6 +1957,12 @@ export default function DatabasePage() {
         })
       }
 
+      // Tutors: lead with the human tutor code (26-KP) and hide the raw uuid —
+      // edits still key on row.id, which stays in the row data.
+      if (selectedTable === T_TUTORS && cols.includes('tutor_code')) {
+        cols = ['tutor_code', ...cols.filter(c => c !== 'tutor_code' && c !== 'id')]
+      }
+
       setColumns(cols); setRows(enrichedRows); setLoading(false)
 
       // Load cancellations for lessons table
@@ -2070,7 +2076,10 @@ export default function DatabasePage() {
     announceUndo(undoLabel(last).replace(/^Undo /, 'Undone: '), true)
   }), [undoStack, selectedTable])
 
-  const pkCol = getPkCol(columns)
+  // The pk must come from the DATA, not the displayed columns — tables that
+  // hide their uuid id from the grid (tutors shows tutor_code instead) still
+  // update by id.
+  const pkCol = rows.length > 0 ? ('id' in rows[0] ? 'id' : null) : getPkCol(columns)
 
   // ── Resize ──────────────────────────────────────────────────────────────────
   const handleResizeStart = useCallback((e, col) => {
