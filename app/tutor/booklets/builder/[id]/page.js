@@ -365,8 +365,27 @@ export default function BookletBuilderEditor() {
     if (j < 0 || j >= arr.length) return
     ;[arr[i], arr[j]] = [arr[j], arr[i]]; setBlocks(arr)
   }
-  // Drag-to-reorder (only within the same section/group). Cards only start a
-  // drag from the ⠿ handle — otherwise dragging inside the editor's controls
+  // The two homework groups are a difficulty split of one list, not separate
+  // documents, so a question can hop between them — rebalancing a homework
+  // after writing it is the normal case. The block lands at the end of the
+  // group it moves to, where ↑/↓ can then place it.
+  const setHwGroup = (bid, group) => {
+    const arr = [...(bk.blocks || [])]
+    const i = arr.findIndex(b => b.id === bid)
+    if (i < 0 || sectionOf(arr[i]) !== 'homework') return
+    const [m] = arr.splice(i, 1)
+    const moved = { ...m, hwGroup: group }
+    // Insert after the last block already in the target group, rather than
+    // leaving it at whatever index it happened to occupy in the old group.
+    let last = -1
+    arr.forEach((b, k) => { if (tagOf(b) === `hw:${group}`) last = k })
+    arr.splice(last + 1, 0, moved)
+    setBlocks(recompose(arr))
+    setSelectedBlockId(moved.id)
+  }
+  // Drag-to-reorder within a section/group — plus, for homework, dragging a
+  // question onto a card in the other group to move it there. Cards only start
+  // a drag from the ⠿ handle — otherwise dragging inside the editor's controls
   // (the table width slider, text selection in inputs) would drag the card too.
   const dragId = useRef(null)
   const dragArmed = useRef(false)
@@ -377,8 +396,14 @@ export default function BookletBuilderEditor() {
     const from = arr.findIndex(b => b.id === dragId.current)
     const to = arr.findIndex(b => b.id === targetId)
     if (from < 0 || to < 0 || from === to) return
-    if (tagOf(arr[from]) !== tagOf(arr[to])) return
-    const [m] = arr.splice(from, 1); arr.splice(to, 0, m); setBlocks(arr)
+    // Crossing between the two homework groups is a move, not a rejected drop.
+    const crossHw = tagOf(arr[from]) !== tagOf(arr[to])
+      && sectionOf(arr[from]) === 'homework' && sectionOf(arr[to]) === 'homework'
+    if (tagOf(arr[from]) !== tagOf(arr[to]) && !crossHw) return
+    const group = arr[to].hwGroup === 'developmental' ? 'developmental' : 'foundational'
+    const [m] = arr.splice(from, 1)
+    arr.splice(to, 0, crossHw ? { ...m, hwGroup: group } : m)
+    setBlocks(crossHw ? recompose(arr) : arr)
   }
 
   const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title, docType: bk.doc_type || 'booklet', cover: bk.cover || null } : {}
@@ -578,6 +603,14 @@ export default function BookletBuilderEditor() {
   // group the block belongs to so up/down can disable at the group's ends.
   const renderBlockCard = (b, list, i) => {
     const selected = selectedBlockId === b.id
+    // Homework questions can be regraded between the two difficulty groups.
+    // English/Chemistry homework is a single flat list, so there is nowhere to
+    // move to and the control is hidden.
+    const hwSwap = sectionOf(b) === 'homework' && !flatHomework
+      ? (b.hwGroup === 'developmental'
+        ? { to: 'foundational', label: 'Foundational' }
+        : { to: 'developmental', label: 'Developmental' })
+      : null
     return (
     <div key={b.id}
       id={`blk-${b.id}`}
@@ -602,12 +635,18 @@ export default function BookletBuilderEditor() {
         onClick={() => setSelectedBlockId(id => id === b.id ? null : b.id)}
         title="Click to insert new blocks right after this one">
         <div className="flex items-center gap-2">
-          <span className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 text-sm" title="Drag to reorder"
+          <span className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 text-sm"
+            title={hwSwap ? 'Drag to reorder — or drop onto the other homework group to move it there' : 'Drag to reorder'}
             onMouseDown={() => { dragArmed.current = true }}>⠿</span>
           <span className="text-[10px] font-bold tracking-wider uppercase text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2 py-0.5">{BLOCK_TYPES.find(t => t.type === b.type)?.label || b.type}</span>
           {selected && <span className="text-[10px] font-semibold text-[#325099]">↳ new blocks insert here</span>}
         </div>
         <div className="flex items-center gap-1.5 text-[#2A2035]/40">
+          {hwSwap && (
+            <button onClick={e => { e.stopPropagation(); setHwGroup(b.id, hwSwap.to) }}
+              title={`Move this question to ${hwSwap.label} Questions`}
+              className="text-[10px] font-semibold text-[#325099]/70 hover:text-[#325099] hover:bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2 py-0.5 mr-0.5 transition whitespace-nowrap">⇄ {hwSwap.label}</button>
+          )}
           <button onClick={e => { e.stopPropagation(); moveBlock(b.id, -1) }} disabled={i === 0} className="hover:text-[#325099] disabled:opacity-20 text-sm">↑</button>
           <button onClick={e => { e.stopPropagation(); moveBlock(b.id, 1) }} disabled={i === list.length - 1} className="hover:text-[#325099] disabled:opacity-20 text-sm">↓</button>
           <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
