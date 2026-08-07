@@ -11,7 +11,7 @@ import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../
 // builder promotes the linked curriculum row to "In Progress" on the next save.
 const AUTO_IN_PROGRESS_BLOCKS = 5
 import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS, DEFAULT_LT_INSTRUCTIONS, DEFAULT_LT_TOTALS } from '../../../../../lib/bookletRender'
-import { exportBookletPdf } from '../../../../../lib/bookletExport'
+import { exportBookletPdf, bookletFontEmbedCSS } from '../../../../../lib/bookletExport'
 import { bookletPdfName } from '../../../../../lib/bookletNaming'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
@@ -59,6 +59,7 @@ export default function BookletBuilderEditor() {
   const [newQOpen, setNewQOpen] = useState(false)   // create a new bank question, then drop it in as a block
   const [exporting, setExporting] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [pubProgress, setPubProgress] = useState(null)   // { pct, label } while saving to curriculum
   const [chemSyllabus, setChemSyllabus] = useState([])   // master syllabus for this booklet's year (Chemistry)
   const [tax, setTax] = useState(null)                   // qbank taxonomy (for the test topic scope)
   useEffect(() => { fetchTaxonomy().then(setTax) }, [])
@@ -410,19 +411,34 @@ export default function BookletBuilderEditor() {
   const publish = async () => {
     if (!bk.year) { alert('Set a Year before saving to the curriculum.'); return }
     setPublishing(true)
+    // Publishing renders TWO full PDFs and uploads them, which on a long booklet
+    // takes long enough that a plain "Saving…" looks hung. Each stage owns a
+    // slice of the bar; the PDF stages sub-report per page.
+    setPubProgress({ pct: 0, label: 'Saving booklet…' })
+    const stageProgress = (from, to) => (f, label) =>
+      setPubProgress({ pct: Math.round((from + (to - from) * f) * 100), label })
     try {
       await save()
+      setPubProgress({ pct: 4, label: 'Preparing student copy…' })
+      // Both copies embed the same web fonts, so derive that CSS once for the
+      // whole publish instead of once per page in each export.
+      const fontEmbedCSS = await bookletFontEmbedCSS()
       const subjectLower = (bk.subject || 'mathematics').toLowerCase()
       const stamp = `${Date.now()}_${Math.random().toString(36).slice(2)}`
-      const upload = async (solutions, tag) => {
-        const { blob } = await exportBookletPdf({ meta, blocks: bk.blocks, solutions, preview: true })
+      const upload = async (solutions, tag, from, to) => {
+        const { blob } = await exportBookletPdf({
+          meta, blocks: bk.blocks, solutions, preview: true, fontEmbedCSS,
+          onProgress: stageProgress(from, to - 0.04),
+        })
+        setPubProgress({ pct: Math.round((to - 0.04) * 100), label: `Uploading ${tag} copy…` })
         const path = `y${bk.year}/${subjectLower}/${stamp}_${tag}.pdf`
         const { error } = await supabase.storage.from('booklets').upload(path, blob, { upsert: true, contentType: 'application/pdf' })
         if (error) throw error
+        setPubProgress({ pct: Math.round(to * 100), label: `Uploaded ${tag} copy` })
         return path
       }
-      const studentPath = await upload(false, 'student')
-      const solutionsPath = await upload(true, 'solutions')
+      const studentPath = await upload(false, 'student', 0.04, 0.50)
+      const solutionsPath = await upload(true, 'solutions', 0.50, 0.94)
       const filePaths = [studentPath, solutionsPath]
       // Name the two copies so student vs solutions (teacher) is clear in the
       // curriculum, e.g. "5.MS. Algebra 1" and "5.MT. Algebra 1". Order matches
@@ -435,6 +451,7 @@ export default function BookletBuilderEditor() {
         content: bk.subject === 'Chemistry' ? buildSyllabusContent(bk.blocks) : (bk.content || null),
         file_path: studentPath, file_paths: filePaths, pdf_filenames: pdfFilenames,
       }
+      setPubProgress({ pct: 95, label: 'Updating the curriculum…' })
       let bookletId = bk.booklet_id
       let oldPaths = []
       if (bookletId) {
@@ -455,9 +472,10 @@ export default function BookletBuilderEditor() {
       const orphaned = oldPaths.filter(p => p && !filePaths.includes(p))
       if (orphaned.length) await supabase.storage.from('booklets').remove(orphaned)
       setBk(b => ({ ...b, status: 'published', booklet_id: bookletId }))
+      setPubProgress({ pct: 100, label: 'Saved to curriculum' })
       alert('Saved to curriculum. You can now assign it to a class from the Curriculum page.')
     } catch (e) { alert('Save to curriculum failed: ' + e.message) }
-    finally { setPublishing(false) }
+    finally { setPublishing(false); setPubProgress(null) }
   }
 
   if (loading) return <div className="min-h-screen bg-white"><TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} /><p className="text-center text-[#325099] text-sm mt-20">Loading…</p></div>
@@ -674,8 +692,30 @@ export default function BookletBuilderEditor() {
           </span>
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
-          <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? 'Saving…' : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
+          <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? `Saving… ${pubProgress?.pct ?? 0}%` : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
         </div>
+        {/* Saving to the curriculum renders and uploads two PDFs, so it can take
+            a while on a long booklet. The bar reports the real stage rather than
+            leaving the button spinning with no sign of life. */}
+        {pubProgress && (
+          <div className="max-w-[1500px] mx-auto px-5 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-2 rounded-full bg-[#EEF2FB] overflow-hidden">
+                <div
+                  className="h-full bg-[#325099] rounded-full transition-[width] duration-300 ease-out"
+                  style={{ width: `${pubProgress.pct}%` }}
+                  role="progressbar"
+                  aria-valuenow={pubProgress.pct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Saving to curriculum"
+                />
+              </div>
+              <span className="text-[11px] font-bold text-[#325099] tabular-nums w-10 text-right">{pubProgress.pct}%</span>
+              <span className="text-[11px] text-[#2A2035]/55 min-w-[150px]">{pubProgress.label}</span>
+            </div>
+          </div>
+        )}
         {/* Someone else saved this workbook while it was open here. Autosave has
             stopped rather than overwrite them; the choice of which copy to keep
             is the user's, so nothing is discarded automatically. */}
