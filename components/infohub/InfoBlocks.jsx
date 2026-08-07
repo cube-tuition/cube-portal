@@ -129,12 +129,23 @@ function VideoBlock({ url, caption }) {
   )
 }
 
+/*
+ * Block hrefs come from admin-authored DB content, so restrict them to external
+ * http(s) or internal /paths. Anything else (javascript:, data:, …) would run on
+ * click, so we render nothing rather than a hostile link.
+ */
+function safeHref(href) {
+  const u = String(href || '').trim()
+  return /^https?:\/\//i.test(u) || u.startsWith('/') ? u : null
+}
+
 function ButtonBlock({ label, href, variant, external }) {
-  if (!href) return null
-  const ext = external || /^https?:/i.test(href)
+  const safe = safeHref(href)
+  if (!safe) return null
+  const ext = external || /^https?:/i.test(safe)
   return (
     <div className="ih-btn-wrap">
-      <a href={href} {...(ext ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      <a href={safe} {...(ext ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
         className={`ih-btn ${variant === 'secondary' ? 'ih-btn-secondary' : 'ih-btn-primary'}`}>
         {label || 'Open'}{ext && <span aria-hidden="true" className="ih-btn-ext">↗</span>}
       </a>
@@ -143,13 +154,14 @@ function ButtonBlock({ label, href, variant, external }) {
 }
 
 function PortalLink({ label, href, desc }) {
-  if (!href) return null
-  const ext = /^https?:/i.test(href)
+  const safe = safeHref(href)
+  if (!safe) return null
+  const ext = /^https?:/i.test(safe)
   return (
-    <a href={href} {...(ext ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className="ih-portal">
+    <a href={safe} {...(ext ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className="ih-portal">
       <div className="ih-portal-icon" aria-hidden="true">↗</div>
       <div className="ih-portal-body">
-        <div className="ih-portal-label">{label || href}</div>
+        <div className="ih-portal-label">{label || safe}</div>
         {desc?.trim() && <div className="ih-portal-desc">{desc}</div>}
       </div>
     </a>

@@ -30,7 +30,12 @@ function inlineMd(s) {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    // [label](url) — external http(s) or internal /path only. Any other scheme
+    // (javascript:, data:, …) simply doesn't match, so it stays plain text.
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g, (_m, label, url) =>
+      /^https?:/i.test(url)
+        ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : `<a href="${url}">${label}</a>`)
 }
 function MarkdownView({ src, className = '' }) {
   return (
