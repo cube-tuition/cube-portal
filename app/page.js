@@ -158,7 +158,19 @@ export default function LoginPage() {
                 {loading ? 'Signing you in…' : 'Log in'}
               </button>
 
-              <p className="text-xs text-[#2A2035]/50 text-center mt-5">
+              {/* Sign-in goes through Supabase Auth, which stores only a one-way
+                  hash of the password — staff can trigger a reset but can never
+                  read an existing password. Saying otherwise would be untrue, so
+                  this states what actually happens and gives the advice that
+                  follows from it. */}
+              <p className="text-xs text-[#2A2035]/55 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-4 py-3 mt-5 leading-relaxed">
+                <span className="font-semibold text-[#2A2035]/75">About your password.</span>{' '}
+                Your password is stored encrypted, so CUBE staff cannot see it — if you
+                forget it, a tutor can reset it but can never look it up. Please don’t
+                reuse a password from another website.
+              </p>
+
+              <p className="text-xs text-[#2A2035]/50 text-center mt-4">
                 Trouble logging in? Just ask your CUBE tutor — they'll sort it.
               </p>
             </div>
