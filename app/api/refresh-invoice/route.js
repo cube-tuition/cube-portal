@@ -39,12 +39,24 @@ export async function POST(req) {
 
     if (!enrolLines.length) return Response.json({ updated: 0, message: 'No enrolment lines to refresh' })
 
-    // Fetch current prices from enrolments table
-    const pairs = enrolLines.map(l => `(student_id = '${l.student_id}' AND class_id = ${l.class_id})`)
-    const { data: enrolments } = await sb
+    // Fetch current prices from enrolments table.
+    //
+    // .or() takes PostgREST's filter DSL, NOT raw SQL. This used to build
+    // "(student_id = '<uuid>' AND class_id = 12)", which PostgREST rejects with
+    // PGRST100 ("failed to parse logic tree"). The error was never checked, so
+    // the request silently returned no rows, the price map came back empty and
+    // every line was left exactly as it was — Refresh reported "0 updated" and
+    // re-priced nothing. Each pair must be and(field.eq.value,…).
+    const pairs = enrolLines
+      .filter(l => l.student_id && l.class_id != null)
+      .map(l => `and(student_id.eq.${l.student_id},class_id.eq.${l.class_id})`)
+    if (!pairs.length) return Response.json({ updated: 0, message: 'No enrolment lines to refresh' })
+    const { data: enrolments, error: enrolErr } = await sb
       .from('enrolments')
       .select('student_id, class_id, price, classes(courses(course_price))')
       .or(pairs.join(','))
+    // Surface a lookup failure instead of silently reporting "nothing changed".
+    if (enrolErr) return Response.json({ error: `Could not load enrolment prices: ${enrolErr.message}` }, { status: 500 })
 
     // Build lookup: "studentId__classId" → price. Fall back to the class's
     // course price when the enrolment has none (matches invoice generation).
