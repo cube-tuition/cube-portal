@@ -1263,7 +1263,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
           </div>
         ))}
       </div>
-      <button onClick={() => onChange([...parts, { prompt: '', image: '', solution: '', lines: '' }])} className="text-[11px] font-semibold text-[#325099] hover:underline mt-1">＋ Add part</button>
+      <button onClick={() => onChange([...parts, { id: partUid(), prompt: '', image: '', solution: '', lines: '' }])} className="text-[11px] font-semibold text-[#325099] hover:underline mt-1">＋ Add part</button>
     </div>
   )
 }

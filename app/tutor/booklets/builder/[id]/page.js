@@ -173,6 +173,7 @@ export default function BookletBuilderEditor() {
           title: b.title, year: b.year ? Number(b.year) : null, subject: b.subject, topic: b.topic,
           content: contentVal, blocks: b.blocks,
           cover: b.cover ?? null,
+          delivery: b.delivery === 'online' ? 'online' : 'physical',
           syllabus_points: allPoints,
           qbank_topic_ids: Array.isArray(b.qbank_topic_ids) ? b.qbank_topic_ids : null,
           updated_at: stamp,
@@ -442,7 +443,9 @@ export default function BookletBuilderEditor() {
     setBlocks(crossHw ? recompose(arr) : arr)
   }
 
-  const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title, docType: bk.doc_type || 'booklet', cover: bk.cover || null } : {}
+  // delivery rides along so the renderer swaps writing lines for typing boxes
+  // in an online workbook — live preview and PDF preview both read it here.
+  const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title, docType: bk.doc_type || 'booklet', cover: bk.cover || null, delivery: bk.delivery || 'physical' } : {}
   const isLevelTest = bk?.doc_type === 'level_test'
   const isPreTest = bk?.doc_type === 'pre_test'
   // Exam-style docs (level tests + pre-tests) use a two-column layout: one big
@@ -794,6 +797,23 @@ export default function BookletBuilderEditor() {
           <span className={`text-[11px] ${conflict ? 'text-[#B23A3A] font-bold' : 'text-[#2A2035]/40'}`}>
             {conflict ? 'Not saved' : saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}
           </span>
+          {/* Senior English: how this workbook reaches students. Online = a
+              typeable student doc; publishing renders no PDFs. Shown whenever
+              it applies (or is already online, so it can always be switched
+              back after a subject/year change). */}
+          {(bk.delivery === 'online' || (/english/i.test(bk.subject || '') && Number(bk.year) >= 7 && !isExamStyle)) && (
+            <button
+              onClick={() => mutate({ delivery: bk.delivery === 'online' ? 'physical' : 'online' })}
+              title={bk.delivery === 'online'
+                ? 'Online workbook — students type into it in their portal; publishing renders no PDFs. Click to make it a printed workbook.'
+                : 'Physical workbook — printed as PDFs. Click to make it an online typeable doc.'}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-full border transition ${bk.delivery === 'online'
+                ? 'bg-[#ECF9F4] text-[#0E7A5F] border-[#CBEBDF] hover:bg-[#DDF3EA]'
+                : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:bg-[#F8FAFF]'}`}
+            >
+              {bk.delivery === 'online' ? '🌐 Online' : '🖨 Physical'}
+            </button>
+          )}
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
           <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? `Saving… ${pubProgress?.pct ?? 0}%` : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>

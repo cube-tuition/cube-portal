@@ -584,7 +584,7 @@ function MasterDatabaseInner() {
     const [{ data }, { data: bd }] = await Promise.all([
       supabase
         .from('booklets')
-        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames')
+        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames, delivery')
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
@@ -600,16 +600,23 @@ function MasterDatabaseInner() {
     setLoading(false)
   }, [])
 
-  // Create a new workbook (builder) and jump straight into it.
-  const createWorkbook = async () => {
+  // Create a new workbook (builder) and jump straight into it. Senior English
+  // (Year 7+) workbooks first choose Physical vs Online: an online workbook is
+  // built with the same blocks but delivered as a typeable student doc instead
+  // of a printed PDF.
+  const [deliveryChoice, setDeliveryChoice] = useState(false)
+  const createWorkbook = async (delivery = 'physical') => {
+    if (delivery === 'ask') { setDeliveryChoice(true); return }
+    setDeliveryChoice(false)
     setCreatingWb(true)
     const { data, error } = await supabase.from('booklet_builds')
-      .insert({ title: 'Untitled workbook', subject: activeSub, year: activeYear, blocks: [] })
+      .insert({ title: 'Untitled workbook', subject: activeSub, year: activeYear, blocks: [], delivery })
       .select('id').single()
     setCreatingWb(false)
     if (error) { alert('Could not create workbook: ' + error.message); return }
     router.push(`/tutor/booklets/builder/${data.id}`)
   }
+  const asksDelivery = activeSub === 'English' && Number(activeYear) >= 7
 
   const deleteWorkbook = async (wb) => {
     if (!confirm(`Delete "${wb.title || 'Untitled workbook'}"? This can't be undone.`)) return
@@ -806,7 +813,7 @@ function MasterDatabaseInner() {
               🎯 Skills
             </button>
             <button
-              onClick={createWorkbook}
+              onClick={() => createWorkbook(asksDelivery ? 'ask' : 'physical')}
               disabled={creatingWb}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#325099] text-[#325099] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap disabled:opacity-40"
             >
@@ -907,7 +914,10 @@ function MasterDatabaseInner() {
                       <div key={b.id}
                         className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-[#2A2035] truncate">{bookletLabel(b)}</p>
+                          <p className="text-xs font-semibold text-[#2A2035] truncate">
+                            {bookletLabel(b)}
+                            {b.delivery === 'online' && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F] align-middle" title="Online workbook — a typeable student doc, no printed PDFs">🌐 Online</span>}
+                          </p>
                           {/* Info — term, week, topic, skill, content, notes and the
                               improvement checklists all live in this modal. */}
                           <button
@@ -999,6 +1009,34 @@ function MasterDatabaseInner() {
           onClose={() => setShowSkills(false)}
           onSkillsChanged={() => { loadSkillBank(); load() }}
         />
+      )}
+
+      {/* Senior English: choose how the new workbook is delivered. */}
+      {deliveryChoice && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setDeliveryChoice(false) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-lg font-bold text-[#062E63]">New Year {activeYear} English workbook</h2>
+              <button onClick={() => setDeliveryChoice(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
+            </div>
+            <p className="text-xs text-[#2A2035]/55 mb-4">Both are built with the same workbook builder — the choice is how students work on it. You can switch later from the builder.</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <button onClick={() => createWorkbook('physical')}
+                className="text-left rounded-xl border border-[#DEE7FF] hover:border-[#325099] hover:bg-[#F8FAFF] transition p-4">
+                <div className="text-2xl mb-1.5">🖨</div>
+                <p className="text-sm font-bold text-[#062E63]">Physical</p>
+                <p className="text-[11px] text-[#2A2035]/55 mt-1">Printed as PDFs and handed out — the normal workbook flow.</p>
+              </button>
+              <button onClick={() => createWorkbook('online')}
+                className="text-left rounded-xl border border-[#DEE7FF] hover:border-[#0E7A5F] hover:bg-[#ECF9F4] transition p-4">
+                <div className="text-2xl mb-1.5">🌐</div>
+                <p className="text-sm font-bold text-[#0E7A5F]">Online</p>
+                <p className="text-[11px] text-[#2A2035]/55 mt-1">A typeable student doc — students write into it on their laptops and the teacher reviews on screen. No printing.</p>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Add only — editing an existing booklet happens in the Info modal. */}

@@ -261,7 +261,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
     setLoading(true)
     const { data } = await supabase
       .from('class_booklet_assignments')
-      .select('id, booklet_id, term_number, week, booklets(id, booklet_name, year, subject, topic, status, notes, fixes, suggestions, content, file_paths, file_path, pdf_filenames, is_exam, exam_id)')
+      .select('id, booklet_id, term_number, week, booklets(id, booklet_name, year, subject, topic, status, notes, fixes, suggestions, content, file_paths, file_path, pdf_filenames, is_exam, exam_id, delivery)')
       .eq('class_id', cls.id)
     setAssignments(data || [])
     setLoading(false)
@@ -1246,6 +1246,8 @@ function BookletsPageInner() {
                                 </div>
                                 {b.is_exam ? (
                                   <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
+                                ) : b.delivery === 'online' ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F]" title="Online workbook — students type into it in their portal; no printed PDFs">🌐 Online</span>
                                 ) : pdfPaths.length > 0 ? (
                                   <div className="flex gap-1">
                                     {pdfPaths.map((path, i) => {
@@ -1413,7 +1415,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
     setLoadingAsgn(true)
     supabase
       .from('class_booklet_assignments')
-      .select('term_number, week, booklets(id, booklet_name, topic, status, file_paths, file_path, year, subject, is_exam, exam_id)')
+      .select('term_number, week, booklets(id, booklet_name, topic, status, file_paths, file_path, year, subject, is_exam, exam_id, delivery)')
       .eq('class_id', activeClassId)
       .then(({ data }) => {
         setAssignments(data || [])
