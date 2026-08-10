@@ -104,9 +104,9 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
     const result = []
     let cur = newPage(); result.push(cur)
     let countOnPage = 0
-    // Place a multi-part question one chunk (part) at a time: start a new page
-    // before any part explicitly marked "start on a new page" (data-break) and
-    // whenever the current part would overflow the page.
+    // Place a multi-part question one chunk at a time — one part in a single-column
+    // question, one run of parts in a two-column one. Start a new page before any
+    // chunk marked "start on a new page" (data-break), and on overflow.
     const placeChunks = (it) => {
       for (const ch of it.chunks) {
         const t2 = document.createElement('div')
@@ -138,7 +138,7 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
         cur = newPage(); result.push(cur); countOnPage = 0
       }
       // A question that asks to break before one of its parts is always split
-      // into per-part chunks (not only when it overflows).
+      // into chunks (not only when it overflows).
       if (it.forceChunks && it.chunks) { placeChunks(it); continue }
       cur.inner.appendChild(el)
       if (cur.page.scrollHeight > PAGE_H && countOnPage > 0) {

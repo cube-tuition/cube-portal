@@ -1141,8 +1141,9 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
       </div>
       {twoCol && (
         <p className="text-[11px] text-[#7C89A8] mb-1.5">
-          Parts sit two per row. Keep prompts and answer space short — a two-column
-          question can’t split across pages, so it must fit on one.
+          Parts sit two per row. A two-column question breaks only where you tick
+          “Start on new page” — everything between two ticks has to fit on one page,
+          so keep prompts and answer space short.
         </p>
       )}
       <div className="space-y-2">
@@ -1157,9 +1158,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                     marks
                   </label>
                 )}
-                {/* Two-column parts render as one grid, so the renderer ignores
-                    per-part page breaks — don't offer a checkbox that does nothing. */}
-                {i >= 1 && !twoCol && (
+                {i >= 1 && (
                   <label className="flex items-center gap-1 text-[11px] text-[#325099] cursor-pointer" title="Force this part (and those after it) onto a new page">
                     <input type="checkbox" checked={!!p.pageBreakBefore} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, pageBreakBefore: e.target.checked } : x))} />
                     Start on new page
