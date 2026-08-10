@@ -115,11 +115,19 @@ export default function BookletBuilderEditor() {
         } else if (data.doc_type === 'level_test') {
           title = 'Level Test'
         }
+        const blocks = Array.isArray(data.blocks) ? data.blocks : []
+        // Chemistry pool: seed an empty checklist from the dotpoints already
+        // drawn into sections, so builds made before the pool existed open
+        // fully ticked and allocated instead of empty.
+        let syllabusPoints = Array.isArray(data.syllabus_points) ? data.syllabus_points : []
+        if (data.subject === 'Chemistry' && !syllabusPoints.length) {
+          syllabusPoints = [...new Set(blocks.flatMap(bl => (bl.type === 'section' && Array.isArray(bl.syllabus_points)) ? bl.syllabus_points : []))]
+        }
         setBk({
           ...data,
           title,
-          blocks: Array.isArray(data.blocks) ? data.blocks : [],
-          syllabus_points: Array.isArray(data.syllabus_points) ? data.syllabus_points : [],
+          blocks,
+          syllabus_points: syllabusPoints,
         })
         versionRef.current = data.updated_at
         if (title !== data.title) setDirty(true)  // persist the corrected name
@@ -148,9 +156,15 @@ export default function BookletBuilderEditor() {
       do {
         pendingRef.current = false
         const b = bkRef.current
-        // Booklet-level syllabus_points = union of every section's drawn dotpoints
-        // (drives the Syllabus page's auto coverage).
-        const allPoints = [...new Set((b.blocks || []).flatMap(bl => (bl.type === 'section' && Array.isArray(bl.syllabus_points)) ? bl.syllabus_points : []))]
+        // Booklet-level syllabus_points (drives the Syllabus page's auto
+        // coverage). Chemistry: the POOL — the checklist of dotpoints this
+        // booklet covers, chosen on the Content tab (sections then allocate
+        // from it). Other subjects: derived union of section dotpoints, as
+        // before. An empty chem pool falls back to the union so a build from
+        // before the pool existed seeds itself on first save.
+        const sectionUnion = [...new Set((b.blocks || []).flatMap(bl => (bl.type === 'section' && Array.isArray(bl.syllabus_points)) ? bl.syllabus_points : []))]
+        const poolIds = Array.isArray(b.syllabus_points) ? b.syllabus_points : []
+        const allPoints = b.subject === 'Chemistry' && poolIds.length ? poolIds : sectionUnion
         // Chemistry: the content summary is generated from the sections' drawn
         // dotpoints (section header + its points). Other subjects keep free text.
         const contentVal = b.subject === 'Chemistry' ? buildSyllabusContent(b.blocks) : (b.content ?? null)
@@ -287,6 +301,28 @@ export default function BookletBuilderEditor() {
 
   const mutate = (patch) => { setBk(b => ({ ...b, ...patch })); setDirty(true) }
   const setBlocks = (blocks) => mutate({ blocks })
+
+  // Chemistry pool: the Content tab's checklist of every dotpoint this booklet
+  // covers. It is the single source of truth — unticking a dotpoint also pulls
+  // it out of any section it was allocated to (confirmed first, since that
+  // changes the printed booklet).
+  const setChemPool = (nextIds) => {
+    const prev = new Set(Array.isArray(bk.syllabus_points) ? bk.syllabus_points : [])
+    const removed = [...prev].filter(id => !nextIds.includes(id))
+    let blocks = bk.blocks || []
+    if (removed.length) {
+      const alloc = dotpointAllocation(blocks)
+      const used = removed.filter(id => (alloc[id] || []).length > 0)
+      if (used.length) {
+        const secs = [...new Set(used.flatMap(id => alloc[id].map(s =>
+          [s.number, s.title].filter(v => v != null && String(v).trim() !== '').join('. ') || 'a section')))]
+        const msg = `Unticking removes ${used.length === 1 ? 'this dotpoint' : `${used.length} dotpoints`} from ${secs.join(', ')} as well. Continue?`
+        if (!confirm(msg)) return
+      }
+      blocks = removeDotpointsFromSections(blocks, chemSyllabus, removed).blocks
+    }
+    mutate({ syllabus_points: nextIds, blocks })
+  }
 
   // Topic scope for a test: the qbank topics for this build's subject + year.
   const bkSubject = bk?.subject
@@ -554,6 +590,27 @@ export default function BookletBuilderEditor() {
     ? physicalPages
     : [{ breakId: null, auto: false, ids: contentBlocks.filter(b => b.type !== 'pagebreak').map(b => b.id) }]
 
+  // Chemistry pool state for the Content tab: what's ticked, and which section
+  // each ticked dotpoint is allocated to (for the per-dotpoint chips).
+  const chemPool = new Set(Array.isArray(bk.syllabus_points) ? bk.syllabus_points : [])
+  const chemAlloc = dotpointAllocation(allBlocks)
+  const chemUnallocated = [...chemPool].filter(id => !(chemAlloc[id] || []).length).length
+  const poolToggle = (id, on) => { const s = new Set(chemPool); if (on) s.add(id); else s.delete(id); setChemPool([...s]) }
+  const poolToggleGroup = (main, on) => { const s = new Set(chemPool); for (const x of main.subs) { if (on) s.add(x.id); else s.delete(x.id) } setChemPool([...s]) }
+  // Allocation chip for a pooled dotpoint: the section(s) it prints under, or
+  // an amber "unallocated" nudge when no section has drawn it yet.
+  const poolChip = (id) => {
+    if (!chemPool.has(id)) return null
+    const secs = chemAlloc[id] || []
+    return secs.length ? (
+      <span className="ml-2 shrink-0 text-[10px] font-semibold text-[#16A34A] bg-[#F0FDF4] border border-[#BBF7D0] rounded-full px-1.5 py-0.5">
+        {secs.map(s => [s.number, s.title].filter(v => v != null && String(v).trim() !== '').join('. ') || 'section').join(' · ')}
+      </span>
+    ) : (
+      <span className="ml-2 shrink-0 text-[10px] font-semibold text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-full px-1.5 py-0.5">unallocated</span>
+    )
+  }
+
   // Chemistry "Content" (summary) tab: the dotpoints each section header draws
   // from the master list, compiled by section (builder overview). Each section
   // block's `syllabus` text is generated from its drawn dotpoints.
@@ -660,7 +717,7 @@ export default function BookletBuilderEditor() {
           <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
-      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} />
+      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null} />
     </div>
     )
   }
@@ -987,9 +1044,63 @@ export default function BookletBuilderEditor() {
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Booklet content</p>
               {isChem ? (
                 <>
-                  <p className="text-xs text-[#2A2035]/55 mb-3">The syllabus dotpoints each section draws from the master <Link href="/tutor/resources/syllabus?subject=Chemistry" className="underline text-[#325099]">Syllabus</Link> list, grouped by section header. Draw them per section on the <span className="font-semibold">Content page</span> (select a section block → “Syllabus dotpoints”). These print under each section header in the booklet.</p>
-                  {chemSyllabusSections.length === 0 ? (
-                    <p className="text-xs text-[#2A2035]/40 italic">No dotpoints drawn yet — add section headers on the Content page and draw dotpoints into each.</p>
+                  <p className="text-xs text-[#2A2035]/55 mb-3">Tick every dotpoint from the master <Link href="/tutor/resources/syllabus?subject=Chemistry" className="underline text-[#325099]">Syllabus</Link> this booklet covers — that pool is the booklet’s content. Then allocate the ticked dotpoints to section headers on the <span className="font-semibold">Content page</span> (select a section block → “Syllabus dotpoints”, which offers only what’s ticked here). Unticking a dotpoint also removes it from its section.</p>
+                  {chemSyllabus.length === 0 ? (
+                    <p className="text-xs text-[#2A2035]/40 italic">No master syllabus for this year yet — add it on the <Link href="/tutor/resources/syllabus?subject=Chemistry" className="underline">Syllabus</Link> page.</p>
+                  ) : (
+                    <>
+                      <p className="text-[11px] font-semibold text-[#325099] mb-2">
+                        {countSelected(chemSyllabus, chemPool)} dotpoint{countSelected(chemSyllabus, chemPool) === 1 ? '' : 's'} in this booklet
+                        {chemUnallocated > 0 && <span className="ml-2 font-semibold text-[#B45309]">· {chemUnallocated} not yet allocated to a section</span>}
+                      </p>
+                      <div className="rounded-xl border border-[#DEE7FF] bg-[#FBFCFF] px-4 py-3 mb-5 space-y-2 max-h-[520px] overflow-y-auto">
+                        {chemSyllabus.map(mod => (
+                          <div key={mod.id}>
+                            <p className="text-[12px] font-bold text-[#062E63] mt-1">{mod.name}</p>
+                            {mod.topics.map(tp => (
+                              <div key={tp.id} className="mb-1.5">
+                                <p className="text-[11px] font-semibold text-[#325099]">{tp.name}</p>
+                                {tp.dotpoints.map(dp => {
+                                  const cb = 'mt-0.5 shrink-0 accent-[#325099]'
+                                  if (dp.subs.length === 0) {
+                                    return (
+                                      <label key={dp.id} className="flex items-start gap-1.5 py-0.5 cursor-pointer">
+                                        <input type="checkbox" className={cb} checked={chemPool.has(dp.id)} onChange={e => poolToggle(dp.id, e.target.checked)} />
+                                        <span className="text-[13px] text-[#2A2035]">{dp.text}</span>
+                                        {poolChip(dp.id)}
+                                      </label>
+                                    )
+                                  }
+                                  const all = dp.subs.every(s => chemPool.has(s.id))
+                                  const some = dp.subs.some(s => chemPool.has(s.id))
+                                  return (
+                                    <div key={dp.id}>
+                                      <label className="flex items-start gap-1.5 py-0.5 cursor-pointer">
+                                        <input type="checkbox" className={cb} checked={all} ref={el => { if (el) el.indeterminate = some && !all }} onChange={e => poolToggleGroup(dp, e.target.checked)} />
+                                        <span className="text-[13px] font-medium text-[#2A2035]">{dp.text}</span>
+                                      </label>
+                                      <div className="pl-5">
+                                        {dp.subs.map(s => (
+                                          <label key={s.id} className="flex items-start gap-1.5 py-0.5 cursor-pointer">
+                                            <input type="checkbox" className={cb} checked={chemPool.has(s.id)} onChange={e => poolToggle(s.id, e.target.checked)} />
+                                            <span className="text-[12px] text-[#2A2035]/80">{s.text}</span>
+                                            {poolChip(s.id)}
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">What prints under each section</p>
+                    </>
+                  )}
+                  {chemSyllabus.length > 0 && chemSyllabusSections.length === 0 ? (
+                    <p className="text-xs text-[#2A2035]/40 italic">Nothing allocated yet — add section headers on the Content page and draw pooled dotpoints into each.</p>
                   ) : (
                     <div className="space-y-4">
                       {chemSyllabusSections.map((s, i) => (

@@ -4,29 +4,44 @@ import Link from 'next/link'
 import { useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
-import { selectedToSyllabusText, countSelected } from '../../lib/syllabus'
+import { selectedToSyllabusText, countSelected, filterModulesToPool } from '../../lib/syllabus'
+import { partUid } from '../../lib/bookletRender'
 import { onTextKey, onInlineKey } from '../../lib/textShortcuts'
 
 /*
- * SectionSyllabusPicker — draw syllabus dotpoints from the master list into a
- * section header (Chemistry). Stores the selected ids on block.syllabus_points
- * and regenerates block.syllabus (the printable band text) so the renderer shows
- * them under the section header in the booklet.
+ * SectionSyllabusPicker — allocate syllabus dotpoints into a section header
+ * (Chemistry). Stores the selected ids on block.syllabus_points and regenerates
+ * block.syllabus (the printable band text) so the renderer shows them under the
+ * section header in the booklet.
+ *
+ * When `pool` is given (the booklet builder), the picker offers ONLY the
+ * booklet's pooled dotpoints — the checklist on the Content tab is where the
+ * booklet's coverage is chosen; sections just divide it under headings.
  */
-function SectionSyllabusPicker({ modules = [], block, onChange }) {
+function SectionSyllabusPicker({ modules: fullModules = [], block, onChange, pool = null }) {
   const [open, setOpen] = useState(false)
   const selected = Array.isArray(block.syllabus_points) ? block.syllabus_points : []
   const sset = new Set(selected)
+  // The printable band text is always generated from the FULL module list, so a
+  // drawn sub keeps its parent header even when the pool hides its siblings.
   const apply = (next) => {
     const ids = [...next]
-    onChange({ syllabus_points: ids, syllabus: selectedToSyllabusText(modules, ids) })
+    onChange({ syllabus_points: ids, syllabus: selectedToSyllabusText(fullModules, ids) })
   }
   const toggle = (id, on) => { const s = new Set(selected); if (on) s.add(id); else s.delete(id); apply(s) }
   const toggleGroup = (main, on) => { const s = new Set(selected); for (const x of main.subs) { if (on) s.add(x.id); else s.delete(x.id) } apply(s) }
-  const count = countSelected(modules, sset)
+  const count = countSelected(fullModules, sset)
 
-  if (!modules.length) {
+  if (!fullModules.length) {
     return <p className="text-[11px] text-[#2A2035]/45">No master syllabus for this year yet — add it on the <Link href="/tutor/resources/syllabus?subject=Chemistry" className="underline">Syllabus</Link> page.</p>
+  }
+  const modules = pool ? filterModulesToPool(fullModules, pool) : fullModules
+  if (pool && !modules.length) {
+    return (
+      <div className="rounded-lg border border-[#DEE7FF] bg-[#FBFCFF] px-3 py-2">
+        <p className="text-[11px] text-[#2A2035]/50">📚 No dotpoints in this booklet yet — tick the content it covers on the <span className="font-semibold text-[#325099]">Content</span> tab first, then allocate them to sections here.</p>
+      </div>
+    )
   }
   const cb = 'mt-0.5 shrink-0 accent-[#325099]'
   return (
@@ -602,7 +617,7 @@ function TwoColField({ block, set }) {
   )
 }
 
-export default function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [] }) {
+export default function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null }) {
   const set = (patch) => onChange({ ...block, ...patch })
   // Maths workbook/homework don't print marks (only the revision quiz does), so
   // hide the Marks input there — but always show it in the revision quiz.
@@ -616,7 +631,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
             <div><label className={L}>No.</label><input className={I} value={block.number} onChange={e => set({ number: e.target.value })} placeholder="1" /></div>
             <div><label className={L}>Section title</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} /></div>
           </div>
-          {isChem && <SectionSyllabusPicker modules={syllabus} block={block} onChange={set} />}
+          {isChem && <SectionSyllabusPicker modules={syllabus} block={block} onChange={set} pool={syllabusPool} />}
         </div>
       )
     case 'subtopic':

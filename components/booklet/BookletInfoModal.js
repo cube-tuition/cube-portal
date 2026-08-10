@@ -559,7 +559,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                   <p className="text-[12px] text-[#2A2035]/35">No content listed for this booklet yet.</p>
                 )}
                 <p className="text-[10px] text-[#2A2035]/40 mt-1.5">
-                  Chemistry content is generated from the syllabus dotpoints each section header draws — edit it on the booklet’s Content page in the workbook builder.
+                  Chemistry content is chosen as a dotpoint checklist on the workbook builder’s Content tab, then allocated to section headers on its Content page — edit it there.
                 </p>
               </>
             ) : syll === null ? (
