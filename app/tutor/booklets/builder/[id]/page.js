@@ -11,14 +11,14 @@ import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../
 // builder promotes the linked curriculum row to "In Progress" on the next save.
 const AUTO_IN_PROGRESS_BLOCKS = 5
 import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS, DEFAULT_LT_INSTRUCTIONS, DEFAULT_LT_TOTALS } from '../../../../../lib/bookletRender'
-import { exportBookletPdf, bookletFontEmbedCSS } from '../../../../../lib/bookletExport'
+import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import { bookletPdfName } from '../../../../../lib/bookletNaming'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
 import { fetchTaxonomy, SUBJECT_FAMILIES } from '../../../../../lib/qbank'
-import { fetchSyllabus } from '../../../../../lib/syllabus'
+import { fetchSyllabus, filterModulesToPool, removeDotpointsFromSections, dotpointAllocation, countSelected } from '../../../../../lib/syllabus'
 import { buildSyllabusContent } from '../../../../../lib/bookletContent'
 
 // Standard year/subject options so metadata is consistent across booklets.
@@ -445,16 +445,20 @@ export default function BookletBuilderEditor() {
     try {
       await save()
       setPubProgress({ pct: 4, label: 'Preparing student copy…' })
-      // Both copies embed the same web fonts, so derive that CSS once for the
-      // whole publish instead of once per page in each export.
-      const fontEmbedCSS = await bookletFontEmbedCSS()
+      // Both copies embed the same web fonts. The first export derives the CSS
+      // from its own rendered pages and returns it; the second reuses it. (It
+      // must come from real pages — deriving it from a synthetic probe once
+      // shipped PDFs whose maths fell back to system fonts.)
+      let fontEmbedCSS
       const subjectLower = (bk.subject || 'mathematics').toLowerCase()
       const stamp = `${Date.now()}_${Math.random().toString(36).slice(2)}`
       const upload = async (solutions, tag, from, to) => {
-        const { blob } = await exportBookletPdf({
+        const res = await exportBookletPdf({
           meta, blocks: bk.blocks, solutions, preview: true, fontEmbedCSS,
           onProgress: stageProgress(from, to - 0.04),
         })
+        const { blob } = res
+        fontEmbedCSS = fontEmbedCSS || res.fontEmbedCSS
         setPubProgress({ pct: Math.round((to - 0.04) * 100), label: `Uploading ${tag} copy…` })
         const path = `y${bk.year}/${subjectLower}/${stamp}_${tag}.pdf`
         const { error } = await supabase.storage.from('booklets').upload(path, blob, { upsert: true, contentType: 'application/pdf' })
@@ -462,19 +466,23 @@ export default function BookletBuilderEditor() {
         setPubProgress({ pct: Math.round(to * 100), label: `Uploaded ${tag} copy` })
         return path
       }
-      const studentPath = await upload(false, 'student', 0.04, 0.50)
-      const solutionsPath = await upload(true, 'solutions', 0.50, 0.94)
-      const filePaths = [studentPath, solutionsPath]
+      // Online workbooks are delivered as a typeable student doc — publishing
+      // links them into the curriculum but renders no PDFs at all.
+      const isOnline = bk.delivery === 'online'
+      const studentPath = isOnline ? null : await upload(false, 'student', 0.04, 0.50)
+      const solutionsPath = isOnline ? null : await upload(true, 'solutions', 0.50, 0.94)
+      const filePaths = isOnline ? [] : [studentPath, solutionsPath]
       // Name the two copies so student vs solutions (teacher) is clear in the
       // curriculum, e.g. "5.MS. Algebra 1" and "5.MT. Algebra 1". Order matches
       // filePaths (student, then solutions).
       const meta2 = { year: bk.year, subject: bk.subject, title: bk.title }
-      const pdfFilenames = [bookletPdfName(meta2, 'S'), bookletPdfName(meta2, 'T')]
+      const pdfFilenames = isOnline ? [] : [bookletPdfName(meta2, 'S'), bookletPdfName(meta2, 'T')]
       const payload = {
         booklet_name: bk.title, year: Number(bk.year), subject: bk.subject,
         topic: bk.topic || null,
         content: bk.subject === 'Chemistry' ? buildSyllabusContent(bk.blocks) : (bk.content || null),
         file_path: studentPath, file_paths: filePaths, pdf_filenames: pdfFilenames,
+        delivery: isOnline ? 'online' : 'physical',
       }
       setPubProgress({ pct: 95, label: 'Updating the curriculum…' })
       let bookletId = bk.booklet_id
