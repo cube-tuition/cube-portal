@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState, useCallback, Fragment } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { requireStudent } from '../../lib/requireStudent'
@@ -18,6 +19,11 @@ import { enrolledClassesForTerm } from '../../lib/classes'
  * balanced random set scoped to their year/enrolled subjects, shows it on-device
  * with an optional answer key, and can save it to revisit (student_worksheets).
  */
+
+// Resources is temporarily closed to students while it is being finished.
+// Flip this to false to reopen it — nothing else needs changing, and every
+// piece of the page below is left intact and ready.
+const COMING_SOON = true
 
 const DIFF_BANDS = { easy: [1, 2], medium: [3], hard: [4, 5] }
 // Year from a class name like "Y9 Maths" or "Year 9 English".
@@ -130,19 +136,25 @@ export default function Resources() {
 
   // Subjects available to this student: match the (year, subject) of each class
   // they're actually enrolled in (fuzzy subject match, e.g. "Maths" ↔ "Mathematics").
-  // Falls back to the profile year, then all subjects, so the picker is never empty.
+  //
+  // Enrolment is AUTHORITATIVE — if we know what the student is enrolled in, the
+  // result is exactly those subjects, even when that leaves nothing to offer.
+  // The year/all-subjects fallbacks are only for a student we have no enrolment
+  // data for at all. (Previously an empty match fell through to "every subject
+  // in their year", which showed an English-only student Year 10 Maths.)
   const mySubjects = useMemo(() => {
     if (!tax) return []
+    // English is excluded from the student Resources picker.
+    const subjects = tax.subjects.filter(s => !/english/i.test(s.name))
     if (enrolledPairs.length) {
-      const f = tax.subjects.filter(s => enrolledPairs.some(p =>
+      return subjects.filter(s => enrolledPairs.some(p =>
         String(s.year_level) === String(p.year) && subjectsMatch(s.name, p.subject)))
-      if (f.length) return f
     }
     if (student?.year) {
-      const byYear = tax.subjects.filter(s => String(s.year_level) === String(student.year))
+      const byYear = subjects.filter(s => String(s.year_level) === String(student.year))
       if (byYear.length) return byYear
     }
-    return tax.subjects
+    return subjects
   }, [tax, student, enrolledPairs])
 
   // Effective subject: the student's choice, or the first available subject.
@@ -233,6 +245,32 @@ export default function Resources() {
     <div className="min-h-screen flex items-center justify-center bg-white text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   )
 
+  // Temporarily closed: students see a coming-soon panel instead of the
+  // worksheet builder. Rendered after the auth gate above, so this is still
+  // a signed-in page rather than a public one.
+  if (COMING_SOON) return (
+    <div className="min-h-screen bg-[#F8FAFF]">
+      <PortalNav studentName={student?.full_name} />
+      <div className="max-w-3xl mx-auto px-6 md:px-10 py-20 md:py-28 text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white border border-[#DEE7FF] text-3xl mb-6">📝</div>
+        <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold mb-2 font-display">Resources</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-[#2A2035] font-display">Practice worksheets are coming soon</h1>
+        <p className="text-sm text-[#2A2035]/70 mt-4 max-w-xl mx-auto leading-relaxed">
+          We&rsquo;re putting the finishing touches on this page. Soon you&rsquo;ll be able to
+          pick a topic and difficulty and get a fresh practice worksheet built for
+          you, right here in the portal.
+        </p>
+        <p className="text-sm text-[#2A2035]/55 mt-3">
+          In the meantime, your workbooks are on your class pages.
+        </p>
+        <Link
+          href="/classes"
+          className="inline-block mt-8 px-5 py-3 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition"
+        >Go to your classes →</Link>
+      </div>
+    </div>
+  )
+
   const selCls = 'w-full border border-[#DEE7FF] rounded-xl px-3 py-2.5 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
   return (
@@ -287,6 +325,15 @@ export default function Resources() {
                     onSelect={v => { setSubjectId(v); setTopicIds([]); setSubjPop(null) }}
                     onClose={() => setSubjPop(null)}
                   />
+                )}
+                {/* An enrolled student can legitimately have nothing here — e.g.
+                    an English-only student, since English has no practice
+                    worksheets. Say so rather than leaving an empty picker. */}
+                {tax && mySubjects.length === 0 && (
+                  <p className="text-[11px] text-[#2A2035]/45 mt-1.5 leading-relaxed">
+                    Practice worksheets aren’t available for your classes yet. Ask your
+                    CUBE tutor if you’d like extra practice.
+                  </p>
                 )}
               </div>
 

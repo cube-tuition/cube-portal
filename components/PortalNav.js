@@ -5,8 +5,10 @@ import { supabase } from '../lib/supabase'
 
 const LINKS = [
   { label: 'Home', href: '/dashboard' },
-  { label: 'Results', href: '/results' },
-  { label: 'Resources', href: '/resources' },
+  { label: 'Classes', href: '/classes' },
+  // `soon` tags a link whose page is still being finished — the page itself
+  // shows the coming-soon panel; this just sets the expectation beforehand.
+  { label: 'Resources', href: '/resources', soon: true },
   { label: 'Drop-in Help', href: '/dropin' },
   { label: 'Past Terms', href: '/archive' },
 ]
@@ -56,6 +58,9 @@ export default function PortalNav({ studentName }) {
                 }`}
               >
                 {link.label}
+                {link.soon && (
+                  <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wider text-[#325099]/60 align-middle">Soon</span>
+                )}
               </Link>
             )
           })}

@@ -197,8 +197,8 @@ export default function Dashboard() {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           {[
-            { label: 'Results & Analytics', href: '/results', emoji: '📈', desc: 'Exam scores, quiz tracker & trends', accent: '#DEE7FF' },
-            { label: 'Resources',           href: '/resources', emoji: '📚', desc: 'Term booklets & study materials',     accent: '#FEF3C7' },
+            { label: 'Classes', href: '/classes', emoji: '📈', desc: 'Weekly workbooks, results & attendance', accent: '#DEE7FF' },
+            { label: 'Resources',           href: '/resources', emoji: '📚', desc: 'Practice worksheets — coming soon',   accent: '#FEF3C7', soon: true },
             { label: 'Drop-in Help',        href: '/dropin',    emoji: '🙋', desc: 'Book a free exam & HW help session',  accent: '#D1FAE5' },
           ].map(card => (
             <Link
@@ -213,7 +213,12 @@ export default function Dashboard() {
                 {card.emoji}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-[#2A2035] font-display">{card.label}</p>
+                <p className="font-semibold text-[#2A2035] font-display">
+                  {card.label}
+                  {card.soon && (
+                    <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-[#325099] bg-[#DEE7FF] px-1.5 py-0.5 rounded align-middle">Soon</span>
+                  )}
+                </p>
                 <p className="text-xs text-[#2A2035]/50 mt-0.5">{card.desc}</p>
               </div>
               <span className="text-[#325099] transition-transform group-hover:translate-x-0.5">→</span>
