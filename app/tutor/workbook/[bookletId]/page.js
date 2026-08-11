@@ -5,6 +5,7 @@ import { Suspense } from 'react'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import WorkbookDoc from '../../../../components/booklet/WorkbookDoc'
+import TermJournal from '../../../../components/booklet/TermJournal'
 
 /*
  * Teacher's view of an online workbook — /tutor/workbook/<bookletId>?class=<id>
@@ -12,7 +13,9 @@ import WorkbookDoc from '../../../../components/booklet/WorkbookDoc'
  * Opens in its own tab from the lesson page. Side tabs down the left: the
  * teacher's own copy (default, editable — for modelling in class) then one tab
  * per enrolled student showing that student's live work, where the teacher can
- * leave a comment on any answer.
+ * leave a comment on any answer. Each student's tab carries a second view —
+ * their Help Page, the term-long document where they drop questions and
+ * assessment tasks for review; it is the same doc from every week's workbook.
  */
 
 function TeacherWorkbookInner() {
@@ -27,7 +30,9 @@ function TeacherWorkbookInner() {
   const [cls, setCls] = useState(null)
   const [students, setStudents] = useState([])
   const [tab, setTab] = useState('teacher')     // 'teacher' | student uuid
+  const [view, setView] = useState('wb')        // per-student: 'wb' | 'doc'
   const [started, setStarted] = useState({})    // student id → answered count
+  const [docCounts, setDocCounts] = useState({}) // student id → journal entry count
   const [err, setErr] = useState('')
 
   useEffect(() => {
@@ -61,6 +66,14 @@ function TeacherWorkbookInner() {
         const counts = {}
         for (const r of ans || []) if ((r.body || '').trim()) counts[r.owner_id] = (counts[r.owner_id] || 0) + 1
         setStarted(counts)
+
+        // Who has put anything in their Help Page — drives the count chip
+        // on each student's doc sub-tab.
+        const { data: je } = await supabase.from('term_journal_entries')
+          .select('student_id').eq('class_id', classId)
+        const dc = {}
+        for (const r of je || []) dc[r.student_id] = (dc[r.student_id] || 0) + 1
+        setDocCounts(dc)
       }
     })()
   }, [bookletId, classId, router])
@@ -84,7 +97,11 @@ function TeacherWorkbookInner() {
           <span className="text-sm font-bold text-[#062E63]">{title}</span>
           {cls && <span className="text-xs text-[#325099]/60">{cls.class_name}</span>}
           <span className="ml-auto text-xs text-[#2A2035]/45">
-            {activeStudent ? `Reading ${activeStudent.full_name}’s work — select any text to comment` : 'Solutions and notes for teaching'}
+            {activeStudent
+              ? (view === 'doc'
+                ? `${activeStudent.full_name}’s Help Page — reply under any entry`
+                : `Reading ${activeStudent.full_name}’s work — select any text to comment`)
+              : 'Solutions and notes for teaching'}
           </span>
         </div>
       </div>
@@ -107,17 +124,36 @@ function TeacherWorkbookInner() {
           )}
           <div className="space-y-1">
             {students.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setTab(s.id)}
-                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition border flex items-center gap-2 ${tab === s.id
-                  ? 'bg-[#325099] text-white border-[#325099]'
-                  : 'bg-white text-[#2A2035]/70 border-[#DEE7FF] hover:border-[#325099]'}`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${started[s.id] ? 'bg-[#16A34A]' : 'bg-[#D4DBEA]'}`}
-                  title={started[s.id] ? `${started[s.id]} answer${started[s.id] === 1 ? '' : 's'} typed` : 'Not started'} />
-                <span className="truncate">{s.full_name}</span>
-              </button>
+              <div key={s.id}>
+                <button
+                  onClick={() => { setTab(s.id); if (tab !== s.id) setView('wb') }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition border flex items-center gap-2 ${tab === s.id
+                    ? 'bg-[#325099] text-white border-[#325099]'
+                    : 'bg-white text-[#2A2035]/70 border-[#DEE7FF] hover:border-[#325099]'}`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${started[s.id] ? 'bg-[#16A34A]' : 'bg-[#D4DBEA]'}`}
+                    title={started[s.id] ? `${started[s.id]} answer${started[s.id] === 1 ? '' : 's'} typed` : 'Not started'} />
+                  <span className="truncate">{s.full_name}</span>
+                </button>
+                {/* The selected student unfolds into their two views: this
+                    week's workbook and their term-long Help Page. */}
+                {tab === s.id && (
+                  <div className="flex gap-1 mt-1 mb-1.5 pl-3">
+                    <button onClick={() => setView('wb')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${view === 'wb'
+                        ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
+                        : 'bg-white text-[#2A2035]/55 border-[#DEE7FF] hover:border-[#325099]'}`}>
+                      📖 Workbook
+                    </button>
+                    <button onClick={() => setView('doc')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${view === 'doc'
+                        ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
+                        : 'bg-white text-[#2A2035]/55 border-[#DEE7FF] hover:border-[#325099]'}`}>
+                      📂 Help Page{docCounts[s.id] ? ` · ${docCounts[s.id]}` : ''}
+                    </button>
+                  </div>
+                )}
+              </div>
             ))}
           </div>
           {!classId && <p className="text-[11px] text-[#2A2035]/40 mt-3 px-1">Open this from a class lesson page to see student copies.</p>}
@@ -125,16 +161,26 @@ function TeacherWorkbookInner() {
 
         {/* The doc */}
         <main className="flex-1 min-w-0 overflow-x-auto">
-          <WorkbookDoc
-            key={tab}
-            booklet={booklet}
-            blocks={build.blocks || []}
-            classId={classId}
-            ownerId={tab === 'teacher' ? staff.id : tab}
-            mode={tab === 'teacher' ? 'solutions' : 'review'}
-            commentStudentId={tab === 'teacher' ? null : tab}
-            staffId={staff.id}
-          />
+          {tab !== 'teacher' && view === 'doc' ? (
+            <TermJournal
+              key={`doc:${tab}`}
+              classId={classId}
+              studentId={tab}
+              mode="review"
+              staffId={staff.id}
+            />
+          ) : (
+            <WorkbookDoc
+              key={tab}
+              booklet={booklet}
+              blocks={build.blocks || []}
+              classId={classId}
+              ownerId={tab === 'teacher' ? staff.id : tab}
+              mode={tab === 'teacher' ? 'solutions' : 'review'}
+              commentStudentId={tab === 'teacher' ? null : tab}
+              staffId={staff.id}
+            />
+          )}
         </main>
       </div>
     </div>
