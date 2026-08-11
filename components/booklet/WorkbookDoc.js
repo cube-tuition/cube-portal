@@ -169,7 +169,7 @@ function renderSegs(segs, marks, onMarkClick) {
 
 /* Student's answer, read-only, with commented ranges highlighted. Selecting
    text inside it offers to attach a comment to that selection. */
-function ReviewAnswer({ minHeight, text, editText, comments, onAnchor, activeId, onActivate, onEdit, onClearEdit, registerRef }) {
+function ReviewAnswer({ minHeight, text, editText, comments, onAnchor, activeId, onActivate, onEdit, registerRef }) {
   const ref = useRef(null)
   const taRef = useRef(null)
   const [sel, setSel] = useState(null)       // { start, end, quote, top }
@@ -229,10 +229,6 @@ function ReviewAnswer({ minHeight, text, editText, comments, onAnchor, activeId,
   return (
     <div className="bk-answer-live" style={{ position: 'relative' }}>
       <div className="bk-edit-tools">
-        {editText != null && editText !== text && (
-          <button className="bk-tool" title="Remove your edits and show the student’s original"
-            onClick={onClearEdit}>↺ Original</button>
-        )}
         <button className="bk-tool" title="Edit the student’s answer — deletions are struck through, your words show in red"
           onClick={() => setEditing(true)}>✏️ Edit</button>
       </div>
@@ -280,30 +276,42 @@ function paintText(text, marks) {
    the highlight behind the student's real, editable text. */
 function OwnAnswer({ minHeight, value, editText, marks = [], onChange, onSelect, registerRef }) {
   const ref = useRef(null)
+  const [editing, setEditing] = useState(false)
   const grow = useCallback(() => {
     const el = ref.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`
   }, [minHeight])
-  useEffect(() => { grow() }, [grow, value])
-  // Once the teacher has marked this answer, the student sees the marked-up
-  // version — their words with deletions struck through and the teacher's in
-  // red — rather than an editable box. Their own text is untouched underneath;
-  // the teacher's ↺ Original restores the editable box.
-  if (editText != null && editText !== value) {
+  useEffect(() => { grow() }, [grow, value, editing])
+  useEffect(() => { if (editing) ref.current?.focus({ preventScroll: true }) }, [editing])
+  // A teacher-marked answer opens on the marked-up view — the student's words
+  // with deletions struck through and the teacher's in red — but it never locks:
+  // ✏️ Edit switches back to the student's own editable text (the markup keeps
+  // up, since the diff is recomputed against whatever they now write), and both
+  // sides can keep writing whenever they like.
+  const hasMarkup = editText != null && editText !== value
+  if (hasMarkup && !editing) {
     const segs = diffWords(value, editText)
     return (
       <div className="bk-answer-live" style={{ position: 'relative' }}>
+        <div className="bk-edit-tools">
+          <button className="bk-tool" title="Keep writing — your teacher’s markup stays alongside"
+            onClick={() => setEditing(true)}>✏️ Edit</button>
+        </div>
         <div ref={registerRef} className="bk-answer-input bk-answer-ro" style={{ minHeight }}>
           {renderSegs(segs, marks.map(m => ({ ...m, cls: `bk-note-hl${m.stale ? ' bk-note-hl-stale' : ''}${m.active ? ' bk-note-hl-on' : ''}`, id: m.id })), m => m?.onClick?.())}
         </div>
-        <p className="bk-marked-tag">✏️ Marked by your teacher</p>
       </div>
     )
   }
   return (
     <div className="bk-answer-live bk-answer-stack">
+      {hasMarkup && (
+        <div className="bk-edit-tools">
+          <button className="bk-tool bk-tool-on" onClick={() => setEditing(false)}>Done</button>
+        </div>
+      )}
       <div className="bk-answer-input bk-answer-back" aria-hidden="true" style={{ minHeight }}>
         {paintText(value, marks).map((p, i) => (p.mark
           ? <mark key={i} className={`bk-note-hl${p.mark.stale ? ' bk-note-hl-stale' : ''}${p.mark.active ? ' bk-note-hl-on' : ''}`}>{p.text}</mark>
@@ -515,14 +523,6 @@ export default function WorkbookDoc({
     }, SAVE_DELAY)
   }, [booklet.id, classId, ownerId])
 
-  const clearEdit = useCallback(async (k, blockId, partId) => {
-    clearTimeout(timers.current[`t:${k}`]); delete timers.current[`t:${k}`]
-    setEdits(m => { const n = { ...m }; delete n[k]; return n })
-    await supabase.from('workbook_answers').delete().match({
-      booklet_id: booklet.id, class_id: classId, owner_id: ownerId,
-      block_id: blockId, part_id: partId, is_teacher: true,
-    })
-  }, [booklet.id, classId, ownerId])
 
   const addComment = async () => {
     if (!draft?.body.trim()) { setDraft(null); return }
@@ -774,7 +774,6 @@ export default function WorkbookDoc({
             editText={edits[key] ?? null}
             comments={mine} activeId={activeComment} onActivate={setActiveComment} registerRef={reg}
             onEdit={(v) => { setEdits(m => ({ ...m, [key]: v })); saveEdit(key, slot.blockId, slot.partId, v) }}
-            onClearEdit={() => clearEdit(key, slot.blockId, slot.partId)}
             onAnchor={(sel) => { setDraft({ key, slot, ...sel, body: '' }); setActiveComment(null) }} />
         }
         const myMarks = [
@@ -908,7 +907,6 @@ export default function WorkbookDoc({
         .bk-tool:hover{ border-color:#325099; }
         .bk-tool-on{ background:#325099; color:#fff; border-color:#325099; }
         textarea.bk-edit-ta{ border-color:#325099; background:#fff; }
-        .bk-marked-tag{ margin:4px 2px 0; font-size:10px; font-weight:700; color:#C22D2D; }
       `}</style>
 
       {/* Mirrors the comment margin so the page lands in the true centre. */}
