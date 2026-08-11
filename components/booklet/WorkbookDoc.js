@@ -645,7 +645,14 @@ export default function WorkbookDoc({
     const textNotes = notes.filter(n => n.target === 'text')
     const byBlock = {}
     for (const n of textNotes) (byBlock[n.block_id] ||= []).push(n)
-    if (noteDraft?.target === 'text') (byBlock[noteDraft.blockId] ||= []).push({ ...noteDraft, id: '__draft' })
+    if (noteDraft?.target === 'text') (byBlock[noteDraft.blockId] ||= []).push({
+      ...noteDraft, range_start: noteDraft.start, range_end: noteDraft.end, id: '__draft' })
+    // The live selection too: React rewrites these chunks' innerHTML on every
+    // re-render, which collapses the browser's own selection the instant the
+    // Note button appears. Painting the pending range here keeps the student's
+    // highlight visibly stuck to the words until they note it or click away.
+    else if (selection?.target === 'text') (byBlock[selection.blockId] ||= []).push({
+      ...selection, range_start: selection.start, range_end: selection.end, id: '__sel' })
 
     const touched = []
     const stalies = new Set()
@@ -661,7 +668,7 @@ export default function WorkbookDoc({
       // Later highlights first: painting splits text nodes, and going
       // back-to-front keeps the earlier offsets pointing where they did.
       for (const n of [...list].sort((a, b) => b.range_start - a.range_start)) {
-        const stale = n.id !== '__draft' && !checkQuote(els, n)
+        const stale = n.id !== '__draft' && n.id !== '__sel' && !checkQuote(els, n)
         if (stale) stalies.add(n.id)
         const el = paintRange(els, {
           start: n.range_start ?? n.start, end: n.range_end ?? n.end, id: n.id,
@@ -777,6 +784,10 @@ export default function WorkbookDoc({
               stale: (answers[key] ?? '').slice(n.range_start, n.range_end) !== n.quote })),
           ...(noteDraft?.target === 'answer' && `${noteDraft.blockId}::${noteDraft.partId}` === key
             ? [{ start: noteDraft.start, end: noteDraft.end, active: true }] : []),
+          // The pending selection, so the highlight survives the textarea
+          // losing focus before the Note button is clicked.
+          ...(!noteDraft && selection?.target === 'answer' && `${selection.blockId}::${selection.partId}` === key
+            ? [{ start: selection.start, end: selection.end, active: true }] : []),
         ]
         return <OwnAnswer key={j} minHeight={piece.minHeight} value={answers[key] ?? ''} registerRef={reg}
           editText={edits[key] ?? null}
