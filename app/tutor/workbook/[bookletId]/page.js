@@ -6,6 +6,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import WorkbookDoc from '../../../../components/booklet/WorkbookDoc'
 import TermJournal from '../../../../components/booklet/TermJournal'
+import CollabDoc from '../../../../components/booklet/CollabDoc'
 
 /*
  * Teacher's view of an online workbook — /tutor/workbook/<bookletId>?class=<id>
@@ -29,7 +30,7 @@ function TeacherWorkbookInner() {
   const [build, setBuild] = useState(null)
   const [cls, setCls] = useState(null)
   const [students, setStudents] = useState([])
-  const [tab, setTab] = useState('teacher')     // 'teacher' | student uuid
+  const [tab, setTab] = useState('teacher')     // 'teacher' | 'collab' | student uuid
   const [view, setView] = useState('wb')        // per-student: 'wb' | 'doc'
   const [started, setStarted] = useState({})    // student id → answered count
   const [docCounts, setDocCounts] = useState({}) // student id → journal entry count
@@ -87,7 +88,7 @@ function TeacherWorkbookInner() {
   if (err) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center px-6"><p className="text-sm text-[#B23A3A] max-w-md text-center">{err}</p></div>
   if (!staff || !booklet || !build) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
-  const activeStudent = tab === 'teacher' ? null : students.find(s => s.id === tab)
+  const activeStudent = (tab === 'teacher' || tab === 'collab') ? null : students.find(s => s.id === tab)
 
   return (
     <div className="min-h-screen bg-[#F1F4FA]">
@@ -97,11 +98,13 @@ function TeacherWorkbookInner() {
           <span className="text-sm font-bold text-[#062E63]">{title}</span>
           {cls && <span className="text-xs text-[#325099]/60">{cls.class_name}</span>}
           <span className="ml-auto text-xs text-[#2A2035]/45">
-            {activeStudent
-              ? (view === 'doc'
-                ? `${activeStudent.full_name}’s Help Page — reply under any entry`
-                : `Reading ${activeStudent.full_name}’s work — select any text to comment`)
-              : 'Solutions and notes for teaching'}
+            {tab === 'collab'
+              ? 'One page for the whole class — everyone writes here'
+              : activeStudent
+                ? (view === 'doc'
+                  ? `${activeStudent.full_name}’s Help Page — reply under any entry`
+                  : `Reading ${activeStudent.full_name}’s work — select any text to comment`)
+                : 'Solutions and notes for teaching'}
           </span>
         </div>
       </div>
@@ -149,6 +152,16 @@ function TeacherWorkbookInner() {
               </div>
             ))}
           </div>
+          {classId && (
+            <button
+              onClick={() => setTab('collab')}
+              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold mt-3 transition border ${tab === 'collab'
+                ? 'bg-[#325099] text-white border-[#325099]'
+                : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}
+            >
+              🤝 Shared notes
+            </button>
+          )}
           {students.length > 0 && (
             <p className="text-[10px] text-[#2A2035]/40 mt-2 px-1 leading-relaxed">
               📂 is a student&rsquo;s Help Page — the term-long doc where they drop questions and tasks for review.
@@ -159,7 +172,9 @@ function TeacherWorkbookInner() {
 
         {/* The doc */}
         <main className="flex-1 min-w-0 overflow-x-auto">
-          {tab !== 'teacher' && view === 'doc' ? (
+          {tab === 'collab' ? (
+            <CollabDoc classId={classId} meId={staff.id} />
+          ) : tab !== 'teacher' && view === 'doc' ? (
             <TermJournal
               key={`doc:${tab}`}
               classId={classId}

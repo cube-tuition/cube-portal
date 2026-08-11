@@ -6,6 +6,7 @@ import { requireStudent } from '../../../lib/requireStudent'
 import PortalNav from '../../../components/PortalNav'
 import WorkbookDoc from '../../../components/booklet/WorkbookDoc'
 import TermJournal from '../../../components/booklet/TermJournal'
+import CollabDoc from '../../../components/booklet/CollabDoc'
 
 /*
  * A student's own copy of an online workbook — /workbook/<bookletId>?class=<id>
@@ -29,7 +30,7 @@ function StudentWorkbookInner() {
   const [student, setStudent] = useState(null)
   const [booklet, setBooklet] = useState(null)
   const [build, setBuild] = useState(null)
-  const [tab, setTab] = useState('workbook')   // 'workbook' | 'doc'
+  const [tab, setTab] = useState('workbook')   // 'workbook' | 'doc' | 'collab'
   const [err, setErr] = useState('')
 
   useEffect(() => {
@@ -81,9 +82,10 @@ function StudentWorkbookInner() {
       <div className="sticky top-0 z-20 bg-white border-b border-[#DEE7FF]">
         <div className="max-w-[1330px] mx-auto px-5 py-2.5 flex items-center gap-3 flex-wrap">
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F]">🌐 Online</span>
-          <span className="text-sm font-bold text-[#062E63]">{onDoc ? 'Help Page' : title}</span>
+          <span className="text-sm font-bold text-[#062E63]">{tab === 'collab' ? 'Shared notes' : onDoc ? 'Help Page' : title}</span>
           <span className="ml-auto text-xs text-[#2A2035]/45">
-            {onDoc ? 'Anything you add stays here all term — your teacher reviews it' : 'Your work saves automatically'}
+            {tab === 'collab' ? 'One page for the whole class — teacher included'
+              : onDoc ? 'Anything you add stays here all term — your teacher reviews it' : 'Your work saves automatically'}
           </span>
         </div>
       </div>
@@ -107,6 +109,14 @@ function StudentWorkbookInner() {
           >
             📂 Help Page
           </button>
+          <button
+            onClick={() => setTab('collab')}
+            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold mt-1.5 transition border ${tab === 'collab'
+              ? 'bg-[#325099] text-white border-[#325099]'
+              : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}
+          >
+            🤝 Shared notes
+          </button>
           <p className="text-[10px] text-[#2A2035]/40 mt-2 px-1 leading-relaxed">
             {onDoc
               ? 'Questions, assessment tasks, essays for feedback — add them any week; it all stays here for the term.'
@@ -115,7 +125,9 @@ function StudentWorkbookInner() {
         </aside>
 
         <main className="flex-1 min-w-0 overflow-x-auto">
-          {onDoc ? (
+          {tab === 'collab' ? (
+            <CollabDoc classId={classId} meId={student.id} />
+          ) : onDoc ? (
             <TermJournal classId={classId} studentId={student.id} mode="own" />
           ) : (
             <WorkbookDoc
