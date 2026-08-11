@@ -4,5 +4,5 @@ import { redirect } from 'next/navigation'
 // Each course's tab now includes its own performance trend, quiz tracker,
 // homework, exams, and attendance.
 export default function AnalyticsRedirect() {
-  redirect('/results')
+  redirect('/classes')
 }

@@ -89,7 +89,7 @@ export default function ArchivePage() {
               Once this term wraps up, it&rsquo;ll show up here so you can always look back.
             </p>
             <Link
-              href="/results"
+              href="/classes"
               className="inline-block mt-5 bg-[#325099] text-white text-xs font-semibold px-4 py-2 rounded-full hover:bg-[#062E63] transition"
             >
               See current term →

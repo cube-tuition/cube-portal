@@ -16,7 +16,7 @@ import CourseDetail, {
   subjectColor,
   subjectsMatch,
 } from '../../../components/CourseDetail'
-import { T_STUDENTS } from '../../../lib/tables'
+import { T_ATTENDANCE, T_QUIZ_RESULTS, T_RESULTS, T_STUDENTS } from '../../../lib/tables'
 import { enrolledClassesForTerm } from '../../../lib/classes'
 
 export default function ArchiveTermPage() {
@@ -52,14 +52,10 @@ export default function ArchiveTermPage() {
 
       // Enrolled courses — classes are per-term rows, so scope the join to the
       // archived term being viewed (otherwise every class shows once per term).
-      let classData
-      const r1 = await enrolledClassesForTerm(user.id, termId, 'id, class_name, day_of_week, start_time, end_time, teacher, room, subject')
-      if (r1.error) {
-        const r2 = await enrolledClassesForTerm(user.id, termId, 'id, class_name, day_of_week, start_time, end_time, teacher, room')
-        classData = r2.data
-      } else {
-        classData = r1.data
-      }
+      // There is no `subject` column on classes — asking for one fails the whole
+      // query, so the subject is inferred from the class name instead.
+      const { data: classData } = await enrolledClassesForTerm(
+        user.id, termId, 'id, class_name, day_of_week, start_time, end_time, teacher, room')
       const list = (classData?.map(d => d.classes) || []).filter(Boolean)
       setCourses(list)
       setActiveCourseId(list[0]?.id || null)
