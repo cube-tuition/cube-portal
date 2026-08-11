@@ -124,10 +124,12 @@ function TeacherWorkbookInner() {
           )}
           <div className="space-y-1">
             {students.map(s => (
-              <div key={s.id}>
+              // Two buttons per row, always visible: the name opens the
+              // student's workbook, the 📂 opens their Help Page directly.
+              <div key={s.id} className="flex gap-1">
                 <button
-                  onClick={() => { setTab(s.id); if (tab !== s.id) setView('wb') }}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition border flex items-center gap-2 ${tab === s.id
+                  onClick={() => { setTab(s.id); setView('wb') }}
+                  className={`flex-1 min-w-0 text-left px-3 py-2 rounded-xl text-xs font-semibold transition border flex items-center gap-2 ${tab === s.id && view === 'wb'
                     ? 'bg-[#325099] text-white border-[#325099]'
                     : 'bg-white text-[#2A2035]/70 border-[#DEE7FF] hover:border-[#325099]'}`}
                 >
@@ -135,27 +137,23 @@ function TeacherWorkbookInner() {
                     title={started[s.id] ? `${started[s.id]} answer${started[s.id] === 1 ? '' : 's'} typed` : 'Not started'} />
                   <span className="truncate">{s.full_name}</span>
                 </button>
-                {/* The selected student unfolds into their two views: this
-                    week's workbook and their term-long Help Page. */}
-                {tab === s.id && (
-                  <div className="flex gap-1 mt-1 mb-1.5 pl-3">
-                    <button onClick={() => setView('wb')}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${view === 'wb'
-                        ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
-                        : 'bg-white text-[#2A2035]/55 border-[#DEE7FF] hover:border-[#325099]'}`}>
-                      📖 Workbook
-                    </button>
-                    <button onClick={() => setView('doc')}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${view === 'doc'
-                        ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
-                        : 'bg-white text-[#2A2035]/55 border-[#DEE7FF] hover:border-[#325099]'}`}>
-                      📂 Help Page{docCounts[s.id] ? ` · ${docCounts[s.id]}` : ''}
-                    </button>
-                  </div>
-                )}
+                <button
+                  onClick={() => { setTab(s.id); setView('doc') }}
+                  title={`${s.full_name}’s Help Page${docCounts[s.id] ? ` · ${docCounts[s.id]} entr${docCounts[s.id] === 1 ? 'y' : 'ies'}` : ' — empty'}`}
+                  className={`shrink-0 px-2 py-2 rounded-xl text-xs font-semibold transition border ${tab === s.id && view === 'doc'
+                    ? 'bg-[#325099] text-white border-[#325099]'
+                    : 'bg-white text-[#2A2035]/70 border-[#DEE7FF] hover:border-[#325099]'}`}
+                >
+                  📂{docCounts[s.id] ? <span className="ml-0.5">{docCounts[s.id]}</span> : null}
+                </button>
               </div>
             ))}
           </div>
+          {students.length > 0 && (
+            <p className="text-[10px] text-[#2A2035]/40 mt-2 px-1 leading-relaxed">
+              📂 is a student&rsquo;s Help Page — the term-long doc where they drop questions and tasks for review.
+            </p>
+          )}
           {!classId && <p className="text-[11px] text-[#2A2035]/40 mt-3 px-1">Open this from a class lesson page to see student copies.</p>}
         </aside>
 
