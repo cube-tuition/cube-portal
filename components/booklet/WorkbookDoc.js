@@ -205,7 +205,7 @@ function ReviewAnswer({ minHeight, text, editText, comments, onAnchor, activeId,
   const marks = useMemo(() => comments
     .filter(c => Number.isFinite(c.range_start) && Number.isFinite(c.range_end))
     .map(c => ({ start: c.range_start, end: c.range_end, id: c.id,
-      cls: `bk-hl${activeId === c.id ? ' bk-hl-on' : ''}` })), [comments, activeId])
+      cls: `bk-hl${c.resolved ? ' bk-hl-res' : ''}${activeId === c.id ? ' bk-hl-on' : ''}` })), [comments, activeId])
 
   const grow = () => {
     const el = taRef.current
@@ -339,7 +339,8 @@ export default function WorkbookDoc({
   const [answers, setAnswers] = useState({})
   const [comments, setComments] = useState([])
   const [loaded, setLoaded] = useState(solutions)
-  const [saving, setSaving] = useState(0)
+  const [unsaved, setUnsaved] = useState(0)
+  const [failing, setFailing] = useState(false)
   const [pages, setPages] = useState(null)
   const [activeComment, setActiveComment] = useState(null)
   const [draft, setDraft] = useState(null)     // { key, slot, start, end, quote, body }
@@ -357,7 +358,9 @@ export default function WorkbookDoc({
   // sees them rendered as tracked changes.
   const [edits, setEdits] = useState({})
   const [editingNote, setEditingNote] = useState(null)  // { id, body }
-  const timers = useRef({})
+  const pendingRef = useRef({})     // slot key (t:<key> for teacher edits) → unsent payload
+  const flushTimer = useRef(null)
+  const retryAttempt = useRef(0)
   const boxRefs = useRef({})
   const markRefs = useRef({})
   const draftInputRef = useRef(null)
@@ -444,6 +447,75 @@ export default function WorkbookDoc({
     return () => cancelAnimationFrame(raf)
   }, [items])
 
+  /* ── saving, with a safety net ──────────────────────────────────────────
+     Every keystroke lands in a pending queue keyed by answer slot (teacher
+     edits under t:<key>), is mirrored to localStorage, and flushes after a
+     short debounce. A failed flush KEEPS the entry queued, says so in the
+     status line, and retries on an exponential backoff — plus immediately
+     when the browser comes back online. The mirror survives a closed tab:
+     reopening the page restores anything that never reached the server.
+     Without this, a dropped wifi or an expired session would sit under
+     "All changes saved" while nothing landed. */
+  const draftStoreKey = `wbdraft:${booklet.id}:${classId}:${ownerId}`
+  const mirror = useCallback(() => {
+    try {
+      const pnd = pendingRef.current
+      if (Object.keys(pnd).length) localStorage.setItem(draftStoreKey, JSON.stringify(pnd))
+      else localStorage.removeItem(draftStoreKey)
+    } catch { /* storage blocked or full — the retry queue still holds the text */ }
+  }, [draftStoreKey])
+
+  const flushRef = useRef(null)
+  const flush = useCallback(async () => {
+    clearTimeout(flushTimer.current)
+    const entries = Object.entries(pendingRef.current)
+    if (!entries.length) { setUnsaved(0); setFailing(false); return }
+    let anyFail = false
+    await Promise.all(entries.map(async ([pk, e]) => {
+      const { error } = await supabase.from('workbook_answers').upsert({
+        booklet_id: booklet.id, class_id: classId, owner_id: ownerId, is_teacher: !!e.isTeacher,
+        block_id: e.blockId, part_id: e.partId, body: e.body, updated_at: new Date().toISOString(),
+      }, { onConflict: 'booklet_id,class_id,owner_id,block_id,part_id,is_teacher' })
+      if (error) { anyFail = true; return }
+      // Clear the slot only if nothing newer was typed while this was in flight.
+      if (pendingRef.current[pk] === e) delete pendingRef.current[pk]
+    }))
+    mirror()
+    const left = Object.keys(pendingRef.current).length
+    setUnsaved(left)
+    setFailing(anyFail)
+    if (!anyFail) retryAttempt.current = 0
+    if (left) {
+      const delay = anyFail ? Math.min(30000, 2000 * 2 ** retryAttempt.current++) : SAVE_DELAY
+      flushTimer.current = setTimeout(() => flushRef.current?.(), delay)
+    }
+  }, [booklet.id, classId, ownerId, mirror])
+  useEffect(() => { flushRef.current = flush }, [flush])
+
+  const queueSave = useCallback((k, blockId, partId, isTeacher, body) => {
+    pendingRef.current[isTeacher ? `t:${k}` : k] = { blockId, partId, isTeacher, body }
+    mirror()
+    setUnsaved(Object.keys(pendingRef.current).length)
+    clearTimeout(flushTimer.current)
+    flushTimer.current = setTimeout(flush, SAVE_DELAY)
+  }, [flush, mirror])
+
+  const saveAnswer = useCallback((k, blockId, partId, body) => queueSave(k, blockId, partId, false, body), [queueSave])
+  // The teacher's tracked-changes copy: same table, is_teacher = true.
+  const saveEdit = useCallback((k, blockId, partId, body) => queueSave(k, blockId, partId, true, body), [queueSave])
+
+  // Leaving with unsent text gets the browser's are-you-sure prompt, and
+  // coming back online flushes straight away instead of waiting out a backoff.
+  useEffect(() => {
+    const warn = (e) => { if (Object.keys(pendingRef.current).length) { e.preventDefault(); e.returnValue = '' } }
+    const onUp = () => flush()
+    window.addEventListener('beforeunload', warn)
+    window.addEventListener('online', onUp)
+    return () => { window.removeEventListener('beforeunload', warn); window.removeEventListener('online', onUp) }
+  }, [flush])
+
+
+
   // ── load answers + comments ───────────────────────────────────────────────
   useEffect(() => {
     if (solutions) return
@@ -468,11 +540,26 @@ export default function WorkbookDoc({
           .order('created_at')
         ns = n.data || []
       }
+      // Anything a previous session never got to the server (tab closed during
+      // an outage) comes back from the localStorage mirror and re-queues.
+      try {
+        const raw = localStorage.getItem(`wbdraft:${booklet.id}:${classId}:${ownerId}`)
+        if (raw) {
+          let restored = 0
+          for (const [pk, e] of Object.entries(JSON.parse(raw))) {
+            const k = pk.replace(/^t:/, '')
+            const m = e.isTeacher ? emap : map
+            if ((m[k] ?? '') !== e.body) { m[k] = e.body; pendingRef.current[pk] = e; restored++ }
+          }
+          if (restored) { setUnsaved(restored); flushTimer.current = setTimeout(flush, 1500) }
+          else localStorage.removeItem(`wbdraft:${booklet.id}:${classId}:${ownerId}`)
+        }
+      } catch { /* unreadable mirror — server state stands */ }
       if (!alive) return
       setAnswers(map); setEdits(emap); setComments(cs); setNotes(ns); setLoaded(true)
     })()
     return () => { alive = false }
-  }, [solutions, booklet.id, classId, ownerId, commentStudentId, canNote])
+  }, [solutions, booklet.id, classId, ownerId, commentStudentId, canNote, flush])
 
   // ── live refresh ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -483,7 +570,7 @@ export default function WorkbookDoc({
         if (!r || r.booklet_id !== booklet.id || String(r.class_id) !== String(classId)) return
         const k = `${r.block_id}::${r.part_id}`
         const tk = r.is_teacher ? `t:${k}` : k
-        if (timers.current[tk]) return
+        if (pendingRef.current[tk]) return
         const set = r.is_teacher ? setEdits : setAnswers
         set(m => (m[k] === r.body ? m : { ...m, [k]: r.body }))
       })
@@ -497,32 +584,7 @@ export default function WorkbookDoc({
     return () => { supabase.removeChannel(ch) }
   }, [solutions, booklet.id, classId, ownerId, commentStudentId])
 
-  useEffect(() => { const t = timers.current; return () => Object.values(t).forEach(clearTimeout) }, [])
-
-  const saveAnswer = useCallback((k, blockId, partId, body) => {
-    clearTimeout(timers.current[k]); setSaving(n => n + 1)
-    timers.current[k] = setTimeout(async () => {
-      await supabase.from('workbook_answers').upsert({
-        booklet_id: booklet.id, class_id: classId, owner_id: ownerId, is_teacher: false,
-        block_id: blockId, part_id: partId, body, updated_at: new Date().toISOString(),
-      }, { onConflict: 'booklet_id,class_id,owner_id,block_id,part_id,is_teacher' })
-      delete timers.current[k]; setSaving(n => Math.max(0, n - 1))
-    }, SAVE_DELAY)
-  }, [booklet.id, classId, ownerId])
-
-  // The teacher's tracked-changes copy: same table, is_teacher = true.
-  const saveEdit = useCallback((k, blockId, partId, body) => {
-    const tk = `t:${k}`
-    clearTimeout(timers.current[tk]); setSaving(n => n + 1)
-    timers.current[tk] = setTimeout(async () => {
-      await supabase.from('workbook_answers').upsert({
-        booklet_id: booklet.id, class_id: classId, owner_id: ownerId, is_teacher: true,
-        block_id: blockId, part_id: partId, body, updated_at: new Date().toISOString(),
-      }, { onConflict: 'booklet_id,class_id,owner_id,block_id,part_id,is_teacher' })
-      delete timers.current[tk]; setSaving(n => Math.max(0, n - 1))
-    }, SAVE_DELAY)
-  }, [booklet.id, classId, ownerId])
-
+  useEffect(() => () => clearTimeout(flushTimer.current), [])
 
   const addComment = async () => {
     if (!draft?.body.trim()) { setDraft(null); return }
@@ -538,6 +600,14 @@ export default function WorkbookDoc({
   const removeComment = async (id) => {
     await supabase.from('workbook_comments').delete().eq('id', id)
     setComments(cs => cs.filter(c => c.id !== id))
+  }
+  // Ticking a comment off (or reopening it). Students go through an RPC that
+  // can flip only this one field — they have no update rights on the row.
+  const toggleResolved = async (c) => {
+    const next = !c.resolved
+    setComments(cs => cs.map(x => (x.id === c.id ? { ...x, resolved: next } : x)))
+    const { error } = await supabase.rpc('resolve_comment', { p_id: c.id, p_resolved: next })
+    if (error) setComments(cs => cs.map(x => (x.id === c.id ? { ...x, resolved: !next } : x)))
   }
 
   // ── the student's own highlights ──────────────────────────────────────────
@@ -841,6 +911,13 @@ export default function WorkbookDoc({
         .bk-answer-empty{ color:#9aa4bb; font-style:italic; }
         .bk-hl{ background:#FDECC8; border-bottom:2px solid #E4B34A; color:inherit; cursor:pointer; }
         .bk-hl-on{ background:#FBD87F; }
+        /* A resolved comment fades: its highlight to a whisper, its card kept
+           but visibly done — the open ones are what catch the eye. */
+        .bk-hl-res{ background:#F4F1E8; border-bottom-color:#DDD5C0; }
+        .bk-note-res{ opacity:.62; border-left-color:#7FBFA5; }
+        .bk-note-res .bk-note-b{ color:#6b6b6b; }
+        .bk-note-done{ display:block; font-size:9px; font-weight:800; letter-spacing:.09em;
+          text-transform:uppercase; color:#0E7A5F; margin-bottom:3px; }
         .bk-comment-add{ position:absolute; right:-8px; transform:translateX(100%); z-index:5;
           background:#325099; color:#fff; border:0; border-radius:8px; padding:4px 10px;
           font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; }
@@ -935,7 +1012,8 @@ export default function WorkbookDoc({
           ))}
         {!solutions && (
           <p className="text-center text-[11px] text-[#2A2035]/40 pb-6">
-            {saving > 0 ? 'Saving…' : ready ? 'All changes saved' : ''}
+            {failing ? <span className="text-[#B23A3A] font-semibold">Not saved — retrying…</span>
+              : unsaved > 0 ? 'Saving…' : ready ? 'All changes saved' : ''}
           </p>
         )}
       </div>
@@ -960,13 +1038,21 @@ export default function WorkbookDoc({
             </div>
           )}
           {comments.map(c => (
-            <div key={c.id} className={`bk-note${activeComment === c.id ? ' bk-note-on' : ''}`}
+            <div key={c.id} className={`bk-note${c.resolved ? ' bk-note-res' : ''}${activeComment === c.id ? ' bk-note-on' : ''}`}
               ref={(el) => { noteRefs.current[c.id] = el }} onClick={() => setActiveComment(c.id)}>
               {mode === 'review' && <button className="bk-note-x" title="Delete comment"
                 onClick={(e) => { e.stopPropagation(); removeComment(c.id) }}>✕</button>}
               {mode === 'own' && <span className="bk-note-who" style={{ color: '#b9a06a' }}>Teacher</span>}
+              {c.resolved && <span className="bk-note-done">✓ Resolved</span>}
               {c.quote && <span className="bk-note-q">“{c.quote}”</span>}
               <p className="bk-note-b">{c.body}</p>
+              <div className="flex justify-end mt-1.5">
+                <button
+                  className={`text-[11px] font-bold ${c.resolved ? 'text-[#2A2035]/40' : 'text-[#0E7A5F]'}`}
+                  title={c.resolved ? 'Reopen this comment' : 'Mark as done'}
+                  onClick={(e) => { e.stopPropagation(); toggleResolved(c) }}
+                >{c.resolved ? '↩ Reopen' : '✓ Resolve'}</button>
+              </div>
             </div>
           ))}
 
