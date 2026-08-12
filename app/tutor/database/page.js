@@ -98,6 +98,7 @@ const STUDENT_LOGIN_COL = 'portal_login'
 // scoped per table rather than matched by column name globally.
 const READONLY_JOIN_COLS = {
   students:   [STUDENT_LOGIN_COL],
+  tutors:     [STUDENT_LOGIN_COL],
   enrolments: ['student_name', 'class_name'],
   classes:    ['term_name', 'course_name'],
   invoices:   ['term_name'],
@@ -1538,25 +1539,27 @@ export default function DatabasePage() {
      the server who this could be delivered to, because that varies per student:
      a CUBE-issued login has no mailbox, and most students have no address of
      their own at all. */
-  const [resetTarget, setResetTarget] = useState(null)   // {student_id, options} — modal
-  const [resetBusy, setResetBusy]     = useState(null)   // student id mid-request
+  const [resetTarget, setResetTarget] = useState(null)   // {id, kind, options} — modal
+  const [resetBusy, setResetBusy]     = useState(null)   // person id mid-request
   const [resetResult, setResetResult] = useState(null)   // {link, sentTo, warning}
   const [linkCopied, setLinkCopied]   = useState(false)
 
-  const openReset = useCallback(async (studentId) => {
+  // kind: 'student' | 'tutor' — decides which table the server resolves the
+  // person from. Same modal, same rules; tutors just have no guardian option.
+  const openReset = useCallback(async (personId, kind = 'student') => {
     if (resetBusy) return
-    setResetBusy(studentId)
+    setResetBusy(personId)
     try {
       const res = await authedFetch('/api/password-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student_id: studentId }),
+        body: JSON.stringify(kind === 'tutor' ? { tutor_id: personId } : { student_id: personId }),
       })
       const j = await res.json()
       if (!res.ok) { alert(j.error || 'Could not start a reset.'); return }
       setResetResult(null)
       setLinkCopied(false)
-      setResetTarget({ student_id: studentId, options: j.options })
+      setResetTarget({ id: personId, kind, options: j.options })
     } catch (e) {
       alert(`Could not start a reset: ${e.message}`)
     } finally {
@@ -1566,12 +1569,15 @@ export default function DatabasePage() {
 
   const sendReset = useCallback(async (deliver) => {
     if (!resetTarget || resetBusy) return
-    setResetBusy(resetTarget.student_id)
+    setResetBusy(resetTarget.id)
     try {
       const res = await authedFetch('/api/password-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student_id: resetTarget.student_id, deliver }),
+        body: JSON.stringify({
+          ...(resetTarget.kind === 'tutor' ? { tutor_id: resetTarget.id } : { student_id: resetTarget.id }),
+          deliver,
+        }),
       })
       const j = await res.json()
       if (!res.ok) { alert(j.error || 'Could not send the reset.'); return }
@@ -2067,6 +2073,17 @@ export default function DatabasePage() {
       // edits still key on row.id, which stays in the row data.
       if (selectedTable === T_TUTORS && cols.includes('tutor_code')) {
         cols = ['tutor_code', ...cols.filter(c => c !== 'tutor_code' && c !== 'id')]
+      }
+
+      // Tutors pair with auth.users by the same id convention as students, so
+      // the same login column (and the same status endpoint) serves them too.
+      if (selectedTable === T_TUTORS) {
+        cols = [...cols, STUDENT_LOGIN_COL]
+        setStudentLogins(null)
+        authedFetch('/api/student-login')
+          .then(res => res.ok ? res.json() : null)
+          .then(j => setStudentLogins(j?.logins || {}))
+          .catch(() => setStudentLogins({}))
       }
 
       setColumns(cols); setRows(enrichedRows); setLoading(false)
@@ -4033,15 +4050,17 @@ export default function DatabasePage() {
                 </p>
 
                 <div className="space-y-2">
-                  {/* Emailing the student is only offered when it can actually
-                      arrive; a CUBE-issued address has no mailbox. */}
+                  {/* Emailing the account holder is only offered when it can
+                      actually arrive; a CUBE-issued address has no mailbox. */}
                   {resetTarget.options.account.deliverable && (
                     <button
-                      onClick={() => sendReset('student')}
+                      onClick={() => sendReset('account')}
                       disabled={!!resetBusy}
                       className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#325099] transition disabled:opacity-50"
                     >
-                      <span className="block text-xs font-bold text-[#062E63]">Email the student</span>
+                      <span className="block text-xs font-bold text-[#062E63]">
+                        Email the {resetTarget.kind === 'tutor' ? 'tutor' : 'student'}
+                      </span>
                       <span className="block text-[11px] text-[#2A2035]/55 break-all">{resetTarget.options.account.email}</span>
                     </button>
                   )}
@@ -4096,7 +4115,7 @@ export default function DatabasePage() {
                 </div>
 
                 <p className="text-[11px] text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-3 py-2 mb-4">
-                  Single use, and it expires. Anyone holding it can set this student&apos;s password,
+                  Single use, and it expires. Anyone holding it can set {resetTarget.options.full_name}&apos;s password,
                   so don&apos;t post it anywhere shared. Sending another one replaces this.
                 </p>
 
@@ -5452,10 +5471,10 @@ export default function DatabasePage() {
                                           </span>
                                         )}
                                         <button
-                                          onClick={e => { e.stopPropagation(); openReset(rowId) }}
+                                          onClick={e => { e.stopPropagation(); openReset(rowId, selectedTable === T_TUTORS ? 'tutor' : 'student') }}
                                           disabled={resetBusy === rowId}
                                           className="shrink-0 ml-auto text-[10px] font-bold text-[#325099] hover:text-[#062E63] underline disabled:opacity-40"
-                                          title="Send a link so this student can choose their own new password"
+                                          title="Send a link so they can choose their own new password"
                                         >
                                           {resetBusy === rowId ? '…' : 'Reset'}
                                         </button>
@@ -5464,14 +5483,18 @@ export default function DatabasePage() {
                                         <span className="shrink-0 text-[10px] font-bold text-[#B23A3A] bg-[#FEF2F2] border border-[#FECACA] px-1.5 py-0.5 rounded">
                                           no login
                                         </span>
-                                        <button
-                                          onClick={e => { e.stopPropagation(); createStudentLogin(rowId, row.full_name) }}
-                                          disabled={creatingLogin === rowId}
-                                          className="shrink-0 text-[10px] font-bold text-[#325099] hover:text-[#062E63] underline disabled:opacity-40"
-                                          title="Create an auth account using this student's id"
-                                        >
-                                          {creatingLogin === rowId ? 'creating…' : 'Create'}
-                                        </button>
+                                        {/* Create is student plumbing (/api/student-login reads the
+                                            students table); tutor accounts are set up by hand. */}
+                                        {selectedTable !== T_TUTORS && (
+                                          <button
+                                            onClick={e => { e.stopPropagation(); createStudentLogin(rowId, row.full_name) }}
+                                            disabled={creatingLogin === rowId}
+                                            className="shrink-0 text-[10px] font-bold text-[#325099] hover:text-[#062E63] underline disabled:opacity-40"
+                                            title="Create an auth account using this student's id"
+                                          >
+                                            {creatingLogin === rowId ? 'creating…' : 'Create'}
+                                          </button>
+                                        )}
                                       </>}
                                 </div>
                               ) : col === LESSON_SCHED_TEACHER_COL ? (

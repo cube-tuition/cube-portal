@@ -6,25 +6,27 @@ import {
 /*
  * Staff-initiated password reset — POST /api/password-reset
  *
- * The student sets their own password; staff only start the process. Nobody at
+ * The account holder — student or tutor — sets their own password; staff only
+ * start the process. Nobody at
  * CUBE ever sees the result, which is the point: the alternative (staff pick a
  * password and read it out) means the password is known to two people from the
  * moment it exists, and tends to stay written down.
  *
- * Two calls:
- *   POST { student_id }                    → who this could be sent to (mints nothing)
- *   POST { student_id, deliver: <mode> }   → mints a single-use link and delivers it
+ * Two calls, for either kind of person:
+ *   POST { student_id } or { tutor_id }        → who this could be sent to (mints nothing)
+ *   POST { …_id, deliver: <mode> }             → mints a single-use link and delivers it
  *
  * deliver:
  *   'link'     — return the link only; staff hand it over in person. The only
  *                option for the ~44 students whose login is a placeholder
  *                address that cannot receive mail.
- *   'student'  — email the student's own address.
- *   'guardian' — email the parent on file. Most students have no address of
- *                their own, so this is the only way to reach them remotely.
- *                It is deliberately a separate, named choice: the link opens
- *                the student's account, so sending it to a parent is a decision
- *                staff make, never a silent fallback.
+ *   'account'  — email the account's own address ('student' accepted as an
+ *                older alias, from before tutors could be reset here).
+ *   'guardian' — students only: email the parent on file. Most students have
+ *                no address of their own, so this is the only way to reach
+ *                them remotely. It is deliberately a separate, named choice:
+ *                the link opens the student's account, so sending it to a
+ *                parent is a decision staff make, never a silent fallback.
  *
  * The link is returned in every mode. Email can bounce or sit in a spam folder,
  * and a reset nobody can complete is worse than one staff can read out.
@@ -34,42 +36,58 @@ export async function POST(req) {
     const auth = await requireApiRole(req, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { student_id, deliver } = await req.json()
-    if (!student_id) return Response.json({ error: 'Missing student_id' }, { status: 400 })
-    if (deliver && !['link', 'student', 'guardian'].includes(deliver)) {
+    const { student_id, tutor_id, deliver: rawDeliver } = await req.json()
+    if (!student_id && !tutor_id) {
+      return Response.json({ error: 'Missing student_id or tutor_id' }, { status: 400 })
+    }
+    if (student_id && tutor_id) {
+      return Response.json({ error: 'Pass student_id or tutor_id, not both.' }, { status: 400 })
+    }
+    const deliver = rawDeliver === 'student' ? 'account' : rawDeliver
+    if (deliver && !['link', 'account', 'guardian'].includes(deliver)) {
       return Response.json({ error: 'Unknown delivery mode.' }, { status: 400 })
     }
 
     const sb = adminClient()
 
-    const { data: student, error: sErr } = await sb
-      .from('students').select('id, full_name').eq('id', student_id).maybeSingle()
-    if (sErr)     return Response.json({ error: sErr.message }, { status: 400 })
-    if (!student) return Response.json({ error: 'No such student.' }, { status: 404 })
+    const isTutor   = !!tutor_id
+    const person_id = tutor_id || student_id
+    const { data: person, error: sErr } = await sb
+      .from(isTutor ? 'tutors' : 'students')
+      .select('id, full_name').eq('id', person_id).maybeSingle()
+    if (sErr)    return Response.json({ error: sErr.message }, { status: 400 })
+    if (!person) return Response.json({ error: isTutor ? 'No such tutor.' : 'No such student.' }, { status: 404 })
 
     // The login address is whatever auth holds — students.email can drift from
     // it, and resetting the wrong address would send a link that signs nobody in.
     // getUserById reports a missing account as an ERROR, not as {user: null} —
     // so an ordinary "they don't have a login yet" arrives here looking like a
     // failure. Say what it means instead of passing "User not found" through.
-    const { data: found, error: uErr } = await sb.auth.admin.getUserById(student_id)
+    const { data: found, error: uErr } = await sb.auth.admin.getUserById(person_id)
     const missing = !found?.user || /not.?found/i.test(uErr?.message || '')
     if (missing) {
       return Response.json({
-        error: `${student.full_name} has no portal login yet — create one first, then you can reset it.`,
+        error: isTutor
+          ? `${person.full_name} has no portal login. Tutor accounts are set up by hand — there is nothing to reset yet.`
+          : `${person.full_name} has no portal login yet — create one first, then you can reset it.`,
       }, { status: 409 })
     }
     if (uErr) return Response.json({ error: uErr.message }, { status: 400 })
     const accountEmail = found.user.email || null
     const placeholder  = isPlaceholderEmail(accountEmail)
 
-    const { data: guardians } = await sb
-      .from('guardians').select('full_name, email, relationship').eq('student_id', student_id)
-    const guardian = (guardians || [])
-      .find(g => String(g.email || '').trim() && !isPlaceholderEmail(g.email)) || null
+    // Guardians exist for students only; a tutor's reset can only go to them.
+    let guardian = null
+    if (!isTutor) {
+      const { data: guardians } = await sb
+        .from('guardians').select('full_name, email, relationship').eq('student_id', person_id)
+      guardian = (guardians || [])
+        .find(g => String(g.email || '').trim() && !isPlaceholderEmail(g.email)) || null
+    }
 
     const options = {
-      full_name: student.full_name,
+      full_name: person.full_name,
+      kind: isTutor ? 'tutor' : 'student',
       account:  { email: accountEmail, deliverable: !!accountEmail && !placeholder },
       guardian: guardian
         ? { email: guardian.email.trim(), name: guardian.full_name, relationship: guardian.relationship }
@@ -80,14 +98,16 @@ export async function POST(req) {
     // Step one: just report what's possible.
     if (!deliver) return Response.json({ options })
 
-    if (deliver === 'student' && !options.account.deliverable) {
+    if (deliver === 'account' && !options.account.deliverable) {
       return Response.json({
-        error: `${accountEmail || 'That login'} cannot receive email. Use the link, or send it to a parent.`,
+        error: `${accountEmail || 'That login'} cannot receive email.${isTutor ? ' Use the link.' : ' Use the link, or send it to a parent.'}`,
       }, { status: 400 })
     }
     if (deliver === 'guardian' && !guardian) {
       return Response.json({
-        error: `No parent email on file for ${student.full_name}.`,
+        error: isTutor
+          ? 'Tutors have no guardian on file — email them directly or use the link.'
+          : `No parent email on file for ${person.full_name}.`,
       }, { status: 400 })
     }
 
@@ -105,8 +125,8 @@ export async function POST(req) {
       const sent = await sendResetEmail({
         to,
         link,
-        name: student.full_name,
-        guardianOf: deliver === 'guardian' ? student.full_name : null,
+        name: person.full_name,
+        guardianOf: deliver === 'guardian' ? person.full_name : null,
       })
       // A failed send does NOT fail the request — the link is already valid and
       // staff can still use it. Say what happened rather than swallowing it.
