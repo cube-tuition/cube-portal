@@ -20,6 +20,35 @@ import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
  * 'compliance_done').
  */
 
+// Name a pay period the way staff think about it: term + week range, or the
+// holidays between two terms. Pay runs are fortnightly, so most land on a clean
+// two-week block inside one term.
+const shortTerm = (t) => (t?.name || '').replace(/\s*\d{4}\s*$/, '').trim() || 'Term'
+
+function labelPeriod(startISO, endISO, terms = []) {
+  if (!startISO || !endISO) return 'Unscheduled'
+  const day = (iso) => new Date(iso + 'T00:00:00')
+  const s = day(startISO), e = day(endISO)
+  const overlapping = (terms || [])
+    .filter(t => t.start_date && t.end_date && s <= day(t.end_date) && e >= day(t.start_date))
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))
+
+  if (!overlapping.length) {
+    const before = (terms || []).filter(t => t.end_date && t.end_date < startISO)
+      .sort((a, b) => b.end_date.localeCompare(a.end_date))[0]
+    return before ? `Holidays after ${shortTerm(before)}` : 'School holidays'
+  }
+
+  const t = overlapping[0]
+  const ts = day(t.start_date), te = day(t.end_date)
+  const weekOf = (d) => Math.max(1, Math.floor((d - ts) / (7 * 86400000)) + 1)
+  const w1 = weekOf(s < ts ? ts : s)
+  const w2 = weekOf(e > te ? te : e)
+  const weeks = w2 > w1 ? `Wk ${w1}–${w2}` : `Wk ${w1}`
+  // A run that runs off the end of term finishes in the break.
+  return `${shortTerm(t)} · ${weeks}${e > te ? ' → holidays' : ''}`
+}
+
 const fmtMoney = (n) => '$' + Math.abs(Number(n) || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtD = (iso) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'
 const todayIso = () => new Date().toISOString().slice(0, 10)
@@ -111,6 +140,11 @@ export default function AccountingDashboard() {
   const [noPrice, setNoPrice] = useState(0)           // active enrolments without price (current term)
   const [noEmailFamilies, setNoEmailFamilies] = useState(0)
   const [complianceDone, setComplianceDone] = useState({})
+  // Unpaid teacher pay, accumulated per teacher. Anything not yet marked paid is
+  // money still owed; approved work older than one fortnight (the pay-run
+  // cadence) counts as overdue.
+  const [payView, setPayView] = useState('period')   // 'period' | 'teacher'
+  const [unpaidPay, setUnpaidPay] = useState({ rows: [], periods: [], owed: 0, draft: 0, overdue: 0, overdueCount: 0 })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -119,7 +153,7 @@ export default function AccountingDashboard() {
     const cur = getEnrolmentTerm(allTerms)
     setTerm(cur)
 
-    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes] = await Promise.all([
+    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes, unpaidRes, allRunsRes] = await Promise.all([
       supabase.from('invoices')
         .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status, payment_method')
         .neq('status', 'voided'),
@@ -136,6 +170,8 @@ export default function AccountingDashboard() {
       supabase.from('tutors').select('id, full_name, pay_method'),
       supabase.from('current_tutor_rates').select('tutor_id, year_band, mode, hourly_rate'),
       supabase.from('courses').select('id, delivery_mode'),
+      supabase.from('shifts').select('tutor_id, status, hours, rate_snapshot, work_date, pay_run_id').neq('status', 'paid'),
+      supabase.from('pay_runs').select('id, period_start, period_end, status').order('period_start'),
     ])
 
     setInvoices(invRes.data || [])
@@ -170,6 +206,107 @@ export default function AccountingDashboard() {
       tutors: [...(tutorsRes.data || []), ...(dirRes.data || [])],
       rateMatrix: ratesRes.data || [], courseModes,
     }, { payMethod: 'cash' }))
+
+    // ── Unpaid teacher pay ────────────────────────────────────────────────
+    // A shift is worth hours x rate_snapshot; a null rate means the shift can't
+    // be costed yet, so it is counted separately rather than silently as $0.
+    const staffName = Object.fromEntries(
+      [...(tutorsRes.data || []), ...(dirRes.data || [])].map(t => [t.id, t.full_name]))
+    const FORTNIGHT_MS = 14 * 86400000
+    const now = new Date(); now.setHours(0, 0, 0, 0)
+    const byTutor = new Map()
+    for (const sh of unpaidRes.data || []) {
+      if (!sh.tutor_id) continue
+      const r = byTutor.get(sh.tutor_id) || {
+        id: sh.tutor_id, name: staffName[sh.tutor_id] || 'Unknown',
+        owed: 0, draft: 0, hours: 0, shifts: 0, noRate: 0, oldest: null, overdue: 0,
+      }
+      const amount = Number(sh.hours || 0) * (Number(sh.rate_snapshot) || 0)
+      if (sh.rate_snapshot == null) r.noRate += 1
+      r.shifts += 1
+      r.hours += Number(sh.hours || 0)
+      const workDate = sh.work_date ? new Date(sh.work_date + 'T00:00:00') : null
+      if (sh.status === 'approved') {
+        r.owed += amount
+        // Approved work that has sat unpaid past a full pay cycle.
+        if (workDate && now - workDate > FORTNIGHT_MS) r.overdue += amount
+      } else {
+        r.draft += amount
+      }
+      if (workDate && (!r.oldest || workDate < r.oldest)) r.oldest = workDate
+      byTutor.set(sh.tutor_id, r)
+    }
+    // ── Same money, sliced by pay-run period ──────────────────────────────
+    // A shift's own pay_run_id wins (every linked shift was checked to sit
+    // inside its run's dates). Unlinked shifts fall back to the period that
+    // contains the work date; where periods overlap, the earliest-starting one
+    // wins so the answer is at least deterministic.
+    const allRuns = (allRunsRes.data || []).filter(r => r.period_start && r.period_end)
+    const runById = Object.fromEntries(allRuns.map(r => [r.id, r]))
+    const asDay = (iso) => new Date(iso + 'T00:00:00')
+    const runForDate = (iso) => {
+      const d = asDay(iso)
+      const hits = allRuns.filter(r => asDay(r.period_start) <= d && d <= asDay(r.period_end))
+      if (!hits.length) return null
+      return hits.slice().sort((a, b) => a.period_start.localeCompare(b.period_start))[0]
+    }
+    const periodMap = new Map()
+    for (const sh of unpaidRes.data || []) {
+      if (!sh.tutor_id || !sh.work_date) continue
+      const run = (sh.pay_run_id && runById[sh.pay_run_id]) || runForDate(sh.work_date)
+      const key = run ? run.id : 'unscheduled'
+      const p = periodMap.get(key) || {
+        key,
+        start: run?.period_start || null,
+        end: run?.period_end || null,
+        runStatus: run?.status || null,
+        label: run ? labelPeriod(run.period_start, run.period_end, allTerms)
+                   : 'Outside any pay run',
+        owed: 0, draft: 0, overdue: 0, shifts: 0, noRate: 0,
+        teachers: new Map(),
+      }
+      const amount = Number(sh.hours || 0) * (Number(sh.rate_snapshot) || 0)
+      const workDate = asDay(sh.work_date)
+      p.shifts += 1
+      if (sh.rate_snapshot == null) p.noRate += 1
+      if (sh.status === 'approved') {
+        p.owed += amount
+        if (now - workDate > FORTNIGHT_MS) p.overdue += amount
+      } else {
+        p.draft += amount
+      }
+      const tName = staffName[sh.tutor_id] || 'Unknown'
+      const tr = p.teachers.get(sh.tutor_id) || { id: sh.tutor_id, name: tName, owed: 0, draft: 0 }
+      if (sh.status === 'approved') tr.owed += amount; else tr.draft += amount
+      p.teachers.set(sh.tutor_id, tr)
+      periodMap.set(key, p)
+    }
+    const periodRows = [...periodMap.values()]
+      .map(p => ({
+        ...p,
+        total: p.owed + p.draft,
+        teachers: [...p.teachers.values()]
+          .map(t => ({ ...t, total: t.owed + t.draft }))
+          .filter(t => t.total > 0)
+          .sort((a, b) => b.total - a.total),
+      }))
+      .filter(p => p.total > 0 || p.noRate > 0)
+      // Oldest first — the money that has been waiting longest is the story.
+      .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
+
+    const unpaidRows = [...byTutor.values()]
+      .map(r => ({ ...r, total: r.owed + r.draft,
+                   ageDays: r.oldest ? Math.floor((now - r.oldest) / 86400000) : null }))
+      .filter(r => r.total > 0 || r.noRate > 0)
+      .sort((a, b) => b.owed - a.owed || b.total - a.total)
+    setUnpaidPay({
+      rows: unpaidRows,
+      periods: periodRows,
+      owed:    unpaidRows.reduce((s2, r) => s2 + r.owed, 0),
+      draft:   unpaidRows.reduce((s2, r) => s2 + r.draft, 0),
+      overdue: unpaidRows.reduce((s2, r) => s2 + r.overdue, 0),
+      overdueCount: unpaidRows.filter(r => r.overdue > 0).length,
+    })
 
     setNoPrice((enrolRes.data || []).length)
     const emailed = new Set((guardRes.data || []).filter(g => g.email).map(g => String(g.student_id)))
@@ -305,6 +442,144 @@ export default function AccountingDashboard() {
             </div>
           ))}
         </div>
+
+        {/* Overdue pay — what each teacher is still owed, oldest first */}
+        {unpaidPay.rows.length > 0 && (
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-bold text-[#062E63]">
+              🧾 Overdue pay
+              {unpaidPay.overdue > 0 && (
+                <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#FEE2E2] text-[#991B1B] align-middle">
+                  {unpaidPay.overdueCount} teacher{unpaidPay.overdueCount === 1 ? '' : 's'} past a pay cycle
+                </span>
+              )}
+            </p>
+            <div className="flex items-center gap-3">
+              <div className="flex rounded-lg border border-[#DEE7FF] overflow-hidden">
+                {[['period', 'By period'], ['teacher', 'By teacher']].map(([v, label]) => (
+                  <button
+                    key={v}
+                    onClick={() => setPayView(v)}
+                    className={`px-2.5 py-1 text-[10px] font-bold transition ${payView === v
+                      ? 'bg-[#325099] text-white'
+                      : 'bg-white text-[#325099] hover:bg-[#F8FAFF]'}`}
+                  >{label}</button>
+                ))}
+              </div>
+              <Link href="/tutor/payroll" className="text-[11px] font-semibold text-[#325099] hover:underline">Open payroll →</Link>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            {[
+              ['Owed now', fmtMoney(unpaidPay.owed), 'approved, not yet paid', unpaidPay.owed > 0 ? '#B23A3A' : '#047857'],
+              ['Overdue', fmtMoney(unpaidPay.overdue), 'approved over a fortnight ago', unpaidPay.overdue > 0 ? '#B23A3A' : '#047857'],
+              ['Not yet approved', fmtMoney(unpaidPay.draft), 'draft shifts awaiting approval', '#92400E'],
+            ].map(([l, v, sub, color]) => (
+              <div key={l} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-4 py-3">
+                <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{l}</p>
+                <p className="text-xl font-bold mt-0.5" style={{ color }}>{v}</p>
+                <p className="text-[10px] text-[#2A2035]/45">{sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {payView === 'teacher' && (
+          <div className="overflow-x-auto -mx-1">
+            <table className="w-full text-xs min-w-[520px]">
+              <thead>
+                <tr className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold text-left">
+                  <th className="py-1.5 px-1 font-bold">Teacher</th>
+                  <th className="py-1.5 px-1 font-bold text-right">Owed now</th>
+                  <th className="py-1.5 px-1 font-bold text-right">Of which overdue</th>
+                  <th className="py-1.5 px-1 font-bold text-right">Not approved</th>
+                  <th className="py-1.5 px-1 font-bold text-right">Total unpaid</th>
+                  <th className="py-1.5 px-1 font-bold text-right">Oldest</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unpaidPay.rows.map(r => (
+                  <tr key={r.id} className="border-t border-[#EEF2FB]">
+                    <td className="py-1.5 px-1 font-semibold text-[#2A2035]">
+                      {r.name}
+                      {r.noRate > 0 && (
+                        <span className="ml-1.5 text-[9px] text-amber-700" title={`${r.noRate} shift${r.noRate === 1 ? '' : 's'} have no rate set, so they are not costed here`}>
+                          ⚠ {r.noRate} unrated
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1.5 px-1 text-right tabular-nums font-semibold text-[#062E63]">{fmtMoney(r.owed)}</td>
+                    <td className="py-1.5 px-1 text-right tabular-nums font-semibold" style={{ color: r.overdue > 0 ? '#B23A3A' : '#2A203555' }}>
+                      {r.overdue > 0 ? fmtMoney(r.overdue) : '—'}
+                    </td>
+                    <td className="py-1.5 px-1 text-right tabular-nums text-[#92400E]">{r.draft > 0 ? fmtMoney(r.draft) : '—'}</td>
+                    <td className="py-1.5 px-1 text-right tabular-nums font-bold text-[#062E63]">{fmtMoney(r.total)}</td>
+                    <td className="py-1.5 px-1 text-right tabular-nums text-[#2A2035]/50">
+                      {r.ageDays == null ? '—' : `${r.ageDays}d`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-[#DEE7FF]">
+                  <td className="py-1.5 px-1 font-bold text-[#062E63]">Total</td>
+                  <td className="py-1.5 px-1 text-right tabular-nums font-bold text-[#062E63]">{fmtMoney(unpaidPay.owed)}</td>
+                  <td className="py-1.5 px-1 text-right tabular-nums font-bold" style={{ color: unpaidPay.overdue > 0 ? '#B23A3A' : '#2A203555' }}>
+                    {unpaidPay.overdue > 0 ? fmtMoney(unpaidPay.overdue) : '—'}
+                  </td>
+                  <td className="py-1.5 px-1 text-right tabular-nums font-bold text-[#92400E]">{fmtMoney(unpaidPay.draft)}</td>
+                  <td className="py-1.5 px-1 text-right tabular-nums font-bold text-[#062E63]">{fmtMoney(unpaidPay.owed + unpaidPay.draft)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          )}
+
+          {payView === 'period' && (
+          <div className="space-y-2">
+            {unpaidPay.periods.map(p => (
+              <div key={p.key} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-4 py-3">
+                <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#062E63]">
+                      {p.label}
+                      {p.runStatus && (
+                        <span className={`ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded align-middle ${
+                          p.runStatus === 'paid'     ? 'bg-[#D1FAE5] text-[#065F46]'
+                          : p.runStatus === 'open'   ? 'bg-[#DEE7FF] text-[#062E63]'
+                          : 'bg-[#FEF3C7] text-[#92400E]'}`}>{p.runStatus}</span>
+                      )}
+                      {p.overdue > 0 && (
+                        <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#FEE2E2] text-[#991B1B] align-middle">overdue</span>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-[#2A2035]/45">
+                      {p.start ? `${p.start} → ${p.end}` : 'no pay run covers these dates'} · {p.shifts} shift{p.shifts === 1 ? '' : 's'}
+                      {p.noRate > 0 && <span className="text-amber-700"> · ⚠ {p.noRate} unrated</span>}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-lg font-bold tabular-nums" style={{ color: p.owed > 0 ? '#B23A3A' : '#2A203555' }}>{fmtMoney(p.owed)}</p>
+                    <p className="text-[10px] text-[#2A2035]/45">
+                      owed{p.draft > 0 && <> · <span className="text-[#92400E]">{fmtMoney(p.draft)} not approved</span></>}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#2A2035]/55">
+                  {p.teachers.map(t => (
+                    <span key={t.id} title={`${fmtMoney(t.owed)} approved · ${fmtMoney(t.draft)} not approved`}>
+                      {(t.name || '').split(' ')[0]}: <strong className="text-[#062E63]">{fmtMoney(t.total)}</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          )}
+        </div>
+        )}
 
         {/* Termly cash snapshot — cash income vs projected cash teacher pay */}
         {(() => {

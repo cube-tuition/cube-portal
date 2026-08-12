@@ -13,6 +13,7 @@ import { inferSubject, subjectColor, subjectsMatch } from '../../../../component
 import PrePostSection from '../../../../components/PrePostSection'
 import ExamSection    from '../../../../components/ExamSection'
 import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TUTORS } from '../../../../lib/tables'
+import { effectiveTeacher, lessonAccess } from '../../../../lib/lessonAccess'
 
 /*
  * Per-class overview — /tutor/classes/[classId]
@@ -102,20 +103,24 @@ export default function ClassOverviewPage() {
         .from(T_CLASSES).select('*').eq('id', classId).single()
       if (clsErr || !row) { setError('Class not found.'); setLoading(false); return }
 
-      // Access check: admin → always OK; regular teacher → OK;
+      // Access check: admin → always OK; the class's own teacher → OK (view at
+      // least, and edit on every week nobody else is scheduled for);
+      // anyone scheduled to teach one of its lessons → OK;
       // sub teacher → OK if they have a sub_assignment for this class.
       const isAdmin = profile.role === 'admin'
       const firstName = (profile.full_name || '').split(' ')[0].toLowerCase()
       const teacherFirst = (row.teacher || '').split(' ')[0].toLowerCase()
       const isRegularTeacher = isAdmin || (firstName && teacherFirst && firstName === teacherFirst)
       if (!isRegularTeacher) {
-        const { data: subCheck } = await supabase
-          .from(T_SUB_ASSIGNMENTS)
-          .select('id')
-          .eq('class_id', classId)
-          .eq('sub_tutor_id', profile.id)
-          .limit(1)
-        if (!subCheck?.length) {
+        // Being scheduled on any one lesson is enough to open the class — the
+        // per-week check below then decides edit vs view.
+        const [{ data: subCheck }, { data: schedCheck }] = await Promise.all([
+          supabase.from(T_SUB_ASSIGNMENTS).select('id')
+            .eq('class_id', classId).eq('sub_tutor_id', profile.id).limit(1),
+          supabase.from(T_LESSONS).select('id')
+            .eq('class_id', classId).eq('scheduled_teacher_id', profile.id).limit(1),
+        ])
+        if (!subCheck?.length && !schedCheck?.length) {
           setError("This class isn't assigned to you.")
           setLoading(false); return
         }
@@ -487,6 +492,15 @@ export default function ClassOverviewPage() {
               <>
                 {currentWeek.dates.map((d, i) => {
                   const lesson = lessonByDate.get(d)
+                  // Who may mark THIS session. The scheduled teacher edits it;
+                  // the class's own teacher drops to read-only on any week
+                  // someone else is covering.
+                  const access = lessonAccess({
+                    lesson, cls, staff, staffList: allStaff,
+                    subAssignment: subAssignments[d],
+                  })
+                  const viewOnly = access !== 'edit'
+                  const sessionTeacher = effectiveTeacher(lesson, cls, allStaff)
                   const isCancelled = lesson?.status === 'cancelled'
                   const isRescheduled = lesson?.status === 'rescheduled'
                   // A class session that was moved to another teacher/date keeps
@@ -577,6 +591,8 @@ export default function ClassOverviewPage() {
                         allStaff={allStaff}
                         setLessons={setLessons}
                         isAdmin={isAdmin}
+                        viewOnly={viewOnly}
+                        sessionTeacherName={sessionTeacher.name}
                       />
                     )}
                     {/* Booklet for this week — holiday sessions have no term workbook */}
@@ -599,7 +615,7 @@ export default function ClassOverviewPage() {
                         <WeekBooklet
                           cls={cls} term={term} week={currentWeek.week} isAdmin={isAdmin}
                           dateISO={d} staff={staff}
-                          readOnly={!isAdmin && !!subAssignments[d] && staff?.id !== subAssignments[d]?.sub_tutor_id}
+                          readOnly={viewOnly}
                         />
                       </div>
                     )}
@@ -610,7 +626,7 @@ export default function ClassOverviewPage() {
                         dateISO={d}
                         cls={cls}
                         staff={staff}
-                        readOnly={!isAdmin && !!subAssignments[d] && staff?.id !== subAssignments[d]?.sub_tutor_id}
+                        readOnly={viewOnly}
                         footer={tab === 9 && term && i === currentWeek.dates.length - 1 ? (
                           <TermReportsSection
                             classId={cls.id}
@@ -665,7 +681,7 @@ export default function ClassOverviewPage() {
 // Reads scheduled_teacher_id from the lesson row.
 // Admin: can change scheduled teacher via dropdown → writes to lessons table.
 // Non-admin: read-only banner when a sub is covering.
-function SubPicker({ classId, dateISO, cls, lesson, allStaff, setLessons, isAdmin }) {
+function SubPicker({ classId, dateISO, cls, lesson, allStaff, setLessons, isAdmin, viewOnly = false, sessionTeacherName = null }) {
   const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
 
@@ -700,11 +716,15 @@ function SubPicker({ classId, dateISO, cls, lesson, allStaff, setLessons, isAdmi
 
   if (!isAdmin) {
     if (!hasSub) return null
+    const who = sessionTeacherName || schedTeacherName
     return (
       <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl bg-[#FEF3C7] border border-[#FDE68A]">
-        <span className="text-base">🔄</span>
+        <span className="text-base">{viewOnly ? '👁️' : '🔄'}</span>
         <p className="text-xs font-semibold text-[#92400E]">
-          {schedTeacherName} is covering this session.
+          {viewOnly
+            // The class's own teacher, looking at a week someone else taught.
+            ? `${who} is covering this session — you can view it, but only ${who.split(' ')[0]} can mark it.`
+            : `You are covering this session for ${mainTeacherName}.`}
         </p>
       </div>
     )

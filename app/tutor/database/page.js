@@ -97,6 +97,7 @@ const READONLY_JOIN_COLS = {
   lessons:    ['class_label', 'week', 'main_teacher'],
 }
 const LESSON_SCHED_TEACHER_COL = 'scheduled_teacher'    // resolved name from scheduled_teacher_id, editable dropdown
+const LESSON_SCHED_INHERITED   = '__sched_inherited'   // true when the name shown is the main teacher, not an explicit assignment
 
 const DEFAULT_WIDTH  = 150
 const PRESET_WIDTHS  = { id:100, year:80, role:90, gender:90, guardian_relationship:140, guardian_name:160, guardian_email:200, guardian_phone:130, email:200, full_name:180, student_name:200, class_name:220, term_name:160, course_name:200, class_label:240, lesson_date:120, week:60, main_teacher:130, scheduled_teacher:160, status:120, price:100, subtotal:110, sibling_discount:140, multi_course_discount:160, total:100, notes:200, family_id:90, student_id:200, family_name:200 }
@@ -1935,9 +1936,17 @@ export default function DatabasePage() {
           _allStaff.sort((a, b) => a.full_name.localeCompare(b.full_name))
         )
         const staffById = Object.fromEntries(_allStaff.map(s => [s.id, s.full_name]))
+        // An unscheduled lesson is taught by the class's own teacher, so that is
+        // what the column shows — the scheduled teacher defaults to the main
+        // teacher rather than reading as "nobody". The value is marked as
+        // inherited so the cell can render it muted; picking a real person
+        // writes scheduled_teacher_id and makes it explicit.
         enrichedRows = enrichedRows.map(row => ({
           ...row,
-          [LESSON_SCHED_TEACHER_COL]: row.scheduled_teacher_id ? (staffById[row.scheduled_teacher_id] ?? null) : null,
+          [LESSON_SCHED_TEACHER_COL]: row.scheduled_teacher_id
+            ? (staffById[row.scheduled_teacher_id] ?? null)
+            : (row[LESSON_MAIN_TEACHER_COL] || null),
+          [LESSON_SCHED_INHERITED]: !row.scheduled_teacher_id,
         }))
 
         // Column order: id | class_label | week | lesson_date | main_teacher | scheduled_teacher | …rest
@@ -2347,7 +2356,7 @@ export default function DatabasePage() {
       if (targetTerm) payload.term_id = targetTerm
     }
     for (const [k, v] of Object.entries(newRowData)) {
-      if (k === pkCol || isGuardianCol(k) || k === TERM_NAME_COL || k === COURSE_NAME_COL || k === LESSON_CLASS_COL || k === LESSON_WEEK_COL || k === LESSON_MAIN_TEACHER_COL || k === LESSON_SCHED_TEACHER_COL) continue
+      if (k === pkCol || isGuardianCol(k) || k === TERM_NAME_COL || k === COURSE_NAME_COL || k === LESSON_CLASS_COL || k === LESSON_WEEK_COL || k === LESSON_MAIN_TEACHER_COL || k === LESSON_SCHED_TEACHER_COL || k === LESSON_SCHED_INHERITED) continue
       payload[k] = v === '' ? null : v
     }
     const { data, error } = await supabase.from(realTable).insert(payload).select().single()
@@ -2652,7 +2661,8 @@ export default function DatabasePage() {
       ...row,
       [LESSON_SCHED_TEACHER_COL]: row.scheduled_teacher_id
         ? (staffById[row.scheduled_teacher_id] ?? row.scheduled_teacher_id)
-        : null,
+        : (row[LESSON_MAIN_TEACHER_COL] || null),
+      [LESSON_SCHED_INHERITED]: !row.scheduled_teacher_id,
     })))
   }, [allStaffForLessons, selectedTable])
 
@@ -3894,15 +3904,27 @@ export default function DatabasePage() {
           placeholder="Search staff…"
           clearLabel="— unassigned —"
           options={allStaffForLessons.map(s => ({ value: s.id, label: s.full_name }))}
-          currentValue={rows.find(r => r[pkCol] === editingSchedTeacher.rowId)?.scheduled_teacher_id || ''}
+          currentValue={(() => {
+            const r = rows.find(x => x[pkCol] === editingSchedTeacher.rowId)
+            if (r?.scheduled_teacher_id) return r.scheduled_teacher_id
+            // Preselect the inherited main teacher so the default is visible.
+            const main = (r?.[LESSON_MAIN_TEACHER_COL] || '').split(' ')[0].toLowerCase()
+            return allStaffForLessons.find(s =>
+              s.full_name.split(' ')[0].toLowerCase() === main)?.id || ''
+          })()}
           onClose={() => setEditingSchedTeacher(null)}
           onSelect={async (id) => {
             const rowId = editingSchedTeacher.rowId
             const newId = id || null
             await supabase.from(T_LESSONS).update({ scheduled_teacher_id: newId }).eq('id', rowId)
-            const newName = newId ? (allStaffForLessons.find(s => s.id === newId)?.full_name ?? null) : null
             setRows(prev => prev.map(r => r[pkCol] === rowId
-              ? { ...r, scheduled_teacher_id: newId, [LESSON_SCHED_TEACHER_COL]: newName }
+              ? { ...r,
+                  scheduled_teacher_id: newId,
+                  // Cleared back to unassigned → show the main teacher again.
+                  [LESSON_SCHED_TEACHER_COL]: newId
+                    ? (allStaffForLessons.find(s => s.id === newId)?.full_name ?? null)
+                    : (r[LESSON_MAIN_TEACHER_COL] || null),
+                  [LESSON_SCHED_INHERITED]: !newId }
               : r))
             setEditingSchedTeacher(null)
           }}
@@ -5175,9 +5197,16 @@ export default function DatabasePage() {
                                   <span className="truncate whitespace-nowrap">
                                     {dv === null
                                       ? <span className="text-[#2A2035]/20 italic">unassigned</span>
-                                      : <span className={row.scheduled_teacher_id && row.main_teacher && dv !== row.main_teacher ? 'font-semibold text-[#92400E]' : 'text-[#2A2035]'}>{dv}</span>
+                                      : row[LESSON_SCHED_INHERITED]
+                                      // Defaulted to the class's own teacher — shown muted so it
+                                      // reads as inherited rather than deliberately assigned.
+                                      ? <span className="text-[#2A2035]/45">{dv}</span>
+                                      : <span className={row.main_teacher && dv !== row.main_teacher ? 'font-semibold text-[#92400E]' : 'text-[#2A2035]'}>{dv}</span>
                                     }
-                                    {row.scheduled_teacher_id && row.main_teacher && dv !== row.main_teacher && (
+                                    {row[LESSON_SCHED_INHERITED] && dv !== null && (
+                                      <span className="ml-1 text-[9px] text-[#2A2035]/30">default</span>
+                                    )}
+                                    {!row[LESSON_SCHED_INHERITED] && row.scheduled_teacher_id && row.main_teacher && dv !== row.main_teacher && (
                                       <span className="ml-1 text-[9px] text-[#F59E0B]">↻ sub</span>
                                     )}
                                   </span>
