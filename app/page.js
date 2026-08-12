@@ -212,13 +212,8 @@ export default function LoginPage() {
                 forget it, a tutor can reset it but can never look it up.
               </p>
 
-              {/* Most student logins are CUBE-issued @cubetuition.com addresses,
-                  which have no mailbox — a reset email can never arrive there.
-                  Say so, rather than let those students wait for mail that will
-                  not come. */}
               <p className="text-xs text-[#2A2035]/50 text-center mt-4">
-                If you log in with a <span className="font-semibold">@cubetuition.com</span>{' '}
-                address, reset emails can&apos;t reach you — ask your CUBE tutor and they&apos;ll sort it out.
+                Trouble logging in? Just ask your CUBE tutor — they&apos;ll sort it.
               </p>
             </div>
           </div>
