@@ -86,11 +86,18 @@ const LESSON_CLASS_COL        = 'class_label'          // joined "ClassName (Day
 const LESSON_WEEK_COL         = 'week'                  // computed from lesson_date, read-only
 const LESSON_MAIN_TEACHER_COL = 'main_teacher'          // rollup from class.teacher, read-only
 
+// Portal login, derived from auth.users. A student row and its auth account are
+// paired only by convention (students.id === auth.users.id) with nothing in the
+// database enforcing it, so a student can be fully enrolled and still have no
+// way in. Surfacing it here is what makes that visible instead of silent.
+const STUDENT_LOGIN_COL = 'portal_login'
+
 // Joined/derived columns that are read-only ON A SPECIFIC VIRTUAL VIEW only.
 // These same names can be real, editable columns on their own tables (e.g.
 // course_name on `courses`, class_name on `classes`), so the read-only rule is
 // scoped per table rather than matched by column name globally.
 const READONLY_JOIN_COLS = {
+  students:   [STUDENT_LOGIN_COL],
   enrolments: ['student_name', 'class_name'],
   classes:    ['term_name', 'course_name'],
   invoices:   ['term_name'],
@@ -1495,6 +1502,36 @@ export default function DatabasePage() {
   const [tableError, setTableError] = useState(null)
   const [rowCounts, setRowCounts]   = useState({})
   const [parentMap, setParentMap]   = useState({})
+  const [studentLogins, setStudentLogins] = useState(null)   // id → {email, placeholder} | null while loading
+  const [creatingLogin, setCreatingLogin] = useState(null)   // student id mid-request
+  const [newLogin, setNewLogin]           = useState(null)   // {full_name, email, password} shown once
+
+  /* Create a student's portal login. The server makes the auth user with the
+     student's OWN id so the two can never drift apart, and returns the initial
+     password once — it is not stored anywhere, so it is shown until dismissed
+     and then gone. */
+  const createStudentLogin = useCallback(async (studentId, fullName) => {
+    if (creatingLogin) return
+    if (!confirm(`Create a portal login for ${fullName}?\n\nYou'll be shown a password once, to pass on.`)) return
+    setCreatingLogin(studentId)
+    try {
+      const res = await authedFetch('/api/student-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId }),
+      })
+      const j = await res.json()
+      if (!res.ok) { alert(j.error || 'Could not create the login.'); return }
+      setNewLogin(j)
+      setStudentLogins(prev => ({ ...(prev || {}), [studentId]: { email: j.email, placeholder: j.usedPlaceholder, last_sign_in_at: null } }))
+      // The record may now carry a generated address — keep the grid honest.
+      setRows(prev => prev.map(r => (r.id === studentId ? { ...r, email: j.email } : r)))
+    } catch (e) {
+      alert(`Could not create the login: ${e.message}`)
+    } finally {
+      setCreatingLogin(null)
+    }
+  }, [creatingLogin])
   const [reloadKey, setReloadKey]   = useState(0)   // increment to force data reload
 
   // Enrolments (classes table only)
@@ -1825,7 +1862,16 @@ export default function DatabasePage() {
         enrichedRows = r.map(s => ({ ...s, guardian_name: pMap[s.id]?.full_name ?? null, guardian_relationship: pMap[s.id]?.relationship ?? null, guardian_email: pMap[s.id]?.email ?? null, guardian_phone: pMap[s.id]?.phone ?? null }))
         // payment_method is managed per family in the Guardians (Families) view —
         // drop it from the per-student grid, even for saved column layouts.
-        cols = [...cols.filter(c => c !== 'payment_method'), ...GUARDIAN_COLS]
+        cols = [...cols.filter(c => c !== 'payment_method'), ...GUARDIAN_COLS, STUDENT_LOGIN_COL]
+
+        // Who actually has a portal login. Served by the API because auth.users
+        // is not reachable from the browser. Failure leaves the column blank
+        // rather than wrongly claiming everyone is missing an account.
+        setStudentLogins(null)
+        authedFetch('/api/student-login')
+          .then(res => res.ok ? res.json() : null)
+          .then(j => setStudentLogins(j?.logins || {}))
+          .catch(() => setStudentLogins({}))
       }
 
       if (v?.joinNames && r.length > 0) {
@@ -3877,6 +3923,44 @@ export default function DatabasePage() {
         />
       )}
 
+      {/* ── New portal login — the password is shown here and nowhere else ───── */}
+      {newLogin && (
+        <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-6"
+             onClick={() => setNewLogin(null)}>
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] shadow-xl max-w-md w-full p-6"
+               onClick={e => e.stopPropagation()}>
+            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1">Login created</p>
+            <h3 className="text-lg font-bold text-[#062E63] mb-4">{newLogin.full_name}</h3>
+
+            <label className="block text-[11px] font-semibold text-[#2A2035]/60 mb-1">Email</label>
+            <div className="font-mono text-sm bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-2 mb-3 break-all">
+              {newLogin.email}
+            </div>
+
+            <label className="block text-[11px] font-semibold text-[#2A2035]/60 mb-1">Password</label>
+            <div className="font-mono text-base bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-2 mb-3 select-all">
+              {newLogin.password}
+            </div>
+
+            <p className="text-[11px] text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-3 py-2 mb-4">
+              This password is not stored anywhere. Once you close this it cannot be shown again — only replaced.
+              {newLogin.usedPlaceholder && ' This address is a placeholder and cannot receive email, so only staff can reset it.'}
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => navigator.clipboard?.writeText(`${newLogin.email}\n${newLogin.password}`)}
+                className="px-3 py-2 rounded-xl text-xs font-bold border border-[#DEE7FF] text-[#325099] hover:border-[#325099] transition"
+              >Copy both</button>
+              <button
+                onClick={() => setNewLogin(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#325099] text-white hover:bg-[#062E63] transition"
+              >Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Class course picker (searchable popover) ──────────────────────────── */}
       {editingClassCourse && (
         <SearchSelectPopover
@@ -5186,6 +5270,39 @@ export default function DatabasePage() {
                                         {s.full_name}
                                       </button>
                                     ))}
+                                </div>
+                              ) : col === STUDENT_LOGIN_COL ? (
+                                // Portal login status. No account is the thing
+                                // worth seeing, so it is the only loud state.
+                                <div className="px-3 py-1.5 overflow-hidden text-xs flex items-center gap-1.5">
+                                  {studentLogins === null
+                                    ? <span className="text-[#2A2035]/20 italic">…</span>
+                                    : studentLogins[rowId]
+                                    ? (studentLogins[rowId].placeholder
+                                        ? <>
+                                            <span className="text-[#2A2035]/45 truncate" title={studentLogins[rowId].email}>
+                                              {studentLogins[rowId].email}
+                                            </span>
+                                            <span className="shrink-0 text-[9px] text-[#2A2035]/30" title="Placeholder address — cannot receive email">
+                                              placeholder
+                                            </span>
+                                          </>
+                                        : <span className="text-[#2A2035] truncate" title={studentLogins[rowId].email}>
+                                            {studentLogins[rowId].email}
+                                          </span>)
+                                    : <>
+                                        <span className="shrink-0 text-[10px] font-bold text-[#B23A3A] bg-[#FEF2F2] border border-[#FECACA] px-1.5 py-0.5 rounded">
+                                          no login
+                                        </span>
+                                        <button
+                                          onClick={e => { e.stopPropagation(); createStudentLogin(rowId, row.full_name) }}
+                                          disabled={creatingLogin === rowId}
+                                          className="shrink-0 text-[10px] font-bold text-[#325099] hover:text-[#062E63] underline disabled:opacity-40"
+                                          title="Create an auth account using this student's id"
+                                        >
+                                          {creatingLogin === rowId ? 'creating…' : 'Create'}
+                                        </button>
+                                      </>}
                                 </div>
                               ) : col === LESSON_SCHED_TEACHER_COL ? (
                                 // Editable dropdown for scheduled teacher — searchable popover
