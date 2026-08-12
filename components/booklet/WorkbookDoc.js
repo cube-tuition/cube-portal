@@ -55,6 +55,9 @@ function answerSlots(blocks) {
   ]
   for (const b of ordered) {
     if (b.type === 'writing') { slots.push({ blockId: b.id, partId: '' }); continue }
+    // A Teacher's Notes block is a slot the TEACHER owns: typed on the Workbook
+    // tab, mirrored read-only into everyone else's copy.
+    if (b.type === 'teachernotes') { slots.push({ blockId: b.id, partId: '', teacher: true }); continue }
     if (b.type !== 'question') continue
     const parts = b.parts || []
     if (parts.length) {
@@ -331,11 +334,14 @@ function OwnAnswer({ minHeight, value, editText, marks = [], onChange, onSelect,
 
 export default function WorkbookDoc({
   booklet, blocks, classId, ownerId,
-  mode = 'own',                 // 'solutions' | 'own' | 'review'
+  mode = 'own',                 // 'solutions' | 'own' | 'review' | 'model'
   commentStudentId = null,
   staffId = null,
 }) {
   const solutions = mode === 'solutions'
+  // The teacher's class workbook: the student-facing layout, typeable, with
+  // everything typed broadcast to the whole class ("Teacher's working").
+  const isModel = mode === 'model'
   const [answers, setAnswers] = useState({})
   const [comments, setComments] = useState([])
   const [loaded, setLoaded] = useState(solutions)
@@ -358,6 +364,16 @@ export default function WorkbookDoc({
   // sees them rendered as tracked changes.
   const [edits, setEdits] = useState({})
   const [editingNote, setEditingNote] = useState(null)  // { id, body }
+  // The teacher's class-wide annotations on the workbook text itself —
+  // exemplar responses, glosses on a definition box. One set per class:
+  // painted on every copy, students included, and kept live.
+  const [classNotes, setClassNotes] = useState([])
+  const [classDraft, setClassDraft] = useState(null)      // { blockId, start, end, quote, body }
+  const [activeClassNote, setActiveClassNote] = useState(null)
+  const [editingClassNote, setEditingClassNote] = useState(null)  // { id, body }
+  // The teacher's class-wide model answers: typed on the Workbook tab, shown
+  // read-only in green under each matching answer box on student copies.
+  const [models, setModels] = useState({})
   const pendingRef = useRef({})     // slot key (t:<key> for teacher edits) → unsent payload
   const flushTimer = useRef(null)
   const retryAttempt = useRef(0)
@@ -368,7 +384,12 @@ export default function WorkbookDoc({
   const noteEditRef = useRef(null)
   const pagesRef = useRef(null)
   const gutterRef = useRef(null)
+  const classDraftRef = useRef(null)
+  const classEditRef = useRef(null)
   const canNote = mode === 'own'
+  // Staff annotate the workbook text for the whole class from their teaching
+  // tabs. The solutions copy is a pure reference: nothing is authored there.
+  const canAnnotate = !!staffId && (isModel || mode === 'review')
 
   const meta = useMemo(() => ({
     subject: booklet?.subject, year: booklet?.year, topic: booklet?.topic,
@@ -472,10 +493,15 @@ export default function WorkbookDoc({
     if (!entries.length) { setUnsaved(0); setFailing(false); return }
     let anyFail = false
     await Promise.all(entries.map(async ([pk, e]) => {
-      const { error } = await supabase.from('workbook_answers').upsert({
-        booklet_id: booklet.id, class_id: classId, owner_id: ownerId, is_teacher: !!e.isTeacher,
-        block_id: e.blockId, part_id: e.partId, body: e.body, updated_at: new Date().toISOString(),
-      }, { onConflict: 'booklet_id,class_id,owner_id,block_id,part_id,is_teacher' })
+      const { error } = e.model
+        ? await supabase.from('workbook_model_answers').upsert({
+            booklet_id: booklet.id, class_id: classId, block_id: e.blockId, part_id: e.partId,
+            body: e.body, author_id: staffId, updated_at: new Date().toISOString(),
+          }, { onConflict: 'booklet_id,class_id,block_id,part_id' })
+        : await supabase.from('workbook_answers').upsert({
+            booklet_id: booklet.id, class_id: classId, owner_id: ownerId, is_teacher: !!e.isTeacher,
+            block_id: e.blockId, part_id: e.partId, body: e.body, updated_at: new Date().toISOString(),
+          }, { onConflict: 'booklet_id,class_id,owner_id,block_id,part_id,is_teacher' })
       if (error) { anyFail = true; return }
       // Clear the slot only if nothing newer was typed while this was in flight.
       if (pendingRef.current[pk] === e) delete pendingRef.current[pk]
@@ -489,7 +515,7 @@ export default function WorkbookDoc({
       const delay = anyFail ? Math.min(30000, 2000 * 2 ** retryAttempt.current++) : SAVE_DELAY
       flushTimer.current = setTimeout(() => flushRef.current?.(), delay)
     }
-  }, [booklet.id, classId, ownerId, mirror])
+  }, [booklet.id, classId, ownerId, staffId, mirror])
   useEffect(() => { flushRef.current = flush }, [flush])
 
   const queueSave = useCallback((k, blockId, partId, isTeacher, body) => {
@@ -501,6 +527,14 @@ export default function WorkbookDoc({
   }, [flush, mirror])
 
   const saveAnswer = useCallback((k, blockId, partId, body) => queueSave(k, blockId, partId, false, body), [queueSave])
+  // The class model answer — same debounced pipeline, its own table.
+  const saveModel = useCallback((k, blockId, partId, body) => {
+    pendingRef.current[`m:${k}`] = { blockId, partId, model: true, body }
+    mirror()
+    setUnsaved(Object.keys(pendingRef.current).length)
+    clearTimeout(flushTimer.current)
+    flushTimer.current = setTimeout(flush, SAVE_DELAY)
+  }, [flush, mirror])
   // The teacher's tracked-changes copy: same table, is_teacher = true.
   const saveEdit = useCallback((k, blockId, partId, body) => queueSave(k, blockId, partId, true, body), [queueSave])
 
@@ -521,6 +555,30 @@ export default function WorkbookDoc({
     if (solutions) return
     let alive = true
     ;(async () => {
+      // The teacher's Workbook tab only needs the class model answers — no
+      // per-student rows, no comments, no personal notes.
+      if (isModel) {
+        const m = await supabase.from('workbook_model_answers')
+          .select('block_id, part_id, body')
+          .eq('booklet_id', booklet.id).eq('class_id', classId)
+        const mmap = {}
+        for (const r of m.data || []) mmap[`${r.block_id}::${r.part_id}`] = r.body
+        try {
+          const raw = localStorage.getItem(`wbdraft:${booklet.id}:${classId}:${ownerId}`)
+          if (raw) {
+            let restored = 0
+            for (const [pk, e] of Object.entries(JSON.parse(raw))) {
+              if (!e.model) continue
+              const k = pk.replace(/^m:/, '')
+              if ((mmap[k] ?? '') !== e.body) { mmap[k] = e.body; pendingRef.current[pk] = e; restored++ }
+            }
+            if (restored) { setUnsaved(restored); flushTimer.current = setTimeout(flush, 1500) }
+          }
+        } catch { /* unreadable mirror — server state stands */ }
+        if (!alive) return
+        setModels(mmap); setLoaded(true)
+        return
+      }
       const a = await supabase.from('workbook_answers')
         .select('block_id, part_id, body, is_teacher')
         .eq('booklet_id', booklet.id).eq('class_id', classId).eq('owner_id', ownerId)
@@ -540,6 +598,14 @@ export default function WorkbookDoc({
           .order('created_at')
         ns = n.data || []
       }
+      // The teacher's live working, shown in green under the matching boxes.
+      let mmap = {}
+      if (mode === 'own' || mode === 'review') {
+        const m = await supabase.from('workbook_model_answers')
+          .select('block_id, part_id, body')
+          .eq('booklet_id', booklet.id).eq('class_id', classId)
+        for (const r of m.data || []) mmap[`${r.block_id}::${r.part_id}`] = r.body
+      }
       // Anything a previous session never got to the server (tab closed during
       // an outage) comes back from the localStorage mirror and re-queues.
       try {
@@ -556,10 +622,10 @@ export default function WorkbookDoc({
         }
       } catch { /* unreadable mirror — server state stands */ }
       if (!alive) return
-      setAnswers(map); setEdits(emap); setComments(cs); setNotes(ns); setLoaded(true)
+      setAnswers(map); setEdits(emap); setComments(cs); setNotes(ns); setModels(mmap); setLoaded(true)
     })()
     return () => { alive = false }
-  }, [solutions, booklet.id, classId, ownerId, commentStudentId, canNote, flush])
+  }, [solutions, isModel, mode, booklet.id, classId, ownerId, commentStudentId, canNote, flush])
 
   // ── live refresh ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -585,6 +651,39 @@ export default function WorkbookDoc({
   }, [solutions, booklet.id, classId, ownerId, commentStudentId])
 
   useEffect(() => () => clearTimeout(flushTimer.current), [])
+
+  // ── class-wide annotations: load + live ───────────────────────────────────
+  // Runs in every mode, the solutions tab included — this is the teacher's
+  // broadcast channel, so every open copy follows the same rows.
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      const r = await supabase.from('workbook_class_notes').select('*')
+        .eq('booklet_id', booklet.id).eq('class_id', classId).order('created_at')
+      if (alive && r.data) setClassNotes(r.data)
+    }
+    load()
+    const loadModels = async () => {
+      const m = await supabase.from('workbook_model_answers')
+        .select('block_id, part_id, body')
+        .eq('booklet_id', booklet.id).eq('class_id', classId)
+      if (!alive || !m.data) return
+      const mmap = {}
+      for (const r of m.data) mmap[`${r.block_id}::${r.part_id}`] = r.body
+      setModels(prev => {
+        // The teacher's own unsent keystrokes win over an echo of an older save.
+        for (const [pk, e] of Object.entries(pendingRef.current)) {
+          if (e.model) mmap[pk.replace(/^m:/, '')] = e.body
+        }
+        return JSON.stringify(prev) === JSON.stringify(mmap) ? prev : mmap
+      })
+    }
+    const ch = supabase.channel(`wbclass:${booklet.id}:${classId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workbook_class_notes', filter: `class_id=eq.${classId}` }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workbook_model_answers', filter: `class_id=eq.${classId}` }, loadModels)
+      .subscribe()
+    return () => { alive = false; supabase.removeChannel(ch) }
+  }, [booklet.id, classId])
 
   const addComment = async () => {
     if (!draft?.body.trim()) { setDraft(null); return }
@@ -616,7 +715,7 @@ export default function WorkbookDoc({
      workbook itself is anchored by block; text they typed is anchored by
      answer slot, where the textarea already knows the exact offsets. */
   const onPageSelect = useCallback((e) => {
-    if (!canNote) return
+    if (!canNote && !canAnnotate) return
     // Answer fields handle their own selection, and this listener sits on their
     // ancestor — without this guard the bubbling mouseup would clear the
     // selection the textarea just reported.
@@ -635,7 +734,7 @@ export default function WorkbookDoc({
       target: 'text', blockId, partId: '', ...hit,
       top: r.top - (pagesRef.current.getBoundingClientRect().top || 0),
     })
-  }, [canNote])
+  }, [canNote, canAnnotate])
 
   // A selection inside an answer box. Offsets come straight from the textarea,
   // so they need no DOM walking — and they match what a teacher comment stores.
@@ -675,6 +774,30 @@ export default function WorkbookDoc({
     setEditingNote(null)
   }
 
+  // ── class-wide annotation CRUD (staff only — RLS enforces it too) ─────────
+  const addClassNote = async () => {
+    if (!classDraft?.body.trim()) { setClassDraft(null); return }
+    const { data, error } = await supabase.from('workbook_class_notes').insert({
+      booklet_id: booklet.id, class_id: classId, block_id: classDraft.blockId,
+      quote: classDraft.quote, range_start: classDraft.start, range_end: classDraft.end,
+      body: classDraft.body.trim(), author_id: staffId,
+    }).select('*').single()
+    if (!error && data) setClassNotes(ns => [...ns, data])
+    setClassDraft(null)
+  }
+  const removeClassNote = async (id) => {
+    await supabase.from('workbook_class_notes').delete().eq('id', id)
+    setClassNotes(ns => ns.filter(n => n.id !== id))
+  }
+  const saveClassNoteEdit = async () => {
+    const body = editingClassNote?.body.trim()
+    if (!body) { setEditingClassNote(null); return }
+    await supabase.from('workbook_class_notes').update({ body, updated_at: new Date().toISOString() })
+      .eq('id', editingClassNote.id)
+    setClassNotes(ns => ns.map(x => (x.id === editingClassNote.id ? { ...x, body } : x)))
+    setEditingClassNote(null)
+  }
+
   // A click on an MCQ option is that part's answer. Click it again to clear.
   // The options carry data-opt / data-pid straight from the renderer, so this
   // is plain event delegation — no per-option React component.
@@ -711,22 +834,32 @@ export default function WorkbookDoc({
           o.classList.toggle('bk-opt-sel', !!chosen && o.dataset.opt === chosen))
       })
     }
-    if (!canNote) return undefined
-    const textNotes = notes.filter(n => n.target === 'text')
+    // The teacher's class annotations paint in EVERY mode; the student's own
+    // notes only on their copy. Both share one pass per block, so the
+    // back-to-front offset rule below holds across the merged list.
     const byBlock = {}
-    for (const n of textNotes) (byBlock[n.block_id] ||= []).push(n)
-    if (noteDraft?.target === 'text') (byBlock[noteDraft.blockId] ||= []).push({
-      ...noteDraft, range_start: noteDraft.start, range_end: noteDraft.end, id: '__draft' })
-    // The live selection too: React rewrites these chunks' innerHTML on every
-    // re-render, which collapses the browser's own selection the instant the
-    // Note button appears. Painting the pending range here keeps the student's
-    // highlight visibly stuck to the words until they note it or click away.
-    else if (selection?.target === 'text') (byBlock[selection.blockId] ||= []).push({
-      ...selection, range_start: selection.start, range_end: selection.end, id: '__sel' })
+    for (const n of classNotes) (byBlock[n.block_id] ||= []).push({ ...n, __class: true })
+    if (canNote) {
+      for (const n of notes) if (n.target === 'text') (byBlock[n.block_id] ||= []).push(n)
+      if (noteDraft?.target === 'text') (byBlock[noteDraft.blockId] ||= []).push({
+        ...noteDraft, range_start: noteDraft.start, range_end: noteDraft.end, id: '__draft' })
+      // The live selection too: React rewrites these chunks' innerHTML on every
+      // re-render, which collapses the browser's own selection the instant the
+      // Note button appears. Painting the pending range here keeps the student's
+      // highlight visibly stuck to the words until they note it or click away.
+      else if (selection?.target === 'text') (byBlock[selection.blockId] ||= []).push({
+        ...selection, range_start: selection.start, range_end: selection.end, id: '__sel' })
+    }
+    if (canAnnotate) {
+      if (classDraft) (byBlock[classDraft.blockId] ||= []).push({
+        ...classDraft, range_start: classDraft.start, range_end: classDraft.end, id: '__classdraft', __class: true })
+      else if (selection?.target === 'text') (byBlock[selection.blockId] ||= []).push({
+        ...selection, range_start: selection.start, range_end: selection.end, id: '__sel', __class: true })
+    }
 
     const touched = []
     const stalies = new Set()
-    for (const n of notes) {
+    if (canNote) for (const n of notes) {
       if (n.target !== 'answer') continue
       const body = answers[`${n.block_id}::${n.part_id}`] ?? ''
       if (n.quote && body.slice(n.range_start, n.range_end) !== n.quote) stalies.add(n.id)
@@ -738,12 +871,15 @@ export default function WorkbookDoc({
       // Later highlights first: painting splits text nodes, and going
       // back-to-front keeps the earlier offsets pointing where they did.
       for (const n of [...list].sort((a, b) => b.range_start - a.range_start)) {
-        const stale = n.id !== '__draft' && n.id !== '__sel' && !checkQuote(els, n)
+        const isDraftish = n.id === '__draft' || n.id === '__sel' || n.id === '__classdraft'
+        const stale = !isDraftish && !checkQuote(els, n)
         if (stale) stalies.add(n.id)
+        const base = n.__class ? 'bk-class-hl' : 'bk-note-hl'
+        const active = n.__class ? activeClassNote === n.id : activeNote === n.id
         const el = paintRange(els, {
           start: n.range_start ?? n.start, end: n.range_end ?? n.end, id: n.id,
-          className: `bk-note-hl${stale ? ' bk-note-hl-stale' : ''}${activeNote === n.id ? ' bk-note-hl-on' : ''}`,
-          onClick: () => setActiveNote(n.id),
+          className: `${base}${stale ? ` ${base}-stale` : ''}${active ? ` ${base}-on` : ''}`,
+          onClick: n.__class ? () => setActiveClassNote(n.id) : () => setActiveNote(n.id),
         })
         if (el) markRefs.current[n.id] = el
       }
@@ -751,7 +887,6 @@ export default function WorkbookDoc({
     // Staleness feeds the warning line on the margin cards. Guarded — it only
     // sets state when the stale set genuinely changed — so this every-render
     // effect settles instead of re-triggering itself.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStaleNotes(prev => (prev.size === stalies.size && [...stalies].every(i => prev.has(i)) ? prev : stalies))
     return () => touched.forEach(unpaint)
   })
@@ -783,6 +918,8 @@ export default function WorkbookDoc({
     }
     if (noteDraft) at('__notedraft', noteDraft.target === 'answer'
       ? boxRefs.current[`${noteDraft.blockId}::${noteDraft.partId}`] : markRefs.current.__draft)
+    for (const n of classNotes) at(n.id, markRefs.current[n.id])
+    if (classDraft) at('__classdraft', markRefs.current.__classdraft)
     cards.sort((a, b) => a.top - b.top)
     let floor = -Infinity
     for (const c of cards) {
@@ -802,15 +939,20 @@ export default function WorkbookDoc({
   const draftKey = draft ? `c:${draft.key}:${draft.start}:${draft.end}` : ''
   const noteKey = noteDraft
     ? `n:${noteDraft.target}:${noteDraft.blockId}:${noteDraft.partId}:${noteDraft.start}:${noteDraft.end}` : ''
+  const classKey = classDraft ? `cd:${classDraft.blockId}:${classDraft.start}:${classDraft.end}` : ''
   useLayoutEffect(() => {
-    if (!draftKey && !noteKey) return
-    const el = draftInputRef.current || noteInputRef.current
+    if (!draftKey && !noteKey && !classKey) return
+    const el = draftInputRef.current || noteInputRef.current || classDraftRef.current
     el?.focus({ preventScroll: true })
-  }, [draftKey, noteKey])
+  }, [draftKey, noteKey, classKey])
   const editingNoteId = editingNote?.id || ''
   useLayoutEffect(() => {
     if (editingNoteId) noteEditRef.current?.focus({ preventScroll: true })
   }, [editingNoteId])
+  const editingClassId = editingClassNote?.id || ''
+  useLayoutEffect(() => {
+    if (editingClassId) classEditRef.current?.focus({ preventScroll: true })
+  }, [editingClassId])
 
   // ── render ────────────────────────────────────────────────────────────────
   /* Each chunk renders as: wrapper div (owns the block id + the 32px block
@@ -838,6 +980,23 @@ export default function WorkbookDoc({
         const slot = slots[slotIdx++] || { blockId: `?${slotIdx}`, partId: '' }
         const key = keyOf(slot)
         const reg = (el) => { if (el) boxRefs.current[key] = el }
+        if (isModel) {
+          return <OwnAnswer key={j} minHeight={piece.minHeight} value={models[key] ?? ''} registerRef={reg}
+            editText={null} marks={[]}
+            onChange={(v) => { setModels(m => ({ ...m, [key]: v })); saveModel(key, slot.blockId, slot.partId, v) }} />
+        }
+        // A Teacher's Notes slot on any other tab: the teacher's text, read-only,
+        // live — one-directional by construction (there is nothing to type into).
+        if (slot.teacher) {
+          const txt = (models[key] ?? '').trim()
+          return (
+            <div key={j} ref={reg} className="bk-model bk-tnotes-view" style={{ minHeight: piece.minHeight }}>
+              {txt
+                ? <div className="bk-model-b">{txt}</div>
+                : <span className="bk-answer-empty">Your teacher hasn&rsquo;t written here yet.</span>}
+            </div>
+          )
+        }
         if (mode === 'review') {
           const mine = comments.filter(c => `${c.block_id}::${c.part_id}` === key)
           return <ReviewAnswer key={j} minHeight={piece.minHeight} text={answers[key] ?? ''}
@@ -858,10 +1017,21 @@ export default function WorkbookDoc({
           ...(!noteDraft && selection?.target === 'answer' && `${selection.blockId}::${selection.partId}` === key
             ? [{ start: selection.start, end: selection.end, active: true }] : []),
         ]
-        return <OwnAnswer key={j} minHeight={piece.minHeight} value={answers[key] ?? ''} registerRef={reg}
-          editText={edits[key] ?? null}
-          marks={myMarks} onSelect={(el) => onAnswerSelect(slot, el)}
-          onChange={(v) => { setAnswers(m => ({ ...m, [key]: v })); saveAnswer(key, slot.blockId, slot.partId, v) }} />
+        const modelText = (models[key] ?? '').trim()
+        return (
+          <div key={j}>
+            <OwnAnswer minHeight={piece.minHeight} value={answers[key] ?? ''} registerRef={reg}
+              editText={edits[key] ?? null}
+              marks={myMarks} onSelect={(el) => onAnswerSelect(slot, el)}
+              onChange={(v) => { setAnswers(m => ({ ...m, [key]: v })); saveAnswer(key, slot.blockId, slot.partId, v) }} />
+            {modelText && (
+              <div className="bk-model">
+                <span className="bk-model-t">Teacher&rsquo;s working</span>
+                <div className="bk-model-b">{modelText}</div>
+              </div>
+            )}
+          </div>
+        )
       })}
     </div>
     )
@@ -952,6 +1122,28 @@ export default function WorkbookDoc({
         .bk-mine .bk-note-input:focus{ border-color:#325099; }
         .bk-note-who{ display:block; font-size:9px; font-weight:800; letter-spacing:.09em;
           text-transform:uppercase; color:#8fa6cf; margin-bottom:3px; }
+
+        /* The teacher's class-wide annotations: green on every copy, so they
+           read as a third voice — distinct from the teacher's per-student amber
+           and the student's own blue. */
+        .bk-class-hl{ background:#C8EEDC; color:inherit; cursor:pointer; }
+        .bk-class-hl-on{ background:#A2E3C6; }
+        .bk-class-hl-stale{ background:#E2EDE7; }
+        .bk-class{ border-color:#BFE5D2; border-left-color:#0E7A5F; }
+        .bk-class.bk-note-on{ border-color:#0E7A5F; box-shadow:0 2px 10px rgba(14,122,95,.18); }
+        .bk-class .bk-note-q{ color:#0E7A5F; background:#EEFBF5; }
+        .bk-class .bk-note-who{ color:#54b391; }
+        .bk-class .bk-note-x{ color:#7cc0a5; }
+        .bk-class .bk-note-input{ border-color:#BFE5D2; }
+        .bk-class .bk-note-input:focus{ border-color:#0E7A5F; }
+        .bk-class-btn{ background:#0E7A5F; }
+        /* The teacher's live working, mirrored under the student's own box. */
+        .bk-model{ margin:6px 0 0; border:1px solid #BFE5D2; border-left:3px solid #0E7A5F;
+          background:#F3FBF7; border-radius:8px; padding:7px 12px 9px; }
+        .bk-model-t{ display:block; font-size:9px; font-weight:800; letter-spacing:.09em;
+          text-transform:uppercase; color:#54b391; margin-bottom:2px; }
+        .bk-model-b{ font-size:14px; line-height:23px; color:#1c3d33; white-space:pre-wrap; overflow-wrap:break-word; }
+        .bk-tnotes-view{ margin:12px 0 6px; box-sizing:border-box; }
         .bk-note-stale{ display:block; font-size:10px; color:#9a6a2f; margin-top:4px; }
 
         /* Highlight backdrop for the student's own answer box: identical box
@@ -991,17 +1183,25 @@ export default function WorkbookDoc({
 
       <div className={`bk-root bk-doc-pages${mode === 'own' ? ' bk-doc-own' : ''}`} ref={pagesRef}
         style={{ position: 'relative' }}
-        onMouseUp={canNote ? onPageSelect : undefined}
+        onMouseUp={canNote || canAnnotate ? onPageSelect : undefined}
         onClick={mode === 'own' ? onPageClick : undefined}>
-        {canNote && selection && !noteDraft && (
+        {(canNote || canAnnotate) && selection && !noteDraft && !classDraft && (
           <button
-            className="bk-note-btn" style={{ top: Math.max(0, selection.top - 8) }}
+            className={canAnnotate ? 'bk-note-btn bk-class-btn' : 'bk-note-btn'}
+            style={{ top: Math.max(0, selection.top - 8) }}
             onMouseDown={(e) => {
               e.preventDefault()
-              setNoteDraft({ ...selection, body: '' }); setSelection(null); setActiveNote(null)
+              if (canAnnotate) {
+                setClassDraft({ blockId: selection.blockId, start: selection.start,
+                  end: selection.end, quote: selection.quote, body: '' })
+                setActiveClassNote(null)
+              } else {
+                setNoteDraft({ ...selection, body: '' }); setActiveNote(null)
+              }
+              setSelection(null)
               window.getSelection()?.removeAllRanges()
             }}
-          >🖍 Note</button>
+          >{canAnnotate ? '📢 Class note' : '🖍 Note'}</button>
         )}
         {!ready ? <p className="text-sm text-[#2A2035]/40 py-10 text-center">Loading…</p>
           : pages.map((chunks, pi) => (
@@ -1022,6 +1222,52 @@ export default function WorkbookDoc({
           where it stays empty — so the page sits in the same place on every
           tab instead of jumping sideways when comments appear. */}
       <div className="bk-gutter" ref={gutterRef}>
+        {classDraft && (
+          <div className="bk-note bk-class bk-note-on" ref={(el) => { noteRefs.current.__classdraft = el }}>
+            <span className="bk-note-who">To the whole class</span>
+            <span className="bk-note-q">“{classDraft.quote}”</span>
+            <textarea ref={classDraftRef} className="bk-note-input" value={classDraft.body}
+              placeholder="Annotation, exemplar response…"
+              onChange={(e) => setClassDraft(d => ({ ...d, body: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addClassNote(); if (e.key === 'Escape') setClassDraft(null) }} />
+            <div className="flex justify-end gap-2 mt-1.5">
+              <button onClick={() => setClassDraft(null)} className="text-[11px] text-[#2A2035]/45">Cancel</button>
+              <button onClick={addClassNote} className="text-[11px] font-bold text-[#0E7A5F]">Post to class</button>
+            </div>
+          </div>
+        )}
+        {classNotes.map(n => (
+          <div key={n.id} className={`bk-note bk-class${activeClassNote === n.id ? ' bk-note-on' : ''}`}
+            ref={(el) => { noteRefs.current[n.id] = el }} onClick={() => setActiveClassNote(n.id)}>
+            {canAnnotate && editingClassNote?.id !== n.id && (
+              <span className="float-right flex gap-1.5">
+                <button className="bk-note-x" title="Edit annotation" onClick={(e) => {
+                  e.stopPropagation(); setEditingClassNote({ id: n.id, body: n.body }); setActiveClassNote(n.id)
+                }}>✏️</button>
+                <button className="bk-note-x" title="Delete annotation"
+                  onClick={(e) => { e.stopPropagation(); removeClassNote(n.id) }}>✕</button>
+              </span>
+            )}
+            <span className="bk-note-who">{canAnnotate ? 'To the whole class' : 'Teacher — for everyone'}</span>
+            {n.quote && <span className="bk-note-q">“{n.quote}”</span>}
+            {editingClassNote?.id === n.id ? (
+              <>
+                <textarea ref={classEditRef} className="bk-note-input" value={editingClassNote.body}
+                  onChange={(e) => setEditingClassNote(d => ({ ...d, body: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveClassNoteEdit(); if (e.key === 'Escape') setEditingClassNote(null) }} />
+                <div className="flex justify-end gap-2 mt-1.5">
+                  <button onClick={(e) => { e.stopPropagation(); setEditingClassNote(null) }} className="text-[11px] text-[#2A2035]/45">Cancel</button>
+                  <button onClick={(e) => { e.stopPropagation(); saveClassNoteEdit() }} className="text-[11px] font-bold text-[#0E7A5F]">Save</button>
+                </div>
+              </>
+            ) : (
+              <p className="bk-note-b">{n.body}</p>
+            )}
+            {staleNotes.has(n.id) && (
+              <span className="bk-note-stale">⚠ The workbook changed here — this may no longer line up.</span>
+            )}
+          </div>
+        ))}
         {mode !== 'solutions' && (
           <>
           {draft && (

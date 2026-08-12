@@ -850,6 +850,16 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <div><label className={L}>Lines</label><input className={I} type="text" inputMode="numeric" value={block.lines} onChange={e => set({ lines: e.target.value.replace(/\D/g, '') })} /></div>
         </div>
       )
+    case 'teachernotes':
+      return (
+        <div>
+          <div className="grid grid-cols-[1fr_90px] gap-2">
+            <div><label className={L}>Heading</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Teacher's Notes" /></div>
+            <div><label className={L}>Lines (print)</label><input className={I} type="text" inputMode="numeric" value={block.lines} onChange={e => set({ lines: e.target.value.replace(/\D/g, '') })} /></div>
+          </div>
+          <p className="text-[10px] text-[#0E7A5F] mt-1.5">Printed booklets get blank lines here. Online, the teacher types into this box on their Workbook tab and students see it live, read-only.</p>
+        </div>
+      )
     case 'table':
       return <TableEditor block={block} set={set} />
     case 'pagebreak':

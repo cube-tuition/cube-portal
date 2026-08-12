@@ -30,7 +30,7 @@ function TeacherWorkbookInner() {
   const [build, setBuild] = useState(null)
   const [cls, setCls] = useState(null)
   const [students, setStudents] = useState([])
-  const [tab, setTab] = useState('teacher')     // 'teacher' | 'collab' | student uuid
+  const [tab, setTab] = useState('workbook')    // 'workbook' | 'teacher' | 'collab' | student uuid
   const [view, setView] = useState('wb')        // per-student: 'wb' | 'doc'
   const [started, setStarted] = useState({})    // student id → answered count
   const [docCounts, setDocCounts] = useState({}) // student id → journal entry count
@@ -88,7 +88,7 @@ function TeacherWorkbookInner() {
   if (err) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center px-6"><p className="text-sm text-[#B23A3A] max-w-md text-center">{err}</p></div>
   if (!staff || !booklet || !build) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
-  const activeStudent = (tab === 'teacher' || tab === 'collab') ? null : students.find(s => s.id === tab)
+  const activeStudent = (tab === 'workbook' || tab === 'teacher' || tab === 'collab') ? null : students.find(s => s.id === tab)
 
   return (
     <div className="min-h-screen bg-[#F1F4FA]">
@@ -100,11 +100,13 @@ function TeacherWorkbookInner() {
           <span className="ml-auto text-xs text-[#2A2035]/45">
             {tab === 'collab'
               ? 'One page for the whole class — everyone writes here'
+              : tab === 'workbook'
+                ? 'The class workbook — what you type and annotate here appears on every student’s copy, live'
               : activeStudent
                 ? (view === 'doc'
                   ? `${activeStudent.full_name}’s Help Page — reply under any entry`
                   : `Reading ${activeStudent.full_name}’s work — select any text to comment`)
-                : 'Solutions and notes for teaching'}
+                : 'Reference copy — solutions and notes, nothing to edit'}
           </span>
         </div>
       </div>
@@ -112,6 +114,14 @@ function TeacherWorkbookInner() {
       <div className="max-w-[1330px] mx-auto px-5 py-5 flex gap-5 items-start">
         {/* Side tabs */}
         <aside className="w-[190px] shrink-0 sticky top-[58px]">
+          <button
+            onClick={() => setTab('workbook')}
+            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold mb-1.5 transition border ${tab === 'workbook'
+              ? 'bg-[#0E7A5F] text-white border-[#0E7A5F]'
+              : 'bg-white text-[#0E7A5F] border-[#CBEBDF] hover:border-[#0E7A5F]'}`}
+          >
+            📖 Workbook
+          </button>
           <button
             onClick={() => setTab('teacher')}
             className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold mb-1.5 transition border ${tab === 'teacher'
@@ -174,7 +184,7 @@ function TeacherWorkbookInner() {
         <main className="flex-1 min-w-0 overflow-x-auto">
           {tab === 'collab' ? (
             <CollabDoc classId={classId} meId={staff.id} />
-          ) : tab !== 'teacher' && view === 'doc' ? (
+          ) : tab !== 'teacher' && tab !== 'workbook' && view === 'doc' ? (
             <TermJournal
               key={`doc:${tab}`}
               classId={classId}
@@ -188,9 +198,9 @@ function TeacherWorkbookInner() {
               booklet={booklet}
               blocks={build.blocks || []}
               classId={classId}
-              ownerId={tab === 'teacher' ? staff.id : tab}
-              mode={tab === 'teacher' ? 'solutions' : 'review'}
-              commentStudentId={tab === 'teacher' ? null : tab}
+              ownerId={tab === 'workbook' || tab === 'teacher' ? staff.id : tab}
+              mode={tab === 'workbook' ? 'model' : tab === 'teacher' ? 'solutions' : 'review'}
+              commentStudentId={tab === 'workbook' || tab === 'teacher' ? null : tab}
               staffId={staff.id}
             />
           )}
