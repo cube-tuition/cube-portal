@@ -1532,6 +1532,57 @@ export default function DatabasePage() {
       setCreatingLogin(null)
     }
   }, [creatingLogin])
+
+  /* Password resets. Staff never choose the password — they only start the
+     process, and the student sets their own on /reset-password. Step one asks
+     the server who this could be delivered to, because that varies per student:
+     a CUBE-issued login has no mailbox, and most students have no address of
+     their own at all. */
+  const [resetTarget, setResetTarget] = useState(null)   // {student_id, options} — modal
+  const [resetBusy, setResetBusy]     = useState(null)   // student id mid-request
+  const [resetResult, setResetResult] = useState(null)   // {link, sentTo, warning}
+  const [linkCopied, setLinkCopied]   = useState(false)
+
+  const openReset = useCallback(async (studentId) => {
+    if (resetBusy) return
+    setResetBusy(studentId)
+    try {
+      const res = await authedFetch('/api/password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId }),
+      })
+      const j = await res.json()
+      if (!res.ok) { alert(j.error || 'Could not start a reset.'); return }
+      setResetResult(null)
+      setLinkCopied(false)
+      setResetTarget({ student_id: studentId, options: j.options })
+    } catch (e) {
+      alert(`Could not start a reset: ${e.message}`)
+    } finally {
+      setResetBusy(null)
+    }
+  }, [resetBusy])
+
+  const sendReset = useCallback(async (deliver) => {
+    if (!resetTarget || resetBusy) return
+    setResetBusy(resetTarget.student_id)
+    try {
+      const res = await authedFetch('/api/password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: resetTarget.student_id, deliver }),
+      })
+      const j = await res.json()
+      if (!res.ok) { alert(j.error || 'Could not send the reset.'); return }
+      setResetResult(j)
+    } catch (e) {
+      alert(`Could not send the reset: ${e.message}`)
+    } finally {
+      setResetBusy(null)
+    }
+  }, [resetTarget, resetBusy])
+
   const [reloadKey, setReloadKey]   = useState(0)   // increment to force data reload
 
   // Enrolments (classes table only)
@@ -3961,6 +4012,113 @@ export default function DatabasePage() {
         </div>
       )}
 
+      {/* ── Password reset — staff start it, the student chooses the password ── */}
+      {resetTarget && (
+        <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-6"
+             onClick={() => setResetTarget(null)}>
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] shadow-xl max-w-md w-full p-6"
+               onClick={e => e.stopPropagation()}>
+            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1">Password reset</p>
+            <h3 className="text-lg font-bold text-[#062E63] mb-1">{resetTarget.options.full_name}</h3>
+            <p className="text-[11px] text-[#2A2035]/55 mb-4 break-all">
+              Login: {resetTarget.options.account.email}
+              {!resetTarget.options.last_sign_in_at && ' · has never signed in'}
+            </p>
+
+            {!resetResult ? (
+              <>
+                <p className="text-xs text-[#2A2035]/70 leading-relaxed mb-4">
+                  They&apos;ll choose their own password — you won&apos;t see it, and the link stops
+                  working the moment it&apos;s used.
+                </p>
+
+                <div className="space-y-2">
+                  {/* Emailing the student is only offered when it can actually
+                      arrive; a CUBE-issued address has no mailbox. */}
+                  {resetTarget.options.account.deliverable && (
+                    <button
+                      onClick={() => sendReset('student')}
+                      disabled={!!resetBusy}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#325099] transition disabled:opacity-50"
+                    >
+                      <span className="block text-xs font-bold text-[#062E63]">Email the student</span>
+                      <span className="block text-[11px] text-[#2A2035]/55 break-all">{resetTarget.options.account.email}</span>
+                    </button>
+                  )}
+
+                  {resetTarget.options.guardian && (
+                    <button
+                      onClick={() => sendReset('guardian')}
+                      disabled={!!resetBusy}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#325099] transition disabled:opacity-50"
+                    >
+                      <span className="block text-xs font-bold text-[#062E63]">
+                        Email {resetTarget.options.guardian.name || 'the parent'}
+                        {resetTarget.options.guardian.relationship ? ` (${resetTarget.options.guardian.relationship})` : ''}
+                      </span>
+                      <span className="block text-[11px] text-[#2A2035]/55 break-all">{resetTarget.options.guardian.email}</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => sendReset('link')}
+                    disabled={!!resetBusy}
+                    className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#325099] transition disabled:opacity-50"
+                  >
+                    <span className="block text-xs font-bold text-[#062E63]">Just give me the link</span>
+                    <span className="block text-[11px] text-[#2A2035]/55">Hand it over in person — no email sent</span>
+                  </button>
+                </div>
+
+                {!resetTarget.options.account.deliverable && !resetTarget.options.guardian && (
+                  <p className="text-[11px] text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-3 py-2 mt-4">
+                    There&apos;s no address on file that can receive email — neither the login nor a
+                    parent — so the link has to be handed over directly.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                {resetResult.sentTo && (
+                  <p className="text-[11px] text-[#2F6B3A] bg-[#EEF7EE] border border-[#CDE6D2] rounded-lg px-3 py-2 mb-3 break-all">
+                    Sent to {resetResult.sentTo}.
+                  </p>
+                )}
+                {resetResult.warning && (
+                  <p className="text-[11px] text-[#B23A3A] bg-[#FDECEC] border border-[#FECACA] rounded-lg px-3 py-2 mb-3">
+                    {resetResult.warning}
+                  </p>
+                )}
+
+                <label className="block text-[11px] font-semibold text-[#2A2035]/60 mb-1">Reset link</label>
+                <div className="font-mono text-[11px] bg-[#F8FAFF] border border-[#DEE7FF] rounded-lg px-3 py-2 mb-3 break-all select-all">
+                  {resetResult.link}
+                </div>
+
+                <p className="text-[11px] text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-3 py-2 mb-4">
+                  Single use, and it expires. Anyone holding it can set this student&apos;s password,
+                  so don&apos;t post it anywhere shared. Sending another one replaces this.
+                </p>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(resetResult.link)
+                      setLinkCopied(true)
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-bold border border-[#DEE7FF] text-[#325099] hover:border-[#325099] transition"
+                  >{linkCopied ? 'Copied' : 'Copy link'}</button>
+                  <button
+                    onClick={() => setResetTarget(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#325099] text-white hover:bg-[#062E63] transition"
+                  >Done</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Class course picker (searchable popover) ──────────────────────────── */}
       {editingClassCourse && (
         <SearchSelectPopover
@@ -5278,8 +5436,9 @@ export default function DatabasePage() {
                                   {studentLogins === null
                                     ? <span className="text-[#2A2035]/20 italic">…</span>
                                     : studentLogins[rowId]
-                                    ? (studentLogins[rowId].placeholder
-                                        ? <>
+                                    ? <>
+                                        {studentLogins[rowId].placeholder ? (
+                                          <>
                                             <span className="text-[#2A2035]/45 truncate" title={studentLogins[rowId].email}>
                                               {studentLogins[rowId].email}
                                             </span>
@@ -5287,9 +5446,20 @@ export default function DatabasePage() {
                                               placeholder
                                             </span>
                                           </>
-                                        : <span className="text-[#2A2035] truncate" title={studentLogins[rowId].email}>
+                                        ) : (
+                                          <span className="text-[#2A2035] truncate" title={studentLogins[rowId].email}>
                                             {studentLogins[rowId].email}
-                                          </span>)
+                                          </span>
+                                        )}
+                                        <button
+                                          onClick={e => { e.stopPropagation(); openReset(rowId) }}
+                                          disabled={resetBusy === rowId}
+                                          className="shrink-0 ml-auto text-[10px] font-bold text-[#325099] hover:text-[#062E63] underline disabled:opacity-40"
+                                          title="Send a link so this student can choose their own new password"
+                                        >
+                                          {resetBusy === rowId ? '…' : 'Reset'}
+                                        </button>
+                                      </>
                                     : <>
                                         <span className="shrink-0 text-[10px] font-bold text-[#B23A3A] bg-[#FEF2F2] border border-[#FECACA] px-1.5 py-0.5 rounded">
                                           no login

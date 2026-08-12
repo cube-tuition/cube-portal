@@ -9,7 +9,37 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [forgotBusy, setForgotBusy] = useState(false)
+  const [forgotMsg, setForgotMsg] = useState('')
   const router = useRouter()
+
+  /* Ask for a reset link. The server answers identically whether or not the
+     address has an account, so this can't be used to find out who studies at
+     CUBE — which also means there is nothing useful to report back beyond the
+     message it returns. */
+  const handleForgot = async () => {
+    setForgotMsg('')
+    setError('')
+    if (!email) {
+      setError('Enter your email address first, then choose "Email me a reset link".')
+      return
+    }
+    setForgotBusy(true)
+    try {
+      const res = await fetch('/api/password-reset/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const j = await res.json()
+      if (!res.ok) setError(j.error || 'Could not send a reset link.')
+      else setForgotMsg(j.message)
+    } catch (e) {
+      setError(`Couldn't reach the server: ${e?.message || e}`)
+    } finally {
+      setForgotBusy(false)
+    }
+  }
 
   const handleLogin = async () => {
     setLoading(true)
@@ -158,6 +188,20 @@ export default function LoginPage() {
                 {loading ? 'Signing you in…' : 'Log in'}
               </button>
 
+              {forgotMsg && (
+                <div className="rounded-xl px-4 py-3 mt-4 text-sm bg-[#EEF7EE] text-[#2F6B3A]">
+                  {forgotMsg}
+                </div>
+              )}
+
+              <button
+                onClick={handleForgot}
+                disabled={forgotBusy}
+                className="w-full text-xs font-semibold text-[#325099] hover:text-[#062E63] underline mt-4 disabled:opacity-50"
+              >
+                {forgotBusy ? 'Sending…' : 'Forgot your password? Email me a reset link'}
+              </button>
+
               {/* Sign-in goes through Supabase Auth, which stores only a one-way
                   hash of the password — staff can trigger a reset but can never
                   read an existing password. Saying otherwise would be untrue, so
@@ -170,8 +214,13 @@ export default function LoginPage() {
                 reuse a password from another website.
               </p>
 
+              {/* Most student logins are CUBE-issued @cubetuition.com addresses,
+                  which have no mailbox — a reset email can never arrive there.
+                  Say so, rather than let those students wait for mail that will
+                  not come. */}
               <p className="text-xs text-[#2A2035]/50 text-center mt-4">
-                Trouble logging in? Just ask your CUBE tutor — they'll sort it.
+                If you log in with a <span className="font-semibold">@cubetuition.com</span>{' '}
+                address, reset emails can&apos;t reach you — ask your CUBE tutor and they&apos;ll sort it out.
               </p>
             </div>
           </div>
