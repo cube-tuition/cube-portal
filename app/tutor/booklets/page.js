@@ -248,6 +248,48 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
   )
 }
 
+// Opening a booklet's builder from the curriculum is a director's job: tutors
+// read the curriculum, they don't author it. Checked on the role rather than on
+// which component is rendering, so the rule survives any future reshuffle.
+const canOpenBuilder = (staff) => staff?.role === 'admin' || staff?.role === 'director'
+
+// The builder is keyed by booklet_builds.id, not the booklet's — so a card can
+// only offer the link once we know a build exists behind that booklet.
+const NO_BUILDS = {}
+function useBuildIds(bookletIds, enabled) {
+  const key = enabled ? [...new Set(bookletIds.filter(Boolean))].sort().join(',') : ''
+  const [state, setState] = useState({ key: '', map: NO_BUILDS })
+  useEffect(() => {
+    if (!key) return undefined
+    let alive = true
+    supabase.from('booklet_builds').select('id, booklet_id').in('booklet_id', key.split(','))
+      .then(({ data }) => {
+        if (!alive) return
+        const m = {}
+        for (const r of data || []) if (r.booklet_id) m[r.booklet_id] = r.id
+        setState({ key, map: m })
+      })
+    return () => { alive = false }
+  }, [key])
+  // Serving a map keyed to an older booklet set would briefly offer builder
+  // links belonging to the class you just switched away from.
+  return state.key === key ? state.map : NO_BUILDS
+}
+
+function BuilderButton({ buildId, size = 'text-[10px]' }) {
+  if (!buildId) return null
+  return (
+    <a
+      href={`/tutor/booklets/builder/${buildId}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Open this booklet in the builder"
+      onClick={(e) => e.stopPropagation()}
+      className={`${size} font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition whitespace-nowrap`}
+    >🛠 Builder</a>
+  )
+}
+
 // ── Class Term Board ──────────────────────────────────────────────────────────
 function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   const [assignments, setAssignments] = useState([])
@@ -268,6 +310,8 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   }, [cls.id])
 
   useEffect(() => { load() }, [load])
+
+  const buildIds = useBuildIds(assignments.map(a => a.booklet_id), canOpenBuilder(staff))
 
   const handleUnassign = async (id) => {
     await supabase.from('class_booklet_assignments').delete().eq('id', id)
@@ -343,6 +387,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                           <button onClick={() => handleUnassign(a.id)}
                             className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
                           <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
+                          {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[9px]" />}
                         </div>
                         {b.is_exam ? (
                           <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
@@ -964,6 +1009,8 @@ function BookletsPageInner() {
 
   useEffect(() => { if (staff) load() }, [staff, load])
 
+  const buildIds = useBuildIds(booklets.map(b => b.id), canOpenBuilder(staff))
+
   const loadClasses = useCallback(async () => {
     // Classes are per-term rows (the rollover copies them), so scope to the
     // current term or each class shows once per term it has existed in.
@@ -1239,6 +1286,7 @@ function BookletsPageInner() {
                               <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
                                 <div className="flex gap-2.5">
                                   <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
+                                  {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} />}
                                   <button onClick={async () => {
                                     await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                     load()
