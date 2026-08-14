@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../lib/supabase'
+import { recordPortalActivity } from '../lib/activity'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
@@ -66,6 +67,7 @@ export default function LoginPage() {
         setError("Signed in but no user came back from Supabase — check that the account exists.")
       } else {
         // Route by role from app_metadata — no DB query needed
+        recordPortalActivity({ login: true })
         const role = data.user.app_metadata?.role ?? 'student'
         const dest = (role === 'tutor' || role === 'admin' || role === 'director') ? '/tutor' : '/dashboard'
         router.replace(dest)

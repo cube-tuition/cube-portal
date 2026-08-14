@@ -1,0 +1,254 @@
+'use client'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { supabase } from '../../../../lib/supabase'
+import { getAuthProfile } from '../../../../lib/getProfile'
+import TutorNav from '../../../../components/TutorNav'
+
+/*
+ * Portal Monitoring — /tutor/admin/monitoring (admin/director only)
+ *
+ * Who is actually using the portal, per student and per staff member, from the
+ * portal_activity table (one row per user per Sydney day; `visits` = throttled
+ * portal opens, `logins` = fresh password sign-ins).
+ *
+ * Honest-numbers note, shown on the page too: sessions persist, so people
+ * rarely re-enter a password — "logins" alone would undercount usage badly.
+ * Active days is the headline metric; logins are shown alongside.
+ */
+
+const DAY_MS = 86400000
+const WINDOW = 30      // headline window, days
+const STRIP = 14       // per-row activity strip, days
+
+const sydneyToday = () => {
+  // en-CA gives YYYY-MM-DD, which is also what portal_activity.day stores.
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
+}
+const addDays = (iso, n) => {
+  const d = new Date(iso + 'T00:00:00')
+  d.setDate(d.getDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+const relDay = (iso, today) => {
+  if (!iso) return null
+  return Math.round((new Date(today + 'T00:00:00') - new Date(iso + 'T00:00:00')) / DAY_MS)
+}
+
+function lastSeenLabel(days) {
+  if (days == null) return { text: 'never', color: '#B23A3A' }
+  if (days <= 0) return { text: 'today', color: '#047857' }
+  if (days === 1) return { text: 'yesterday', color: '#047857' }
+  if (days <= 7) return { text: `${days} days ago`, color: '#92400E' }
+  return { text: `${days} days ago`, color: '#B23A3A' }
+}
+
+export default function PortalMonitoringPage() {
+  const router = useRouter()
+  const [staff, setStaff] = useState(null)
+  const [rows, setRows] = useState([])          // portal_activity, last 60 days
+  const [students, setStudents] = useState([])
+  const [tutors, setTutors] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState('students')    // 'students' | 'staff'
+  const [sort, setSort] = useState({ key: 'lastSeen', dir: 'desc' })
+  const [q, setQ] = useState('')
+
+  const today = useMemo(() => sydneyToday(), [])
+
+  useEffect(() => {
+    (async () => {
+      const { profile, role } = await getAuthProfile()
+      if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
+      setStaff(profile)
+      const since = addDays(today, -60)
+      const [act, stu, tut, dir] = await Promise.all([
+        supabase.from('portal_activity').select('user_id, day, visits, logins, last_seen').gte('day', since),
+        supabase.from('students').select('id, full_name, year, status'),
+        supabase.from('tutors').select('id, full_name, active'),
+        supabase.from('directors').select('id, full_name'),
+      ])
+      setRows(act.data || [])
+      setStudents((stu.data || []).filter(s => s.status === 'active'))
+      setTutors([
+        ...(tut.data || []).filter(t => t.active !== false).map(t => ({ ...t, kind: 'Tutor' })),
+        ...(dir.data || []).map(d => ({ ...d, kind: 'Director' })),
+      ])
+      setLoading(false)
+    })()
+  }, [router, today])
+
+  // Per-user aggregates over the fetched window.
+  const byUser = useMemo(() => {
+    const cut30 = addDays(today, -(WINDOW - 1))
+    const cutStrip = addDays(today, -(STRIP - 1))
+    const m = new Map()
+    for (const r of rows) {
+      const u = m.get(r.user_id) || { lastDay: null, activeDays30: 0, logins30: 0, visits30: 0, strip: {} }
+      if (!u.lastDay || r.day > u.lastDay) u.lastDay = r.day
+      if (r.day >= cut30) {
+        u.activeDays30 += 1
+        u.logins30 += r.logins
+        u.visits30 += r.visits
+      }
+      if (r.day >= cutStrip) u.strip[r.day] = (u.strip[r.day] || 0) + r.visits
+      m.set(r.user_id, u)
+    }
+    return m
+  }, [rows, today])
+
+  const people = useMemo(() => {
+    const base = tab === 'students'
+      ? students.map(s => ({ id: s.id, name: s.full_name, sub: s.year ? `Year ${s.year}` : '' }))
+      : tutors.map(t => ({ id: t.id, name: t.full_name, sub: t.kind }))
+    const needle = q.trim().toLowerCase()
+    const list = base
+      .filter(p => !needle || p.name.toLowerCase().includes(needle))
+      .map(p => {
+        const u = byUser.get(p.id)
+        return {
+          ...p,
+          lastSeen: u?.lastDay ?? null,
+          daysAgo: relDay(u?.lastDay ?? null, today),
+          activeDays30: u?.activeDays30 ?? 0,
+          logins30: u?.logins30 ?? 0,
+          visits30: u?.visits30 ?? 0,
+          strip: u?.strip ?? {},
+        }
+      })
+    const dir = sort.dir === 'asc' ? 1 : -1
+    list.sort((a, b) => {
+      if (sort.key === 'name') return dir * a.name.localeCompare(b.name)
+      if (sort.key === 'lastSeen') {
+        // "never" always sinks to the bottom regardless of direction.
+        if (!a.lastSeen && !b.lastSeen) return a.name.localeCompare(b.name)
+        if (!a.lastSeen) return 1
+        if (!b.lastSeen) return -1
+        return dir * a.lastSeen.localeCompare(b.lastSeen)
+      }
+      return dir * ((a[sort.key] || 0) - (b[sort.key] || 0)) || a.name.localeCompare(b.name)
+    })
+    return list
+  }, [tab, students, tutors, byUser, q, sort, today])
+
+  const tiles = useMemo(() => {
+    const active7 = (list) => list.filter(p => p.daysAgo != null && p.daysAgo <= 6).length
+    const all = (kind) => (kind === 'students'
+      ? students.map(s => ({ id: s.id }))
+      : tutors.map(t => ({ id: t.id })))
+      .map(p => ({ ...p, daysAgo: relDay(byUser.get(p.id)?.lastDay ?? null, today) }))
+    const stu = all('students'), stf = all('staff')
+    const cut7 = addDays(today, -6)
+    const logins7 = rows.filter(r => r.day >= cut7).reduce((s, r) => s + r.logins, 0)
+    return {
+      students: `${active7(stu)}/${stu.length}`,
+      staffN: `${active7(stf)}/${stf.length}`,
+      logins7,
+      never: stu.filter(p => p.daysAgo == null).length,
+    }
+  }, [students, tutors, byUser, rows, today])
+
+  const headers = [
+    ['name', 'Name'], ['lastSeen', 'Last seen'], ['activeDays30', `Active days · ${WINDOW}d`],
+    ['logins30', `Logins · ${WINDOW}d`], ['visits30', `Visits · ${WINDOW}d`],
+  ]
+  const stripDays = Array.from({ length: STRIP }, (_, i) => addDays(today, i - (STRIP - 1)))
+
+  if (loading || !staff) return (
+    <div className="min-h-screen bg-[#F8FAFF]">
+      <TutorNav staffName={staff?.full_name} isAdmin />
+      <p className="text-sm text-[#325099]/60 text-center mt-24 animate-pulse font-semibold tracking-widest uppercase font-display">Loading…</p>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFF]">
+      <TutorNav staffName={staff.full_name} isAdmin={staff.role === 'admin'} />
+      <div className="max-w-6xl mx-auto px-6 md:px-10 py-8">
+        <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">Admin</p>
+        <h1 className="text-2xl font-bold text-[#2A2035] font-display mb-1">Portal Monitoring</h1>
+        <p className="text-xs text-[#2A2035]/55 mb-6 max-w-2xl">
+          Who is actually using the portal. Sessions stay signed in for weeks, so <strong>active days</strong> is
+          the truthful measure of usage — logins only count fresh password sign-ins.
+        </p>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          {[
+            ['Students active · 7d', tiles.students, '#047857'],
+            ['Staff active · 7d', tiles.staffN, '#047857'],
+            ['Fresh logins · 7d', tiles.logins7, '#325099'],
+            ['Students never seen', tiles.never, tiles.never ? '#B23A3A' : '#047857'],
+          ].map(([l, v, color]) => (
+            <div key={l} className="bg-white rounded-2xl border border-[#DEE7FF] px-4 py-3">
+              <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{l}</p>
+              <p className="text-2xl font-bold mt-0.5 font-display" style={{ color }}>{v}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          {[['students', `Students · ${students.length}`], ['staff', `Staff · ${tutors.length}`]].map(([v, label]) => (
+            <button key={v} onClick={() => setTab(v)}
+              className={`px-4 py-2 rounded-xl border text-sm font-semibold transition ${tab === v
+                ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
+                : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
+              {label}
+            </button>
+          ))}
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search names…"
+            className="ml-auto text-sm border border-[#DEE7FF] rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-[#325099] w-56" />
+        </div>
+
+        <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
+            <thead>
+              <tr className="text-left text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 border-b border-[#EEF2FB]">
+                {headers.map(([key, label]) => (
+                  <th key={key} className="px-4 py-2.5 font-bold cursor-pointer select-none whitespace-nowrap"
+                    onClick={() => setSort(s => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}>
+                    {label}{sort.key === key ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : ''}
+                  </th>
+                ))}
+                <th className="px-4 py-2.5 font-bold whitespace-nowrap">Last {STRIP} days</th>
+              </tr>
+            </thead>
+            <tbody>
+              {people.map(p => {
+                const seen = lastSeenLabel(p.daysAgo)
+                return (
+                  <tr key={p.id} className="border-b border-[#F4F7FF] last:border-0">
+                    <td className="px-4 py-2">
+                      <span className="font-semibold text-[#2A2035]">{p.name}</span>
+                      {p.sub && <span className="ml-2 text-[10px] text-[#2A2035]/40">{p.sub}</span>}
+                    </td>
+                    <td className="px-4 py-2 font-semibold whitespace-nowrap" style={{ color: seen.color }}>{seen.text}</td>
+                    <td className="px-4 py-2 tabular-nums">{p.activeDays30 || <span className="text-[#2A2035]/30">—</span>}</td>
+                    <td className="px-4 py-2 tabular-nums">{p.logins30 || <span className="text-[#2A2035]/30">—</span>}</td>
+                    <td className="px-4 py-2 tabular-nums">{p.visits30 || <span className="text-[#2A2035]/30">—</span>}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-[3px]" title="One square per day, oldest → today">
+                        {stripDays.map(d => {
+                          const v = p.strip[d] || 0
+                          return <span key={d} className="w-2.5 h-2.5 rounded-[3px]"
+                            style={{ background: v === 0 ? '#EEF2FB' : v < 3 ? '#A7F3D0' : '#10B981' }} />
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+              {people.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">Nobody matches that search.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="text-[10px] text-[#2A2035]/40 mt-3">
+          Tracking began {today} — history before that only knows each user&rsquo;s single most recent
+          sign-in (seeded from the auth records), so 30-day counts grow more meaningful from here on.
+        </p>
+      </div>
+    </div>
+  )
+}

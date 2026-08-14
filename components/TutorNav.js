@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import GlobalUndo from './GlobalUndo'
+import { recordPortalActivity } from '../lib/activity'
 
 /*
  * Nav for the tutor / admin portal.
@@ -47,6 +48,7 @@ const ADMIN_GROUPS = [
       { label: 'Availabilities', href: '/tutor/admin/availabilities', icon: '📅' },
       { label: 'Drop-ins',      href: '/tutor/dropin',               icon: '☕' },
       { label: 'Emails',        href: '/tutor/emails',               icon: '✉️'  },
+      { label: 'Monitoring',    href: '/tutor/admin/monitoring',     icon: '📶' },
       { label: 'Reports',       href: '/tutor/reports',              icon: '📊' },
       { label: 'Timetable',     href: '/tutor/admin/timetable',      icon: '🗓️' },
       { label: 'Transition',    href: '/tutor/transition',           icon: '🔄' },
@@ -170,6 +172,9 @@ function MobileGroup({ group, pathname, onClose }) {
 
 // ── Main nav ──────────────────────────────────────────────────────────────────
 export default function TutorNav({ staffName, isAdmin = false }) {
+  // Usage heartbeat — same rule as the student nav: throttled, fire-and-forget.
+  useEffect(() => { recordPortalActivity() }, [])
+
   const router        = useRouter()
   const pathname      = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)

@@ -1,7 +1,11 @@
 'use client'
+import { useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
+import { recordPortalActivity } from '../lib/activity'
+import { useState } from 'react'
+import { T_STUDENTS } from '../lib/tables'
 
 const LINKS = [
   { label: 'Home', href: '/dashboard' },
@@ -9,13 +13,40 @@ const LINKS = [
   // `soon` tags a link whose page is still being finished — the page itself
   // shows the coming-soon panel; this just sets the expectation beforehand.
   { label: 'Resources', href: '/resources', soon: true },
+  // Seniors only — trials/HSC preparation. Filtered out for other years below.
+  { label: 'Past Papers', href: '/pastpapers', seniorOnly: true },
   { label: 'Drop-in Help', href: '/dropin' },
   { label: 'Past Terms', href: '/archive' },
 ]
+const YEAR_KEY = 'cube:student-year'
 
 export default function PortalNav({ studentName }) {
   const router = useRouter()
   const pathname = usePathname()
+
+  // Usage heartbeat — the nav renders on every signed-in page, and the ping
+  // throttles itself, so this is one write per visit, not per navigation.
+  useEffect(() => { recordPortalActivity() }, [])
+
+  // The Past Papers link only shows for Years 11–12. The year is fetched once
+  // per tab session and cached, so this costs one query, not one per page.
+  const [year, setYear] = useState(() => {
+    try { return sessionStorage.getItem(YEAR_KEY) || '' } catch { return '' }
+  })
+  useEffect(() => {
+    if (year) return
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.user) return
+        const { data } = await supabase.from(T_STUDENTS)
+          .select('year').eq('id', session.user.id).maybeSingle()
+        const y = String(data?.year ?? '')
+        if (y) { sessionStorage.setItem(YEAR_KEY, y); setYear(y) }
+      } catch { /* nav link stays hidden — the page itself gates too */ }
+    })()
+  }, [year])
+  const links = LINKS.filter(l => !l.seniorOnly || year === '11' || year === '12')
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -42,7 +73,7 @@ export default function PortalNav({ studentName }) {
 
         {/* Nav links */}
         <div className="hidden md:flex items-center gap-1">
-          {LINKS.map((link) => {
+          {links.map((link) => {
             const active =
               link.href === '/dashboard'
                 ? pathname === '/dashboard'
