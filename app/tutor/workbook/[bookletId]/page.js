@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import WorkbookDoc from '../../../../components/booklet/WorkbookDoc'
 import TermJournal from '../../../../components/booklet/TermJournal'
 import CollabDoc from '../../../../components/booklet/CollabDoc'
+import { useSidebarCollapsed, SidebarRail, SidebarCollapseButton } from '../../../../components/booklet/SidebarToggle'
 
 /*
  * Teacher's view of an online workbook — /tutor/workbook/<bookletId>?class=<id>
@@ -35,6 +36,7 @@ function TeacherWorkbookInner() {
   const [started, setStarted] = useState({})    // student id → answered count
   const [docCounts, setDocCounts] = useState({}) // student id → journal entry count
   const [err, setErr] = useState('')
+  const [railClosed, toggleRail] = useSidebarCollapsed('wb:tutor-tabs-collapsed')
 
   useEffect(() => {
     (async () => {
@@ -112,8 +114,11 @@ function TeacherWorkbookInner() {
       </div>
 
       <div className="max-w-[1330px] mx-auto px-5 py-5 flex gap-5 items-start">
-        {/* Side tabs */}
+        {/* Side tabs — collapsible, since the doc itself is a fixed-width A4
+            page and the rail is the cheapest width to give back. */}
+        {railClosed ? <SidebarRail onExpand={toggleRail} /> : (
         <aside className="w-[190px] shrink-0 sticky top-[58px]">
+          <SidebarCollapseButton onCollapse={toggleRail} />
           <button
             onClick={() => setTab('workbook')}
             className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold mb-1.5 transition border ${tab === 'workbook'
@@ -179,6 +184,7 @@ function TeacherWorkbookInner() {
           )}
           {!classId && <p className="text-[11px] text-[#2A2035]/40 mt-3 px-1">Open this from a class lesson page to see student copies.</p>}
         </aside>
+        )}
 
         {/* The doc */}
         <main className="flex-1 min-w-0 overflow-x-auto">

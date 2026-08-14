@@ -6,6 +6,7 @@ import { requireStudent } from '../../../lib/requireStudent'
 import PortalNav from '../../../components/PortalNav'
 import WorkbookDoc from '../../../components/booklet/WorkbookDoc'
 import TermJournal from '../../../components/booklet/TermJournal'
+import { useSidebarCollapsed, SidebarRail, SidebarCollapseButton } from '../../../components/booklet/SidebarToggle'
 import CollabDoc from '../../../components/booklet/CollabDoc'
 
 /*
@@ -30,7 +31,8 @@ function StudentWorkbookInner() {
   const [student, setStudent] = useState(null)
   const [booklet, setBooklet] = useState(null)
   const [build, setBuild] = useState(null)
-  const [tab, setTab] = useState('workbook')   // 'workbook' | 'doc' | 'collab'
+  const [tab, setTab] = useState('workbook')   // 'workbook' | 'doc'
+  const [railClosed, toggleRail] = useSidebarCollapsed('wb:tabs-collapsed') | 'collab'
   const [err, setErr] = useState('')
 
   useEffect(() => {
@@ -91,8 +93,11 @@ function StudentWorkbookInner() {
       </div>
 
       <div className="max-w-[1330px] mx-auto px-5 py-5 flex gap-5 items-start">
-        {/* Side tabs — this week on top, the term-long doc beneath. */}
+        {/* Side tabs — this week on top, the term-long doc beneath. Collapsible:
+            the page is a fixed-width A4 doc, so the rail is worth reclaiming. */}
+        {railClosed ? <SidebarRail onExpand={toggleRail} /> : (
         <aside className="w-[190px] shrink-0 sticky top-[58px]">
+          <SidebarCollapseButton onCollapse={toggleRail} />
           <button
             onClick={() => setTab('workbook')}
             className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold mb-1.5 transition border ${tab === 'workbook'
@@ -123,6 +128,7 @@ function StudentWorkbookInner() {
               : ''}
           </p>
         </aside>
+        )}
 
         <main className="flex-1 min-w-0 overflow-x-auto">
           {tab === 'collab' ? (
