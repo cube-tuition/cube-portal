@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import { subjectOf } from '../../../../lib/subjectColours'
+import { getCurrentTerm } from '../../../../lib/terms'
 
 /*
  * Portal Monitoring — /tutor/admin/monitoring (admin/director only)
@@ -46,6 +48,18 @@ const PAGE_NAMES = {
 }
 const pageName = (p) => PAGE_NAMES[p] || p
 
+/*
+ * Activity buckets for the filter. Derived from "days since last seen" rather
+ * than stored, so they always agree with the Last seen column.
+ */
+const ACTIVITY = [
+  ['all', 'All activity', () => true],
+  ['active', 'Active · 7d', (d) => d != null && d <= 6],
+  ['lapsed', 'Lapsed · 7–30d', (d) => d != null && d > 6 && d <= 30],
+  ['stale', 'Over 30d', (d) => d != null && d > 30],
+  ['never', 'Never seen', (d) => d == null],
+]
+
 const sydneyToday = () => {
   // en-CA gives YYYY-MM-DD, which is also what portal_activity.day stores.
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' })
@@ -80,6 +94,10 @@ export default function PortalMonitoringPage() {
   const [sort, setSort] = useState({ key: 'lastSeen', dir: 'desc' })
   const [q, setQ] = useState('')
   const [openRow, setOpenRow] = useState(null)  // person id whose pages are expanded
+  const [subjects, setSubjects] = useState({}) // student id -> ['Maths', 'English']
+  const [fYear, setFYear] = useState('all')
+  const [fActivity, setFActivity] = useState('all')
+  const [fSubject, setFSubject] = useState('all')
 
   const today = useMemo(() => sydneyToday(), [])
 
@@ -103,6 +121,27 @@ export default function PortalMonitoringPage() {
         ...(tut.data || []).filter(t => t.active !== false).map(t => ({ ...t, kind: 'Tutor' })),
         ...(dir.data || []).map(d => ({ ...d, kind: 'Director' })),
       ])
+
+      // Which subjects each student is taking THIS term. Classes are per-term
+      // rows, so this must be term-scoped or a student who did Maths two terms
+      // ago would still be filtered as a Maths student today.
+      const { data: terms } = await supabase.from('terms')
+        .select('id, name, term_number, year, start_date, end_date')
+      const term = getCurrentTerm(terms || [])
+      if (term) {
+        const { data: enr } = await supabase.from('enrolments')
+          .select('student_id, status, classes!inner(term_id, courses(course_name))')
+          .eq('classes.term_id', term.id)
+        const map = {}
+        for (const e of enr || []) {
+          if (e.status === 'disenrol') continue
+          const subj = subjectOf(e.classes?.courses?.course_name || '') || 'Other'
+          const list = map[e.student_id] || (map[e.student_id] = [])
+          if (!list.includes(subj)) list.push(subj)
+        }
+        for (const k of Object.keys(map)) map[k].sort()
+        setSubjects(map)
+      }
       setLoading(false)
     })()
   }, [router, today])
@@ -182,12 +221,21 @@ export default function PortalMonitoringPage() {
   const maxPageViews = pageRows.length ? pageRows[0].views : 0
 
   const people = useMemo(() => {
-    const base = tab === 'students'
-      ? students.map(s => ({ id: s.id, name: s.full_name, sub: s.year ? `Year ${s.year}` : '' }))
-      : tutors.map(t => ({ id: t.id, name: t.full_name, sub: t.kind }))
+    const isStudents = tab === 'students'
+    const base = isStudents
+      ? students.map(s => ({
+          id: s.id, name: s.full_name, sub: s.year ? `Year ${s.year}` : '',
+          year: s.year ?? null, subjects: subjects[s.id] || [],
+        }))
+      : tutors.map(t => ({ id: t.id, name: t.full_name, sub: t.kind, year: null, subjects: [] }))
     const needle = q.trim().toLowerCase()
+    const activityTest = (ACTIVITY.find(a => a[0] === fActivity) || ACTIVITY[0])[2]
     const list = base
       .filter(p => !needle || p.name.toLowerCase().includes(needle))
+      // The three filters only apply to students; the staff tab has no year
+      // or subject, so leaving them set while switching tabs must not blank it.
+      .filter(p => !isStudents || fYear === 'all' || String(p.year ?? '') === fYear)
+      .filter(p => !isStudents || fSubject === 'all' || p.subjects.includes(fSubject))
       .map(p => {
         const u = byUser.get(p.id)
         return {
@@ -203,9 +251,26 @@ export default function PortalMonitoringPage() {
             .sort((a, b) => b.views - a.views || a.label.localeCompare(b.label)),
         }
       })
+    const filtered = list.filter(p => activityTest(p.daysAgo))
     const dir = sort.dir === 'asc' ? 1 : -1
-    list.sort((a, b) => {
+    filtered.sort((a, b) => {
       if (sort.key === 'name') return dir * a.name.localeCompare(b.name)
+      // Year sorts numerically, and students with no year recorded sink.
+      if (sort.key === 'year') {
+        const ay = Number(a.year), by = Number(b.year)
+        const aOk = Number.isFinite(ay), bOk = Number.isFinite(by)
+        if (!aOk && !bOk) return a.name.localeCompare(b.name)
+        if (!aOk) return 1
+        if (!bOk) return -1
+        return dir * (ay - by) || a.name.localeCompare(b.name)
+      }
+      if (sort.key === 'subjects') {
+        const as = a.subjects.join(', '), bs = b.subjects.join(', ')
+        if (!as && !bs) return a.name.localeCompare(b.name)
+        if (!as) return 1
+        if (!bs) return -1
+        return dir * as.localeCompare(bs) || a.name.localeCompare(b.name)
+      }
       if (sort.key === 'lastSeen') {
         // "never" always sinks to the bottom regardless of direction.
         if (!a.lastSeen && !b.lastSeen) return a.name.localeCompare(b.name)
@@ -215,8 +280,9 @@ export default function PortalMonitoringPage() {
       }
       return dir * ((a[sort.key] || 0) - (b[sort.key] || 0)) || a.name.localeCompare(b.name)
     })
-    return list
-  }, [tab, students, tutors, byUser, pagesByUser, q, sort, today])
+    return filtered
+  }, [tab, students, tutors, subjects, byUser, pagesByUser, q, sort, today,
+      fYear, fActivity, fSubject])
 
   const tiles = useMemo(() => {
     const active7 = (list) => list.filter(p => p.daysAgo != null && p.daysAgo <= 6).length
@@ -235,10 +301,26 @@ export default function PortalMonitoringPage() {
     }
   }, [students, tutors, byUser, rows, today])
 
+  // Year and Subjects only exist for students, so the staff tab drops them.
   const headers = [
-    ['name', 'Name'], ['lastSeen', 'Last seen'], ['activeDays30', `Active days · ${WINDOW}d`],
+    ['name', 'Name'],
+    ...(tab === 'students' ? [['year', 'Year'], ['subjects', 'Subjects']] : []),
+    ['lastSeen', 'Last seen'], ['activeDays30', `Active days · ${WINDOW}d`],
     ['logins30', `Logins · ${WINDOW}d`], ['visits30', `Visits · ${WINDOW}d`],
   ]
+  const colCount = headers.length + 2   // + activity strip + pages column
+
+  // Year options come from the roster, so a new year level needs no code change.
+  const yearOptions = useMemo(() => {
+    const ys = [...new Set(students.map(s => s.year).filter(y => y != null && y !== ''))]
+    return ys.sort((a, b) => Number(a) - Number(b)).map(String)
+  }, [students])
+  const subjectOptions = useMemo(() => {
+    const set = new Set()
+    for (const list of Object.values(subjects)) list.forEach(s => set.add(s))
+    return [...set].sort()
+  }, [subjects])
+  const filtersOn = fYear !== 'all' || fActivity !== 'all' || fSubject !== 'all'
   const stripDays = Array.from({ length: STRIP }, (_, i) => addDays(today, i - (STRIP - 1)))
 
   if (loading || !staff) return (
@@ -287,6 +369,33 @@ export default function PortalMonitoringPage() {
             placeholder={tab === 'pages' ? 'Search pages…' : 'Search names…'}
             className="ml-auto text-sm border border-[#DEE7FF] rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-[#325099] w-56" />
         </div>
+
+        {tab === 'students' && (
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            {[
+              ['Year', fYear, setFYear, [['all', 'All years'], ...yearOptions.map(y => [y, `Year ${y}`])]],
+              ['Activity', fActivity, setFActivity, ACTIVITY.map(([v, label]) => [v, label])],
+              ['Subject', fSubject, setFSubject, [['all', 'All subjects'], ...subjectOptions.map(s => [s, s])]],
+            ].map(([label, value, setter, options]) => (
+              <label key={label} className="flex items-center gap-1.5">
+                <span className="text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 font-bold">{label}</span>
+                <select value={value} onChange={e => setter(e.target.value)}
+                  className="text-sm border border-[#DEE7FF] rounded-xl px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]">
+                  {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+            ))}
+            <span className="text-xs text-[#2A2035]/45">
+              {people.length} of {students.length} students
+            </span>
+            {filtersOn && (
+              <button onClick={() => { setFYear('all'); setFActivity('all'); setFSubject('all') }}
+                className="text-[11px] font-bold text-[#325099] hover:text-[#062E63] underline">
+                clear filters
+              </button>
+            )}
+          </div>
+        )}
 
         {tab === 'pages' ? (
           <>
@@ -361,8 +470,30 @@ export default function PortalMonitoringPage() {
                   <tr className="border-b border-[#F4F7FF] last:border-0">
                     <td className="px-4 py-2">
                       <span className="font-semibold text-[#2A2035]">{p.name}</span>
-                      {p.sub && <span className="ml-2 text-[10px] text-[#2A2035]/40">{p.sub}</span>}
+                      {/* The year already has its own column on the students
+                          tab, so only staff need the sub-label here. */}
+                      {p.sub && tab !== 'students' && (
+                        <span className="ml-2 text-[10px] text-[#2A2035]/40">{p.sub}</span>
+                      )}
                     </td>
+                    {tab === 'students' && (
+                      <>
+                        <td className="px-4 py-2 tabular-nums whitespace-nowrap">
+                          {p.year != null && p.year !== ''
+                            ? p.year
+                            : <span className="text-[#2A2035]/30">—</span>}
+                        </td>
+                        <td className="px-4 py-2">
+                          {p.subjects.length ? (
+                            <span className="flex flex-wrap gap-1">
+                              {p.subjects.map(s => (
+                                <span key={s} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF2FB] text-[#062E63] whitespace-nowrap">{s}</span>
+                              ))}
+                            </span>
+                          ) : <span className="text-[#2A2035]/30">—</span>}
+                        </td>
+                      </>
+                    )}
                     <td className="px-4 py-2 font-semibold whitespace-nowrap" style={{ color: seen.color }}>{seen.text}</td>
                     <td className="px-4 py-2 tabular-nums">{p.activeDays30 || <span className="text-[#2A2035]/30">—</span>}</td>
                     <td className="px-4 py-2 tabular-nums">{p.logins30 || <span className="text-[#2A2035]/30">—</span>}</td>
@@ -389,7 +520,7 @@ export default function PortalMonitoringPage() {
                   </tr>
                   {open && (
                     <tr className="bg-[#F8FAFF] border-b border-[#F4F7FF]">
-                      <td colSpan={7} className="px-4 py-3">
+                      <td colSpan={colCount} className="px-4 py-3">
                         <p className="text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 font-bold mb-2">
                           Pages opened · {WINDOW}d
                         </p>
@@ -411,7 +542,9 @@ export default function PortalMonitoringPage() {
                 )
               })}
               {people.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">Nobody matches that search.</td></tr>
+                <tr><td colSpan={colCount} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">
+                  {filtersOn ? 'No students match those filters.' : 'Nobody matches that search.'}
+                </td></tr>
               )}
             </tbody>
           </table>
