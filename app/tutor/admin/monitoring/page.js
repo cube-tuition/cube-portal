@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
@@ -20,6 +20,31 @@ import TutorNav from '../../../../components/TutorNav'
 const DAY_MS = 86400000
 const WINDOW = 30      // headline window, days
 const STRIP = 14       // per-row activity strip, days
+
+/*
+ * Friendly names for the normalised routes stored in portal_page_views. The
+ * table keeps routes (/workbook/:id), not URLs, so this map stays small and
+ * an unknown route simply shows its path rather than disappearing.
+ */
+const PAGE_NAMES = {
+  '/dashboard': 'Home',
+  '/classes': 'Classes',
+  '/classes/:id': 'Class page',
+  '/workbook/:id': 'Online workbook',
+  '/workbook/view/:id': 'Workbook (view)',
+  '/resources': 'Resources',
+  '/pastpapers': 'Past Papers',
+  '/dropin': 'Drop-in Help',
+  '/archive': 'Past Terms',
+  '/archive/:id': 'Past term detail',
+  '/results': 'Results',
+  '/timetable': 'Timetable',
+  '/study': 'Study',
+  '/analytics': 'Analytics',
+  '/reset-password': 'Password reset',
+  '/': 'Login',
+}
+const pageName = (p) => PAGE_NAMES[p] || p
 
 const sydneyToday = () => {
   // en-CA gives YYYY-MM-DD, which is also what portal_activity.day stores.
@@ -47,12 +72,14 @@ export default function PortalMonitoringPage() {
   const router = useRouter()
   const [staff, setStaff] = useState(null)
   const [rows, setRows] = useState([])          // portal_activity, last 60 days
+  const [views, setViews] = useState([])        // portal_page_views, last 60 days
   const [students, setStudents] = useState([])
   const [tutors, setTutors] = useState([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('students')    // 'students' | 'staff'
+  const [tab, setTab] = useState('students')    // 'students' | 'staff' | 'pages'
   const [sort, setSort] = useState({ key: 'lastSeen', dir: 'desc' })
   const [q, setQ] = useState('')
+  const [openRow, setOpenRow] = useState(null)  // person id whose pages are expanded
 
   const today = useMemo(() => sydneyToday(), [])
 
@@ -62,13 +89,15 @@ export default function PortalMonitoringPage() {
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
       setStaff(profile)
       const since = addDays(today, -60)
-      const [act, stu, tut, dir] = await Promise.all([
+      const [act, pv, stu, tut, dir] = await Promise.all([
         supabase.from('portal_activity').select('user_id, day, visits, logins, last_seen').gte('day', since),
+        supabase.from('portal_page_views').select('user_id, day, path, views, last_seen').gte('day', since),
         supabase.from('students').select('id, full_name, year, status'),
         supabase.from('tutors').select('id, full_name, active'),
         supabase.from('directors').select('id, full_name'),
       ])
       setRows(act.data || [])
+      setViews(pv.data || [])
       setStudents((stu.data || []).filter(s => s.status === 'active'))
       setTutors([
         ...(tut.data || []).filter(t => t.active !== false).map(t => ({ ...t, kind: 'Tutor' })),
@@ -97,6 +126,61 @@ export default function PortalMonitoringPage() {
     return m
   }, [rows, today])
 
+  // Page views over the headline window, sliced two ways: per person (for the
+  // expandable row) and per page (for the Pages tab).
+  const { pagesByUser, pageTotals } = useMemo(() => {
+    const cut = addDays(today, -(WINDOW - 1))
+    const byUser = new Map()   // user_id -> Map(path -> {views, last})
+    const totals = new Map()   // path -> {views, users:Set, last}
+    for (const r of views) {
+      if (r.day < cut) continue
+      const mine = byUser.get(r.user_id) || new Map()
+      const cur = mine.get(r.path) || { views: 0, last: null }
+      cur.views += r.views
+      if (!cur.last || r.day > cur.last) cur.last = r.day
+      mine.set(r.path, cur)
+      byUser.set(r.user_id, mine)
+
+      const t = totals.get(r.path) || { views: 0, users: new Set(), last: null }
+      t.views += r.views
+      t.users.add(r.user_id)
+      if (!t.last || r.day > t.last) t.last = r.day
+      totals.set(r.path, t)
+    }
+    return { pagesByUser: byUser, pageTotals: totals }
+  }, [views, today])
+
+  // Pages tab rows. Students and staff are counted separately, because "12
+  // people opened Classes" means something different if 11 of them are tutors.
+  const pageRows = useMemo(() => {
+    const studentIds = new Set(students.map(s => s.id))
+    const needle = q.trim().toLowerCase()
+    const out = []
+    for (const [path, t] of pageTotals) {
+      const label = pageName(path)
+      if (needle && !label.toLowerCase().includes(needle) && !path.toLowerCase().includes(needle)) continue
+      let stuViews = 0
+      const stuUsers = new Set()
+      for (const [uid, m] of pagesByUser) {
+        if (!studentIds.has(uid)) continue
+        const cur = m.get(path)
+        if (!cur) continue
+        stuViews += cur.views
+        stuUsers.add(uid)
+      }
+      out.push({
+        path, label,
+        views: t.views, users: t.users.size,
+        stuViews, stuUsers: stuUsers.size,
+        last: t.last, daysAgo: relDay(t.last, today),
+      })
+    }
+    out.sort((a, b) => b.views - a.views || a.label.localeCompare(b.label))
+    return out
+  }, [pageTotals, pagesByUser, students, q, today])
+
+  const maxPageViews = pageRows.length ? pageRows[0].views : 0
+
   const people = useMemo(() => {
     const base = tab === 'students'
       ? students.map(s => ({ id: s.id, name: s.full_name, sub: s.year ? `Year ${s.year}` : '' }))
@@ -114,6 +198,9 @@ export default function PortalMonitoringPage() {
           logins30: u?.logins30 ?? 0,
           visits30: u?.visits30 ?? 0,
           strip: u?.strip ?? {},
+          pages: [...(pagesByUser.get(p.id) || new Map())]
+            .map(([path, v]) => ({ path, label: pageName(path), ...v }))
+            .sort((a, b) => b.views - a.views || a.label.localeCompare(b.label)),
         }
       })
     const dir = sort.dir === 'asc' ? 1 : -1
@@ -129,7 +216,7 @@ export default function PortalMonitoringPage() {
       return dir * ((a[sort.key] || 0) - (b[sort.key] || 0)) || a.name.localeCompare(b.name)
     })
     return list
-  }, [tab, students, tutors, byUser, q, sort, today])
+  }, [tab, students, tutors, byUser, pagesByUser, q, sort, today])
 
   const tiles = useMemo(() => {
     const active7 = (list) => list.filter(p => p.daysAgo != null && p.daysAgo <= 6).length
@@ -187,18 +274,70 @@ export default function PortalMonitoringPage() {
         </div>
 
         <div className="flex items-center gap-2 mb-4 flex-wrap">
-          {[['students', `Students · ${students.length}`], ['staff', `Staff · ${tutors.length}`]].map(([v, label]) => (
-            <button key={v} onClick={() => setTab(v)}
+          {[['students', `Students · ${students.length}`], ['staff', `Staff · ${tutors.length}`],
+            ['pages', `Pages · ${pageTotals.size}`]].map(([v, label]) => (
+            <button key={v} onClick={() => { setTab(v); setOpenRow(null) }}
               className={`px-4 py-2 rounded-xl border text-sm font-semibold transition ${tab === v
                 ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
                 : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
               {label}
             </button>
           ))}
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search names…"
+          <input value={q} onChange={e => setQ(e.target.value)}
+            placeholder={tab === 'pages' ? 'Search pages…' : 'Search names…'}
             className="ml-auto text-sm border border-[#DEE7FF] rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-[#325099] w-56" />
         </div>
 
+        {tab === 'pages' ? (
+          <>
+            <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
+              <table className="w-full text-sm min-w-[680px]">
+                <thead>
+                  <tr className="text-left text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 border-b border-[#EEF2FB]">
+                    <th className="px-4 py-2.5 font-bold">Page</th>
+                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">Views · {WINDOW}d</th>
+                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">By students</th>
+                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">Students</th>
+                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">Last opened</th>
+                    <th className="px-4 py-2.5 font-bold w-40">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map(p => {
+                    const seen = lastSeenLabel(p.daysAgo)
+                    return (
+                      <tr key={p.path} className="border-b border-[#F4F7FF] last:border-0">
+                        <td className="px-4 py-2">
+                          <span className="font-semibold text-[#2A2035]">{p.label}</span>
+                          <span className="ml-2 text-[10px] text-[#2A2035]/35 font-mono">{p.path}</span>
+                        </td>
+                        <td className="px-4 py-2 tabular-nums font-semibold">{p.views}</td>
+                        <td className="px-4 py-2 tabular-nums">{p.stuViews || <span className="text-[#2A2035]/30">—</span>}</td>
+                        <td className="px-4 py-2 tabular-nums">{p.stuUsers || <span className="text-[#2A2035]/30">—</span>}</td>
+                        <td className="px-4 py-2 font-semibold whitespace-nowrap" style={{ color: seen.color }}>{seen.text}</td>
+                        <td className="px-4 py-2">
+                          <div className="h-2 rounded-full bg-[#EEF2FB] overflow-hidden">
+                            <div className="h-full rounded-full bg-[#325099]"
+                              style={{ width: `${maxPageViews ? Math.round((p.views / maxPageViews) * 100) : 0}%` }} />
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {pageRows.length === 0 && (
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">
+                      No page views recorded yet.
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-[#2A2035]/40 mt-3">
+              Pages are grouped by route, so every online workbook counts under <span className="font-mono">/workbook/:id</span> rather
+              than one row per booklet. &ldquo;By students&rdquo; excludes staff views.
+            </p>
+          </>
+        ) : (
         <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
           <table className="w-full text-sm min-w-[760px]">
             <thead>
@@ -210,13 +349,16 @@ export default function PortalMonitoringPage() {
                   </th>
                 ))}
                 <th className="px-4 py-2.5 font-bold whitespace-nowrap">Last {STRIP} days</th>
+                <th className="px-4 py-2.5 font-bold whitespace-nowrap">Pages</th>
               </tr>
             </thead>
             <tbody>
               {people.map(p => {
                 const seen = lastSeenLabel(p.daysAgo)
+                const open = openRow === p.id
                 return (
-                  <tr key={p.id} className="border-b border-[#F4F7FF] last:border-0">
+                  <Fragment key={p.id}>
+                  <tr className="border-b border-[#F4F7FF] last:border-0">
                     <td className="px-4 py-2">
                       <span className="font-semibold text-[#2A2035]">{p.name}</span>
                       {p.sub && <span className="ml-2 text-[10px] text-[#2A2035]/40">{p.sub}</span>}
@@ -234,15 +376,47 @@ export default function PortalMonitoringPage() {
                         })}
                       </div>
                     </td>
+                    <td className="px-4 py-2">
+                      {p.pages.length ? (
+                        <button
+                          onClick={() => setOpenRow(open ? null : p.id)}
+                          className="text-[11px] font-bold text-[#325099] hover:text-[#062E63] underline whitespace-nowrap"
+                        >
+                          {open ? 'hide' : `${p.pages.length} page${p.pages.length === 1 ? '' : 's'}`}
+                        </button>
+                      ) : <span className="text-[#2A2035]/30">—</span>}
+                    </td>
                   </tr>
+                  {open && (
+                    <tr className="bg-[#F8FAFF] border-b border-[#F4F7FF]">
+                      <td colSpan={7} className="px-4 py-3">
+                        <p className="text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 font-bold mb-2">
+                          Pages opened · {WINDOW}d
+                        </p>
+                        <div className="flex flex-wrap gap-x-6 gap-y-1.5">
+                          {p.pages.map(pg => (
+                            <span key={pg.path} className="text-xs text-[#2A2035]/80 whitespace-nowrap">
+                              {pg.label}
+                              <span className="ml-1.5 font-bold tabular-nums text-[#062E63]">{pg.views}</span>
+                              <span className="ml-1 text-[10px] text-[#2A2035]/40">
+                                last {relDay(pg.last, today) === 0 ? 'today' : `${relDay(pg.last, today)}d ago`}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 )
               })}
               {people.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">Nobody matches that search.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">Nobody matches that search.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        )}
 
         <p className="text-[10px] text-[#2A2035]/40 mt-3">
           Tracking began {today} — history before that only knows each user&rsquo;s single most recent

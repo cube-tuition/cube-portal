@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import GlobalUndo from './GlobalUndo'
-import { recordPortalActivity } from '../lib/activity'
+import { recordPortalActivity, recordPageView } from '../lib/activity'
 
 /*
  * Nav for the tutor / admin portal.
@@ -181,6 +181,10 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
   // Close mobile menu on route change
   useEffect(() => { setMobileOpen(false) }, [pathname])
+
+  // Page-level tracking. Declared after `pathname` exists, unlike the
+  // heartbeat above which needs nothing from the component.
+  useEffect(() => { recordPageView(pathname) }, [pathname])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()

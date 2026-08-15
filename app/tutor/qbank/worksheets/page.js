@@ -19,7 +19,17 @@ import DocLivePreview from '../../../../components/qbank/DocLivePreview'
  * (ordered ids in question_ids) that can be reopened, edited and re-exported
  * any time. The Generate page's ad-hoc builder was merged into this — arriving
  * with ?new=1 creates a worksheet and drops straight into the editor.
+ *
+ * Writing space belongs to the worksheet, not to the question: a question in
+ * the bank carries none, and each placement here can set its own lines per part
+ * (blank = derived from marks), the same contract exam slots use. question_ids
+ * is jsonb, so an entry is either a bare id (no override) or
+ * { id, lines: { partLabel | "_" : n } } — old worksheets keep loading as-is.
  */
+
+// question_ids entries are bare ids until someone sets lines on one.
+const entryId = (e) => (typeof e === 'string' ? e : e?.id)
+const entryLines = (e) => (typeof e === 'string' ? null : (e?.lines || null))
 
 export default function AdditionalQuestionsPage() {
   return <Suspense><AdditionalQuestionsInner /></Suspense>
@@ -120,7 +130,10 @@ function AdditionalQuestionsInner() {
     const { error } = await supabase.from(T_QBANK_WORKSHEETS).update({
       title: (snap.title || '').trim() || 'Untitled worksheet',
       subtitle: (snap.subtitle || '').trim() || null,
-      question_ids: (snap.tray || []).map((q) => q.id),
+      question_ids: (snap.tray || []).map((q) => (
+        q._workingLines && Object.keys(q._workingLines).length
+          ? { id: q.id, lines: q._workingLines }
+          : q.id)),
       include_marks: snap.includeMarks ?? true,
       updated_at: new Date().toISOString(),
     }).eq('id', snap.selectedId)
@@ -140,8 +153,11 @@ function AdditionalQuestionsInner() {
     setSelectedId(ws.id)
     setTitle(ws.title || '')
     setSubtitle(ws.subtitle || '')
-    const ids = Array.isArray(ws.question_ids) ? ws.question_ids : []
-    setTray(ids.map((id) => qById[id]).filter(Boolean))
+    const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
+    const ids = entries.map(entryId).filter(Boolean)
+    const linesById = Object.fromEntries(entries.map((e) => [entryId(e), entryLines(e)]).filter(([k, v]) => k && v))
+    setTray(ids.map((id) => qById[id]).filter(Boolean)
+      .map((q) => (linesById[q.id] ? { ...q, _workingLines: linesById[q.id] } : q)))
     setIncludeMarks(ws.include_marks ?? true)
     setDirty(false)
   }
@@ -234,6 +250,17 @@ function AdditionalQuestionsInner() {
   }, [questions, maps, labelFor, scope, year, subjectId, topicId, subtopicId, skillId, difficulty, qtype, search])
 
   const add = (q) => { setTray((t) => (t.find((x) => x.id === q.id) ? t : [...t, q])); setDirty(true) }
+  // Blank clears the override, so the question falls back to marks-derived space.
+  const setLines = (qid, key, raw) => {
+    setTray((t) => t.map((q) => {
+      if (q.id !== qid) return q
+      const next = { ...(q._workingLines || {}) }
+      if (raw === '' || raw == null) delete next[key]
+      else next[key] = Math.max(0, Number(String(raw).replace(/\D/g, '')) || 0)
+      return { ...q, _workingLines: Object.keys(next).length ? next : undefined }
+    }))
+    setDirty(true)
+  }
   const removeFromTray = (id) => { setTray((t) => t.filter((x) => x.id !== id)); setDirty(true) }
   const moveTray = (id, dir) => {
     setTray((t) => {
@@ -270,7 +297,7 @@ function AdditionalQuestionsInner() {
   // Live preview (shares the worksheet exporter; toggle worksheet vs answer key).
   const [previewAnswers, setPreviewAnswers] = useState(false)
   const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers: previewAnswers }), [title, subtitle, tray, includeMarks, previewAnswers])
-  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, q: tray.map((q) => q.id) }), [title, subtitle, includeMarks, previewAnswers, tray])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, q: tray.map((q) => [q.id, q._workingLines]) }), [title, subtitle, includeMarks, previewAnswers, tray])
 
   const doExport = async (answers) => {
     if (!tray.length) return
@@ -484,6 +511,34 @@ function AdditionalQuestionsInner() {
                           <span className="text-[10px] text-[#2A2035]/40">· difficulty {q.difficulty}</span>
                           {q.marks != null && <span className="text-[10px] text-[#2A2035]/40">· {q.marks} mark{q.marks === 1 ? '' : 's'}</span>}
                         </div>
+                        {/* Writing space for THIS placement. Blank = derived from
+                            marks; MCQs never get lines, so they get no control. */}
+                        {q.qtype !== 'mcq' && (() => {
+                          const parts = (q.qbank_question_parts || []).slice()
+                            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                          const cls = 'w-11 border border-[#DEE7FF] rounded px-1 py-0.5 text-[11px] text-center text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]'
+                          return (
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              <span className="text-[10px] font-semibold text-[#2A2035]/45">Writing lines:</span>
+                              {parts.length ? parts.map((p, pi) => {
+                                const lbl = p.part_label || 'abcdefgh'[pi] || String(pi + 1)
+                                return (
+                                  <label key={p.id || lbl} className="flex items-center gap-1 text-[10px] text-[#2A2035]/50">
+                                    <span className="font-semibold">{lbl})</span>
+                                    <input type="text" inputMode="numeric" placeholder="auto" className={cls}
+                                      value={q._workingLines?.[lbl] ?? ''}
+                                      onChange={(e) => setLines(q.id, lbl, e.target.value)} />
+                                  </label>
+                                )
+                              }) : (
+                                <input type="text" inputMode="numeric" placeholder="auto" className={cls}
+                                  value={q._workingLines?.['_'] ?? ''}
+                                  onChange={(e) => setLines(q.id, '_', e.target.value)} />
+                              )}
+                              <span className="text-[10px] text-[#2A2035]/30">blank = auto from marks</span>
+                            </div>
+                          )
+                        })()}
                       </div>
                       <div className="flex flex-col items-center gap-0.5">
                         <button onClick={() => moveTray(q.id, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>

@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
-import { recordPortalActivity } from '../lib/activity'
+import { recordPortalActivity, recordPageView } from '../lib/activity'
 import { useState } from 'react'
 import { T_STUDENTS } from '../lib/tables'
 
@@ -27,6 +27,8 @@ export default function PortalNav({ studentName }) {
   // Usage heartbeat — the nav renders on every signed-in page, and the ping
   // throttles itself, so this is one write per visit, not per navigation.
   useEffect(() => { recordPortalActivity() }, [])
+  // Page-level tracking, which DOES want one write per navigation.
+  useEffect(() => { recordPageView(pathname) }, [pathname])
 
   // The Past Papers link only shows for Years 11–12. The year is fetched once
   // per tab session and cached, so this costs one query, not one per page.
