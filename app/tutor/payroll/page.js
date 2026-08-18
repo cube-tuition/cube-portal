@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { formatTermLabel } from '../../../lib/terms'
 import { T_ADMINS, T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
+import { fortnightlyRetainerFor } from '../../../lib/cashRetainers'
 
 // tutors.pay_method → payment group. Anything unrecognised lands in 'unset'.
 function payMethodGroup(pm) {
@@ -1080,8 +1081,12 @@ const WEEKDAYS = [{ v: 1, l: 'Monday' }, { v: 2, l: 'Tuesday' }, { v: 3, l: 'Wed
 
 function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, onMarkUnpaid, canPay = true }) {
   const [busyId, setBusyId] = useState(null)
+  // Owed this run = approved shift pay + any fortnightly director retainer, so
+  // the recorded cash payment covers both and the accounting board clears.
   const amt = {}
   for (const s of shifts || []) amt[s.tutor_id] = (amt[s.tutor_id] || 0) + Number(s.amount || 0)
+  const retainerOf = {}
+  for (const t of tutors || []) retainerOf[t.id] = fortnightlyRetainerFor(t.full_name)
   const setDay = async (id, val) => {
     const wd = val === '' ? null : Number(val)
     const person = tutors.find(t => t.id === id)
@@ -1092,7 +1097,7 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, on
     setBusyId(t.id)
     try {
       if (paid[t.id]) await onMarkUnpaid?.(t)
-      else await onMarkPaid?.(t, amt[t.id] || 0)
+      else await onMarkPaid?.(t, (amt[t.id] || 0) + (retainerOf[t.id] || 0))
     } finally {
       setBusyId(null)
     }
@@ -1109,12 +1114,14 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, on
         <div className="divide-y divide-[#F0F4FF]">
           {tutors.map(t => {
             const isPaid = !!paid[t.id]
-            const owed   = amt[t.id] || 0
+            const owed   = (amt[t.id] || 0) + (retainerOf[t.id] || 0)
             const busy   = busyId === t.id
             return (
             <div key={t.id} className="flex items-center gap-3 px-5 py-2.5">
               <span className="flex-1 text-sm font-medium text-[#2A2035] truncate">{t.full_name}</span>
-              <span className="text-[11px] text-[#2A2035]/45 w-28 text-right tabular-nums">{owed ? `${fmtMoney(owed)} this run` : '—'}</span>
+              <span className="text-[11px] text-[#2A2035]/45 w-40 text-right tabular-nums" title={retainerOf[t.id] ? `${fmtMoney(amt[t.id] || 0)} shifts + ${fmtMoney(retainerOf[t.id])} retainer` : undefined}>
+                {owed ? `${fmtMoney(owed)} this run${retainerOf[t.id] ? ' *' : ''}` : '—'}
+              </span>
               <select value={t.cash_pay_weekday ?? ''} onChange={e => setDay(t.id, e.target.value)}
                 className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#325099]">
                 <option value="">No pay day set</option>

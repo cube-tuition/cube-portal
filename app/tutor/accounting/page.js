@@ -8,6 +8,7 @@ import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getEnrolmentTerm, formatTermLabel } from '../../../lib/terms'
 import { DUE_DATES, daysUntil } from '../../../lib/complianceDates'
 import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
+import { CASH_RETAINERS, fortnightlyRetainerFor } from '../../../lib/cashRetainers'
 
 /*
  * Accounting Dashboard — /tutor/accounting
@@ -53,12 +54,6 @@ const fmtMoney = (n) => '$' + Math.abs(Number(n) || 0).toLocaleString('en-AU', {
 const fmtD = (iso) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const COMPLIANCE_DONE_KEY = 'compliance_done'
-// Director retainers paid in cash — counted into the term cash snapshot.
-const CASH_RETAINERS = [
-  { name: 'Ryan',  perFortnight: 300 },
-  { name: 'Aiden', perFortnight: 300 },
-]
-
 const SEV = {
   red:   { dot: 'bg-rose-500',  chip: 'bg-rose-100 text-rose-700 border-rose-200' },
   amber: { dot: 'bg-amber-400', chip: 'bg-amber-100 text-amber-700 border-amber-200' },
@@ -276,13 +271,19 @@ export default function AccountingDashboard() {
     // anything approved beyond the recorded payment stays visible.
     const cashPaidByRunTutor = new Map(
       (cashPaidRes.data || []).map(c => [`${c.pay_run_id}:${c.tutor_id}`, Number(c.amount) || 0]))
+    const todayISO = now.toISOString().slice(0, 10)
     const unpaidRows = [...byTutor.values()]
       .map(r => {
         const runs = [...r.runs.values()]
           .map(p => {
+            // Director retainers ($300/fortnight cash) ride the pay run: owed
+            // alongside that run's shifts once the fortnight has started, and
+            // settled by the same Mark-paid that records the shift cash.
+            const retainer = p.key !== 'unscheduled' && p.start && p.start <= todayISO
+              ? fortnightlyRetainerFor(r.name) : 0
             const cashPaid = cashPaidByRunTutor.get(`${p.key}:${r.id}`) || 0
-            const owed = Math.max(0, p.owed - cashPaid)
-            return { ...p, owed, overdue: Math.min(p.overdue, owed), total: owed + p.draft }
+            const owed = Math.max(0, p.owed + retainer - cashPaid)
+            return { ...p, retainer, owed, overdue: Math.min(p.overdue, owed), total: owed + p.draft }
           })
           .filter(p => p.total > 0 || p.noRate > 0)
           // Oldest run first — the money that has been waiting longest is the story.
@@ -512,6 +513,7 @@ export default function AccountingDashboard() {
                       </div>
                       <p className="text-[10px] text-[#2A2035]/45">
                         {p.shifts} shift{p.shifts === 1 ? '' : 's'}
+                        {p.retainer > 0 && <> · incl. {fmtMoney(p.retainer)} retainer</>}
                         {p.draft > 0 && <> · <span className="text-[#92400E]">{fmtMoney(p.draft)} not approved</span></>}
                         {p.noRate > 0 && <span className="text-amber-700"> · ⚠ {p.noRate} unrated</span>}
                       </p>
