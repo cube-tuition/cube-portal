@@ -11,6 +11,7 @@ import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../lib/tables'
 import { loadExamAnalysisForClass } from '../../../../../lib/examMarking'
 import { loadPrePostForReport } from '../../../../../components/PrePostSection'
+import { nodeToJpeg } from '../../../../../lib/rasterise'
 
 /*
  * Printable end-of-term report bundle — one page per student.
@@ -176,14 +177,13 @@ export default function ReportPage() {
   const previewPdf = async () => {
     setBuilding(true)
     try {
-      const htmlToImage = await import('html-to-image')
       const { jsPDF }   = await import('jspdf')
       const articles = document.querySelectorAll('.report-bundle article.report-page')
       if (!articles.length) { setBuilding(false); return }
 
       const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
       for (let i = 0; i < articles.length; i++) {
-        const dataUrl = await htmlToImage.toJpeg(articles[i], {
+        const dataUrl = await nodeToJpeg(articles[i], {
           quality: 0.92, pixelRatio: 2, backgroundColor: '#ffffff', skipFonts: false,
         })
         const img = new window.Image()
@@ -208,8 +208,7 @@ export default function ReportPage() {
     setSavedCount(0)
     setSaveComplete(false)
 
-    // Dynamic imports — avoids SSR issues
-    const htmlToImage = await import('html-to-image')
+    // Dynamic import — avoids SSR issues
     const { jsPDF }   = await import('jspdf')
 
     let count = 0
@@ -223,7 +222,7 @@ export default function ReportPage() {
       const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
 
       for (let i = 0; i < articles.length; i++) {
-        const dataUrl = await htmlToImage.toJpeg(articles[i], {
+        const dataUrl = await nodeToJpeg(articles[i], {
           quality:         0.92,
           pixelRatio:      2,
           backgroundColor: '#ffffff',
