@@ -135,10 +135,9 @@ export default function AccountingDashboard() {
   const [noPrice, setNoPrice] = useState(0)           // active enrolments without price (current term)
   const [noEmailFamilies, setNoEmailFamilies] = useState(0)
   const [complianceDone, setComplianceDone] = useState({})
-  // Unpaid teacher pay, accumulated per teacher. Anything not yet marked paid is
-  // money still owed; approved work older than one fortnight (the pay-run
-  // cadence) counts as overdue.
-  const [unpaidPay, setUnpaidPay] = useState({ rows: [], allSquare: [], owed: 0, draft: 0, overdue: 0, overdueCount: 0 })
+  // Unpaid teacher pay, accumulated per teacher per pay run. Anything not yet
+  // marked paid is money still owed — being on the board at all means overdue.
+  const [unpaidPay, setUnpaidPay] = useState({ rows: [], allSquare: [], owed: 0, draft: 0 })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -214,7 +213,6 @@ export default function AccountingDashboard() {
     // where periods overlap, so the answer is at least deterministic.
     const staffName = Object.fromEntries(
       [...(tutorsRes.data || []), ...(dirRes.data || [])].map(t => [t.id, t.full_name]))
-    const FORTNIGHT_MS = 14 * 86400000
     const now = new Date(); now.setHours(0, 0, 0, 0)
     const allRuns = (allRunsRes.data || []).filter(r => r.period_start && r.period_end)
     const runById = Object.fromEntries(allRuns.map(r => [r.id, r]))
@@ -230,7 +228,7 @@ export default function AccountingDashboard() {
       if (!sh.tutor_id) continue
       const r = byTutor.get(sh.tutor_id) || {
         id: sh.tutor_id, name: staffName[sh.tutor_id] || 'Unknown',
-        owed: 0, draft: 0, hours: 0, shifts: 0, noRate: 0, oldest: null, overdue: 0,
+        owed: 0, draft: 0, hours: 0, shifts: 0, noRate: 0, oldest: null,
         runs: new Map(),
       }
       const amount = Number(sh.hours || 0) * (Number(sh.rate_snapshot) || 0)
@@ -238,14 +236,8 @@ export default function AccountingDashboard() {
       r.shifts += 1
       r.hours += Number(sh.hours || 0)
       const workDate = sh.work_date ? new Date(sh.work_date + 'T00:00:00') : null
-      const isOverdue = sh.status === 'approved' && workDate && now - workDate > FORTNIGHT_MS
-      if (sh.status === 'approved') {
-        r.owed += amount
-        // Approved work that has sat unpaid past a full pay cycle.
-        if (isOverdue) r.overdue += amount
-      } else {
-        r.draft += amount
-      }
+      if (sh.status === 'approved') r.owed += amount
+      else r.draft += amount
       if (workDate && (!r.oldest || workDate < r.oldest)) r.oldest = workDate
       // Which pay run this money belongs to (the kanban card).
       const run = (sh.pay_run_id && runById[sh.pay_run_id]) || (sh.work_date ? runForDate(sh.work_date) : null)
@@ -255,11 +247,11 @@ export default function AccountingDashboard() {
         start: run?.period_start || null,
         end: run?.period_end || null,
         label: run ? labelPeriod(run.period_start, run.period_end, allTerms) : 'Outside any pay run',
-        owed: 0, draft: 0, overdue: 0, shifts: 0, noRate: 0,
+        owed: 0, draft: 0, shifts: 0, noRate: 0,
       }
       rr.shifts += 1
       if (sh.rate_snapshot == null) rr.noRate += 1
-      if (sh.status === 'approved') { rr.owed += amount; if (isOverdue) rr.overdue += amount }
+      if (sh.status === 'approved') rr.owed += amount
       else rr.draft += amount
       r.runs.set(runKey, rr)
       byTutor.set(sh.tutor_id, r)
@@ -282,16 +274,15 @@ export default function AccountingDashboard() {
               ? fortnightlyRetainerFor(r.name) : 0
             const cashPaid = cashPaidByRunTutor.get(`${p.key}:${r.id}`) || 0
             const owed = Math.max(0, p.owed + retainer - cashPaid)
-            return { ...p, retainer, owed, overdue: Math.min(p.overdue, owed), total: owed + p.draft }
+            return { ...p, retainer, owed, total: owed + p.draft }
           })
           .filter(p => p.total > 0 || p.noRate > 0)
           // Oldest run first — the money that has been waiting longest is the story.
           .sort((a, b) => (a.start || '9999').localeCompare(b.start || '9999'))
-        const owed    = runs.reduce((s2, p) => s2 + p.owed, 0)
-        const draft   = runs.reduce((s2, p) => s2 + p.draft, 0)
-        const overdue = runs.reduce((s2, p) => s2 + p.overdue, 0)
+        const owed  = runs.reduce((s2, p) => s2 + p.owed, 0)
+        const draft = runs.reduce((s2, p) => s2 + p.draft, 0)
         return {
-          ...r, runs, owed, draft, overdue, total: owed + draft,
+          ...r, runs, owed, draft, total: owed + draft,
           ageDays: r.oldest ? Math.floor((now - r.oldest) / 86400000) : null,
         }
       })
@@ -308,10 +299,8 @@ export default function AccountingDashboard() {
     setUnpaidPay({
       rows: unpaidRows,
       allSquare,
-      owed:    unpaidRows.reduce((s2, r) => s2 + r.owed, 0),
-      draft:   unpaidRows.reduce((s2, r) => s2 + r.draft, 0),
-      overdue: unpaidRows.reduce((s2, r) => s2 + r.overdue, 0),
-      overdueCount: unpaidRows.filter(r => r.overdue > 0).length,
+      owed:  unpaidRows.reduce((s2, r) => s2 + r.owed, 0),
+      draft: unpaidRows.reduce((s2, r) => s2 + r.draft, 0),
     })
 
     setNoPrice((enrolRes.data || []).length)
@@ -454,14 +443,7 @@ export default function AccountingDashboard() {
         {unpaidPay.rows.length > 0 && (
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-bold text-[#062E63]">
-              🧾 Overdue pay
-              {unpaidPay.overdue > 0 && (
-                <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#FEE2E2] text-[#991B1B] align-middle">
-                  {unpaidPay.overdueCount} teacher{unpaidPay.overdueCount === 1 ? '' : 's'} past a pay cycle
-                </span>
-              )}
-            </p>
+            <p className="text-xs font-bold text-[#062E63]">🧾 Overdue pay</p>
             <Link href="/tutor/payroll" className="text-[11px] font-semibold text-[#325099] hover:underline">Open payroll →</Link>
           </div>
 
@@ -496,14 +478,9 @@ export default function AccountingDashboard() {
                       <p className="text-[11px] font-bold text-[#062E63] truncate" title={p.start ? `${p.start} → ${p.end}` : 'no pay run covers these dates'}>
                         {p.label}
                       </p>
-                      <div className="mt-1 flex items-baseline justify-between gap-2">
-                        <p className="text-sm font-bold tabular-nums" style={{ color: p.owed > 0 ? '#B23A3A' : '#2A203555' }}>
-                          {fmtMoney(p.owed)}
-                        </p>
-                        {p.overdue > 0 && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#FEE2E2] text-[#991B1B]">overdue</span>
-                        )}
-                      </div>
+                      <p className="mt-1 text-sm font-bold tabular-nums" style={{ color: p.owed > 0 ? '#B23A3A' : '#2A203555' }}>
+                        {fmtMoney(p.owed)}
+                      </p>
                       <p className="text-[10px] text-[#2A2035]/45">
                         {p.shifts} shift{p.shifts === 1 ? '' : 's'}
                         {p.retainer > 0 && <> · incl. {fmtMoney(p.retainer)} retainer</>}
