@@ -152,7 +152,7 @@ export default function AccountingDashboard() {
     const cur = getEnrolmentTerm(allTerms)
     setTerm(cur)
 
-    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes, unpaidRes, allRunsRes] = await Promise.all([
+    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes, unpaidRes, allRunsRes, cashPaidRes] = await Promise.all([
       supabase.from('invoices')
         .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status, payment_method')
         .neq('status', 'voided'),
@@ -171,6 +171,10 @@ export default function AccountingDashboard() {
       supabase.from('courses').select('id, delivery_mode'),
       supabase.from('shifts').select('tutor_id, status, hours, rate_snapshot, work_date, pay_run_id').neq('status', 'paid'),
       supabase.from('pay_runs').select('id, period_start, period_end, status').order('period_start'),
+      // Cash settlements: shifts never flip to paid for cash staff — payment is
+      // recorded per (run, tutor) here. Without it the board shows cash staff
+      // as owed forever.
+      supabase.from('cash_pay_status').select('pay_run_id, tutor_id, amount'),
     ])
 
     setInvoices(invRes.data || [])
@@ -267,16 +271,30 @@ export default function AccountingDashboard() {
       byTutor.set(sh.tutor_id, r)
     }
 
+    // Cash settlements recorded per (run, tutor) — money the payroll page has
+    // already marked as handed over. Subtracted from that run's owed amount;
+    // anything approved beyond the recorded payment stays visible.
+    const cashPaidByRunTutor = new Map(
+      (cashPaidRes.data || []).map(c => [`${c.pay_run_id}:${c.tutor_id}`, Number(c.amount) || 0]))
     const unpaidRows = [...byTutor.values()]
-      .map(r => ({
-        ...r, total: r.owed + r.draft,
-        ageDays: r.oldest ? Math.floor((now - r.oldest) / 86400000) : null,
-        // Oldest run first — the money that has been waiting longest is the story.
-        runs: [...r.runs.values()]
-          .map(p => ({ ...p, total: p.owed + p.draft }))
+      .map(r => {
+        const runs = [...r.runs.values()]
+          .map(p => {
+            const cashPaid = cashPaidByRunTutor.get(`${p.key}:${r.id}`) || 0
+            const owed = Math.max(0, p.owed - cashPaid)
+            return { ...p, owed, overdue: Math.min(p.overdue, owed), total: owed + p.draft }
+          })
           .filter(p => p.total > 0 || p.noRate > 0)
-          .sort((a, b) => (a.start || '9999').localeCompare(b.start || '9999')),
-      }))
+          // Oldest run first — the money that has been waiting longest is the story.
+          .sort((a, b) => (a.start || '9999').localeCompare(b.start || '9999'))
+        const owed    = runs.reduce((s2, p) => s2 + p.owed, 0)
+        const draft   = runs.reduce((s2, p) => s2 + p.draft, 0)
+        const overdue = runs.reduce((s2, p) => s2 + p.overdue, 0)
+        return {
+          ...r, runs, owed, draft, overdue, total: owed + draft,
+          ageDays: r.oldest ? Math.floor((now - r.oldest) / 86400000) : null,
+        }
+      })
       .filter(r => r.total > 0 || r.noRate > 0)
       .sort((a, b) => b.owed - a.owed || b.total - a.total)
     // Staff with nothing outstanding — named so "we owe them nothing" is a
