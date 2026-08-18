@@ -5,6 +5,7 @@ import { getAuthProfile } from '../lib/getProfile'
 import { runActionChecks } from '../lib/actionCentre'
 import { markCadenceDone } from '../lib/emailCadence'
 import { markPayrollDone } from '../lib/payrollAlerts'
+import { resolveFlag } from '../lib/studentFlags'
 
 /*
  * ActionCentre — "what needs my attention" boxes for directors, shown at the
@@ -21,6 +22,7 @@ const SECTIONS = [
   { id: 'Invoices',   icon: '🧾', title: 'Invoices' },
   { id: 'Payroll',    icon: '💼', title: 'Payroll', clearText: 'No pay run due — bank reminders appear the Monday after each fortnight.' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
+  { id: 'Flags',      icon: '🚩', title: 'Student flags', clearText: 'No open flags — tutors raise these from the lesson page.' },
 ]
 
 const SEV = {
@@ -64,8 +66,8 @@ function SectionCard({ section, items, loading, onDone }) {
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDone(item.done) }}
                   className="text-[10px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-1 rounded-full hover:bg-emerald-100 transition shrink-0"
-                  title="Mark as sent — hides this for the rest of the term"
-                >✓ Done</button>
+                  title={item.done.flagId ? 'Resolve this flag — it stays on the student’s record' : 'Mark as sent — hides this for the rest of the term'}
+                >{item.done.flagId ? '✓ Resolve' : '✓ Done'}</button>
               )}
               <span className="text-[#325099] text-xs shrink-0 opacity-0 group-hover:opacity-100 transition">{item.done ? 'Open →' : 'Fix →'}</span>
             </Link>
@@ -156,6 +158,7 @@ export default function ActionCentre({ authorized }) {
             loading={loading}
             onDone={async (d) => {
               if (d?.payrollKey) { await markPayrollDone(d.payrollKey); load() }
+              else if (d?.flagId) { await resolveFlag(d.flagId); load() }
               else if (d?.termId) { await markCadenceDone(d.termId, d.rowKey); load() }
             }}
           />

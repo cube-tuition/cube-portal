@@ -5,6 +5,7 @@ import { fetchAllTerms, getCurrentTerm } from '../lib/terms'
 import { inferSubject, subjectsMatch } from './CourseDetail'
 import { T_ATTENDANCE, T_BOOKLETS, T_ENROLMENTS, T_QUIZ_RESULTS } from '../lib/tables'
 import { authedFetch } from '../lib/authedFetch'
+import FlagStudentModal from './FlagStudentModal'
 
 /*
  * SessionMarker — the per-session marking UI (workbook + roll + notes).
@@ -95,6 +96,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
   const [roster, setRoster] = useState([])
+  const [flagOpen, setFlagOpen] = useState(false)
+  const [flagToast, setFlagToast] = useState(null)
   const [marks, setMarks] = useState({})
   const [history, setHistory] = useState({})
   const [expanded, setExpanded] = useState(() => new Set())
@@ -553,9 +556,19 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             </p>
             <h3 className="text-lg font-semibold text-[#2A2035] font-display">Students</h3>
           </div>
-          <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
-            {roster.length} student{roster.length === 1 ? '' : 's'}
-          </span>
+          <div className="flex items-center gap-3">
+            {roster.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setFlagOpen(true)}
+                title="Raise a concern about a student with the directors"
+                className="text-[11px] font-bold text-[#B45309] border border-[#FDE68A] bg-[#FFFBEB] px-3 py-1.5 rounded-full hover:bg-[#FEF3C7] transition"
+              >🚩 Flag a student</button>
+            )}
+            <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
+              {roster.length} student{roster.length === 1 ? '' : 's'}
+            </span>
+          </div>
         </div>
 
         {roster.length === 0 ? (
@@ -683,6 +696,28 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             )}
           </div>
         )
+      )}
+
+      {flagOpen && (
+        <FlagStudentModal
+          students={roster}
+          classId={classId}
+          classLabel={cls?.class_name || null}
+          lessonDate={dateISO}
+          staff={staff}
+          onClose={(saved) => {
+            setFlagOpen(false)
+            if (saved) {
+              setFlagToast('🚩 Flagged — the directors have been emailed and it’s in the Action Centre.')
+              setTimeout(() => setFlagToast(null), 6000)
+            }
+          }}
+        />
+      )}
+      {flagToast && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] text-xs font-semibold text-[#92400E] shadow-lg max-w-sm">
+          {flagToast}
+        </div>
       )}
     </div>
   )

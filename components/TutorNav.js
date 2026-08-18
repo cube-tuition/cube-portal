@@ -48,6 +48,7 @@ const ADMIN_GROUPS = [
       { label: 'Availabilities', href: '/tutor/admin/availabilities', icon: '📅' },
       { label: 'Drop-ins',      href: '/tutor/dropin',               icon: '☕' },
       { label: 'Emails',        href: '/tutor/emails',               icon: '✉️'  },
+      { label: 'Flags',         href: '/tutor/flags',                icon: '🚩' },
       { label: 'Monitoring',    href: '/tutor/admin/monitoring',     icon: '📶' },
       { label: 'Reports',       href: '/tutor/reports',              icon: '📊' },
       { label: 'Timetable',     href: '/tutor/admin/timetable',      icon: '🗓️' },
