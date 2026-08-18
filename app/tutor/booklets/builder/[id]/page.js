@@ -20,12 +20,19 @@ import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
 import { fetchTaxonomy, SUBJECT_FAMILIES } from '../../../../../lib/qbank'
 import { fetchSyllabus, filterModulesToPool, removeDotpointsFromSections, dotpointAllocation, countSelected } from '../../../../../lib/syllabus'
 import { buildSyllabusContent } from '../../../../../lib/bookletContent'
+import LatexContent from '../../../../../components/qbank/LatexContent'
+import { setUndoHandler, announceUndo } from '../../../../../lib/undo'
 
 // Standard year/subject options so metadata is consistent across booklets.
 // Topics are loaded per year+subject from the shared `topics` table. The stored
 // value stays canonical ('Maths') to match the topics table / master database,
 // while the dropdown shows the friendlier "Mathematics" label.
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
+// How many steps back Ctrl/Cmd+Z can walk in one builder session, and how many
+// consecutive keystrokes in one field fold into a single step.
+const UNDO_DEPTH = 60
+const MERGE_RUN = 40
+
 const SUBJECTS = [
   { value: 'Maths', label: 'Mathematics' },
   { value: 'English', label: 'English' },
@@ -300,8 +307,84 @@ export default function BookletBuilderEditor() {
     return () => cancelAnimationFrame(raf)
   }, [bk, solnView, loading])
 
-  const mutate = (patch) => { setBk(b => ({ ...b, ...patch })); setDirty(true) }
-  const setBlocks = (blocks) => mutate({ blocks })
+  /*
+   * Undo (Ctrl/Cmd+Z) — the builder keeps its own history while it is mounted,
+   * because every change here is a change to one `bk` object rather than a
+   * discrete row write the portal-wide stack could reverse. Each mutation
+   * snapshots the document as it was BEFORE the change; undo pops the last
+   * snapshot back on, and the debounced autosave persists it like any edit.
+   *
+   * Only the document is rewound. Identity and publish state (id, status,
+   * booklet_id) change outside `mutate` and must survive an undo.
+   */
+  const DOC_FIELDS = ['title', 'year', 'subject', 'topic', 'delivery', 'doc_type',
+    'cover', 'content', 'blocks', 'syllabus_points', 'qbank_topic_ids']
+  const docOf = (b) => Object.fromEntries(
+    DOC_FIELDS.filter(k => k in (b || {})).map(k => [k, b[k]]))
+  const historyRef = useRef([])
+  const mergedRef = useRef(0)
+  // The history lives in a ref — it must not re-render the editor on every
+  // keystroke — so what the toolbar button needs is mirrored into state.
+  const [undoTop, setUndoTop] = useState(null)   // { depth, label } | null
+
+  const pushHistory = (prev, label, mergeKey) => {
+    if (!prev) return
+    const hist = historyRef.current
+    const top = hist[hist.length - 1]
+    // Typing fires a change per keystroke, so consecutive edits to the SAME
+    // field fold into one step — undo walks back by phrase, not by character.
+    // The run is capped so a long paragraph doesn't become a single step, and
+    // a delete or a move (no merge key) always begins a step of its own.
+    if (mergeKey && top?.mergeKey === mergeKey && mergedRef.current < MERGE_RUN) {
+      mergedRef.current++
+      return
+    }
+    hist.push({ label, mergeKey, doc: docOf(prev) })
+    if (hist.length > UNDO_DEPTH) hist.shift()
+    mergedRef.current = 0
+    setUndoTop({ depth: hist.length, label })
+  }
+
+  const mutate = (patch, label = 'Edit', mergeKey = null) => {
+    pushHistory(bk, label, mergeKey)
+    setBk(b => ({ ...b, ...patch }))
+    setDirty(true)
+  }
+  const setBlocks = (blocks, label = 'Edit', mergeKey = null) => mutate({ blocks }, label, mergeKey)
+
+  // Clear the finished publish bar a few seconds after the tab is actually
+  // looked at. Timing it from when the publish ENDED would clear it while the
+  // user is still away in another tab — they would come back to no sign of
+  // whether it worked, which is the whole reason the bar is held.
+  useEffect(() => {
+    if (!pubProgress?.done) return undefined
+    let timer = null
+    const startCountdown = () => {
+      if (timer) return
+      timer = setTimeout(() => setPubProgress(p => (p?.done ? null : p)), 6000)
+    }
+    const onVisible = () => { if (!document.hidden) startCountdown() }
+    if (!document.hidden) startCountdown()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [pubProgress?.done])
+
+  // Take over Ctrl/Cmd+Z while the builder is mounted (GlobalUndo, mounted in
+  // TutorNav, routes the shortcut here; the portal-wide stack resumes on
+  // unmount). The shortcut stands down while focus is in a text field, where
+  // native text undo wins — the toolbar button is the way back from there.
+  const undoLast = useCallback(() => {
+    const hist = historyRef.current
+    const step = hist.pop()
+    if (!step) { announceUndo('Nothing left to undo in this workbook', false); return }
+    mergedRef.current = 0
+    setBk(b => (b ? { ...b, ...step.doc } : b))
+    setDirty(true)
+    const next = hist[hist.length - 1]
+    setUndoTop(next ? { depth: hist.length, label: next.label } : null)
+    announceUndo(`Undone: ${step.label}`, true)
+  }, [])
+  useEffect(() => setUndoHandler(undoLast), [undoLast])
 
   // Chemistry pool: the Content tab's checklist of every dotpoint this booklet
   // covers. It is the single source of truth — unticking a dotpoint also pulls
@@ -322,7 +405,7 @@ export default function BookletBuilderEditor() {
       }
       blocks = removeDotpointsFromSections(blocks, chemSyllabus, removed).blocks
     }
-    mutate({ syllabus_points: nextIds, blocks })
+    mutate({ syllabus_points: nextIds, blocks }, 'Syllabus selection')
   }
 
   // Topic scope for a test: the qbank topics for this build's subject + year.
@@ -339,7 +422,7 @@ export default function BookletBuilderEditor() {
   const toggleTestTopic = (tid) => {
     const set = new Set(bk.qbank_topic_ids || [])
     set.has(tid) ? set.delete(tid) : set.add(tid)
-    mutate({ qbank_topic_ids: [...set] })
+    mutate({ qbank_topic_ids: [...set] }, 'Test topics')
   }
 
   // Each block carries a section ('content' | 'homework' | 'revision'). Homework
@@ -375,7 +458,7 @@ export default function BookletBuilderEditor() {
       else mk = { ...blk, section: 'content', hwGroup: undefined }
       arr.push(mk)
     }
-    setBlocks(recompose(arr))
+    setBlocks(recompose(arr), 'Add block')
     setLastAddedId(mk.id)
     setSelectedBlockId(mk.id) // keep building downward from the new block
   }
@@ -389,8 +472,8 @@ export default function BookletBuilderEditor() {
     if (data) insertBlock(bankToBlock(data))
     setNewQOpen(false)
   }
-  const updateBlock = (bid, next) => setBlocks(bk.blocks.map(b => b.id === bid ? next : b))
-  const removeBlock = (bid) => { setBlocks(bk.blocks.filter(b => b.id !== bid)); if (selectedBlockId === bid) setSelectedBlockId(null) }
+  const updateBlock = (bid, next) => setBlocks(bk.blocks.map(b => b.id === bid ? next : b), 'Edit block', `block:${bid}`)
+  const removeBlock = (bid) => { setBlocks(bk.blocks.filter(b => b.id !== bid), 'Delete block'); if (selectedBlockId === bid) setSelectedBlockId(null) }
   // Move within the same section/group only (skips over blocks of other groups).
   const moveBlock = (bid, dir) => {
     const arr = [...(bk.blocks || [])]
@@ -400,7 +483,7 @@ export default function BookletBuilderEditor() {
     let j = i + dir
     while (j >= 0 && j < arr.length && tagOf(arr[j]) !== tag) j += dir
     if (j < 0 || j >= arr.length) return
-    ;[arr[i], arr[j]] = [arr[j], arr[i]]; setBlocks(arr)
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]; setBlocks(arr, 'Move block')
   }
   // The two homework groups are a difficulty split of one list, not separate
   // documents, so a question can hop between them — rebalancing a homework
@@ -417,7 +500,7 @@ export default function BookletBuilderEditor() {
     let last = -1
     arr.forEach((b, k) => { if (tagOf(b) === `hw:${group}`) last = k })
     arr.splice(last + 1, 0, moved)
-    setBlocks(recompose(arr))
+    setBlocks(recompose(arr), 'Move block')
     setSelectedBlockId(moved.id)
   }
   // Drag-to-reorder within a section/group — plus, for homework, dragging a
@@ -440,7 +523,7 @@ export default function BookletBuilderEditor() {
     const group = arr[to].hwGroup === 'developmental' ? 'developmental' : 'foundational'
     const [m] = arr.splice(from, 1)
     arr.splice(to, 0, crossHw ? { ...m, hwGroup: group } : m)
-    setBlocks(crossHw ? recompose(arr) : arr)
+    setBlocks(crossHw ? recompose(arr) : arr, 'Move block')
   }
 
   // delivery rides along so the renderer swaps writing lines for typing boxes
@@ -544,10 +627,21 @@ export default function BookletBuilderEditor() {
       const orphaned = oldPaths.filter(p => p && !filePaths.includes(p))
       if (orphaned.length) await supabase.storage.from('booklets').remove(orphaned)
       setBk(b => ({ ...b, status: 'published', booklet_id: bookletId }))
-      setPubProgress({ pct: 100, label: 'Saved to curriculum' })
-      alert('Saved to curriculum. You can now assign it to a class from the Curriculum page.')
-    } catch (e) { alert('Save to curriculum failed: ' + e.message) }
-    finally { setPublishing(false); setPubProgress(null) }
+      setPubProgress({ pct: 100, label: 'Saved to curriculum', done: true })
+      // A publish can finish while the tab is in the background, and Chrome
+      // drops alert() from a tab that isn't in front — so the finished bar is
+      // the confirmation, and it stays put until the tab is looked at again
+      // (see the effect below). The dialog is a foreground-only extra.
+      if (!document.hidden) {
+        alert('Saved to curriculum. You can now assign it to a class from the Curriculum page.')
+      }
+      setPublishing(false)
+      return
+    } catch (e) {
+      setPubProgress({ pct: 100, label: `Save to curriculum failed: ${e.message}`, done: true, failed: true })
+      if (!document.hidden) alert('Save to curriculum failed: ' + e.message)
+    }
+    setPublishing(false)
   }
 
   if (loading) return <div className="min-h-screen bg-white"><TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} /><p className="text-center text-[#325099] text-sm mt-20">Loading…</p></div>
@@ -803,7 +897,7 @@ export default function BookletBuilderEditor() {
               back after a subject/year change). */}
           {(bk.delivery === 'online' || (/english/i.test(bk.subject || '') && Number(bk.year) >= 7 && !isExamStyle)) && (
             <button
-              onClick={() => mutate({ delivery: bk.delivery === 'online' ? 'physical' : 'online' })}
+              onClick={() => mutate({ delivery: bk.delivery === 'online' ? 'physical' : 'online' }, 'Delivery')}
               title={bk.delivery === 'online'
                 ? 'Online workbook — students type into it in their portal; publishing renders no PDFs. Click to make it a printed workbook.'
                 : 'Physical workbook — printed as PDFs. Click to make it an online typeable doc.'}
@@ -814,6 +908,17 @@ export default function BookletBuilderEditor() {
               {bk.delivery === 'online' ? '🌐 Online' : '🖨 Physical'}
             </button>
           )}
+          {/* Ctrl/Cmd+Z does the same thing, but it stands down while the caret
+              is in a text field (native text undo wins there) — so the button
+              is the way back after a delete made mid-edit. */}
+          <button
+            onClick={undoLast}
+            disabled={!undoTop}
+            title={undoTop ? `Undo: ${undoTop.label} (Ctrl/Cmd+Z)` : 'Nothing to undo yet'}
+            className="px-2.5 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-30 disabled:hover:bg-white"
+          >
+            ↩ Undo
+          </button>
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
           <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? `Saving… ${pubProgress?.pct ?? 0}%` : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
@@ -826,8 +931,8 @@ export default function BookletBuilderEditor() {
             <div className="flex items-center gap-3">
               <div className="flex-1 h-2 rounded-full bg-[#EEF2FB] overflow-hidden">
                 <div
-                  className="h-full bg-[#325099] rounded-full transition-[width] duration-300 ease-out"
-                  style={{ width: `${pubProgress.pct}%` }}
+                  className="h-full rounded-full transition-[width] duration-300 ease-out"
+                  style={{ width: `${pubProgress.pct}%`, background: pubProgress.failed ? '#B23A3A' : pubProgress.done ? '#047857' : '#325099' }}
                   role="progressbar"
                   aria-valuenow={pubProgress.pct}
                   aria-valuemin={0}
@@ -835,8 +940,10 @@ export default function BookletBuilderEditor() {
                   aria-label="Saving to curriculum"
                 />
               </div>
-              <span className="text-[11px] font-bold text-[#325099] tabular-nums w-10 text-right">{pubProgress.pct}%</span>
-              <span className="text-[11px] text-[#2A2035]/55 min-w-[150px]">{pubProgress.label}</span>
+              {!pubProgress.done && <span className="text-[11px] font-bold text-[#325099] tabular-nums w-10 text-right">{pubProgress.pct}%</span>}
+              <span className={`text-[11px] min-w-[150px] ${pubProgress.failed ? 'text-[#B23A3A] font-semibold' : pubProgress.done ? 'text-[#047857] font-semibold' : 'text-[#2A2035]/55'}`}>
+                {pubProgress.done && !pubProgress.failed ? '✓ ' : ''}{pubProgress.label}
+              </span>
             </div>
           </div>
         )}
@@ -871,7 +978,7 @@ export default function BookletBuilderEditor() {
               {SUBJECTS.find(s => s.value === bk.subject)?.label || bk.subject}
             </span>
           )}
-          <select value={bk.year ?? ''} onChange={e => mutate({ year: e.target.value ? Number(e.target.value) : null })}
+          <select value={bk.year ?? ''} onChange={e => mutate({ year: e.target.value ? Number(e.target.value) : null }, 'Year')}
             className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]">
             <option value="">Year…</option>
             {yearOptions.map(y => <option key={y} value={y}>Year {y}</option>)}
@@ -879,11 +986,11 @@ export default function BookletBuilderEditor() {
           {isChem ? (
             <div className="flex items-center gap-2">
               <input type="number" min="1" value={chemModule}
-                onChange={e => mutate({ title: `M${e.target.value.replace(/\D/g, '')}L${chemLesson}` })}
+                onChange={e => mutate({ title: `M${e.target.value.replace(/\D/g, '')}L${chemLesson}` }, 'Module', 'title')}
                 placeholder="Module #"
                 className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
               <input type="number" min="1" value={chemLesson}
-                onChange={e => mutate({ title: `M${chemModule}L${e.target.value.replace(/\D/g, '')}` })}
+                onChange={e => mutate({ title: `M${chemModule}L${e.target.value.replace(/\D/g, '')}` }, 'Lesson', 'title')}
                 placeholder="Lesson #"
                 className="w-28 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
             </div>
@@ -891,7 +998,7 @@ export default function BookletBuilderEditor() {
             /* Pre-test and level-test names are fixed automatically — no manual name input. */
             null
           ) : (
-            <input value={bk.title || ''} onChange={e => mutate({ title: e.target.value })}
+            <input value={bk.title || ''} onChange={e => mutate({ title: e.target.value }, 'Name', 'title')}
               placeholder="Booklet name (e.g. Algebra)"
               className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
           )}
@@ -937,13 +1044,13 @@ export default function BookletBuilderEditor() {
                 <div>
                   <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">Title</label>
                   <input value={bk.cover?.title ?? ''} placeholder={`${bk.year ? `Year ${bk.year} ` : ''}${bk.subject === 'Maths' ? 'Mathematics' : bk.subject || ''}`}
-                    onChange={e => mutate({ cover: { ...(bk.cover || {}), title: e.target.value } })}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), title: e.target.value } }, 'Cover', 'cover:title')}
                     className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">Subtitle</label>
                   <input value={bk.cover?.subtitle ?? ''} placeholder={isPreTest ? 'Pre-Test' : 'Level Test'}
-                    onChange={e => mutate({ cover: { ...(bk.cover || {}), subtitle: e.target.value } })}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), subtitle: e.target.value } }, 'Cover', 'cover:subtitle')}
                     className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
                 </div>
               </div>
@@ -951,13 +1058,13 @@ export default function BookletBuilderEditor() {
                 <div>
                   <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">General instructions (one per line — e.g. the working time)</label>
                   <textarea rows={4} value={(bk.cover?.instructions ?? DEFAULT_LT_INSTRUCTIONS).join('\n')}
-                    onChange={e => mutate({ cover: { ...(bk.cover || {}), instructions: e.target.value.split('\n') } })}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), instructions: e.target.value.split('\n') } }, 'Cover', 'cover:instructions')}
                     className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">Total Marks lines (one per line — clear all to hide the section)</label>
                   <textarea rows={4} value={(bk.cover?.totals ?? DEFAULT_LT_TOTALS).join('\n')}
-                    onChange={e => mutate({ cover: { ...(bk.cover || {}), totals: e.target.value.split('\n') } })}
+                    onChange={e => mutate({ cover: { ...(bk.cover || {}), totals: e.target.value.split('\n') } }, 'Cover', 'cover:totals')}
                     className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
                 </div>
               </div>
@@ -1006,22 +1113,27 @@ export default function BookletBuilderEditor() {
             contentBlocks.length === 0 ? (
               <div className="text-center py-16 text-sm text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">No content blocks yet — add one from the palette.</div>
             ) : (
+              /* One flat list: page headers are siblings of the block cards, not
+                 wrappers around them. Grouping the cards under a per-page <div>
+                 meant that re-measuring the page breaks (which happens on every
+                 keystroke) moved a card into a different parent, and React
+                 remounts a subtree that changes parent however stable its key
+                 is. That threw away each textarea's DOM node — losing the
+                 height the user had dragged it to, and the caret with it. Kept
+                 flat, a card whose page changes is only re-ordered among its
+                 siblings, so the same node is moved and its size survives. */
               <div className="space-y-3">
-                {contentPages.map((pg, pi) => (
-                  <div key={pi} id={`bk-page-anchor-${pi}`} style={{ scrollMarginTop: 230 }} className="space-y-3">
-                    <div className="flex items-center gap-2 pt-1">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2.5 py-0.5">Page {pi + 1}</span>
-                      {pg.auto && <span className="text-[9px] font-semibold uppercase tracking-wider text-[#2A2035]/35" title="Starts automatically because the previous page is full">auto</span>}
-                      <div className="h-px flex-1 bg-[#DEE7FF]" />
-                      {pg.breakId && <button onClick={() => removeBlock(pg.breakId)} className="text-[10px] font-semibold text-rose-500 hover:underline">✕ remove break</button>}
-                    </div>
-                    {pg.ids.length === 0 ? (
-                      <div className="text-center py-5 text-xs text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">Empty page — add blocks from the palette or remove this break.</div>
-                    ) : (
-                      pg.ids.map(bid => { const e = blockById[bid]; return e ? renderBlockCard(e.b, contentBlocks, e.i) : null })
-                    )}
-                  </div>
-                ))}
+                {contentPages.flatMap((pg, pi) => [
+                  <div key={`pg-hdr-${pi}`} id={`bk-page-anchor-${pi}`} style={{ scrollMarginTop: 230 }} className="flex items-center gap-2 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2.5 py-0.5">Page {pi + 1}</span>
+                    {pg.auto && <span className="text-[9px] font-semibold uppercase tracking-wider text-[#2A2035]/35" title="Starts automatically because the previous page is full">auto</span>}
+                    <div className="h-px flex-1 bg-[#DEE7FF]" />
+                    {pg.breakId && <button onClick={() => removeBlock(pg.breakId)} className="text-[10px] font-semibold text-rose-500 hover:underline">✕ remove break</button>}
+                  </div>,
+                  ...(pg.ids.length === 0
+                    ? [<div key={`pg-empty-${pi}`} className="text-center py-5 text-xs text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">Empty page — add blocks from the palette or remove this break.</div>]
+                    : pg.ids.map(bid => { const e = blockById[bid]; return e ? renderBlockCard(e.b, contentBlocks, e.i) : null })),
+                ])}
               </div>
             )
           ) : activeSection === 'homework' ? (
@@ -1086,7 +1198,7 @@ export default function BookletBuilderEditor() {
                                     return (
                                       <label key={dp.id} className="flex items-start gap-1.5 py-0.5 cursor-pointer">
                                         <input type="checkbox" className={cb} checked={chemPool.has(dp.id)} onChange={e => poolToggle(dp.id, e.target.checked)} />
-                                        <span className="text-[13px] text-[#2A2035]">{dp.text}</span>
+                                        <LatexContent className="text-[13px] text-[#2A2035]" text={dp.text} />
                                         {poolChip(dp.id)}
                                       </label>
                                     )
@@ -1097,13 +1209,13 @@ export default function BookletBuilderEditor() {
                                     <div key={dp.id}>
                                       <label className="flex items-start gap-1.5 py-0.5 cursor-pointer">
                                         <input type="checkbox" className={cb} checked={all} ref={el => { if (el) el.indeterminate = some && !all }} onChange={e => poolToggleGroup(dp, e.target.checked)} />
-                                        <span className="text-[13px] font-medium text-[#2A2035]">{dp.text}</span>
+                                        <LatexContent className="text-[13px] font-medium text-[#2A2035]" text={dp.text} />
                                       </label>
                                       <div className="pl-5">
                                         {dp.subs.map(s => (
                                           <label key={s.id} className="flex items-start gap-1.5 py-0.5 cursor-pointer">
                                             <input type="checkbox" className={cb} checked={chemPool.has(s.id)} onChange={e => poolToggle(s.id, e.target.checked)} />
-                                            <span className="text-[12px] text-[#2A2035]/80">{s.text}</span>
+                                            <LatexContent className="text-[12px] text-[#2A2035]/80" text={s.text} />
                                             {poolChip(s.id)}
                                           </label>
                                         ))}
@@ -1144,7 +1256,7 @@ export default function BookletBuilderEditor() {
                   <p className="text-xs text-[#2A2035]/55 mb-3">A summary of what this booklet covers. Teachers see this via the “Content” link in the curriculum (it doesn’t appear in the printed booklet).</p>
                   <textarea
                     value={bk.content || ''}
-                    onChange={e => mutate({ content: e.target.value })}
+                    onChange={e => mutate({ content: e.target.value }, 'Content', 'content')}
                     rows={12}
                     placeholder={'e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'}
                     className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099] resize-y"
