@@ -9,6 +9,7 @@ import 'katex/dist/katex.min.css'
  *   Inline math:   $ ... $
  *   Display math:  $$ ... $$
  *   Escaped $:     \$  (renders a literal dollar sign)
+ *   Degrees:       \degree or \degrees — both give °
  *
  * Plain-text segments are HTML-escaped and newlines become <br>. Math segments
  * are rendered with KaTeX (throwOnError:false, so a typo shows the raw source
@@ -31,6 +32,19 @@ const escapeHtml = (s) =>
 // handles it after KaTeX has run.
 const starToTimes = (tex) => tex.replace(/(?<!\*)\*(?!\*)/g, ' \\times ')
 
+/*
+ * Portal syntax extras — spellings KaTeX doesn't define, mapped to the ones it
+ * does. \degrees is what you reach for after writing "45 degrees", and it means
+ * exactly \degree; without this it renders as a red error.
+ *
+ * KaTeX MUTATES the macros object it is handed (that is how \gdef persists
+ * between calls), so each render gets its own copy — otherwise a macro defined
+ * inside one question would leak into every question rendered after it.
+ */
+const MACROS = {
+  '\\degrees': '\\degree',
+}
+
 function renderMath(tex, displayMode) {
   try {
     return katex.renderToString(starToTimes(tex), {
@@ -38,6 +52,7 @@ function renderMath(tex, displayMode) {
       throwOnError: false,
       strict: false,
       output: 'html',
+      macros: { ...MACROS },
     })
   } catch {
     return `<span style="color:#dc2626">${escapeHtml(tex)}</span>`

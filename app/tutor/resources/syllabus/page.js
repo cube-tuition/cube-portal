@@ -12,6 +12,7 @@ import {
   addModule, addTopic, addDotpoint, renameRow, deleteRow, moveRow,
 } from '../../../../lib/syllabus'
 import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
+import LatexContent from '../../../../components/qbank/LatexContent'
 
 /*
  * Syllabus — the master syllabus dotpoint list (Chemistry for now). Each
@@ -147,7 +148,7 @@ function SyllabusPointsInner() {
           style={{ color: covered ? '#16A34A' : partial ? '#F59E0B' : '#CBD5E1' }}>
           {covered ? '✓' : partial ? '◐' : '○'}
         </span>
-        <span className={`flex-1 text-sm ${covered ? 'text-[#16A34A]' : 'text-[#2A2035]'}`}>{dp.text}</span>
+        <LatexContent className={`flex-1 text-sm ${covered ? 'text-[#16A34A]' : 'text-[#2A2035]'}`} text={dp.text} />
         {edit && (
           <span className="flex items-center gap-1.5 shrink-0">
             <button className={ebtn} onClick={() => onMove(table, list, dp, -1)}>↑</button>

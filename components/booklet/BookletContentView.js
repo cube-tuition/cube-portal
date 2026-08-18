@@ -1,5 +1,6 @@
 'use client'
 import { parseBookletContent } from '../../lib/bookletContent'
+import LatexContent from '../qbank/LatexContent'
 
 /*
  * Renders a booklet's "content" summary text with section headers in bold and
@@ -14,11 +15,11 @@ export default function BookletContentView({ text }) {
     <div className="space-y-1.5">
       {rows.map((r, i) => (
         r.kind === 'header'
-          ? <p key={i} className="text-sm font-bold text-[#062E63] mt-3 first:mt-0">{r.text}</p>
+          ? <p key={i} className="text-sm font-bold text-[#062E63] mt-3 first:mt-0"><LatexContent text={r.text} /></p>
           : (
             <div key={i} className={`flex gap-2 text-sm text-[#2A2035] ${r.kind === 'sub' ? 'pl-8' : 'pl-2'}`}>
               <span className="shrink-0">{r.kind === 'sub' ? '—' : '•'}</span>
-              <span>{r.text}</span>
+              <LatexContent text={r.text} />
             </div>
           )
       ))}
