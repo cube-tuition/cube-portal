@@ -482,11 +482,9 @@ export default function AccountingDashboard() {
                   <p className="text-xl font-bold tabular-nums mt-0.5" style={{ color: r.owed > 0 ? '#B23A3A' : '#2A203555' }}>
                     {fmtMoney(r.owed)}
                   </p>
-                  <p className="text-[10px] text-[#2A2035]/45">
-                    owed now
-                    {r.overdue > 0 && <> · <span className="font-bold text-[#991B1B]">{fmtMoney(r.overdue)} overdue</span></>}
-                    {r.draft > 0 && <> · <span className="text-[#92400E]">{fmtMoney(r.draft)} not approved</span></>}
-                  </p>
+                  {r.draft > 0 && (
+                    <p className="text-[10px] text-[#92400E]">{fmtMoney(r.draft)} not approved</p>
+                  )}
                 </div>
                 {/* One card per pay run the money comes from, oldest first */}
                 <div className="p-2 space-y-2">
