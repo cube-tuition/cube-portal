@@ -10,6 +10,10 @@ import BookletInfoModal from '../../../../components/booklet/BookletInfoModal'
 import { openTotal } from '../../../../lib/bookletChecklist'
 import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 import { curriculumTerms } from '../../../../lib/terms'
+import { fetchModuleNames } from '../../../../lib/syllabus'
+import {
+  isChemistry, chemModuleNumber, chemLessonNumber, chemModuleLabel,
+} from '../../../../lib/format'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -34,6 +38,10 @@ const bookletLabel = (b) => {
   const code = SUBJECT_CODE[b.subject] || (b.subject || '')[0] || ''
   return `${b.year}.${code}. ${b.booklet_name}`
 }
+
+// Bucket for booklets with nothing to group them by — a missing topic, or a
+// Chemistry name that doesn't follow M<module>L<lesson>. Always sorts last.
+const UNGROUPED = '__ungrouped'
 
 // Workbook readiness statuses (booklets.status) and their badge styles.
 const WORKBOOK_STATUSES = ['Not Started', 'In Progress', 'Needs Improvement', 'Complete']
@@ -305,7 +313,7 @@ const INP   = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-
 
 
 // ── Booklet Form Modal (add + edit) ──────────────────────────────────────────
-function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], skillBank = [], onClose, onSaved }) {
+function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], skillBank = [], moduleNames = {}, onClose, onSaved }) {
   const isEdit = !!booklet
   const [form, setForm] = useState({
     booklet_name: booklet?.booklet_name ?? '',
@@ -429,17 +437,30 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
             </div>
           </div>
 
-          {/* Topic */}
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Topic <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
-            <select value={form.topic} onChange={set('topic')} className={INP}>
-              <option value="">— No topic —</option>
-              {topicBank.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-            </select>
-            {topicBank.length === 0 && (
-              <p className="text-[10px] text-[#2A2035]/40 mt-1">No topics in the bank yet for this year/subject. Add some via the 🏷 Topics button.</p>
-            )}
-          </div>
+          {/* Topic — or, for Chemistry, the module the name already states. */}
+          {isChemistry(form.subject) ? (
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Module</label>
+              <p className="text-[11px] text-[#2A2035]/50 bg-[#F8FAFF] border border-[#E8EDF8] rounded-lg px-3 py-2.5">
+                {chemModuleNumber(form.booklet_name) != null ? (
+                  <>Read from the name: <span className="font-semibold text-[#0F766E]">{chemModuleLabel(chemModuleNumber(form.booklet_name), moduleNames)}</span></>
+                ) : (
+                  <>Name this booklet <span className="font-semibold">M&lt;module&gt;L&lt;lesson&gt;</span> — e.g. <span className="font-semibold">M3L2</span> — and it files itself under Module 3.</>
+                )}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Topic <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
+              <select value={form.topic} onChange={set('topic')} className={INP}>
+                <option value="">— No topic —</option>
+                {topicBank.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
+              {topicBank.length === 0 && (
+                <p className="text-[10px] text-[#2A2035]/40 mt-1">No topics in the bank yet for this year/subject. Add some via the 🏷 Topics button.</p>
+              )}
+            </div>
+          )}
 
           {/* Skill */}
           <div>
@@ -570,6 +591,8 @@ function MasterDatabaseInner() {
   const [showSkills,     setShowSkills]     = useState(false)
   const [topicBank,      setTopicBank]      = useState([])
   const [skillBank,      setSkillBank]      = useState([])
+  // Chemistry module number → syllabus module name, for the group headings.
+  const [moduleNames,    setModuleNames]    = useState({})
 
   useEffect(() => {
     getAuthProfile().then(({ user, profile }) => {
@@ -689,6 +712,13 @@ function MasterDatabaseInner() {
   useEffect(() => { if (staff) loadTopicBank() }, [staff, loadTopicBank])
   useEffect(() => { if (staff) loadSkillBank() }, [staff, loadSkillBank])
 
+  // Module names for the Chemistry headings — four rows, and the numbering runs
+  // 1–8 across both years, so one fetch covers every Chemistry tab.
+  useEffect(() => {
+    if (!staff || !isChemistry(activeSub)) return
+    fetchModuleNames('Chemistry').then(setModuleNames)
+  }, [staff, activeSub])
+
 
   const handleBookletUpdated = (updated) => {
     setBooklets(bs => bs.map(b => b.id === updated.id ? updated : b))
@@ -740,9 +770,14 @@ function MasterDatabaseInner() {
     if (b.year !== activeYear || b.subject !== activeSub) return false
     if (search.trim()) {
       const q = search.toLowerCase()
+      // Chemistry has no topic to search — its module heading stands in, so
+      // "module 3" and "reactive" both find the M3 lessons.
+      const grouping = isChemistry(b.subject)
+        ? chemModuleLabel(chemModuleNumber(b.booklet_name), moduleNames)
+        : b.topic
       return (
         b.booklet_name?.toLowerCase().includes(q) ||
-        b.topic?.toLowerCase().includes(q) ||
+        grouping?.toLowerCase().includes(q) ||
         b.skill?.toLowerCase().includes(q) ||
         b.notes?.toLowerCase().includes(q)
       )
@@ -750,17 +785,36 @@ function MasterDatabaseInner() {
     return true
   })
 
-  const topicMap = {}
+  // Grouping: every subject groups by its topic bank — except Chemistry, which
+  // runs to the module sequence and carries the module in the booklet name
+  // ("M3L2" → module 3), so its groups are derived rather than assigned.
+  const chemTab = isChemistry(activeSub)
+  const groupMap = {}
   for (const b of tabBooklets) {
-    const key = b.topic || '— No topic assigned'
-    if (!topicMap[key]) topicMap[key] = []
-    topicMap[key].push(b)
+    const key = chemTab
+      ? (chemModuleNumber(b.booklet_name) ?? UNGROUPED)
+      : (b.topic || UNGROUPED)
+    if (!groupMap[key]) groupMap[key] = []
+    groupMap[key].push(b)
   }
-  const topicKeys = Object.keys(topicMap).sort((a, b) => {
-    if (a === '— No topic assigned') return 1
-    if (b === '— No topic assigned') return -1
-    return a.localeCompare(b)
+  // Chemistry: modules in sequence, lessons in order within them (M3L10 after
+  // M3L9, which a plain name sort would get wrong). Everything else: A–Z.
+  const groupKeys = Object.keys(groupMap).sort((a, b) => {
+    if (a === UNGROUPED) return 1
+    if (b === UNGROUPED) return -1
+    return chemTab ? Number(a) - Number(b) : a.localeCompare(b)
   })
+  if (chemTab) {
+    for (const k of groupKeys) {
+      groupMap[k].sort((x, y) =>
+        (chemLessonNumber(x.booklet_name) ?? Infinity) - (chemLessonNumber(y.booklet_name) ?? Infinity)
+        || String(x.booklet_name || '').localeCompare(String(y.booklet_name || '')))
+    }
+  }
+  const groupLabel = (key) => {
+    if (key === UNGROUPED) return chemTab ? 'No module in the name' : 'No topic assigned'
+    return chemTab ? chemModuleLabel(Number(key), moduleNames) : key
+  }
 
   const accentColor = getAccentColor(activeSub)
   const accentBg    = getAccentBg(activeSub)
@@ -800,12 +854,16 @@ function MasterDatabaseInner() {
               placeholder="Search…"
               className="border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] w-44"
             />
-            <button
-              onClick={() => setShowTopics(true)}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap text-[#325099]"
-            >
-              🏷 Topics
-            </button>
+            {/* Chemistry groups by module, read off the booklet name — there is
+                no topic bank to keep. */}
+            {!isChemistry(activeSub) && (
+              <button
+                onClick={() => setShowTopics(true)}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap text-[#325099]"
+              >
+                🏷 Topics
+              </button>
+            )}
             <button
               onClick={() => setShowSkills(true)}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap text-[#325099]"
@@ -884,7 +942,7 @@ function MasterDatabaseInner() {
           <div className="flex items-center justify-center py-24">
             <p className="text-sm font-semibold tracking-[0.2em] uppercase animate-pulse" style={{ color: accentColor }}>Loading…</p>
           </div>
-        ) : topicKeys.length === 0 ? (
+        ) : groupKeys.length === 0 ? (
           <div className="text-center py-24">
             <p className="text-4xl mb-3">📭</p>
             <p className="text-sm font-semibold text-[#2A2035]">No booklets for Year {activeYear} {activeSub}</p>
@@ -892,15 +950,15 @@ function MasterDatabaseInner() {
           </div>
         ) : (
           <div className="space-y-8 pb-12">
-            {topicKeys.map(topic => {
-              const bks       = topicMap[topic]
-              const isNoTopic = topic === '— No topic assigned'
+            {groupKeys.map(key => {
+              const bks       = groupMap[key]
+              const isNoGroup = key === UNGROUPED
               return (
-                <div key={topic}>
+                <div key={key}>
                   <div className="flex items-center gap-3 mb-3">
                     <span className="text-xs font-bold px-3 py-1 rounded-full"
-                      style={{ background: isNoTopic ? '#F4F4F4' : accentBg, color: isNoTopic ? '#9CA3AF' : accentColor }}>
-                      {isNoTopic ? 'No topic assigned' : topic}
+                      style={{ background: isNoGroup ? '#F4F4F4' : accentBg, color: isNoGroup ? '#9CA3AF' : accentColor }}>
+                      {groupLabel(key)}
                     </span>
                     <span className="text-[10px] text-[#2A2035]/30 font-medium">{bks.length} booklet{bks.length !== 1 ? 's' : ''}</span>
                     <div className="flex-1 h-px bg-[#E8EDF8]" />
@@ -1047,6 +1105,7 @@ function MasterDatabaseInner() {
           defaultSubject={activeSub}
           topicBank={topicBank}
           skillBank={skillBank}
+          moduleNames={moduleNames}
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); load() }}
         />

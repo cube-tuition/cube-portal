@@ -6,10 +6,11 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getEnrolmentTerm, curriculumTerms, isTermOutOfCurriculum } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
-import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry } from '../../../lib/format'
+import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry, chemModuleNumber, chemModuleLabel } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
 import BookletContentView from '../../../components/booklet/BookletContentView'
 import BookletInfoModal from '../../../components/booklet/BookletInfoModal'
+import useChemModules from '../../../components/booklet/useChemModules'
 import { openTotal } from '../../../lib/bookletChecklist'
 
 const SUBJECTS_BY_YEAR = {
@@ -97,6 +98,7 @@ const StatusBadge = ({ status }) => status ? (
 
 // ── Class Assign Modal ────────────────────────────────────────────────────────
 function ClassAssignModal({ classId, className, year, subject, term, week, accentColor, accentBg, onClose, onAssigned }) {
+  const { groupLabel } = useChemModules()   // Chemistry lists by module, not topic
   const [tab,      setTab]      = useState('booklet')   // 'booklet' | 'exam'
   const [booklets, setBooklets] = useState([])
   const [exams,    setExams]    = useState(null)
@@ -201,7 +203,7 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
                       className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
-                        {b.topic && <p className="text-[10px] font-medium mt-0.5" style={{ color: accentColor }}>{b.topic}</p>}
+                        {groupLabel({ ...b, subject }) && <p className="text-[10px] font-medium mt-0.5" style={{ color: accentColor }}>{groupLabel({ ...b, subject })}</p>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {pdfCount > 0 && (
@@ -292,6 +294,7 @@ function BuilderButton({ buildId, size = 'text-[10px]' }) {
 
 // ── Class Term Board ──────────────────────────────────────────────────────────
 function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
+  const { groupLabel } = useChemModules()   // Chemistry lists by module, not topic
   const [assignments, setAssignments] = useState([])
   const [loading,     setLoading]     = useState(true)
   const [assignSlot,  setAssignSlot]  = useState(null)
@@ -380,7 +383,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                                   <StatusBadge status={b.status} />
                         </div>
                         <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
-                        {b.topic && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{b.topic}</p>}
+                        {groupLabel(b) && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{groupLabel(b)}</p>}
                       </div>
                       <div className="px-3 pb-2 flex items-center justify-between gap-1">
                         <div className="flex items-center gap-2">
@@ -464,6 +467,7 @@ const INP      ='w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs tex
 // ── Booklet Modal (add + edit) ────────────────────────────────────────────────
 function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defaultWeek, onClose, onSaved }) {
   const isEdit = !!booklet
+  const { moduleNames } = useChemModules()   // Chemistry files by module, not topic
   const [form, setForm] = useState({
     booklet_name: booklet?.booklet_name ?? '',
     year:         booklet?.year         ?? defaultYear,
@@ -685,7 +689,19 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
               ))}
             </div>
           </div>
-          {/* Topic */}
+          {/* Topic — Chemistry files by module, and the name already states it. */}
+          {isChemistry(form.subject) ? (
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Module</label>
+            <p className="text-[11px] text-[#2A2035]/50 bg-[#F8FAFF] border border-[#E8EDF8] rounded-lg px-3 py-2.5">
+              {chemModuleNumber(form.booklet_name) != null ? (
+                <>Read from the name: <span className="font-semibold text-[#0F766E]">{chemModuleLabel(chemModuleNumber(form.booklet_name), moduleNames)}</span></>
+              ) : (
+                <>Name this booklet <span className="font-semibold">M&lt;module&gt;L&lt;lesson&gt;</span> — e.g. <span className="font-semibold">M3L2</span> — and it files itself under Module 3.</>
+              )}
+            </p>
+          </div>
+          ) : (
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Topic <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
             <input type="text" value={form.topic} onChange={set('topic')} placeholder="e.g. Linear Relationships" className={INP} list="topic-suggestions" />
@@ -695,6 +711,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
               ))}
             </datalist>
           </div>
+          )}
           {/* Syllabus content picker */}
           {syll && syll.length > 0 && (
             <div>
@@ -784,6 +801,7 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
 
 // ── Assign Booklet Modal (pick from master database) ─────────────────────────
 function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, onCreateNew }) {
+  const { groupLabel } = useChemModules()   // Chemistry lists by module, not topic
   const [tab, setTab]                 = useState('booklet')   // 'booklet' | 'exam'
   const [allBooklets, setAllBooklets] = useState([])
   const [exams, setExams]             = useState(null)
@@ -906,9 +924,9 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
-                        {b.topic && (
+                        {groupLabel({ ...b, subject }) && (
                           <p className="text-[10px] font-medium mt-0.5 truncate" style={{ color: accentColor }}>
-                            {b.topic}
+                            {groupLabel({ ...b, subject })}
                           </p>
                         )}
                         {isCurrentlyAssigned && (
@@ -1402,6 +1420,7 @@ function BookletsPageInner() {
 // Tutor-facing curriculum view — read-only, scoped to their own classes
 // ─────────────────────────────────────────────────────────────────────────────
 function TutorCurriculumPage({ staff, scope = null }) {
+  const { groupLabel } = useChemModules()   // Chemistry lists by module, not topic
   const [classes,       setClasses]       = useState([])  // classes this tutor teaches this term
   const [activeClassId, setActiveClassId] = useState(null)
   const [assignments,   setAssignments]   = useState([])  // class_booklet_assignments rows
@@ -1737,13 +1756,13 @@ function TutorCurriculumPage({ staff, scope = null }) {
                                     {b.is_exam ? <><span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] mr-1">Exam</span>{b.booklet_name}</> : bookletLabel(b)}
                                     <span className="ml-1.5"><StatusBadge status={b.status} /></span>
                                   </p>
-                                  {/* Topic */}
-                                  {b.topic && (
+                                  {/* Topic — or, for Chemistry, its module. */}
+                                  {groupLabel(b) && (
                                     <p
                                       className="text-[9px] font-medium mt-0.5 truncate"
                                       style={{ color: accent }}
                                     >
-                                      {b.topic}
+                                      {groupLabel(b)}
                                     </p>
                                   )}
                                 </div>

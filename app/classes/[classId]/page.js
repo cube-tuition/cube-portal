@@ -8,6 +8,7 @@ import PortalNav from '../../../components/PortalNav'
 import CourseDetail, { inferSubject, subjectColor, subjectsMatch } from '../../../components/CourseDetail'
 import { fetchAllTerms, getEnrolmentTerm, getCurrentTerm, weekOfTerm, solutionsUnlockAt, formatTermLabel, filterByTerm } from '../../../lib/terms'
 import { T_ATTENDANCE, T_QUIZ_RESULTS, T_RESULTS, T_STUDENTS } from '../../../lib/tables'
+import useChemModules from '../../../components/booklet/useChemModules'
 
 /*
  * One class — /classes/<id> (student portal)
@@ -23,6 +24,7 @@ const WEEKS = Array.from({ length: 10 }, (_, i) => i + 1)
 export default function ClassPage() {
   const router = useRouter()
   const { classId } = useParams()
+  const { groupLabel } = useChemModules()   // Chemistry workbooks read by module, not topic
   const [student, setStudent] = useState(null)
   const [cls, setCls] = useState(null)
   const [term, setTerm] = useState(null)
@@ -223,7 +225,7 @@ export default function ClassPage() {
                       <p className="text-sm font-semibold text-[#2A2035]">{b.booklet_name}</p>
                       <p className="text-[11px] text-[#2A2035]/45 mt-0.5">
                         {online ? 'Online workbook — type your answers in the portal' : pdfs.length ? 'Workbook — read it in the portal' : 'No file attached yet'}
-                        {b.topic ? ` · ${b.topic}` : ''}
+                        {groupLabel(b) ? ` · ${groupLabel(b)}` : ''}
                       </p>
                     </div>
                     {online ? (

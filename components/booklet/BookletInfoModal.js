@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { curriculumTerms } from '../../lib/terms'
 import BookletContentView from './BookletContentView'
+import useChemModules from './useChemModules'
+import { isChemistry, chemModuleNumber, chemModuleLabel } from '../../lib/format'
+import LatexContent from '../qbank/LatexContent'
 import {
   fmtItemDate, sortItems, openCount,
   addStaffItem, setItemDone, removeItem,
@@ -258,6 +261,7 @@ function PdfList({ row, patch, onErr }) {
 }
 
 export default function BookletInfoModal({ booklet, title, staff, content, topicBank, skillBank, onClose, onChanged }) {
+  const { moduleNames } = useChemModules()      // Chemistry files by module, not topic
   const [row, setRow] = useState(null)          // full booklets row, re-read on open
   const [form, setForm] = useState(null)        // editable details
   const [detailState, setDetailState] = useState('idle')   // idle | saving | saved | error
@@ -400,7 +404,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
       content: ordered.length ? ordered.join('\n') : null,
       syllabus_points: orderedIds.length ? orderedIds : null,
     }
-    if (!row.topic && firstChapter) {
+    if (!row.topic && firstChapter && !isChemistry(row.subject)) {
       payload.topic = firstChapter.includes(' — ') ? firstChapter.split(' — ').slice(1).join(' — ') : firstChapter
     }
     const { error } = await supabase.from('booklets').update(payload).eq('id', row.id)
@@ -527,11 +531,28 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                 <input type="number" min={1} max={10} value={form.week} onChange={setField('week')} className={FIELD} placeholder="—" />
               </div>
               <div className="col-span-2 sm:col-span-3">
-                <label className={FIELD_LABEL}>Topic</label>
-                <input value={form.topic} onChange={setField('topic')} list="booklet-info-topics" className={FIELD} placeholder="e.g. Linear Relationships" />
-                <datalist id="booklet-info-topics">
-                  {topicOptions.map(t => <option key={t} value={t} />)}
-                </datalist>
+                {/* Chemistry files by module, read off the booklet name — there
+                    is no topic to assign, so the field states what it derived. */}
+                {isChemistry(form.subject) ? (
+                  <>
+                    <label className={FIELD_LABEL}>Module</label>
+                    <p className="text-[11px] text-[#2A2035]/50 bg-[#F8FAFF] border border-[#E8EDF8] rounded-lg px-3 py-2">
+                      {chemModuleNumber(form.booklet_name) != null ? (
+                        <>From the name: <span className="font-semibold text-[#0F766E]">{chemModuleLabel(chemModuleNumber(form.booklet_name), moduleNames)}</span></>
+                      ) : (
+                        <>Name it <span className="font-semibold">M&lt;module&gt;L&lt;lesson&gt;</span> (e.g. M3L2) to file it under a module.</>
+                      )}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <label className={FIELD_LABEL}>Topic</label>
+                    <input value={form.topic} onChange={setField('topic')} list="booklet-info-topics" className={FIELD} placeholder="e.g. Linear Relationships" />
+                    <datalist id="booklet-info-topics">
+                      {topicOptions.map(t => <option key={t} value={t} />)}
+                    </datalist>
+                  </>
+                )}
               </div>
               <div className="col-span-2 sm:col-span-3">
                 <label className={FIELD_LABEL}>Skill</label>
@@ -592,7 +613,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                             {open && ch.points.map(p => (
                               <label key={p.id} className="flex items-start gap-2 px-4 py-1 cursor-pointer hover:bg-[#F8FAFF]">
                                 <input type="checkbox" checked={selected.has(p.id)} onChange={() => togglePoint(p.id)} className="mt-0.5 accent-[#325099]" />
-                                <span className="text-[11px] text-[#2A2035]/80 leading-snug">{p.text}</span>
+                                <LatexContent className="text-[11px] text-[#2A2035]/80 leading-snug" text={p.text} />
                               </label>
                             ))}
                           </div>
