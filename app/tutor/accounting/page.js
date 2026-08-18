@@ -254,7 +254,6 @@ export default function AccountingDashboard() {
         key: runKey,
         start: run?.period_start || null,
         end: run?.period_end || null,
-        runStatus: run?.status || null,
         label: run ? labelPeriod(run.period_start, run.period_end, allTerms) : 'Outside any pay run',
         owed: 0, draft: 0, overdue: 0, shifts: 0, noRate: 0,
       }
@@ -490,17 +489,13 @@ export default function AccountingDashboard() {
                 <div className="p-2 space-y-2">
                   {r.runs.map(p => (
                     <div key={p.key} className="rounded-lg border border-[#E4EAFB] bg-white px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] font-bold text-[#062E63] truncate" title={p.start ? `${p.start} → ${p.end}` : 'no pay run covers these dates'}>
-                          {p.label}
-                        </p>
-                        {p.runStatus && (
-                          <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                            p.runStatus === 'paid'   ? 'bg-[#D1FAE5] text-[#065F46]'
-                            : p.runStatus === 'open' ? 'bg-[#DEE7FF] text-[#062E63]'
-                            : 'bg-[#FEF3C7] text-[#92400E]'}`}>{p.runStatus}</span>
-                        )}
-                      </div>
+                      {/* No run-status chip here: a run can be "paid" (its bank
+                          side settled in Xero) while this person's cash from it
+                          is still owed — which is exactly why they're on the
+                          board. The run identifies WHERE the debt is from. */}
+                      <p className="text-[11px] font-bold text-[#062E63] truncate" title={p.start ? `${p.start} → ${p.end}` : 'no pay run covers these dates'}>
+                        {p.label}
+                      </p>
                       <div className="mt-1 flex items-baseline justify-between gap-2">
                         <p className="text-sm font-bold tabular-nums" style={{ color: p.owed > 0 ? '#B23A3A' : '#2A203555' }}>
                           {fmtMoney(p.owed)}
