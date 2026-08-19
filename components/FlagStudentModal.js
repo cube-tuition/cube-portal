@@ -102,7 +102,7 @@ export default function FlagStudentModal({
 
           <div>
             <label className="block text-xs font-bold text-[#062E63] mb-1.5">
-              Details <span className="font-normal text-[#2A2035]/45">(optional, but it&rsquo;s what makes the flag actionable)</span>
+              Details <span className="font-normal text-[#2A2035]/45">(optional)</span>
             </label>
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={4} disabled={saving}
                       placeholder="What happened, and what would you like done about it?"
