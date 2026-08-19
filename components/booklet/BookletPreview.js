@@ -136,6 +136,31 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
         }
         if (it.homework) cur.homework = true
         if (it.quiz) cur.quiz = true
+        // A single chunk can still be taller than a whole page — one part whose
+        // solution carries a diagram, say. Chunking is already the finest split
+        // a question has, so there is nothing smaller to fall back to: split the
+        // chunk itself, exactly as the main loop does for any other oversized
+        // block. Without this the chunk stayed put and its tail was clipped off
+        // the bottom of the fixed-height page — the solution simply vanished.
+        if (cur.page.scrollHeight > PAGE_H) {
+          const fits = () => cur.page.scrollHeight <= PAGE_H
+          let rest = splitToFit(cel, fits)
+          cur.html.push(cel.outerHTML)   // record AFTER trimming
+          countOnPage++
+          let guard = 0
+          while (rest && guard++ < 200) {
+            cur = newPage(); result.push(cur); countOnPage = 0
+            cur.inner.appendChild(rest)
+            const more = splitToFit(rest, fits)
+            if (it.homework) cur.homework = true
+            if (it.quiz) cur.quiz = true
+            cur.html.push(rest.outerHTML)
+            countOnPage++
+            if (more === rest) break
+            rest = more
+          }
+          continue
+        }
         cur.html.push(ch)
         countOnPage++
       }
