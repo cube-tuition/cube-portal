@@ -593,9 +593,22 @@ export default function BookletBuilderEditor() {
   }
   const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
 
-  // Publish: render both PDFs, upload to the booklets bucket, upsert a booklets
-  // row (so it can be assigned to a class on the curriculum page), link it back.
+  /*
+   * Publish: render both PDFs, upload to the booklets bucket, upsert a booklets
+   * row (so it can be assigned to a class on the curriculum page), link it back.
+   *
+   * WORKBOOKS ONLY. A pre-test or level test belongs to its own page, keyed to a
+   * class and term — it is not curriculum a class gets assigned in a given week,
+   * and publishing one filed it in the workbook database under a year/subject
+   * where it read as a workbook. Those docs autosave and are reached from the
+   * Pre-tests / Level tests pages; their PDFs come from the export buttons.
+   */
   const publish = async () => {
+    if (isExamStyle) {
+      alert(`A ${isPreTest ? 'pre-test' : 'level test'} isn’t a workbook — it stays on its own page. `
+        + 'Use the Student / Solutions PDF buttons for a copy to hand out.')
+      return
+    }
     if (!bk.year) { alert('Set a Year before saving to the curriculum.'); return }
     setPublishing(true)
     // Publishing renders TWO full PDFs and uploads them, which on a long booklet
@@ -1004,7 +1017,11 @@ export default function BookletBuilderEditor() {
           </button>
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
-          <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? `Saving… ${pubProgress?.pct ?? 0}%` : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
+          {/* Workbooks only — a pre-test / level test has no place in the
+              workbook database, so it isn't offered the button. */}
+          {!isExamStyle && (
+            <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? `Saving… ${pubProgress?.pct ?? 0}%` : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
+          )}
         </div>
         {/* Saving to the curriculum renders and uploads two PDFs, so it can take
             a while on a long booklet. The bar reports the real stage rather than

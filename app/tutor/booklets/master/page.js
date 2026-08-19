@@ -192,135 +192,17 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
   )
 }
 
-// ── Manage Skills Panel ───────────────────────────────────────────────────────
-function ManageSkillsPanel({ year, subject, accentColor, accentBg, onClose, onSkillsChanged }) {
-  const [skills,     setSkills]     = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [newName,    setNewName]    = useState('')
-  const [adding,     setAdding]     = useState(false)
-  const [renamingId, setRenamingId] = useState(null)
-  const [renameDraft, setRenameDraft] = useState('')
-  const [deletingId,  setDeletingId]  = useState(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    const { data } = await supabase.from('skills').select('id, name').eq('year', year).eq('subject', subject).order('name')
-    setSkills(data || [])
-    setLoading(false)
-  }, [year, subject])
-
-  useEffect(() => { load() }, [load])
-
-  const handleAdd = async () => {
-    const name = newName.trim()
-    if (!name) return
-    setAdding(true)
-    const { data, error } = await supabase.from('skills').insert({ year, subject, name }).select().single()
-    if (!error && data) setSkills(s => [...s, data].sort((a, b) => a.name.localeCompare(b.name)))
-    setNewName(''); setAdding(false)
-    onSkillsChanged()
-  }
-
-  const handleRename = async (id) => {
-    const name = renameDraft.trim()
-    if (!name) return
-    const oldName = skills.find(s => s.id === id)?.name
-    const { error } = await supabase.from('skills').update({ name }).eq('id', id)
-    if (!error) {
-      await supabase.from('booklets').update({ skill: name }).eq('year', year).eq('subject', subject).eq('skill', oldName)
-      setSkills(s => s.map(x => x.id === id ? { ...x, name } : x).sort((a, b) => a.name.localeCompare(b.name)))
-      onSkillsChanged()
-    }
-    setRenamingId(null)
-  }
-
-  const handleDelete = async (id) => {
-    if (deletingId !== id) { setDeletingId(id); return }
-    const name = skills.find(s => s.id === id)?.name
-    await supabase.from('skills').delete().eq('id', id)
-    await supabase.from('booklets').update({ skill: null }).eq('year', year).eq('subject', subject).eq('skill', name)
-    setSkills(s => s.filter(x => x.id !== id))
-    setDeletingId(null)
-    onSkillsChanged()
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-end bg-black/20 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white w-full sm:w-80 sm:h-full sm:max-h-screen h-[70vh] rounded-t-2xl sm:rounded-none shadow-2xl flex flex-col border-l border-[#E8EDF8]"
-        onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#F0F4FF]">
-          <div>
-            <p className="text-xs font-bold text-[#062E63]">Skill Bank</p>
-            <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} · {subject}</p>
-          </div>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full text-[#2A2035]/30 hover:bg-[#F0F4FF] transition text-base">×</button>
-        </div>
-
-        <div className="overflow-y-auto flex-1 px-4 py-3">
-          {loading ? (
-            <p className="text-xs text-[#2A2035]/30 animate-pulse text-center py-6">Loading…</p>
-          ) : skills.length === 0 ? (
-            <p className="text-xs text-[#2A2035]/30 text-center py-6 italic">No skills yet for this year/subject.</p>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {skills.map(s => (
-                <div key={s.id} className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-[#F8FAFF] group">
-                  {renamingId === s.id ? (
-                    <>
-                      <input autoFocus value={renameDraft} onChange={e => setRenameDraft(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleRename(s.id); if (e.key === 'Escape') setRenamingId(null) }}
-                        className="flex-1 border border-[#325099] rounded px-2 py-1 text-xs focus:outline-none" />
-                      <button onClick={() => handleRename(s.id)} className="text-[10px] font-bold text-[#059669] shrink-0">✓</button>
-                      <button onClick={() => setRenamingId(null)} className="text-[10px] font-bold text-[#2A2035]/30 hover:text-red-400 shrink-0">✕</button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex-1 text-xs font-medium text-[#2A2035] truncate">{s.name}</span>
-                      <button onClick={() => { setRenamingId(s.id); setRenameDraft(s.name) }}
-                        className="text-[9px] font-semibold opacity-0 group-hover:opacity-100 transition" style={{ color: accentColor }}>Rename</button>
-                      <button onClick={() => handleDelete(s.id)}
-                        className={`text-[9px] font-semibold opacity-0 group-hover:opacity-100 transition ${deletingId === s.id ? 'text-red-500 opacity-100' : 'text-[#2A2035]/30'}`}
-                        title={deletingId === s.id ? 'Click again to confirm' : 'Delete skill'}>
-                        {deletingId === s.id ? 'Confirm?' : 'Delete'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="px-4 py-3 border-t border-[#F0F4FF]">
-          <div className="flex gap-2">
-            <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
-              placeholder="New skill name…"
-              className="flex-1 border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white" />
-            <button onClick={handleAdd} disabled={adding || !newName.trim()}
-              className="px-3 py-2 text-xs font-bold text-white rounded-lg transition disabled:opacity-40"
-              style={{ background: accentColor }}>
-              {adding ? '…' : 'Add'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 const INP   = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 
 // ── Booklet Form Modal (add + edit) ──────────────────────────────────────────
-function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], skillBank = [], moduleNames = {}, onClose, onSaved }) {
+function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], moduleNames = {}, onClose, onSaved }) {
   const isEdit = !!booklet
   const [form, setForm] = useState({
     booklet_name: booklet?.booklet_name ?? '',
     year:         booklet?.year         ?? defaultYear,
     subject:      booklet?.subject      ?? defaultSubject,
     topic:        booklet?.topic        ?? '',
-    skill:        booklet?.skill        ?? '',
     term_number:  booklet?.term_number  ?? '',
     week:         booklet?.week         ?? '',
     notes:        booklet?.notes        ?? '',
@@ -385,7 +267,6 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
         year:           Number(form.year),
         subject:        form.subject,
         topic:          form.topic.trim() || null,
-        skill:          form.skill.trim() || null,
         term_number:    form.term_number !== '' ? Number(form.term_number) : null,
         week:           form.week        !== '' ? Number(form.week)        : null,
         notes:          form.notes.trim() || null,
@@ -461,18 +342,6 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
               )}
             </div>
           )}
-
-          {/* Skill */}
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Skill <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
-            <select value={form.skill} onChange={set('skill')} className={INP}>
-              <option value="">— No skill —</option>
-              {skillBank.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select>
-            {skillBank.length === 0 && (
-              <p className="text-[10px] text-[#2A2035]/40 mt-1">No skills in the bank yet for this year/subject. Add some via the 🎯 Skills button.</p>
-            )}
-          </div>
 
           {/* Term + Week */}
           <div className="grid grid-cols-2 gap-3">
@@ -581,6 +450,7 @@ function MasterDatabaseInner() {
   const [activeYear, setActiveYear] = useState(5)
   const [activeSub,  setActiveSub]  = useState('Maths')
   const [search,     setSearch]     = useState('')
+  const [groupFilter, setGroupFilter] = useState('')   // '' = every topic/module
   const [showAdd,    setShowAdd]    = useState(false)
 
   const [infoFor,        setInfoFor]        = useState(null)   // booklet whose info modal is open
@@ -588,9 +458,7 @@ function MasterDatabaseInner() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting,       setDeleting]       = useState(false)
   const [showTopics,     setShowTopics]     = useState(false)
-  const [showSkills,     setShowSkills]     = useState(false)
   const [topicBank,      setTopicBank]      = useState([])
-  const [skillBank,      setSkillBank]      = useState([])
   // Chemistry module number → syllabus module name, for the group headings.
   const [moduleNames,    setModuleNames]    = useState({})
 
@@ -607,7 +475,7 @@ function MasterDatabaseInner() {
     const [{ data }, { data: bd }] = await Promise.all([
       supabase
         .from('booklets')
-        .select('id, booklet_name, year, subject, topic, skill, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames, delivery')
+        .select('id, booklet_name, year, subject, topic, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames, delivery')
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
@@ -615,7 +483,7 @@ function MasterDatabaseInner() {
         // summary from the sections' drawn syllabus dotpoints — it lives on the
         // build, not on the booklets row.
         .from('booklet_builds')
-        .select('id, title, year, subject, topic, status, booklet_id, updated_at, content')
+        .select('id, title, year, subject, topic, status, booklet_id, updated_at, content, doc_type')
         .order('updated_at', { ascending: false }),
     ])
     setBooklets(data || [])
@@ -701,16 +569,7 @@ function MasterDatabaseInner() {
     setTopicBank(data || [])
   }, [activeYear, activeSub])
 
-  const loadSkillBank = useCallback(async () => {
-    const { data } = await supabase
-      .from('skills').select('id, name')
-      .eq('year', activeYear).eq('subject', activeSub)
-      .order('name')
-    setSkillBank(data || [])
-  }, [activeYear, activeSub])
-
   useEffect(() => { if (staff) loadTopicBank() }, [staff, loadTopicBank])
-  useEffect(() => { if (staff) loadSkillBank() }, [staff, loadSkillBank])
 
   // Module names for the Chemistry headings — four rows, and the numbering runs
   // 1–8 across both years, so one fetch covers every Chemistry tab.
@@ -778,7 +637,6 @@ function MasterDatabaseInner() {
       return (
         b.booklet_name?.toLowerCase().includes(q) ||
         grouping?.toLowerCase().includes(q) ||
-        b.skill?.toLowerCase().includes(q) ||
         b.notes?.toLowerCase().includes(q)
       )
     }
@@ -816,13 +674,28 @@ function MasterDatabaseInner() {
     return chemTab ? chemModuleLabel(Number(key), moduleNames) : key
   }
 
+  /*
+   * Topic filter. Its options are the groups actually present in this tab, so it
+   * can never offer a topic with nothing under it. The selection is DERIVED
+   * against those keys rather than reset in an effect: change year/subject, or
+   * narrow the search until the chosen topic has no matches, and it falls back
+   * to showing everything instead of rendering an empty page with a stale
+   * heading. On a Chemistry tab the same control filters by module.
+   */
+  const activeGroup = groupKeys.includes(groupFilter) ? groupFilter : ''
+  const visibleKeys = activeGroup ? [activeGroup] : groupKeys
+
   const accentColor = getAccentColor(activeSub)
   const accentBg    = getAccentBg(activeSub)
 
   // Builder workbooks: drafts (not yet saved to the database) shown in a strip;
   // published ones are matched to their master row so we can offer "Open in builder".
   // Hub scope: the in-progress panel only shows drafts from the scoped family.
+  // Workbooks only. A pre-test / level test is a build too, but it belongs to
+  // its own page — listing one here put it in the workbook database by another
+  // door, where it reads as a workbook someone forgot to finish.
   const draftBuilds = builds.filter(wb => wb.status !== 'published'
+    && (wb.doc_type ?? 'booklet') === 'booklet'
     && (!scope || SUBJECT_FAMILIES[scope].includes(wb.subject)))
   const buildByBookletId = {}
   for (const wb of builds) if (wb.booklet_id) buildByBookletId[wb.booklet_id] = wb
@@ -854,6 +727,18 @@ function MasterDatabaseInner() {
               placeholder="Search…"
               className="border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] w-44"
             />
+            <select
+              value={activeGroup}
+              onChange={e => setGroupFilter(e.target.value)}
+              title={chemTab ? 'Show one module' : 'Show one topic'}
+              className={`border rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099] max-w-[220px] ${
+                activeGroup ? 'border-[#325099] text-[#062E63] font-semibold' : 'border-[#DEE7FF] text-[#2A2035]'}`}
+            >
+              <option value="">{chemTab ? 'All modules' : 'All topics'} ({tabBooklets.length})</option>
+              {groupKeys.map(key => (
+                <option key={key} value={key}>{groupLabel(key)} ({groupMap[key].length})</option>
+              ))}
+            </select>
             {/* Chemistry groups by module, read off the booklet name — there is
                 no topic bank to keep. */}
             {!isChemistry(activeSub) && (
@@ -864,12 +749,6 @@ function MasterDatabaseInner() {
                 🏷 Topics
               </button>
             )}
-            <button
-              onClick={() => setShowSkills(true)}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap text-[#325099]"
-            >
-              🎯 Skills
-            </button>
             <button
               onClick={() => createWorkbook(asksDelivery ? 'ask' : 'physical')}
               disabled={creatingWb}
@@ -942,7 +821,7 @@ function MasterDatabaseInner() {
           <div className="flex items-center justify-center py-24">
             <p className="text-sm font-semibold tracking-[0.2em] uppercase animate-pulse" style={{ color: accentColor }}>Loading…</p>
           </div>
-        ) : groupKeys.length === 0 ? (
+        ) : visibleKeys.length === 0 ? (
           <div className="text-center py-24">
             <p className="text-4xl mb-3">📭</p>
             <p className="text-sm font-semibold text-[#2A2035]">No booklets for Year {activeYear} {activeSub}</p>
@@ -950,7 +829,7 @@ function MasterDatabaseInner() {
           </div>
         ) : (
           <div className="space-y-8 pb-12">
-            {groupKeys.map(key => {
+            {visibleKeys.map(key => {
               const bks       = groupMap[key]
               const isNoGroup = key === UNGROUPED
               return (
@@ -976,7 +855,7 @@ function MasterDatabaseInner() {
                             {bookletLabel(b)}
                             {b.delivery === 'online' && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F] align-middle" title="Online workbook — a typeable student doc, no printed PDFs">🌐 Online</span>}
                           </p>
-                          {/* Info — term, week, topic, skill, content, notes and the
+                          {/* Info — term, week, topic, content, notes and the
                               improvement checklists all live in this modal. */}
                           <button
                             onClick={() => setInfoFor(b)}
@@ -1058,17 +937,6 @@ function MasterDatabaseInner() {
         />
       )}
 
-      {showSkills && (
-        <ManageSkillsPanel
-          year={activeYear}
-          subject={activeSub}
-          accentColor={accentColor}
-          accentBg={accentBg}
-          onClose={() => setShowSkills(false)}
-          onSkillsChanged={() => { loadSkillBank(); load() }}
-        />
-      )}
-
       {/* Senior English: choose how the new workbook is delivered. */}
       {deliveryChoice && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
@@ -1104,7 +972,6 @@ function MasterDatabaseInner() {
           defaultYear={activeYear}
           defaultSubject={activeSub}
           topicBank={topicBank}
-          skillBank={skillBank}
           moduleNames={moduleNames}
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); load() }}
@@ -1122,7 +989,6 @@ function MasterDatabaseInner() {
           ? (buildByBookletId[infoFor.id]?.content || infoFor.content)
           : undefined}
         topicBank={topicBank}
-        skillBank={skillBank}
         onClose={() => { setInfoFor(null); load() }}
         onChanged={(p) => setBooklets(bs => bs.map(x => (x.id === infoFor.id ? { ...x, ...p } : x)))}
       />

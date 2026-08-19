@@ -29,7 +29,7 @@ import {
  * Props: booklet (row with at least { id }) — null closes; title (heading);
  *        staff (for the "done by" stamp); content (optional override for the
  *        Content section — the master DB passes build-derived Chemistry
- *        content); topicBank / skillBank ([{ id, name }] suggestions);
+ *        content); topicBank ([{ id, name }] suggestions);
  *        onClose(); onChanged(patch) — partial booklet fields after any write.
  */
 
@@ -260,7 +260,7 @@ function PdfList({ row, patch, onErr }) {
   )
 }
 
-export default function BookletInfoModal({ booklet, title, staff, content, topicBank, skillBank, onClose, onChanged }) {
+export default function BookletInfoModal({ booklet, title, staff, content, topicBank, onClose, onChanged }) {
   const { moduleNames } = useChemModules()      // Chemistry files by module, not topic
   const [row, setRow] = useState(null)          // full booklets row, re-read on open
   const [form, setForm] = useState(null)        // editable details
@@ -285,7 +285,6 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
       year:         data.year ?? '',
       subject:      data.subject ?? '',
       topic:        data.topic ?? '',
-      skill:        data.skill ?? '',
       term_number:  data.term_number ?? '',
       week:         data.week ?? '',
     })
@@ -372,7 +371,6 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
       year:         form.year !== '' ? Number(form.year) : null,
       subject:      form.subject || null,
       topic:        form.topic.trim() || null,
-      skill:        form.skill.trim() || null,
       term_number:  form.term_number !== '' ? Number(form.term_number) : null,
       week:         form.week !== '' ? Number(form.week) : null,
     }
@@ -434,7 +432,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
     })
   }
 
-  const detailsDirty = ['booklet_name', 'topic', 'skill'].some(k => (form[k].trim() || '') !== ((row[k] ?? '') || ''))
+  const detailsDirty = ['booklet_name', 'topic'].some(k => (form[k].trim() || '') !== ((row[k] ?? '') || ''))
     || ['year', 'subject', 'term_number', 'week'].some(k => String(form[k] ?? '') !== String(row[k] ?? ''))
   const notesDirty = (notes.trim() || null) !== (row.notes || null)
   const freeContentDirty = (contentText.trim() || null) !== (row.content || null)
@@ -448,7 +446,6 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
     return Number.isFinite(cur) && cur > 0 && !base.includes(cur) ? [...base, cur].sort() : base
   })()
   const topicOptions = (topicBank?.length ? topicBank.map(t => t.name || t) : COMMON_TOPICS)
-  const skillOptions = (skillBank || []).map(s => s.name || s)
 
   const blockClose = busy || notesStatus === 'saving' || detailState === 'saving' || contentState === 'saving'
 
@@ -553,13 +550,6 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                     </datalist>
                   </>
                 )}
-              </div>
-              <div className="col-span-2 sm:col-span-3">
-                <label className={FIELD_LABEL}>Skill</label>
-                <input value={form.skill} onChange={setField('skill')} list="booklet-info-skills" className={FIELD} placeholder="optional" />
-                <datalist id="booklet-info-skills">
-                  {skillOptions.map(s => <option key={s} value={s} />)}
-                </datalist>
               </div>
             </div>
             <div className="flex justify-end mt-2">
