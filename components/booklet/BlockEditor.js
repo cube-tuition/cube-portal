@@ -1248,7 +1248,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
       )}
       <div className="space-y-2">
         {parts.map((p, i) => (
-          <div key={i} className="border border-[#E8EDF8] rounded-lg p-2 bg-[#F8FAFF]">
+          <div key={i} data-part={String(p.id ?? i)} className="border border-[#E8EDF8] rounded-lg p-2 bg-[#F8FAFF]">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[11px] font-bold text-[#325099]">{String.fromCharCode(97 + i)}.</span>
               <div className="flex items-center gap-3">

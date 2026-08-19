@@ -768,7 +768,11 @@ export default function BookletBuilderEditor() {
     // Leave double-clicks inside form controls alone (word-select while editing).
     if (e.target.closest('textarea, input, select, button, [contenteditable="true"]')) return
     const host = previewScrollRef.current
-    const target = host?.querySelector(`[data-bid="${CSS.escape(bid)}"]`)
+    // From inside a part's editor, land on that part in the preview — the
+    // descendant selector also finds parts living in a continuation chunk.
+    const pid = e.target.closest('[data-part]')?.getAttribute('data-part')
+    const target = (pid && host?.querySelector(`[data-bid="${CSS.escape(bid)}"] [data-pid="${CSS.escape(pid)}"]`))
+      || host?.querySelector(`[data-bid="${CSS.escape(bid)}"]`)
     if (!target) return
     setSelectedBlockId(bid)
     const hostRect = host.getBoundingClientRect()
@@ -788,19 +792,27 @@ export default function BookletBuilderEditor() {
   // scrollable ancestor it can find, which is slower to get going and is what
   // made the jump feel like it stalled first. Below lg the column is not
   // scrollable and the page scroll is the right thing to move.
-  const jumpToCard = (bid) => {
+  const jumpToCard = (bid, pid = null) => {
     const card = document.getElementById(`blk-${bid}`)
     if (!card) return
+    // A part id narrows the landing spot: double-clicking part (c) in the
+    // preview centres part (c)'s editor, not the middle of a question card
+    // that may be taller than the screen.
+    const target = (pid && card.querySelector(`[data-part="${CSS.escape(pid)}"]`)) || card
+    target.animate?.(
+      [{ boxShadow: '0 0 0 3px rgba(50,80,153,.55)' }, { boxShadow: '0 0 0 3px rgba(50,80,153,0)' }],
+      { duration: 1200, easing: 'ease-out' },
+    )
     const host = blocksScrollRef.current
     if (!host || host.scrollHeight <= host.clientHeight + 1) {
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
     const hostRect = host.getBoundingClientRect()
-    const cRect = card.getBoundingClientRect()
+    const tRect = target.getBoundingClientRect()
     host.scrollTo({
-      top: host.scrollTop + (cRect.top - hostRect.top)
-        - Math.max(0, (host.clientHeight - cRect.height) / 2),
+      top: host.scrollTop + (tRect.top - hostRect.top)
+        - Math.max(0, (host.clientHeight - tRect.height) / 2),
       behavior: 'smooth',
     })
   }
@@ -813,6 +825,9 @@ export default function BookletBuilderEditor() {
     const bid = el.getAttribute('data-bid')
     const blk = (bk?.blocks || []).find(x => x.id === bid)
     if (!blk) return
+    // Clicked inside a part? Land on that part's editor, not the block's middle.
+    const pel = e.target?.closest?.('[data-pid]')
+    const pid = pel && el.contains(pel) ? pel.getAttribute('data-pid') : null
     const sec = sectionOf(blk)
     // Only a tab switch has to render before the card exists. In every other
     // case — the common one — jump straight away instead of sitting out a
@@ -820,8 +835,8 @@ export default function BookletBuilderEditor() {
     const needsTabSwitch = !isExamStyle && activeSection !== sec
     if (needsTabSwitch) setActiveSection(sec)
     setSelectedBlockId(bid)
-    if (needsTabSwitch) requestAnimationFrame(() => requestAnimationFrame(() => jumpToCard(bid)))
-    else jumpToCard(bid)
+    if (needsTabSwitch) requestAnimationFrame(() => requestAnimationFrame(() => jumpToCard(bid, pid)))
+    else jumpToCard(bid, pid)
   }
 
   // One block card (drag handle, type badge, move/delete, editor). `list` is the
