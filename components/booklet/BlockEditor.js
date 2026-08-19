@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, memo } from 'react'
 import { supabase } from '../../lib/supabase'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
 import { selectedToSyllabusText, countSelected, filterModulesToPool } from '../../lib/syllabus'
@@ -160,7 +160,7 @@ function StimulusLibraryPicker({ onPick, current }) {
       </div>
       {open && (
         <div className="border-t border-[#F0F4FF] px-3 pb-2">
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search title, author or text…"
+          <LiftedInput value={query} onCommit={v => setQuery(v)} placeholder="Search title, author or text…"
             className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs mt-2 focus:outline-none focus:border-[#325099]" />
           <div className="max-h-56 overflow-y-auto mt-1.5 space-y-1">
             {texts === null ? (
@@ -191,6 +191,77 @@ function StimulusLibraryPicker({ onPick, current }) {
  * for the block type and reports changes via onChange(next). Image uploads go
  * to the shared qbank-images bucket (prefix 'booklets').
  */
+
+
+/* ── Text fields that do not re-render the builder on every keystroke ────────
+ * A controlled input here used to call set() per character, which replaced the
+ * block in the builder's state and re-ran the block list, the page-grouping
+ * measurement and the live preview before the character was even painted. The
+ * lag was in the field itself, not in the preview catching up.
+ *
+ * These keep the value locally while you type and lift it to the booklet on a
+ * short debounce — and immediately on blur, or on unmount, so nothing typed is
+ * ever dropped. Outside changes (undo, switching block) are adopted only when
+ * there is no edit in flight, so they can never clobber what you are typing.
+ */
+const LIFT_MS = 200
+
+function useLifted(value, onCommit) {
+  const [local, setLocal] = useState(value ?? '')
+  const timer = useRef(null)
+  const pending = useRef(false)
+  const latest = useRef(value ?? '')
+  const commitRef = useRef(onCommit)
+  commitRef.current = onCommit
+
+  useEffect(() => {
+    if (pending.current) return          // an edit is in flight — leave it alone
+    setLocal(value ?? '')
+    latest.current = value ?? ''
+  }, [value])
+
+  const flush = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    if (!pending.current) return
+    pending.current = false
+    commitRef.current(latest.current)
+  }
+  const flushRef = useRef(flush)
+  flushRef.current = flush
+  // Flush rather than discard on unmount: deleting a block or switching tabs
+  // mid-word must not lose the word.
+  useEffect(() => () => flushRef.current(), [])
+
+  const change = (v) => {
+    setLocal(v)
+    latest.current = v
+    pending.current = true
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => flushRef.current(), LIFT_MS)
+  }
+  return [local, change, flush]
+}
+
+function LiftedTextarea({ value, onCommit, textKey = false, inlineKey = false, ...rest }) {
+  const [local, change, flush] = useLifted(value, onCommit)
+  const key = textKey ? onTextKey : inlineKey ? onInlineKey : null
+  return (
+    <textarea {...rest} value={local}
+      onChange={e => change(e.target.value)}
+      onBlur={flush}
+      onKeyDown={key ? (e) => key(e, local, change) : rest.onKeyDown} />
+  )
+}
+
+function LiftedInput({ value, onCommit, inlineKey = false, ...rest }) {
+  const [local, change, flush] = useLifted(value, onCommit)
+  return (
+    <input {...rest} value={local}
+      onChange={e => change(e.target.value)}
+      onBlur={flush}
+      onKeyDown={inlineKey ? (e) => onInlineKey(e, local, change) : rest.onKeyDown} />
+  )
+}
 
 const L = 'block text-[11px] font-semibold text-[#325099] mb-1'
 const I = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]'
@@ -224,9 +295,9 @@ function PointRows({ rows, onChange }) {
       <div className="space-y-1.5">
         {rows.map((p, i) => (
           <div key={i} className="flex items-center gap-1.5">
-            <input className={I0 + ' w-16 shrink-0 text-center'} value={p.x ?? ''} onChange={e => upd(i, { x: e.target.value })} placeholder="x" />
-            <input className={I0 + ' w-16 shrink-0 text-center'} value={p.y ?? ''} onChange={e => upd(i, { y: e.target.value })} placeholder="y" />
-            <input className={I0 + ' flex-1 min-w-0'} value={p.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional), e.g. A(-3, 2)" />
+            <LiftedInput className={I0 + ' w-16 shrink-0 text-center'} value={p.x ?? ''} onCommit={v => upd(i, { x: v })} placeholder="x" />
+            <LiftedInput className={I0 + ' w-16 shrink-0 text-center'} value={p.y ?? ''} onCommit={v => upd(i, { y: v })} placeholder="y" />
+            <LiftedInput className={I0 + ' flex-1 min-w-0'} value={p.label ?? ''} onCommit={v => upd(i, { label: v })} placeholder="Label (optional), e.g. A(-3, 2)" />
             <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove point">✕</button>
           </div>
         ))}
@@ -244,8 +315,8 @@ function LineRows({ rows, onChange }) {
       <div className="space-y-1.5">
         {rows.map((l, i) => (
           <div key={i} className="flex items-center gap-1.5">
-            <input className={I0 + ' flex-1 min-w-0'} value={l.eq ?? ''} onChange={e => upd(i, { eq: e.target.value })} placeholder="y = x^2 - 2  or  x^2 + y^2 = 9" />
-            <input className={I0 + ' w-32 shrink-0'} value={l.label ?? ''} onChange={e => upd(i, { label: e.target.value })} placeholder="Label (optional)" />
+            <LiftedInput className={I0 + ' flex-1 min-w-0'} value={l.eq ?? ''} onCommit={v => upd(i, { eq: v })} placeholder="y = x^2 - 2  or  x^2 + y^2 = 9" />
+            <LiftedInput className={I0 + ' w-32 shrink-0'} value={l.label ?? ''} onCommit={v => upd(i, { label: v })} placeholder="Label (optional)" />
             <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove curve">✕</button>
           </div>
         ))}
@@ -280,19 +351,19 @@ function MathObjFields({ obj, upd }) {
             <option value="right">Right — text wraps</option>
           </select>
         </div>
-        <div className="w-28"><label className={L}>Width (%)</label><input className={I} type="text" inputMode="numeric" value={obj.width ?? ''} onChange={e => upd({ width: e.target.value.replace(/\D/g, '') })} placeholder="60" /></div>
+        <div className="w-28"><label className={L}>Width (%)</label><LiftedInput className={I} type="text" inputMode="numeric" value={obj.width ?? ''} onCommit={v => upd({ width: v.replace(/\D/g, '') })} placeholder="60" /></div>
       </div>
       {(obj.objType || 'cartesian') === 'cartesian' && (
         <>
           <div className="grid grid-cols-4 gap-2">
-            <div><label className={L}>x min</label><input className={I} value={obj.xMin ?? ''} onChange={e => upd({ xMin: e.target.value })} placeholder="-5" /></div>
-            <div><label className={L}>x max</label><input className={I} value={obj.xMax ?? ''} onChange={e => upd({ xMax: e.target.value })} placeholder="5" /></div>
-            <div><label className={L}>y min</label><input className={I} value={obj.yMin ?? ''} onChange={e => upd({ yMin: e.target.value })} placeholder="-5" /></div>
-            <div><label className={L}>y max</label><input className={I} value={obj.yMax ?? ''} onChange={e => upd({ yMax: e.target.value })} placeholder="5" /></div>
+            <div><label className={L}>x min</label><LiftedInput className={I} value={obj.xMin ?? ''} onCommit={v => upd({ xMin: v })} placeholder="-5" /></div>
+            <div><label className={L}>x max</label><LiftedInput className={I} value={obj.xMax ?? ''} onCommit={v => upd({ xMax: v })} placeholder="5" /></div>
+            <div><label className={L}>y min</label><LiftedInput className={I} value={obj.yMin ?? ''} onCommit={v => upd({ yMin: v })} placeholder="-5" /></div>
+            <div><label className={L}>y max</label><LiftedInput className={I} value={obj.yMax ?? ''} onCommit={v => upd({ yMax: v })} placeholder="5" /></div>
           </div>
           <div className="grid grid-cols-4 gap-2">
-            <div><label className={L}>x per square</label><input className={I} value={obj.xStep ?? ''} onChange={e => upd({ xStep: e.target.value })} placeholder="1" /></div>
-            <div><label className={L}>y per square</label><input className={I} value={obj.yStep ?? ''} onChange={e => upd({ yStep: e.target.value })} placeholder="1" /></div>
+            <div><label className={L}>x per square</label><LiftedInput className={I} value={obj.xStep ?? ''} onCommit={v => upd({ xStep: v })} placeholder="1" /></div>
+            <div><label className={L}>y per square</label><LiftedInput className={I} value={obj.yStep ?? ''} onCommit={v => upd({ yStep: v })} placeholder="1" /></div>
           </div>
           <div className="flex items-center gap-4 flex-wrap">
             <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
@@ -316,11 +387,11 @@ function MathObjFields({ obj, upd }) {
       {obj.objType === 'numberline' && (
         <>
           <div className="grid grid-cols-3 gap-2">
-            <div><label className={L}>Min</label><input className={I} value={obj.nlMin ?? ''} onChange={e => upd({ nlMin: e.target.value })} placeholder="0" /></div>
-            <div><label className={L}>Max</label><input className={I} value={obj.nlMax ?? ''} onChange={e => upd({ nlMax: e.target.value })} placeholder="10" /></div>
-            <div><label className={L}>Step</label><input className={I} value={obj.nlStep ?? ''} onChange={e => upd({ nlStep: e.target.value })} placeholder="1" /></div>
+            <div><label className={L}>Min</label><LiftedInput className={I} value={obj.nlMin ?? ''} onCommit={v => upd({ nlMin: v })} placeholder="0" /></div>
+            <div><label className={L}>Max</label><LiftedInput className={I} value={obj.nlMax ?? ''} onCommit={v => upd({ nlMax: v })} placeholder="10" /></div>
+            <div><label className={L}>Step</label><LiftedInput className={I} value={obj.nlStep ?? ''} onCommit={v => upd({ nlStep: v })} placeholder="1" /></div>
           </div>
-          <div><label className={L}>Marked values — one per line: value, label (optional)</label><textarea className={TA} value={obj.nlPoints ?? ''} onChange={e => upd({ nlPoints: e.target.value })} placeholder={'3.5\n7, B'} /></div>
+          <div><label className={L}>Marked values — one per line: value, label (optional)</label><LiftedTextarea className={TA} value={obj.nlPoints ?? ''} onCommit={v => upd({ nlPoints: v })} placeholder={'3.5\n7, B'} /></div>
         </>
       )}
       {obj.objType === 'boxplot' && (() => {
@@ -333,18 +404,18 @@ function MathObjFields({ obj, upd }) {
         return (
           <>
             <div className="grid grid-cols-2 gap-2">
-              <div><label className={L}>Title (optional)</label><input className={I} value={obj.bpTitle ?? ''} onChange={e => upd({ bpTitle: e.target.value })} placeholder="e.g. Test scores" /></div>
-              <div><label className={L}>Units under axis (optional)</label><input className={I} value={obj.bpUnits ?? ''} onChange={e => upd({ bpUnits: e.target.value })} placeholder="e.g. Score %" /></div>
+              <div><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.bpTitle ?? ''} onCommit={v => upd({ bpTitle: v })} placeholder="e.g. Test scores" /></div>
+              <div><label className={L}>Units under axis (optional)</label><LiftedInput className={I} value={obj.bpUnits ?? ''} onCommit={v => upd({ bpUnits: v })} placeholder="e.g. Score %" /></div>
             </div>
             {plots.map((p, i) => (
               <div key={i} className="grid grid-cols-[1fr_46px_46px_46px_46px_46px_1fr_20px] gap-1.5 items-end">
-                <div>{i === 0 && <label className={L}>Label</label>}<input className={I} value={p.label ?? ''} onChange={e => updPlot(i, { label: e.target.value })} placeholder={plots.length > 1 ? 'e.g. Class' : 'optional'} /></div>
-                <div>{i === 0 && <label className={L}>Min</label>}<input className={I} value={p.min ?? ''} onChange={e => updPlot(i, { min: e.target.value })} /></div>
-                <div>{i === 0 && <label className={L}>Q1</label>}<input className={I} value={p.q1 ?? ''} onChange={e => updPlot(i, { q1: e.target.value })} /></div>
-                <div>{i === 0 && <label className={L}>Med</label>}<input className={I} value={p.med ?? ''} onChange={e => updPlot(i, { med: e.target.value })} /></div>
-                <div>{i === 0 && <label className={L}>Q3</label>}<input className={I} value={p.q3 ?? ''} onChange={e => updPlot(i, { q3: e.target.value })} /></div>
-                <div>{i === 0 && <label className={L}>Max</label>}<input className={I} value={p.max ?? ''} onChange={e => updPlot(i, { max: e.target.value })} /></div>
-                <div>{i === 0 && <label className={L}>Outliers (×)</label>}<input className={I} value={p.outliers ?? ''} onChange={e => updPlot(i, { outliers: e.target.value })} placeholder="2, 38" /></div>
+                <div>{i === 0 && <label className={L}>Label</label>}<LiftedInput className={I} value={p.label ?? ''} onCommit={v => updPlot(i, { label: v })} placeholder={plots.length > 1 ? 'e.g. Class' : 'optional'} /></div>
+                <div>{i === 0 && <label className={L}>Min</label>}<LiftedInput className={I} value={p.min ?? ''} onCommit={v => updPlot(i, { min: v })} /></div>
+                <div>{i === 0 && <label className={L}>Q1</label>}<LiftedInput className={I} value={p.q1 ?? ''} onCommit={v => updPlot(i, { q1: v })} /></div>
+                <div>{i === 0 && <label className={L}>Med</label>}<LiftedInput className={I} value={p.med ?? ''} onCommit={v => updPlot(i, { med: v })} /></div>
+                <div>{i === 0 && <label className={L}>Q3</label>}<LiftedInput className={I} value={p.q3 ?? ''} onCommit={v => updPlot(i, { q3: v })} /></div>
+                <div>{i === 0 && <label className={L}>Max</label>}<LiftedInput className={I} value={p.max ?? ''} onCommit={v => updPlot(i, { max: v })} /></div>
+                <div>{i === 0 && <label className={L}>Outliers (×)</label>}<LiftedInput className={I} value={p.outliers ?? ''} onCommit={v => updPlot(i, { outliers: v })} placeholder="2, 38" /></div>
                 <button type="button" onClick={() => upd({ bpPlots: plots.filter((_, j) => j !== i) })} disabled={plots.length === 1}
                   title="Remove this box plot" className="h-7 text-rose-400 hover:text-rose-600 disabled:opacity-20 text-sm">✕</button>
               </div>
@@ -368,11 +439,11 @@ function MathObjFields({ obj, upd }) {
         const updBar = (i, patch) => upd({ hgBars: bars.map((x, j) => j === i ? { ...x, ...patch } : x) })
         return (
           <>
-            <div><label className={L}>Title (optional)</label><input className={I} value={obj.hgTitle ?? ''} onChange={e => upd({ hgTitle: e.target.value })} placeholder="e.g. Goals scored per game" /></div>
+            <div><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.hgTitle ?? ''} onCommit={v => upd({ hgTitle: v })} placeholder="e.g. Goals scored per game" /></div>
             {bars.map((x, i) => (
               <div key={i} className="grid grid-cols-[1fr_90px_20px] gap-1.5 items-end">
-                <div>{i === 0 && <label className={L}>Bar label (x-axis)</label>}<input className={I} value={x.label ?? ''} onChange={e => updBar(i, { label: e.target.value })} placeholder={'e.g. 0–4 or ' + (i + 1)} /></div>
-                <div>{i === 0 && <label className={L}>Frequency</label>}<input className={I} type="text" inputMode="numeric" value={x.freq ?? ''} onChange={e => updBar(i, { freq: e.target.value })} placeholder="0" /></div>
+                <div>{i === 0 && <label className={L}>Bar label (x-axis)</label>}<LiftedInput className={I} value={x.label ?? ''} onCommit={v => updBar(i, { label: v })} placeholder={'e.g. 0–4 or ' + (i + 1)} /></div>
+                <div>{i === 0 && <label className={L}>Frequency</label>}<LiftedInput className={I} type="text" inputMode="numeric" value={x.freq ?? ''} onCommit={v => updBar(i, { freq: v })} placeholder="0" /></div>
                 <button type="button" onClick={() => upd({ hgBars: bars.filter((_, j) => j !== i) })} disabled={bars.length === 1}
                   title="Remove this bar" className="h-7 text-rose-400 hover:text-rose-600 disabled:opacity-20 text-sm">✕</button>
               </div>
@@ -380,8 +451,8 @@ function MathObjFields({ obj, upd }) {
             <button type="button" onClick={() => upd({ hgBars: [...bars, { label: '', freq: '' }] })}
               className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add bar</button>
             <div className="grid grid-cols-2 gap-2">
-              <div><label className={L}>X-axis label (optional)</label><input className={I} value={obj.hgXLabel ?? ''} onChange={e => upd({ hgXLabel: e.target.value })} placeholder="e.g. Score" /></div>
-              <div><label className={L}>Y-axis label</label><input className={I} value={obj.hgYLabel ?? ''} onChange={e => upd({ hgYLabel: e.target.value })} placeholder="Frequency" /></div>
+              <div><label className={L}>X-axis label (optional)</label><LiftedInput className={I} value={obj.hgXLabel ?? ''} onCommit={v => upd({ hgXLabel: v })} placeholder="e.g. Score" /></div>
+              <div><label className={L}>Y-axis label</label><LiftedInput className={I} value={obj.hgYLabel ?? ''} onCommit={v => upd({ hgYLabel: v })} placeholder="Frequency" /></div>
             </div>
           </>
         )
@@ -389,15 +460,15 @@ function MathObjFields({ obj, upd }) {
       {obj.objType === 'dotplot' && (
         <>
           <div><label className={L}>Data values (comma or space separated)</label>
-            <textarea className={TA} value={obj.dpData ?? ''} onChange={e => upd({ dpData: e.target.value })} placeholder="2, 3, 3, 4, 4, 4, 5, 5, 7" /></div>
+            <LiftedTextarea className={TA} value={obj.dpData ?? ''} onCommit={v => upd({ dpData: v })} placeholder="2, 3, 3, 4, 4, 4, 5, 5, 7" /></div>
           <div className="grid grid-cols-2 gap-2">
-            <div><label className={L}>Title (optional)</label><input className={I} value={obj.dpTitle ?? ''} onChange={e => upd({ dpTitle: e.target.value })} placeholder="e.g. Siblings per student" /></div>
-            <div><label className={L}>X-axis label (optional)</label><input className={I} value={obj.dpXLabel ?? ''} onChange={e => upd({ dpXLabel: e.target.value })} placeholder="e.g. Number of siblings" /></div>
+            <div><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.dpTitle ?? ''} onCommit={v => upd({ dpTitle: v })} placeholder="e.g. Siblings per student" /></div>
+            <div><label className={L}>X-axis label (optional)</label><LiftedInput className={I} value={obj.dpXLabel ?? ''} onCommit={v => upd({ dpXLabel: v })} placeholder="e.g. Number of siblings" /></div>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <div><label className={L}>Axis min (optional)</label><input className={I} value={obj.dpMin ?? ''} onChange={e => upd({ dpMin: e.target.value })} placeholder="auto" /></div>
-            <div><label className={L}>Axis max (optional)</label><input className={I} value={obj.dpMax ?? ''} onChange={e => upd({ dpMax: e.target.value })} placeholder="auto" /></div>
-            <div><label className={L}>Tick step</label><input className={I} value={obj.dpStep ?? ''} onChange={e => upd({ dpStep: e.target.value })} placeholder="1" /></div>
+            <div><label className={L}>Axis min (optional)</label><LiftedInput className={I} value={obj.dpMin ?? ''} onCommit={v => upd({ dpMin: v })} placeholder="auto" /></div>
+            <div><label className={L}>Axis max (optional)</label><LiftedInput className={I} value={obj.dpMax ?? ''} onCommit={v => upd({ dpMax: v })} placeholder="auto" /></div>
+            <div><label className={L}>Tick step</label><LiftedInput className={I} value={obj.dpStep ?? ''} onCommit={v => upd({ dpStep: v })} placeholder="1" /></div>
           </div>
           <p className="text-[10px] text-[#2A2035]/45">One dot per value, counted for you. Min/max only widen the axis — they can never hide data — so set them to show a value with no dots.</p>
         </>
@@ -405,9 +476,9 @@ function MathObjFields({ obj, upd }) {
       {obj.objType === 'stemleaf' && (
         <>
           <div><label className={L}>Data values (comma or space separated)</label>
-            <textarea className={TA} value={obj.slData ?? ''} onChange={e => upd({ slData: e.target.value })} placeholder="23, 25, 31, 34, 34, 42, 45, 51" /></div>
+            <LiftedTextarea className={TA} value={obj.slData ?? ''} onCommit={v => upd({ slData: v })} placeholder="23, 25, 31, 34, 34, 42, 45, 51" /></div>
           <div className="flex gap-2 items-end">
-            <div className="flex-1"><label className={L}>Title (optional)</label><input className={I} value={obj.slTitle ?? ''} onChange={e => upd({ slTitle: e.target.value })} placeholder="e.g. Test scores" /></div>
+            <div className="flex-1"><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.slTitle ?? ''} onCommit={v => upd({ slTitle: v })} placeholder="e.g. Test scores" /></div>
             <div className="w-44"><label className={L}>Leaf digit</label>
               <select className={I} value={obj.slLeaf || '1'} onChange={e => upd({ slLeaf: e.target.value })}>
                 <option value="1">Units — 2 | 3 = 23</option>
@@ -426,12 +497,12 @@ function MathObjFields({ obj, upd }) {
       {obj.objType === 'xytable' && (
         <>
           <div className="flex gap-2 items-end">
-            <div className="w-16"><label className={L}>Row 1</label><input className={I} value={obj.tbXLabel ?? ''} onChange={e => upd({ tbXLabel: e.target.value })} placeholder="x" /></div>
-            <div className="flex-1"><label className={L}>Values (comma separated)</label><input className={I} value={obj.tbX ?? ''} onChange={e => upd({ tbX: e.target.value })} placeholder="0, 1, 2, 3" /></div>
+            <div className="w-16"><label className={L}>Row 1</label><LiftedInput className={I} value={obj.tbXLabel ?? ''} onCommit={v => upd({ tbXLabel: v })} placeholder="x" /></div>
+            <div className="flex-1"><label className={L}>Values (comma separated)</label><LiftedInput className={I} value={obj.tbX ?? ''} onCommit={v => upd({ tbX: v })} placeholder="0, 1, 2, 3" /></div>
           </div>
           <div className="flex gap-2 items-end">
-            <div className="w-16"><label className={L}>Row 2</label><input className={I} value={obj.tbYLabel ?? ''} onChange={e => upd({ tbYLabel: e.target.value })} placeholder="y" /></div>
-            <div className="flex-1"><label className={L}>Values (leave blanks with just commas)</label><input className={I} value={obj.tbY ?? ''} onChange={e => upd({ tbY: e.target.value })} placeholder="5, 8, 11, 14" /></div>
+            <div className="w-16"><label className={L}>Row 2</label><LiftedInput className={I} value={obj.tbYLabel ?? ''} onCommit={v => upd({ tbYLabel: v })} placeholder="y" /></div>
+            <div className="flex-1"><label className={L}>Values (leave blanks with just commas)</label><LiftedInput className={I} value={obj.tbY ?? ''} onCommit={v => upd({ tbY: v })} placeholder="5, 8, 11, 14" /></div>
           </div>
         </>
       )}
@@ -496,7 +567,7 @@ function MathObjSection({ block, set, blank = true, maths = true, hideAdd = fals
             <span className="text-[11px] font-bold text-[#325099]">Blank space</span>
             <button onClick={() => set({ blankSpace: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
           </div>
-          <div className="w-32"><label className={L}>Height (cm)</label><input className={I} type="text" inputMode="decimal" value={block.blankSpace ?? ''} onChange={e => set({ blankSpace: e.target.value.replace(/[^\d.]/g, '') })} placeholder="4" /></div>
+          <div className="w-32"><label className={L}>Height (cm)</label><LiftedInput className={I} type="text" inputMode="decimal" value={block.blankSpace ?? ''} onCommit={v => set({ blankSpace: v.replace(/[^\d.]/g, '') })} placeholder="4" /></div>
         </div>
       )}
     </>
@@ -534,10 +605,10 @@ function AnswerSpace({ holder, patch, dflt = 3, maths = true }) {
         </div>
       </div>
       {mode === 'lines' && (
-        <div className="w-28"><label className={L}>Answer lines</label><input className={I} type="text" inputMode="numeric" value={holder.lines ?? ''} onChange={e => patch({ lines: e.target.value.replace(/\D/g, '') })} placeholder={String(dflt)} /></div>
+        <div className="w-28"><label className={L}>Answer lines</label><LiftedInput className={I} type="text" inputMode="numeric" value={holder.lines ?? ''} onCommit={v => patch({ lines: v.replace(/\D/g, '') })} placeholder={String(dflt)} /></div>
       )}
       {mode === 'blank' && (
-        <div className="w-32"><label className={L}>Height (cm)</label><input className={I} type="text" inputMode="decimal" value={holder.answerBlank ?? ''} onChange={e => patch({ answerBlank: e.target.value.replace(/[^\d.]/g, '') })} placeholder="4" /></div>
+        <div className="w-32"><label className={L}>Height (cm)</label><LiftedInput className={I} type="text" inputMode="decimal" value={holder.answerBlank ?? ''} onCommit={v => patch({ answerBlank: v.replace(/[^\d.]/g, '') })} placeholder="4" /></div>
       )}
       {mode === 'object' && (
         <div className="border border-[#DEE7FF] rounded-lg p-2.5 bg-[#F8FAFF] space-y-2.5">
@@ -566,7 +637,7 @@ function ImageLayoutFields({ block, set }) {
       </div>
       <div className="w-28">
         <label className={L}>Width (%)</label>
-        <input className={I} type="text" inputMode="numeric" value={block.imageWidth ?? ''} onChange={e => set({ imageWidth: e.target.value.replace(/\D/g, '') })} placeholder="e.g. 40" />
+        <LiftedInput className={I} type="text" inputMode="numeric" value={block.imageWidth ?? ''} onCommit={v => set({ imageWidth: v.replace(/\D/g, '') })} placeholder="e.g. 40" />
       </div>
     </div>
   )
@@ -610,14 +681,18 @@ function TwoColField({ block, set }) {
       </label>
       {block.twoCol && (
         <div><label className={L}>Right column (“- ” bullets, $…$ maths, ⌘/Ctrl-B bold)</label>
-          <textarea className={TA} value={block.body2 || ''} onChange={e => set({ body2: e.target.value })} onKeyDown={e => onTextKey(e, block.body2 || '', v => set({ body2: v }))} placeholder={'Right-hand column content…'} />
+          <LiftedTextarea className={TA} value={block.body2 || ''} onCommit={v => set({ body2: v })} textKey placeholder={'Right-hand column content…'} />
         </div>
       )}
     </div>
   )
 }
 
-export default function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null }) {
+// Memoised — the builder renders one of these per block, so without it a
+// keystroke in any field re-renders every block's editor form on the page.
+// The parent hands each block a stable onChange, so this only re-renders when
+// its own block object actually changes.
+function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null }) {
   const set = (patch) => onChange({ ...block, ...patch })
   // Maths workbook/homework don't print marks (only the revision quiz does), so
   // hide the Marks input there — but always show it in the revision quiz.
@@ -628,18 +703,18 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
       return (
         <div className="space-y-2.5">
           <div className="grid grid-cols-[80px_1fr] gap-2">
-            <div><label className={L}>No.</label><input className={I} value={block.number} onChange={e => set({ number: e.target.value })} placeholder="1" /></div>
-            <div><label className={L}>Section title</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} /></div>
+            <div><label className={L}>No.</label><LiftedInput className={I} value={block.number} onCommit={v => set({ number: v })} placeholder="1" /></div>
+            <div><label className={L}>Section title</label><LiftedInput className={I} value={block.title} onCommit={v => set({ title: v })} /></div>
           </div>
           {isChem && <SectionSyllabusPicker modules={syllabus} block={block} onChange={set} pool={syllabusPool} />}
         </div>
       )
     case 'subtopic':
-      return <div><label className={L}>Subtopic heading</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} /></div>
+      return <div><label className={L}>Subtopic heading</label><LiftedInput className={I} value={block.title} onCommit={v => set({ title: v })} /></div>
     case 'formula':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (use $…$ for maths, “- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Area of a Parallelogram:\n$A = bh$\n- $b$ is the base\n- $h$ is the perpendicular height'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (use $…$ for maths, “- ” for bullets, ⌘/Ctrl-B for bold)</label><LiftedTextarea className={TA} value={block.body} onCommit={v => set({ body: v })} textKey placeholder={'Area of a Parallelogram:\n$A = bh$\n- $b$ is the base\n- $h$ is the perpendicular height'} /></div>
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
@@ -650,7 +725,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'note':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (“- ” for bullets, ⌘/Ctrl-B for bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Common mistakes:\n- Using diameter instead of radius\n- Forgetting to square the radius'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} (“- ” for bullets, ⌘/Ctrl-B for bold)</label><LiftedTextarea className={TA} value={block.body} onCommit={v => set({ body: v })} textKey placeholder={'Common mistakes:\n- Using diameter instead of radius\n- Forgetting to square the radius'} /></div>
           <TwoColField block={block} set={set} />
           <MathObjSection block={block} set={set} maths={isMaths} />
           <EmbeddedTableSection block={block} set={set} />
@@ -659,7 +734,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'definition':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'A polygon is a closed 2D shape with straight sides.'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><LiftedTextarea className={TA} value={block.body} onCommit={v => set({ body: v })} textKey placeholder={'A polygon is a closed 2D shape with straight sides.'} /></div>
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
@@ -671,7 +746,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'derivation':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={block.type === 'derivation' ? 'Proof of the formula, line by line…' : 'Step-by-step working for the example…'} /></div>
+          <div><label className={L}>{block.twoCol ? 'Left column' : 'Body'} ($…$ maths, “- ” bullets, ⌘/Ctrl-B bold)</label><LiftedTextarea className={TA} value={block.body} onCommit={v => set({ body: v })} textKey placeholder={block.type === 'derivation' ? 'Proof of the formula, line by line…' : 'Step-by-step working for the example…'} /></div>
           <TwoColField block={block} set={set} />
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
@@ -682,8 +757,8 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'steps':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>Title (optional — shown above the steps)</label><input className={I} value={block.heading || ''} onChange={e => set({ heading: e.target.value })} onKeyDown={e => onInlineKey(e, block.heading || '', v => set({ heading: v }))} placeholder="e.g. Solving a two-step equation" /></div>
-          <div><label className={L}>Steps — one per line (auto-numbered)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Read the question carefully\nIdentify what is being asked\nChoose the correct formula\nSubstitute and solve'} /></div>
+          <div><label className={L}>Title (optional — shown above the steps)</label><LiftedInput className={I} value={block.heading || ''} onCommit={v => set({ heading: v })} inlineKey placeholder="e.g. Solving a two-step equation" /></div>
+          <div><label className={L}>Steps — one per line (auto-numbered)</label><LiftedTextarea className={TA} value={block.body} onCommit={v => set({ body: v })} textKey placeholder={'Read the question carefully\nIdentify what is being asked\nChoose the correct formula\nSubstitute and solve'} /></div>
           <MathObjSection block={block} set={set} maths={isMaths} />
           <EmbeddedTableSection block={block} set={set} />
         </div>
@@ -692,7 +767,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
       return (
         <div className="space-y-2.5">
           <ImageField value={block.image} onChange={v => set({ image: v })} label="Image" />
-          <div><label className={L}>Caption (optional)</label><input className={I} value={block.caption || ''} onChange={e => set({ caption: e.target.value })} placeholder="e.g. Figure 1 — the Cartesian plane" /></div>
+          <div><label className={L}>Caption (optional)</label><LiftedInput className={I} value={block.caption || ''} onCommit={v => set({ caption: v })} placeholder="e.g. Figure 1 — the Cartesian plane" /></div>
           <div className="flex gap-2 items-end">
             <div>
               <label className={L}>Alignment</label>
@@ -702,7 +777,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
                 <option value="right">Right</option>
               </select>
             </div>
-            <div className="w-32"><label className={L}>Width (% of page)</label><input className={I} type="text" inputMode="numeric" value={block.width ?? ''} onChange={e => set({ width: e.target.value.replace(/\D/g, '') })} placeholder="e.g. 60" /></div>
+            <div className="w-32"><label className={L}>Width (% of page)</label><LiftedInput className={I} type="text" inputMode="numeric" value={block.width ?? ''} onCommit={v => set({ width: v.replace(/\D/g, '') })} placeholder="e.g. 60" /></div>
           </div>
         </div>
       )
@@ -711,7 +786,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'text':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>Explanation (paragraphs, “- ” bullets, $…$ maths, ⌘/Ctrl-B bold)</label><textarea className={TA} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} /></div>
+          <div><label className={L}>Explanation (paragraphs, “- ” bullets, $…$ maths, ⌘/Ctrl-B bold)</label><LiftedTextarea className={TA} value={block.body} onCommit={v => set({ body: v })} textKey /></div>
           <ImageField value={block.image} onChange={v => set({ image: v })} />
           <ImageLayoutFields block={block} set={set} />
           <EmbeddedTableSection block={block} set={set} />
@@ -722,12 +797,12 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
         <div className="space-y-2.5">
           <StimulusLibraryPicker onPick={(t) => set({ title: t.title || '', source: t.source || '', body: t.body || '', twoCol: !!t.two_col })} current={{ title: block.title, source: block.source, body: block.body, twoCol: block.twoCol }} />
           <div className="grid grid-cols-2 gap-2">
-            <div><label className={L}>Title (optional)</label><input className={I} value={block.title || ''} onChange={e => set({ title: e.target.value })} placeholder="e.g. Mother to Son" /></div>
-            <div><label className={L}>Source / author (optional)</label><input className={I} value={block.source || ''} onChange={e => set({ source: e.target.value })} placeholder="e.g. Langston Hughes, 1922" /></div>
+            <div><label className={L}>Title (optional)</label><LiftedInput className={I} value={block.title || ''} onCommit={v => set({ title: v })} placeholder="e.g. Mother to Son" /></div>
+            <div><label className={L}>Source / author (optional)</label><LiftedInput className={I} value={block.source || ''} onCommit={v => set({ source: v })} placeholder="e.g. Langston Hughes, 1922" /></div>
           </div>
           <div>
             <label className={L}>Text</label>
-            <textarea className={TA} rows={10} value={block.body} onChange={e => set({ body: e.target.value })} onKeyDown={e => onTextKey(e, block.body, v => set({ body: v }))} placeholder={'Well, son, I’ll tell you:\nLife for me ain’t been no crystal stair.\n…'} />
+            <LiftedTextarea className={TA} rows={10} value={block.body} onCommit={v => set({ body: v })} textKey placeholder={'Well, son, I’ll tell you:\nLife for me ain’t been no crystal stair.\n…'} />
           </div>
           <label className="flex items-center gap-2 text-[11px] font-semibold text-[#325099] cursor-pointer select-none">
             <input type="checkbox" checked={!!block.twoCol} onChange={e => set({ twoCol: e.target.checked })} className="accent-[#325099]" />
@@ -739,7 +814,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'question':
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>Question prompt</label><textarea className={TA} value={block.prompt} onChange={e => set({ prompt: e.target.value })} onKeyDown={e => onTextKey(e, block.prompt, v => set({ prompt: v }))} placeholder="Find the area of the following:" /></div>
+          <div><label className={L}>Question prompt</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey placeholder="Find the area of the following:" /></div>
           <div className={showMarks ? 'grid grid-cols-[1fr_90px] gap-2 items-end' : ''}>
             <div className="flex items-end gap-3">
               <ImageField value={block.image} onChange={v => set({ image: v })} />
@@ -750,7 +825,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
                 </button>
               )}
             </div>
-            {showMarks && <div><label className={L}>Marks</label><input className={I} value={block.marks} onChange={e => set({ marks: e.target.value })} placeholder="" /></div>}
+            {showMarks && <div><label className={L}>Marks</label><LiftedInput className={I} value={block.marks} onCommit={v => set({ marks: v })} placeholder="" /></div>}
           </div>
           <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
@@ -761,7 +836,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
               parts, each part carries its own solution. */}
           {!(block.parts && block.parts.length) && (
             <>
-              <div><label className={L}>Sample solution / answer (shown in Solutions copy)</label><textarea className={TA} value={block.solution} onChange={e => set({ solution: e.target.value })} onKeyDown={e => onTextKey(e, block.solution, v => set({ solution: v }))} placeholder={'a. 320 cm²\nb. 90 mm²'} /></div>
+              <div><label className={L}>Sample solution / answer (shown in Solutions copy)</label><LiftedTextarea className={TA} value={block.solution} onCommit={v => set({ solution: v })} textKey placeholder={'a. 320 cm²\nb. 90 mm²'} /></div>
               <ImageField label="Solution diagram / image (Solutions copy)" value={block.solutionImage || ''} onChange={v => set({ solutionImage: v })} />
               <MathObjSection block={block} set={set} blank={false} maths={isMaths} objKey="solutionMathObj" name="solution graph" />
               <AnswerSpace holder={block} patch={set} dflt={6} maths={isMaths} />
@@ -786,7 +861,7 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
       }
       return (
         <div className="space-y-2.5">
-          <div><label className={L}>Question</label><textarea className={TA} value={block.prompt} onChange={e => set({ prompt: e.target.value })} onKeyDown={e => onTextKey(e, block.prompt, v => set({ prompt: v }))} /></div>
+          <div><label className={L}>Question</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey /></div>
           <div className="flex items-end gap-3">
             <ImageField value={block.image} onChange={v => set({ image: v })} />
             {isMaths && !block.mathObj && (
@@ -804,9 +879,9 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
               {opts.map((o, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <span className={`w-5 text-xs font-bold ${o.k === block.answer && block.answer ? 'text-[#16A34A]' : 'text-[#325099]'}`}>{o.k}.</span>
-                  <input className={I} value={o.t}
-                    onChange={e => { const options = opts.map((x, j) => j === i ? { ...x, t: e.target.value } : x); set({ options }) }}
-                    onKeyDown={e => onInlineKey(e, o.t, v => { const options = opts.map((x, j) => j === i ? { ...x, t: v } : x); set({ options }) })} />
+                  <LiftedInput className={I} value={o.t}
+                    onCommit={v => { const options = opts.map((x, j) => j === i ? { ...x, t: v } : x); set({ options }) }}
+                    inlineKey />
                   <div className="flex flex-col shrink-0 text-[#2A2035]/40">
                     <button onClick={() => moveOption(i, -1)} disabled={i === 0} title="Move up" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▲</button>
                     <button onClick={() => moveOption(i, 1)} disabled={i === opts.length - 1} title="Move down" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▼</button>
@@ -822,9 +897,9 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
                 {opts.map(o => <option key={o.k} value={o.k}>{o.k}</option>)}
               </select>
             </div>
-            {showMarks && <div><label className={L}>Marks</label><input className={I} value={block.marks ?? ''} onChange={e => set({ marks: e.target.value })} placeholder="1" /></div>}
+            {showMarks && <div><label className={L}>Marks</label><LiftedInput className={I} value={block.marks ?? ''} onCommit={v => set({ marks: v })} placeholder="1" /></div>}
           </div>
-          <div><label className={L}>Explanation (Solutions copy) — press Enter for a new paragraph</label><textarea className={TA} value={block.explanation} onChange={e => set({ explanation: e.target.value })} onKeyDown={e => onTextKey(e, block.explanation, v => set({ explanation: v }))} placeholder={'Because 20 − 12 ÷ 4 = 20 − 3 = 17.\n\nRemember: division comes before subtraction.'} /></div>
+          <div><label className={L}>Explanation (Solutions copy) — press Enter for a new paragraph</label><LiftedTextarea className={TA} value={block.explanation} onCommit={v => set({ explanation: v })} textKey placeholder={'Because 20 − 12 ÷ 4 = 20 − 3 = 17.\n\nRemember: division comes before subtraction.'} /></div>
         </div>
       )
     }
@@ -834,9 +909,9 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
           <label className={L}>Answer rows</label>
           {(block.rows || []).map((r, i) => (
             <div key={i} className="grid grid-cols-[50px_60px_1fr_24px] gap-1.5 items-center">
-              <input className={I} value={r.q} onChange={e => { const rows = block.rows.map((x, j) => j === i ? { ...x, q: e.target.value } : x); set({ rows }) }} placeholder="1" />
-              <input className={I} value={r.answer} onChange={e => { const rows = block.rows.map((x, j) => j === i ? { ...x, answer: e.target.value } : x); set({ rows }) }} placeholder="A" />
-              <input className={I} value={r.explanation} onChange={e => { const rows = block.rows.map((x, j) => j === i ? { ...x, explanation: e.target.value } : x); set({ rows }) }} placeholder="Explanation" />
+              <LiftedInput className={I} value={r.q} onCommit={v => { const rows = block.rows.map((x, j) => j === i ? { ...x, q: v } : x); set({ rows }) }} placeholder="1" />
+              <LiftedInput className={I} value={r.answer} onCommit={v => { const rows = block.rows.map((x, j) => j === i ? { ...x, answer: v } : x); set({ rows }) }} placeholder="A" />
+              <LiftedInput className={I} value={r.explanation} onCommit={v => { const rows = block.rows.map((x, j) => j === i ? { ...x, explanation: v } : x); set({ rows }) }} placeholder="Explanation" />
               <button onClick={() => set({ rows: block.rows.filter((_, j) => j !== i) })} className="text-rose-400 hover:text-rose-600 text-sm">✕</button>
             </div>
           ))}
@@ -846,16 +921,16 @@ export default function BlockEditor({ block, onChange, isChem = false, isMaths =
     case 'writing':
       return (
         <div className="grid grid-cols-[1fr_90px] gap-2">
-          <div><label className={L}>Heading (optional)</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Extra writing space" /></div>
-          <div><label className={L}>Lines</label><input className={I} type="text" inputMode="numeric" value={block.lines} onChange={e => set({ lines: e.target.value.replace(/\D/g, '') })} /></div>
+          <div><label className={L}>Heading (optional)</label><LiftedInput className={I} value={block.title} onCommit={v => set({ title: v })} placeholder="Extra writing space" /></div>
+          <div><label className={L}>Lines</label><LiftedInput className={I} type="text" inputMode="numeric" value={block.lines} onCommit={v => set({ lines: v.replace(/\D/g, '') })} /></div>
         </div>
       )
     case 'teachernotes':
       return (
         <div>
           <div className="grid grid-cols-[1fr_90px] gap-2">
-            <div><label className={L}>Heading</label><input className={I} value={block.title} onChange={e => set({ title: e.target.value })} placeholder="Teacher's Notes" /></div>
-            <div><label className={L}>Lines (print)</label><input className={I} type="text" inputMode="numeric" value={block.lines} onChange={e => set({ lines: e.target.value.replace(/\D/g, '') })} /></div>
+            <div><label className={L}>Heading</label><LiftedInput className={I} value={block.title} onCommit={v => set({ title: v })} placeholder="Teacher's Notes" /></div>
+            <div><label className={L}>Lines (print)</label><LiftedInput className={I} type="text" inputMode="numeric" value={block.lines} onCommit={v => set({ lines: v.replace(/\D/g, '') })} /></div>
           </div>
           <p className="text-[10px] text-[#0E7A5F] mt-1.5">Printed booklets get blank lines here. Online, the teacher types into this box on their Workbook tab and students see it live, read-only.</p>
         </div>
@@ -1097,10 +1172,10 @@ function TableEditor({ block, set }) {
               <tr key={ri} className="group">
                 {row.map((cell, ci) => (
                   <td key={ci} className="p-0.5">
-                    <textarea
+                    <LiftedTextarea
                       value={cell}
-                      onChange={e => setCell(ri, ci, e.target.value)}
-                      onKeyDown={e => onInlineKey(e, cell, v => setCell(ri, ci, v))}
+                      onCommit={v => setCell(ri, ci, v)}
+                      inlineKey
                       onPaste={e => handleCellPaste(ri, ci, e)}
                       rows={1}
                       placeholder={(block.headerRow && ri === 0) || (block.headerCol && ci === 0) ? 'Header' : ''}
@@ -1179,16 +1254,17 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
               <div className="flex items-center gap-3">
                 {showMarks && (
                   <label className="flex items-center gap-1 text-[11px] text-[#325099]" title="Marks for this part">
-                    <input type="text" inputMode="numeric" value={p.marks || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, marks: e.target.value.replace(/[^\d]/g, '') } : x))} placeholder="—" className="w-10 px-1 py-0.5 text-center border border-[#E8EDF8] rounded text-[11px]" />
+                    <LiftedInput type="text" inputMode="numeric" value={p.marks || ''} onCommit={v => onChange(parts.map((x, j) => j === i ? { ...x, marks: v.replace(/[^\d]/g, '') } : x))} placeholder="—" className="w-10 px-1 py-0.5 text-center border border-[#E8EDF8] rounded text-[11px]" />
                     marks
                   </label>
                 )}
-                {i >= 1 && (
-                  <label className="flex items-center gap-1 text-[11px] text-[#325099] cursor-pointer" title="Force this part (and those after it) onto a new page">
-                    <input type="checkbox" checked={!!p.pageBreakBefore} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, pageBreakBefore: e.target.checked } : x))} />
-                    Start on new page
-                  </label>
-                )}
+                <label className="flex items-center gap-1 text-[11px] text-[#325099] cursor-pointer"
+                  title={i === 0
+                    ? 'Start the parts on a new page, leaving the question text (and any stimulus) on this one'
+                    : 'Force this part (and those after it) onto a new page'}>
+                  <input type="checkbox" checked={!!p.pageBreakBefore} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, pageBreakBefore: e.target.checked } : x))} />
+                  Start on new page
+                </label>
                 {/* A part can be a multiple-choice sub-question: ticking this
                     gives it its own options and answer, and the renderer then
                     prints the option list instead of writing lines. */}
@@ -1207,7 +1283,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                 <button onClick={() => onChange(parts.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs">Remove</button>
               </div>
             </div>
-            <textarea className={TA + ' mb-1.5 min-h-[40px]'} rows={1} value={p.prompt || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.prompt || '', v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x)))} placeholder="Part prompt (optional)" />
+            <LiftedTextarea className={TA + ' mb-1.5 min-h-[40px]'} rows={1} value={p.prompt || ''} onCommit={v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x))} textKey placeholder="Part prompt (optional)" />
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
             {/* The renderer already honours a part's imagePos/imageWidth — these
                 give them a control, so a part diagram can be centred or resized. */}
@@ -1223,13 +1299,12 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                   {p.options.map((o, oi) => (
                     <div key={oi} className="flex items-center gap-2">
                       <span className={`w-5 text-xs font-bold ${o.k === p.answer && p.answer ? 'text-[#16A34A]' : 'text-[#325099]'}`}>{o.k}.</span>
-                      <input
+                      <LiftedInput
                         className={I}
                         value={o.t}
-                        onChange={e => onChange(parts.map((x, j) => j === i
-                          ? { ...x, options: x.options.map((y, k) => k === oi ? { ...y, t: e.target.value } : y) } : x))}
-                        onKeyDown={e => onInlineKey(e, o.t, v => onChange(parts.map((x, j) => j === i
-                          ? { ...x, options: x.options.map((y, k) => k === oi ? { ...y, t: v } : y) } : x)))}
+                        onCommit={v => onChange(parts.map((x, j) => j === i
+                          ? { ...x, options: x.options.map((y, k) => k === oi ? { ...y, t: v } : y) } : x))}
+                        inlineKey
                       />
                       <button
                         onClick={() => onChange(parts.map((x, j) => j === i
@@ -1259,7 +1334,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                 </div>
               </div>
             )}
-            <textarea className={TA + ' mt-1.5'} value={p.solution || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, solution: e.target.value } : x))} onKeyDown={e => onTextKey(e, p.solution || '', v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x)))} placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
+            <LiftedTextarea className={TA + ' mt-1.5'} value={p.solution || ''} onCommit={v => onChange(parts.map((x, j) => j === i ? { ...x, solution: v } : x))} textKey placeholder={`Part ${String.fromCharCode(97 + i)} solution (shown in Solutions copy)`} />
             {/* Solution media (Solutions copy): a diagram/image and/or a maths object. */}
             <div className="mt-1.5 space-y-1.5">
               <ImageField label="Solution diagram / image (Solutions copy)" value={p.solutionImage || ''} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, solutionImage: v } : x))} />
@@ -1277,3 +1352,5 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
     </div>
   )
 }
+
+export default memo(BlockEditor)

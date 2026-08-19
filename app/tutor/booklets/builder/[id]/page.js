@@ -226,7 +226,12 @@ export default function BookletBuilderEditor() {
   // from a manual "New page" (breakId, removable) or automatic overflow (auto).
   useEffect(() => {
     if (loading || !bk) return
-    const raf = requestAnimationFrame(() => {
+    // Debounced, and deliberately slower than the live preview's own pass. This
+    // only feeds the "Page N" headers down the left, which nobody is watching
+    // mid-sentence, so running it less often keeps the main thread free for the
+    // preview — and staggering the two stops both ~47ms passes landing in the
+    // same frame.
+    const raf = setTimeout(() => {
       const content = (bk.blocks || []).filter(b => b.section !== 'homework' && b.section !== 'revision')
       const PAGE_H = 1123
       const stage = document.createElement('div')
@@ -303,9 +308,11 @@ export default function BookletBuilderEditor() {
       out.push(cur)
       document.body.removeChild(stage)
       setPhysicalPages(out)
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [bk, solnView, loading])
+    }, 450)
+    return () => clearTimeout(raf)
+    // Keyed on `blocks` rather than the whole `bk`: page grouping depends on the
+    // blocks and the copy being shown, not on the title or year.
+  }, [bk?.blocks, bk?.subject, bk?.doc_type, solnView, loading])
 
   /*
    * Undo (Ctrl/Cmd+Z) — the builder keeps its own history while it is mounted,
@@ -473,6 +480,22 @@ export default function BookletBuilderEditor() {
     setNewQOpen(false)
   }
   const updateBlock = (bid, next) => setBlocks(bk.blocks.map(b => b.id === bid ? next : b), 'Edit block', `block:${bid}`)
+  // One stable onChange per block. BlockEditor is memoised, and a fresh arrow
+  // function here would defeat that entirely — every keystroke would re-render
+  // every block's editor form, which is what made typing crawl on a long
+  // booklet. The handler reads updateBlock through a ref so it never goes
+  // stale despite never being recreated.
+  const updateBlockRef = useRef(updateBlock)
+  updateBlockRef.current = updateBlock
+  const blockChangeHandlers = useRef(new Map())
+  const onChangeFor = (bid) => {
+    let h = blockChangeHandlers.current.get(bid)
+    if (!h) {
+      h = (next) => updateBlockRef.current(bid, next)
+      blockChangeHandlers.current.set(bid, h)
+    }
+    return h
+  }
   const removeBlock = (bid) => { setBlocks(bk.blocks.filter(b => b.id !== bid), 'Delete block'); if (selectedBlockId === bid) setSelectedBlockId(null) }
   // Move within the same section/group only (skips over blocks of other groups).
   const moveBlock = (bid, dir) => {
@@ -511,6 +534,7 @@ export default function BookletBuilderEditor() {
   const dragArmed = useRef(false)
   // Scroll container of the live preview (for card → preview double-click jumps).
   const previewScrollRef = useRef(null)
+  const blocksScrollRef = useRef(null)
   const onDropOn = (targetId) => {
     const arr = [...(bk.blocks || [])]
     const from = arr.findIndex(b => b.id === dragId.current)
@@ -528,7 +552,23 @@ export default function BookletBuilderEditor() {
 
   // delivery rides along so the renderer swaps writing lines for typing boxes
   // in an online workbook — live preview and PDF preview both read it here.
-  const meta = bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title, docType: bk.doc_type || 'booklet', cover: bk.cover || null, delivery: bk.delivery || 'physical' } : {}
+  // Memoised: BookletPreview re-paginates the whole booklet whenever `meta`
+  // changes identity, and a fresh object literal on every render meant a full
+  // pass (~47ms on a 76-block booklet) for renders that changed nothing it
+  // cares about.
+  const meta = useMemo(
+    () => (bk ? { subject: bk.subject, year: bk.year, topic: bk.topic, name: bk.title, docType: bk.doc_type || 'booklet', cover: bk.cover || null, delivery: bk.delivery || 'physical' } : {}),
+    [bk?.subject, bk?.year, bk?.topic, bk?.title, bk?.doc_type, bk?.cover, bk?.delivery],
+  )
+
+  // Handed to every BlockEditor, so a new Set each render would break their
+  // memoisation. It lives up here with the other hooks because the render
+  // below returns early while the booklet is loading — a hook after that point
+  // is only called on some renders, which breaks the rules of hooks.
+  const chemPool = useMemo(
+    () => new Set(Array.isArray(bk?.syllabus_points) ? bk.syllabus_points : []),
+    [bk?.syllabus_points],
+  )
   const isLevelTest = bk?.doc_type === 'level_test'
   const isPreTest = bk?.doc_type === 'pre_test'
   // Exam-style docs (level tests + pre-tests) use a two-column layout: one big
@@ -689,7 +729,6 @@ export default function BookletBuilderEditor() {
 
   // Chemistry pool state for the Content tab: what's ticked, and which section
   // each ticked dotpoint is allocated to (for the per-dotpoint chips).
-  const chemPool = new Set(Array.isArray(bk.syllabus_points) ? bk.syllabus_points : [])
   const chemAlloc = dotpointAllocation(allBlocks)
   const chemUnallocated = [...chemPool].filter(id => !(chemAlloc[id] || []).length).length
   const poolToggle = (id, on) => { const s = new Set(chemPool); if (on) s.add(id); else s.delete(id); setChemPool([...s]) }
@@ -744,6 +783,28 @@ export default function BookletBuilderEditor() {
     )
   }
 
+  // Centre a block card in the blocks column. From lg up that column is its
+  // own scroll container, so scroll it directly: scrollIntoView animates every
+  // scrollable ancestor it can find, which is slower to get going and is what
+  // made the jump feel like it stalled first. Below lg the column is not
+  // scrollable and the page scroll is the right thing to move.
+  const jumpToCard = (bid) => {
+    const card = document.getElementById(`blk-${bid}`)
+    if (!card) return
+    const host = blocksScrollRef.current
+    if (!host || host.scrollHeight <= host.clientHeight + 1) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    const hostRect = host.getBoundingClientRect()
+    const cRect = card.getBoundingClientRect()
+    host.scrollTo({
+      top: host.scrollTop + (cRect.top - hostRect.top)
+        - Math.max(0, (host.clientHeight - cRect.height) / 2),
+      behavior: 'smooth',
+    })
+  }
+
   // Double-click anywhere on the live preview → jump to the corresponding
   // block card (switching to its page tab first if needed) and select it.
   const onPreviewDblClick = (e) => {
@@ -753,12 +814,14 @@ export default function BookletBuilderEditor() {
     const blk = (bk?.blocks || []).find(x => x.id === bid)
     if (!blk) return
     const sec = sectionOf(blk)
-    if (!isExamStyle && activeSection !== sec) setActiveSection(sec)
+    // Only a tab switch has to render before the card exists. In every other
+    // case — the common one — jump straight away instead of sitting out a
+    // fixed delay first.
+    const needsTabSwitch = !isExamStyle && activeSection !== sec
+    if (needsTabSwitch) setActiveSection(sec)
     setSelectedBlockId(bid)
-    // Give a tab switch a beat to render the card before scrolling to it.
-    setTimeout(() => {
-      document.getElementById(`blk-${bid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 80)
+    if (needsTabSwitch) requestAnimationFrame(() => requestAnimationFrame(() => jumpToCard(bid)))
+    else jumpToCard(bid)
   }
 
   // One block card (drag handle, type badge, move/delete, editor). `list` is the
@@ -814,7 +877,7 @@ export default function BookletBuilderEditor() {
           <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
-      <BlockEditor block={b} onChange={next => updateBlock(b.id, next)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null} />
+      <BlockEditor block={b} onChange={onChangeFor(b.id)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null} />
     </div>
     )
   }
@@ -880,12 +943,17 @@ export default function BookletBuilderEditor() {
   )
 
   return (
-    <div className="min-h-screen bg-[#F7F9FF]">
+    // From lg up the builder is a fixed-height shell: nav + top bar at their
+    // natural heights, then the columns take exactly what is left. Nothing
+    // scrolls the page itself, so the nav never slides away underneath you and
+    // the columns never jump to a sticky offset mid-scroll. Below lg the grid
+    // is one column and the page scrolls normally.
+    <div className="min-h-screen lg:h-screen lg:flex lg:flex-col lg:overflow-hidden bg-[#F7F9FF]">
       <TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} />
 
       {/* Top bar */}
       <div className="sticky top-0 z-30 bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-[1500px] mx-auto px-5 py-3 flex items-center gap-3 flex-wrap">
+        <div className="max-w-[1500px] mx-auto px-5 py-3 lg:py-2 flex items-center gap-3 flex-wrap">
           <button onClick={() => router.push(back.href)} className="text-[#325099] text-sm hover:underline">{back.label}</button>
           <div className="flex-1 min-w-[200px] text-base font-semibold text-[#2A2035] px-2 py-1 truncate" title="Auto-formatted from Year · Subject · Booklet name">{formatBookletName(bk.year, bk.subject, bk.title)}</div>
           <span className={`text-[11px] ${conflict ? 'text-[#B23A3A] font-bold' : 'text-[#2A2035]/40'}`}>
@@ -971,7 +1039,7 @@ export default function BookletBuilderEditor() {
         {/* Meta row — Year is a dropdown; Booklet name is typed. The subject is
             fixed per workbook (set from its subject hub on creation) and shown
             read-only. The full name auto-formats as "Year.SubjectCode. Name". */}
-        <div className="max-w-[1500px] mx-auto px-5 pb-3 flex items-center gap-2 flex-wrap text-sm">
+        <div className="max-w-[1500px] mx-auto px-5 pb-3 lg:pb-2 flex items-center gap-2 flex-wrap text-sm">
           {bk.subject && (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#EEF4FF] border border-[#DEE7FF] px-2.5 py-1.5 text-xs font-semibold text-[#325099]"
               title="Subject is fixed per workbook — change it in the database explorer if needed">
@@ -1000,15 +1068,32 @@ export default function BookletBuilderEditor() {
           ) : (
             <input value={bk.title || ''} onChange={e => mutate({ title: e.target.value }, 'Name', 'title')}
               placeholder="Booklet name (e.g. Algebra)"
-              className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
+              className="flex-1 min-w-[180px] max-w-[380px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-[#325099]" />
           )}
+          {/* Which copy the preview shows. It lives up here rather than above
+              the preview pane so that pane can use the full height of the
+              column — with the page no longer scrolling, a header row inside
+              the column was 32px the preview could not spare. */}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Preview</span>
+            <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
+              <button onClick={() => setSolnView(false)} className={`px-2.5 py-1 font-semibold ${!solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Student</button>
+              <button onClick={() => setSolnView(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className={`max-w-[1560px] mx-auto px-5 py-5 grid grid-cols-1 gap-5 ${isExamStyle ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,600px)]' : 'lg:grid-cols-[minmax(0,1fr)_208px_minmax(0,560px)]'}`}>
+      <div className={`w-full max-w-[1560px] mx-auto px-5 py-5 lg:py-3 grid grid-cols-1 gap-5 lg:flex-1 lg:min-h-0 ${isExamStyle ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,600px)]' : 'lg:grid-cols-[minmax(0,1fr)_208px_minmax(0,560px)]'}`}>
         {/* Blocks column — the added building blocks. min-w-0 lets this flexible
-            column compress instead of forcing the whole page to scroll sideways. */}
-        <div className="min-w-0">
+            column compress instead of forcing the whole page to scroll sideways.
+            From lg up it scrolls on its own, capped to the same height as the
+            preview beside it: this column is what drives the page's height, so
+            without a cap the only way to reach the last block was to scroll the
+            whole page, and the last card sat flush against the bottom edge. The
+            trailing padding leaves that card some room to breathe. Below lg the
+            grid is a single column, where ordinary page scrolling is right. */}
+        <div ref={blocksScrollRef} className="min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:pb-24">
           {/* Exam-style docs: choose which topics the test covers, then fold the
               question palette into the top of this column. */}
           {isExamStyle && (
@@ -1094,7 +1179,7 @@ export default function BookletBuilderEditor() {
               and there's no see-through gap; blocks scroll cleanly behind it.
               Hidden on the "Content" (summary) tab, which has no blocks. */}
           {activeSection === 'content' && contentPages.length > 1 && (
-            <div className="sticky top-[96px] z-20 bg-[#F7F9FF] pt-4 pb-3">
+            <div className="sticky top-[96px] lg:top-0 z-20 bg-[#F7F9FF] pt-4 pb-3">
               <div className="bg-white rounded-xl border border-[#DEE7FF] p-2 shadow-sm flex items-center gap-1.5 flex-wrap">
                 <span className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mr-0.5">Jump to page</span>
                 {contentPages.map((pg, pi) => (
@@ -1124,7 +1209,7 @@ export default function BookletBuilderEditor() {
                  siblings, so the same node is moved and its size survives. */
               <div className="space-y-3">
                 {contentPages.flatMap((pg, pi) => [
-                  <div key={`pg-hdr-${pi}`} id={`bk-page-anchor-${pi}`} style={{ scrollMarginTop: 230 }} className="flex items-center gap-2 pt-1">
+                  <div key={`pg-hdr-${pi}`} id={`bk-page-anchor-${pi}`} className="scroll-mt-[230px] lg:scroll-mt-[76px] flex items-center gap-2 pt-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2.5 py-0.5">Page {pi + 1}</span>
                     {pg.auto && <span className="text-[9px] font-semibold uppercase tracking-wider text-[#2A2035]/35" title="Starts automatically because the previous page is full">auto</span>}
                     <div className="h-px flex-1 bg-[#DEE7FF]" />
@@ -1269,24 +1354,15 @@ export default function BookletBuilderEditor() {
 
         {/* Palette column (booklets only) — exam-style docs fold it into the left column. */}
         {!isExamStyle && (
-          <div>
-            {activeSection !== 'summary' && (
-              <div className="sticky top-[96px]">{paletteCard}</div>
-            )}
+          <div className="lg:h-full lg:min-h-0 lg:overflow-y-auto">
+            {activeSection !== 'summary' && paletteCard}
           </div>
         )}
 
         {/* Preview column */}
-        <div className="min-w-0">
-          <div className="sticky top-[112px]">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Live preview</p>
-              <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
-                <button onClick={() => setSolnView(false)} className={`px-2.5 py-1 font-semibold ${!solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Student</button>
-                <button onClick={() => setSolnView(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
-              </div>
-            </div>
-            <div ref={previewScrollRef} className="bg-[#E9EDF6] rounded-xl p-4 overflow-auto max-h-[calc(100vh-160px)]"
+        <div className="min-w-0 lg:h-full lg:min-h-0">
+          <div className="lg:h-full lg:min-h-0 lg:flex lg:flex-col">
+            <div ref={previewScrollRef} className="bg-[#E9EDF6] rounded-xl p-4 overflow-auto max-h-[calc(100vh-160px)] lg:max-h-none lg:flex-1 lg:min-h-0"
               onDoubleClick={onPreviewDblClick}
               title="Double-click any part of the preview to jump to its block">
               <BookletPreview meta={meta} blocks={bk.blocks} solutions={solnView} />
