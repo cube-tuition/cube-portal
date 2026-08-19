@@ -8,6 +8,19 @@ import { authedFetch } from '../lib/authedFetch'
 import FlagStudentModal from './FlagStudentModal'
 
 /*
+ * Has this enrolment already ended as at `dateISO`?
+ *
+ * The roll is a per-session list, so membership has to be read AS AT that
+ * session's date rather than as a flat "are they in this class". A student who
+ * left mid-term still belongs on the sessions they attended, and belongs on
+ * none of the ones after. An enrolment marked `disenrol` with no end date has
+ * ended with nothing to bound it, so it is off the roll entirely — the marks
+ * already recorded stay visible in the class's attendance grid and reports.
+ */
+const hasLeftBy = (status, endedAt, dateISO) =>
+  status === 'disenrol' && (!endedAt || dateISO > endedAt)
+
+/*
  * SessionMarker — the per-session marking UI (workbook + roll + notes).
  *
  * Used by:
@@ -192,21 +205,35 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       // Roster — enrolled students (include enrolment-level trial status)
       const { data: links } = await supabase
         .from(T_ENROLMENTS)
-        .select('status, trial_start_date, students (id, full_name, school, year)')
+        .select('status, trial_start_date, ended_at, students (id, full_name, school, year)')
         .eq('class_id', classId)
       if (cancelled) return
       const students = (links || [])
-        .map(l => l.students ? { ...l.students, enrolmentStatus: l.status, trialStartDate: l.trial_start_date } : null)
+        .map(l => l.students
+          ? { ...l.students, enrolmentStatus: l.status, trialStartDate: l.trial_start_date, endedAt: l.ended_at }
+          : null)
         .filter(Boolean)
         // Trial students only appear from their trial_start_date onwards
         .filter(s => {
           if (s.enrolmentStatus !== 'trial' || !s.trialStartDate) return true
           return dateISO >= s.trialStartDate
         })
+        // ...and a student who has LEFT drops off every session after the day
+        // their enrolment ended. The roll is per-session, so it has to be read
+        // as at that date: sessions up to and including their last day still
+        // list them (that history is real and already marked), later ones don't.
+        // Without this they sat on the roll for the rest of the term and were
+        // marked absent week after week for a class they had left.
+        .filter(s => !hasLeftBy(s.enrolmentStatus, s.endedAt, dateISO))
 
       // Also include makeup guests: students who have an attendance record for
       // this session (moved from another class) but are not enrolled here.
+      // A departed student is NOT a guest — an absent mark left behind from
+      // after they left would otherwise put them straight back on the roll.
       const enrolledIds = new Set(students.map(s => s.id))
+      const departedIds = new Set((links || [])
+        .filter(l => hasLeftBy(l.status, l.ended_at, dateISO))
+        .map(l => l.students?.id).filter(Boolean))
       const { data: guestAttRows } = await supabase
         .from(T_ATTENDANCE)
         .select('student_id, students(id, full_name, school, year)')
@@ -215,7 +242,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       if (cancelled) return
       for (const row of guestAttRows || []) {
         if (!row.students) continue
-        if (!enrolledIds.has(row.students.id)) {
+        if (!enrolledIds.has(row.students.id) && !departedIds.has(row.students.id)) {
           students.push({ ...row.students, isMakeupGuest: true, enrolmentStatus: 'active' })
         }
       }
