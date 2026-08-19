@@ -14,6 +14,7 @@ import PrePostSection from '../../../../components/PrePostSection'
 import ExamSection    from '../../../../components/ExamSection'
 import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TUTORS } from '../../../../lib/tables'
 import { effectiveTeacher, lessonAccess } from '../../../../lib/lessonAccess'
+import { REPORT_KINDS, DEFAULT_KIND, kindByKey } from '../../../../lib/reportKind'
 
 /*
  * Per-class overview — /tutor/classes/[classId]
@@ -798,6 +799,10 @@ function StatTile({ label, value, suffix }) {
 // ── Term reports section (Wk 9) ──────────────────────────────────────────
 // Unified per-student rows: criteria grid (left) + term comment (right).
 // Loads both tables once, so students always align horizontally.
+//
+// Mid-term and end-of-term reports each keep their own comment and grades
+// (term_comments.kind / term_criteria.kind), so the toggle at the top switches
+// which set is being edited — writing one can never overwrite the other.
 
 const CRITERIA = [
   { key: 'subject_knowledge',   label: 'Subject Knowledge & Understanding' },
@@ -825,6 +830,8 @@ function SectionHeader({ title, subtitle }) {
 }
 
 function TermReportsSection({ classId, termId, roster, canEdit }) {
+  const [kindKey, setKindKey] = useState(DEFAULT_KIND)
+  const kind = kindByKey(kindKey)
   const [criteriaMap, setCriteriaMap] = useState({})   // { [studentId]: { id, subject_knowledge, ... } }
   const [commentsMap, setCommentsMap] = useState({})   // { [studentId]: { id, comment } }
   const [savingId,    setSavingId]    = useState(null) // studentId currently saving
@@ -839,10 +846,10 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
         const [{ data: cr, error: e1 }, { data: cm, error: e2 }] = await Promise.all([
           supabase.from(T_TERM_CRITERIA)
             .select('id, student_id, subject_knowledge, class_participation, class_behaviour, homework_effort')
-            .eq('class_id', classId).eq('term_id', termId),
+            .eq('class_id', classId).eq('term_id', termId).eq('kind', kindKey),
           supabase.from(T_TERM_COMMENTS)
             .select('id, student_id, comment')
-            .eq('class_id', classId).eq('term_id', termId),
+            .eq('class_id', classId).eq('term_id', termId).eq('kind', kindKey),
         ])
         if (e1) throw e1
         if (e2) throw e2
@@ -856,7 +863,7 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
         setLoading(false)
       }
     })()
-  }, [classId, termId])
+  }, [classId, termId, kindKey])
 
   const flashSaved = (studentId) => {
     setSavedId(studentId)
@@ -875,7 +882,7 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
         setCriteriaMap(m => ({ ...m, [studentId]: { ...prev, [criterionKey]: grade } }))
       } else {
         const { data, error: e } = await supabase.from(T_TERM_CRITERIA)
-          .insert({ student_id: studentId, class_id: classId, term_id: termId, [criterionKey]: grade })
+          .insert({ student_id: studentId, class_id: classId, term_id: termId, kind: kindKey, [criterionKey]: grade })
           .select('id').single()
         if (e) throw e
         setCriteriaMap(m => ({ ...m, [studentId]: { id: data.id, [criterionKey]: grade } }))
@@ -899,7 +906,7 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
         setCommentsMap(m => ({ ...m, [studentId]: { ...prev, comment: trimmed } }))
       } else {
         const { data, error: e } = await supabase.from(T_TERM_COMMENTS)
-          .insert({ student_id: studentId, class_id: classId, term_id: termId, comment: trimmed })
+          .insert({ student_id: studentId, class_id: classId, term_id: termId, kind: kindKey, comment: trimmed })
           .select('id').single()
         if (e) throw e
         setCommentsMap(m => ({ ...m, [studentId]: { id: data.id, comment: trimmed } }))
@@ -922,10 +929,30 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
   )
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-xs font-semibold text-[#062E63]">Report:</span>
+        <div className="inline-flex rounded-lg border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
+          {REPORT_KINDS.map(k => (
+            <button
+              key={k.key}
+              type="button"
+              onClick={() => setKindKey(k.key)}
+              className={`px-3.5 py-1.5 transition ${
+                kindKey === k.key ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'
+              }`}
+            >{k.icon} {k.label}</button>
+          ))}
+        </div>
+        <span className="text-[11px] text-[#2A2035]/45">
+          Each report keeps its own comment and grades.
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {/* LEFT: criteria column */}
       <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-        <SectionHeader title="Student criteria" subtitle="Grade each student A–D per criterion. Surfaces on the term report PDF." />
+        <SectionHeader title="Student criteria" subtitle={`Grade each student A–D per criterion. Surfaces on the ${kind.label.toLowerCase()} report PDF.`} />
         <ul className="divide-y divide-[#DEE7FF]">
           {roster.map(s => {
             const row = criteriaMap[s.id] || {}
@@ -977,7 +1004,7 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
 
       {/* RIGHT: comments column */}
       <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-        <SectionHeader title="Teacher term comments" subtitle="One per student. Surfaces on the end-of-term report PDF sent to parents." />
+        <SectionHeader title={`Teacher ${kind.label.toLowerCase()} comments`} subtitle={kind.commentHint} />
         <ul className="divide-y divide-[#DEE7FF]">
           {roster.map(s => {
             const row = commentsMap[s.id] || { comment: '' }
@@ -989,7 +1016,7 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
                   defaultValue={row.comment}
                   onBlur={canEdit ? e => commitComment(s.id, e.target.value) : undefined}
                   readOnly={!canEdit}
-                  placeholder={canEdit ? 'How did this student go this term? Please comment on each of the student criteria and elaborate on strengths, areas to work on, parent guidance…' : 'No comment yet.'}
+                  placeholder={canEdit ? kind.commentPlaceholder : 'No comment yet.'}
                   rows={5}
                   className={`w-full mt-3 rounded-xl border px-4 py-3 text-sm leading-relaxed resize-y focus:outline-none ${
                     canEdit
@@ -1001,6 +1028,7 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
             )
           })}
         </ul>
+      </div>
       </div>
     </div>
   )

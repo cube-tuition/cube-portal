@@ -8,6 +8,7 @@ import { inferSubject, subjectColor } from '../CourseDetail'
 import { formatTermLabel } from '../../lib/terms'
 import StudentExamAnalysisView, { studentAnalysisRows } from '../StudentExamAnalysisView'
 import { PrePostCharts } from '../PrePostSection'
+import { kindByKey, DEFAULT_KIND } from '../../lib/reportKind'
 
 const ATT_COLOR = {
   present: '#10b981',
@@ -57,12 +58,30 @@ function StatBox({ label, value, sub }) {
   )
 }
 
-export function StudentReport({ student, cls, term, roster, attendance, quizzes, comment, criteria, prepost, examData, rqByWeek = {}, isLast }) {
+export function StudentReport({ student, cls, term, roster, attendance, quizzes, comment, criteria, prepost, examData, rqByWeek = {}, isLast, kind }) {
   const col = subjectColor(inferSubject(cls))
+  // Callers that predate the mid-term split (and anything rendering a single
+  // report elsewhere) get the full end-of-term report, as before.
+  const rk = kind || kindByKey(DEFAULT_KIND)
+  const lastWeek = rk.lastWeek || 10
+
+  // A mid-term report must not average in weeks it does not cover, so the two
+  // source arrays are windowed once here rather than at each consumer. With no
+  // cut-off (end-of-term) the originals pass straight through, so nothing —
+  // including rows whose week can't be parsed — changes.
+  const attRows = useMemo(() => !rk.lastWeek ? attendance : attendance.filter(a => {
+    const w = weekNumber(isoToDate(a.session_date), term)
+    return w != null && w <= rk.lastWeek
+  }), [attendance, term, rk.lastWeek])
+  const quizRows = useMemo(() => !rk.lastWeek ? quizzes : quizzes.filter(q => {
+    const m = String(q.week || '').match(/(\d+)/)
+    const w = m ? parseInt(m[1], 10) : null
+    return w != null && w <= rk.lastWeek
+  }), [quizzes, rk.lastWeek])
 
   const weekly = useMemo(() => {
     const attByWeek = new Map()
-    for (const a of attendance) {
+    for (const a of attRows) {
       const w = weekNumber(isoToDate(a.session_date), term)
       if (!w) continue
       // A cancelled lesson still counts as an absence for the trend/report.
@@ -71,13 +90,13 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
       if (!prev || (order[a.status] || 0) > (order[prev.status] || 0)) attByWeek.set(w, a)
     }
     const quizByWeek = new Map()
-    for (const q of quizzes) {
+    for (const q of quizRows) {
       const m = String(q.week || '').match(/(\d+)/)
       if (!m) continue
       quizByWeek.set(parseInt(m[1], 10), q)
     }
     const out = []
-    for (let w = 1; w <= 10; w++) {
+    for (let w = 1; w <= lastWeek; w++) {
       const att  = attByWeek.get(w)
       const quiz = quizByWeek.get(w)
       const noRq = rqByWeek[w] === false   // class had no revision quiz this week
@@ -98,10 +117,10 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
       })
     }
     return out
-  }, [attendance, quizzes, term, rqByWeek])
+  }, [attRows, quizRows, term, rqByWeek, lastWeek])
 
   const stats = useMemo(() => {
-    const scored = quizzes.filter(q => {
+    const scored = quizRows.filter(q => {
       if (q.score == null || !q.max_score) return false
       const m = String(q.week || '').match(/(\d+)/)
       const w = m ? parseInt(m[1], 10) : null
@@ -109,11 +128,11 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
     })
     const avgRq  = scored.length
       ? Math.round(scored.reduce((a, q) => a + (q.score / q.max_score) * 100, 0) / scored.length) : null
-    const attTotal   = attendance.length
-    const attPresent = attendance.filter(a => a.status === 'present' || a.status === 'late' || a.status === 'makeup').length
+    const attTotal   = attRows.length
+    const attPresent = attRows.filter(a => a.status === 'present' || a.status === 'late' || a.status === 'makeup').length
     const attPct  = attTotal ? Math.round((attPresent / attTotal) * 100) : null
-    const hwTotal = quizzes.length
-    const hwGrades = quizzes.map(q => q.homework_grade).filter(Boolean)
+    const hwTotal = quizRows.length
+    const hwGrades = quizRows.map(q => q.homework_grade).filter(Boolean)
     const hwFreq = {}
     for (const g of hwGrades) hwFreq[g] = (hwFreq[g] || 0) + 1
     let hwMode = null, hwModeCount = 0
@@ -121,7 +140,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
       if (c > hwModeCount) { hwModeCount = c; hwMode = g }
     }
     return { avgRq, attPct, attTotal, hwMode, hwTotal, scoredCount: scored.length }
-  }, [quizzes, attendance, rqByWeek])
+  }, [quizRows, attRows, rqByWeek])
 
   // Each report page is rasterised to one A4 image and clipped if it overflows,
   // so a long teacher comment pushes the pre/post bar charts off the bottom of
@@ -139,7 +158,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
   const studentHasPrePost =
     (ppScores?.pre  || []).some(v => v != null && v !== '') ||
     (ppScores?.post || []).some(v => v != null && v !== '')
-  const prePostOwnPage = estCommentLines > 5 && studentHasPrePost && !!prepost?.classAvg
+  const prePostOwnPage = rk.showPrePost && estCommentLines > 5 && studentHasPrePost && !!prepost?.classAvg
 
   // Exam analytics (the "areas doing well / areas to improve" breakdown) goes on
   // its own page when this student has exam marks, so the revision-quiz-trend
@@ -147,7 +166,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
   // The section is omitted entirely when no exam mark is recorded for the
   // student (overall.max === 0) — including when no exam was assigned at all.
   const examRows       = (examData && examData.perStudent) ? studentAnalysisRows(examData, student.id) : null
-  const hasExam        = !!(examRows && examRows.overall?.max > 0)
+  const hasExam        = rk.showExam && !!(examRows && examRows.overall?.max > 0)
   const revisionPageNo = prePostOwnPage ? 3 : 2
   const examPageNo     = revisionPageNo + 1
   const totalPages     = hasExam ? examPageNo : revisionPageNo
@@ -156,7 +175,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
     <header className="flex items-start justify-between gap-4 border-b border-[#DEE7FF] pb-4 mb-5">
       <div className="min-w-0">
         <p className="text-[10px] tracking-[0.3em] uppercase font-semibold font-display mb-1" style={{ color: col.fg }}>
-          End-of-term report · {term ? formatTermLabel(term) : ''} · Page {pageNum} of {totalPages}
+          {rk.label} report · {term ? formatTermLabel(term) : ''} · Page {pageNum} of {totalPages}
         </p>
         <h1 className="text-2xl font-bold text-[#2A2035] font-display leading-tight">
           {student.full_name || 'Unknown student'}
@@ -182,7 +201,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
 
   // The Pre / Post Test section — rendered inline on page 1 normally, or on its
   // own page when the teacher comment is long (see prePostOwnPage above).
-  const prePostBlock = (() => {
+  const prePostBlock = !rk.showPrePost ? null : (() => {
     const topics     = prepost?.topics || []
     const totalMarks = prepost?.totalMarks || 0
     const studentPP  = prepost?.scores?.[student.id]

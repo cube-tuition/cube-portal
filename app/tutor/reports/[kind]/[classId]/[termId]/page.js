@@ -2,23 +2,29 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { supabase } from '../../../../../lib/supabase'
-import { getAuthProfile } from '../../../../../lib/getProfile'
-import { fetchAllTerms, formatTermLabel } from '../../../../../lib/terms'
-import { inferSubject, subjectsMatch } from '../../../../../components/CourseDetail'
-import { StudentReport } from '../../../../../components/reports/StudentReport'
-import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
-import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../lib/tables'
-import { loadExamAnalysisForClass } from '../../../../../lib/examMarking'
-import { loadPrePostForReport } from '../../../../../components/PrePostSection'
-import { nodeToJpeg } from '../../../../../lib/rasterise'
+import { supabase } from '../../../../../../lib/supabase'
+import { getAuthProfile } from '../../../../../../lib/getProfile'
+import { fetchAllTerms, formatTermLabel } from '../../../../../../lib/terms'
+import { inferSubject, subjectsMatch } from '../../../../../../components/CourseDetail'
+import { StudentReport } from '../../../../../../components/reports/StudentReport'
+import PdfPreviewModal from '../../../../../../components/qbank/PdfPreviewModal'
+import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_TERM_COMMENTS, T_TERM_CRITERIA } from '../../../../../../lib/tables'
+import { loadExamAnalysisForClass } from '../../../../../../lib/examMarking'
+import { loadPrePostForReport } from '../../../../../../components/PrePostSection'
+import { nodeToJpeg } from '../../../../../../lib/rasterise'
+import { kindBySlug } from '../../../../../../lib/reportKind'
 
 /*
- * Printable end-of-term report bundle — one page per student.
+ * Printable report bundle — one page per student.
  *
- * URL: /tutor/reports/[classId]/[termId]
+ * URL: /tutor/reports/[kind]/[classId]/[termId]
  * Admin opens, clicks the "Print / Save as PDF" button, browser produces a
  * single PDF with all enrolled students. CSS page-break ensures clean splits.
+ *
+ * The kind decides what the bundle contains. A mid-term report covers weeks
+ * 1–5 and has no exam analysis or pre/post test — both of those only happen at
+ * the end of term, so fetching them would cost two round trips to render
+ * nothing. It also reads its own comments and criteria rows (term_*.kind).
  */
 
 export default function ReportPage() {
@@ -26,6 +32,7 @@ export default function ReportPage() {
   const router = useRouter()
   const classId = params?.classId
   const termId  = params?.termId
+  const kind    = kindBySlug(params?.kind)
 
   const [staff, setStaff] = useState(null)
   const [cls, setCls] = useState(null)
@@ -51,6 +58,7 @@ export default function ReportPage() {
     (async () => {
       const { user, profile } = await getAuthProfile()
       if (!user) { router.push('/'); return }
+      if (!kind) { router.replace('/tutor/reports'); return }
       if (!profile || (profile.role !== 'admin' && profile.role !== 'tutor')) {
         router.push('/tutor'); return
       }
@@ -109,12 +117,13 @@ export default function ReportPage() {
         .lte('quiz_date', t.end_date)
       setQuizzes((qz || []).filter(q => subjectsMatch(q.subject, subj)))
 
-      // Term comments
+      // Term comments — this report kind's own rows
       const { data: tc } = await supabase
         .from(T_TERM_COMMENTS)
         .select('student_id, comment')
         .eq('class_id', classId)
         .eq('term_id', termId)
+        .eq('kind', kind.key)
       const cmtMap = {}
       for (const r of tc || []) cmtMap[r.student_id] = r.comment || ''
       setComments(cmtMap)
@@ -125,20 +134,23 @@ export default function ReportPage() {
         .select('student_id, subject_knowledge, class_participation, class_behaviour, homework_effort')
         .eq('class_id', classId)
         .eq('term_id', termId)
+        .eq('kind', kind.key)
       const crMap = {}
       for (const r of cr || []) crMap[r.student_id] = r
       setCriteria(crMap)
 
-      // Pre/post test (topics, scores, class averages + expected marks) for the
-      // numeric summary AND the individualised charts in the report.
-      const pp = await loadPrePostForReport(classId, t.id, students)
-      if (pp) setPrepost(pp)
-
-      // Exam analysis — per-question marks rolled up by topic (assigned exam).
-      const examAnalysis = await loadExamAnalysisForClass({
-        classId, termNumber: t.term_number, termId, roster: students,
-      })
-      setExamData(examAnalysis)
+      // Pre/post test and exam analysis are end-of-term only — a mid-term
+      // report has nothing to show from either, so it does not fetch them.
+      if (kind.showPrePost) {
+        const pp = await loadPrePostForReport(classId, t.id, students)
+        if (pp) setPrepost(pp)
+      }
+      if (kind.showExam) {
+        const examAnalysis = await loadExamAnalysisForClass({
+          classId, termNumber: t.term_number, termId, roster: students,
+        })
+        setExamData(examAnalysis)
+      }
 
       // Per-week revision-quiz flag (false ⇒ class had no RQ that week).
       const { data: lessonRqRows } = await supabase
@@ -193,7 +205,7 @@ export default function ReportPage() {
         if (i > 0) pdf.addPage()
         pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfW, pdfH)
       }
-      const filename = `${cls.class_name}-${term ? formatTermLabel(term) : 'term'}-reports.pdf`
+      const filename = `${cls.class_name}-${term ? formatTermLabel(term) : 'term'}-${kind.slug}-reports.pdf`
         .replace(/[^a-z0-9.-]+/gi, '-').toLowerCase()
       setPreview({ url: URL.createObjectURL(pdf.output('blob')), filename })
     } catch (e) {
@@ -256,11 +268,12 @@ export default function ReportPage() {
       <p className="text-sm text-[#2A2035]/60">Loading report…</p>
     </div>
   )
+  if (!kind) return <div className="min-h-screen bg-white" />
   if (error) return (
     <div className="min-h-screen flex items-center justify-center bg-white px-6">
       <div className="text-center">
         <p className="text-sm text-[#B23A3A] font-semibold mb-3">{error}</p>
-        <Link href="/tutor/reports" className="text-xs font-semibold text-[#325099] hover:text-[#062E63]">← Back to reports</Link>
+        <Link href={`/tutor/reports/${kind.slug}`} className="text-xs font-semibold text-[#325099] hover:text-[#062E63]">← Back to {kind.label.toLowerCase()} reports</Link>
       </div>
     </div>
   )
@@ -270,8 +283,8 @@ export default function ReportPage() {
       {/* Action bar — hidden when printing */}
       <div className="print:hidden sticky top-0 z-50 bg-white border-b border-[#DEE7FF]">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
-          <Link href="/tutor/reports" className="text-xs font-semibold text-[#325099] hover:text-[#062E63]">
-            ← Reports
+          <Link href={`/tutor/reports/${kind.slug}`} className="text-xs font-semibold text-[#325099] hover:text-[#062E63]">
+            ← {kind.label} reports
           </Link>
           <div className="text-sm font-semibold text-[#2A2035]">
             {cls.class_name} · {term ? formatTermLabel(term) : '—'} · {roster.length} student{roster.length === 1 ? '' : 's'}
@@ -327,6 +340,7 @@ export default function ReportPage() {
             prepost={prepost}
             examData={examData}
             rqByWeek={rqByWeek}
+            kind={kind}
             isLast={i === roster.length - 1}
           />
         ))}
@@ -366,7 +380,7 @@ export default function ReportPage() {
       `}</style>
 
       {preview && (
-        <PdfPreviewModal url={preview.url} filename={preview.filename} title="Term reports — preview" onClose={closePreview} />
+        <PdfPreviewModal url={preview.url} filename={preview.filename} title={`${kind.label} reports — preview`} onClose={closePreview} />
       )}
     </div>
   )
