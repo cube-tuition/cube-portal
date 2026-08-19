@@ -12,7 +12,7 @@ import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_QUIZ_RESULTS, T_TERM_COMMENTS,
 import { loadExamAnalysisForClass } from '../../../../../../lib/examMarking'
 import { loadPrePostForReport } from '../../../../../../components/PrePostSection'
 import { nodeToJpeg } from '../../../../../../lib/rasterise'
-import { kindBySlug } from '../../../../../../lib/reportKind'
+import { kindBySlug, REPORT_BUCKET, storagePath } from '../../../../../../lib/reportKind'
 
 /*
  * Printable report bundle — one page per student.
@@ -250,9 +250,10 @@ export default function ReportPage() {
       }
 
       const pdfBlob = pdf.output('blob')
-      const path    = `${termId}/${student.id}_${classId}.pdf`
+      // Per-kind path — a mid-term PDF must never overwrite the end-of-term one.
+      const path    = storagePath(termId, kind, student.id, classId)
       await supabase.storage
-        .from('term-reports')
+        .from(REPORT_BUCKET)
         .upload(path, pdfBlob, { upsert: true, contentType: 'application/pdf' })
 
       count++

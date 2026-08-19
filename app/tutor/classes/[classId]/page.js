@@ -21,6 +21,10 @@ import { kindByKey } from '../../../../lib/reportKind'
 // where end-of-term comments have always been written.
 const REPORT_WEEK = { 5: 'mid_term', 9: 'end_of_term' }
 
+// 1:1 students get no written report — so no criteria and no comments to
+// collect for them either. Same test the reports pages use to skip 1:1 classes.
+const isOneToOneClass = (name) => /\b1\s*:\s*1\b/.test(name || '')
+
 /*
  * Per-class overview — /tutor/classes/[classId]
  * ─────────────────────────────────────────────────────────────────────────────
@@ -633,7 +637,7 @@ export default function ClassOverviewPage() {
                         cls={cls}
                         staff={staff}
                         readOnly={viewOnly}
-                        footer={REPORT_WEEK[tab] && term && i === currentWeek.dates.length - 1 ? (
+                        footer={REPORT_WEEK[tab] && term && !isOneToOneClass(cls?.class_name) && i === currentWeek.dates.length - 1 ? (
                           <TermReportsSection
                             classId={cls.id}
                             termId={term.id}

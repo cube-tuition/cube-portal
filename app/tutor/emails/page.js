@@ -26,6 +26,13 @@ const CAMPAIGNS = [
     badge:       null,
   },
   {
+    href:        '/tutor/emails/mid-term',
+    icon:        '📗',
+    title:       'Mid-Term Reports',
+    description: 'Upload each student’s mid-term report and send it to their family with the PDF attached. Siblings are grouped into one email.',
+    badge:       null,
+  },
+  {
     href:        '/tutor/emails/end-of-term',
     icon:        '📋',
     title:       'End-of-Term Reports',

@@ -2,5 +2,5 @@
 import ReportEmailPage from '../../../../components/emails/ReportEmailPage'
 
 export default function Page() {
-  return <ReportEmailPage kind="end_of_term" />
+  return <ReportEmailPage kind="mid_term" />
 }

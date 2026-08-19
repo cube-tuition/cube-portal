@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { kindByKey, REPORT_BUCKET, storagePath } from '../../../lib/reportKind'
 
 // "Term 2 2026" → "26T2" for compact filenames; falls back to a safe slug.
 function termCode(termName = '') {
@@ -14,11 +15,12 @@ function termCode(termName = '') {
 const slug = (s = '') => s.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_')
 
 /*
- * POST /api/send-end-of-term-emails
+ * POST /api/send-report-emails
  *
  * Body: {
  *   term_id:   string,
  *   term_name: string,
+ *   kind:      'mid_term' | 'end_of_term'   (defaults to end_of_term),
  *   template:  string,  // plain text with {{placeholders}}
  *   families:  Array<{
  *     parent_name:  string,
@@ -28,7 +30,7 @@ const slug = (s = '') => s.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_')
  * }
  *
  * For each family:
- *   - Fetches each student's PDF from Supabase Storage (term-reports/{term_id}/{student_id}_{class_id}.pdf)
+ *   - Fetches each student's PDF from Supabase Storage (path per kind — see lib/reportKind)
  *   - Fills the email template with family-specific values
  *   - Sends via Resend with PDFs as attachments
  *
@@ -84,8 +86,9 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { term_id, term_name, template, subject, families, test } = await request.json()
-    const subjectTemplate = subject || '{{term_name}} Report{{plural}} — {{student_names}} | CUBE Tuition'
+    const { term_id, term_name, template, subject, families, test, kind: kindKey } = await request.json()
+    const kind = kindByKey(kindKey)
+    const subjectTemplate = subject || kind.defaultSubject
 
     if (!term_id || !families?.length) {
       return Response.json({ error: 'Missing term_id or families' }, { status: 400 })
@@ -106,11 +109,11 @@ export async function POST(request) {
       const missingPDFs  = []
 
       for (const student of family.students) {
-        const path = `${term_id}/${student.student_id}_${student.class_id}.pdf`
+        const path = storagePath(term_id, kind, student.student_id, student.class_id)
 
         // Get a short-lived signed URL then fetch the bytes
         const { data: signed } = await sb.storage
-          .from('term-reports')
+          .from(REPORT_BUCKET)
           .createSignedUrl(path, 120)
 
         if (signed?.signedUrl) {
@@ -119,8 +122,9 @@ export async function POST(request) {
             const buffer = await fileRes.arrayBuffer()
             const safeName = slug(student.student_name)
             const safeClass = slug(student.class_name || '')
-            // e.g. "Aiden_Park_Y8_Maths_26T2_Report.pdf"
-            const filename = [safeName, safeClass, termCode(term_name), 'Report'].filter(Boolean).join('_') + '.pdf'
+            // e.g. "Aiden_Park_Y8_Maths_26T2_Report.pdf", or "…_Mid_Term_Report.pdf"
+            const label = kind.key === 'mid_term' ? 'Mid_Term_Report' : 'Report'
+            const filename = [safeName, safeClass, termCode(term_name), label].filter(Boolean).join('_') + '.pdf'
             attachments.push({
               filename,
               content:  Buffer.from(buffer).toString('base64'),
@@ -181,7 +185,7 @@ export async function POST(request) {
     return Response.json({ results, successCount, total: results.length })
 
   } catch (err) {
-    console.error('[send-end-of-term-emails]', err)
+    console.error('[send-report-emails]', err)
     return Response.json({ error: err.message }, { status: 500 })
   }
 }
