@@ -14,7 +14,12 @@ import PrePostSection from '../../../../components/PrePostSection'
 import ExamSection    from '../../../../components/ExamSection'
 import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TUTORS } from '../../../../lib/tables'
 import { effectiveTeacher, lessonAccess } from '../../../../lib/lessonAccess'
-import { REPORT_KINDS, DEFAULT_KIND, kindByKey } from '../../../../lib/reportKind'
+import { kindByKey } from '../../../../lib/reportKind'
+
+// Which week's tab collects which report. Week 5 is the mid-term point of a
+// 10-week term (matching the mid-term report's weeks 1-5 window); week 9 is
+// where end-of-term comments have always been written.
+const REPORT_WEEK = { 5: 'mid_term', 9: 'end_of_term' }
 
 /*
  * Per-class overview — /tutor/classes/[classId]
@@ -628,11 +633,12 @@ export default function ClassOverviewPage() {
                         cls={cls}
                         staff={staff}
                         readOnly={viewOnly}
-                        footer={tab === 9 && term && i === currentWeek.dates.length - 1 ? (
+                        footer={REPORT_WEEK[tab] && term && i === currentWeek.dates.length - 1 ? (
                           <TermReportsSection
                             classId={cls.id}
                             termId={term.id}
                             roster={roster}
+                            kindKey={REPORT_WEEK[tab]}
                             canEdit={isAdmin || (cls.teacher || '').split(' ')[0].toLowerCase() === (staff?.full_name || '').split(' ')[0].toLowerCase()}
                           />
                         ) : null}
@@ -819,18 +825,17 @@ const GRADE_STYLE = {
 }
 
 // Section header shared between the term-report columns.
-function SectionHeader({ title, subtitle }) {
+function SectionHeader({ title, subtitle, eyebrow }) {
   return (
     <div className="px-5 py-4 border-b border-[#DEE7FF] bg-[#F0FDF4]">
-      <p className="text-[10px] tracking-[0.3em] uppercase text-[#065F46] font-semibold font-display">Term Reports</p>
+      <p className="text-[10px] tracking-[0.3em] uppercase text-[#065F46] font-semibold font-display">{eyebrow || 'Term Reports'}</p>
       <h3 className="text-lg font-semibold text-[#2A2035] font-display">{title}</h3>
       <p className="text-xs text-[#2A2035]/60 mt-1">{subtitle}</p>
     </div>
   )
 }
 
-function TermReportsSection({ classId, termId, roster, canEdit }) {
-  const [kindKey, setKindKey] = useState(DEFAULT_KIND)
+function TermReportsSection({ classId, termId, roster, canEdit, kindKey }) {
   const kind = kindByKey(kindKey)
   const [criteriaMap, setCriteriaMap] = useState({})   // { [studentId]: { id, subject_knowledge, ... } }
   const [commentsMap, setCommentsMap] = useState({})   // { [studentId]: { id, comment } }
@@ -930,29 +935,16 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-semibold text-[#062E63]">Report:</span>
-        <div className="inline-flex rounded-lg border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
-          {REPORT_KINDS.map(k => (
-            <button
-              key={k.key}
-              type="button"
-              onClick={() => setKindKey(k.key)}
-              className={`px-3.5 py-1.5 transition ${
-                kindKey === k.key ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'
-              }`}
-            >{k.icon} {k.label}</button>
-          ))}
-        </div>
-        <span className="text-[11px] text-[#2A2035]/45">
-          Each report keeps its own comment and grades.
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-[#EEF4FF] text-[#062E63] border border-[#DEE7FF]">
+          {kind.icon} {kind.label} report
         </span>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {/* LEFT: criteria column */}
       <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-        <SectionHeader title="Student criteria" subtitle={`Grade each student A–D per criterion. Surfaces on the ${kind.label.toLowerCase()} report PDF.`} />
+        <SectionHeader eyebrow={`${kind.label} reports`} title="Student criteria" subtitle={`Grade each student A–D per criterion. Surfaces on the ${kind.label.toLowerCase()} report PDF.`} />
         <ul className="divide-y divide-[#DEE7FF]">
           {roster.map(s => {
             const row = criteriaMap[s.id] || {}
@@ -1004,7 +996,7 @@ function TermReportsSection({ classId, termId, roster, canEdit }) {
 
       {/* RIGHT: comments column */}
       <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-        <SectionHeader title={`Teacher ${kind.label.toLowerCase()} comments`} subtitle={kind.commentHint} />
+        <SectionHeader eyebrow={`${kind.label} reports`} title={`Teacher ${kind.label.toLowerCase()} comments`} subtitle={kind.commentHint} />
         <ul className="divide-y divide-[#DEE7FF]">
           {roster.map(s => {
             const row = commentsMap[s.id] || { comment: '' }

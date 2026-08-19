@@ -167,9 +167,16 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
   // student (overall.max === 0) — including when no exam was assigned at all.
   const examRows       = (examData && examData.perStudent) ? studentAnalysisRows(examData, student.id) : null
   const hasExam        = rk.showExam && !!(examRows && examRows.overall?.max > 0)
-  const revisionPageNo = prePostOwnPage ? 3 : 2
+  // A single-page report stays single-page only while the teacher comment
+  // leaves room for the trend section beneath it. Measured against A4: the
+  // page overflows at roughly 16 comment lines, and the PDF exporter clips
+  // anything past the sheet — so past the threshold the trend takes its own
+  // page. A second sheet beats a comment cut in half in a parent's PDF.
+  const revisionOnPage1 = rk.singlePage && estCommentLines <= 14
+  const revisionPageNo = revisionOnPage1 ? 1 : (prePostOwnPage ? 3 : 2)
   const examPageNo     = revisionPageNo + 1
-  const totalPages     = hasExam ? examPageNo : revisionPageNo
+  const totalPages     = rk.singlePage ? (revisionOnPage1 ? 1 : 2)
+                       : (hasExam ? examPageNo : revisionPageNo)
 
   const reportHeader = (pageNum) => (
     <header className="flex items-start justify-between gap-4 border-b border-[#DEE7FF] pb-4 mb-5">
@@ -274,10 +281,155 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
     )
   })()
 
+  // The revision-quiz trend. Its own page on a full report; folded into
+  // page 1 when the kind is a single sheet (see reportKind.singlePage).
+  const revisionBlock = (
+          <section className="mb-6">
+            <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-1">Revision quiz trend</h2>
+            <p className="text-xs text-[#2A2035]/60 mb-3">
+              RQ % per week (Wk 2–{lastWeek === 10 ? 9 : lastWeek}) · attendance shaded · previous week's HWK grade shown below each week
+            </p>
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer>
+                <ComposedChart
+                  data={weekly.filter(d => d.week !== 'Wk 1' && d.week !== 'Wk 10')}
+                  margin={{ top: 8, right: 20, bottom: 8, left: 12 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#DEE7FF" />
+                  <XAxis
+                    dataKey="week"
+                    height={52}
+                    interval={0}
+                    stroke="#DEE7FF"
+                    tick={(props) => {
+                      const { x, y, payload } = props
+                      const wd = weekly.find(d => d.week === payload.value)
+                      const hw = wd?.hw || null
+                      const hwStyle = {
+                        A: { bg: '#D1FAE5', fg: '#065F46' },
+                        B: { bg: '#DEE7FF', fg: '#062E63' },
+                        C: { bg: '#FEF3C7', fg: '#92400E' },
+                        D: { bg: '#FFEDD5', fg: '#9A3412' },
+                        E: { bg: '#FEE2E2', fg: '#991B1B' },
+                      }
+                      const c = hw ? hwStyle[hw] : null
+                      return (
+                        <g transform={`translate(${x},${y})`}>
+                          <text x={0} y={0} dy={13} textAnchor="middle" fill="#6B7280" fontSize={10}>{payload.value}</text>
+                          {c ? (
+                            <>
+                              <rect x={-11} y={18} width={22} height={15} rx={5} fill={c.bg} />
+                              <text x={0} y={29} textAnchor="middle" fill={c.fg} fontSize={9} fontWeight="bold">{hw}</text>
+                            </>
+                          ) : (
+                            <text x={0} y={30} textAnchor="middle" fill="#CBD5E1" fontSize={9}>—</text>
+                          )}
+                        </g>
+                      )
+                    }}
+                  />
+                  <YAxis
+                    yAxisId="score"
+                    type="number"
+                    domain={[0, 100]}
+                    ticks={[0, 25, 50, 75, 100]}
+                    interval={0}
+                    tickFormatter={v => `${v}%`}
+                    tick={{ fontSize: 11, fill: '#1F2937', fontWeight: 600 }}
+                    tickMargin={6}
+                    axisLine={{ stroke: '#CBD5E1' }}
+                    tickLine={{ stroke: '#CBD5E1' }}
+                    width={46}
+                  />
+                  <YAxis yAxisId="att" orientation="right" hide domain={[0, 1]} />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      const row = payload[0]?.payload || {}
+                      return (
+                        <div className="bg-white border border-[#DEE7FF] rounded-xl p-3 text-xs shadow-lg">
+                          <p className="font-semibold text-[#2A2035] mb-1">{label}</p>
+                          <p>RQ score: {row.noRq ? 'No RQ' : (row.score == null ? '—' : `${row.score}%`)}</p>
+                          <p>Prev week's HWK: {row.hw || '—'}</p>
+                          <p>Attendance: {row.status || '—'}</p>
+                        </div>
+                      )
+                    }}
+                  />
+                  <Bar yAxisId="att" dataKey="attended" barSize={40} fillOpacity={0.25}>
+                    {weekly.filter(d => d.week !== 'Wk 1' && d.week !== 'Wk 10').map((d, i) => (
+                      <Cell key={i} fill={ATT_COLOR[d.status] || ATT_COLOR.none} />
+                    ))}
+                  </Bar>
+                  <Line
+                    yAxisId="score"
+                    type="monotone"
+                    dataKey="score"
+                    stroke={col.line}
+                    strokeWidth={2.5}
+                    dot={{ r: 4, fill: col.line, strokeWidth: 0 }}
+                    connectNulls
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 mt-2 text-[11px] text-[#2A2035]/70">
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: col.line }} /> RQ score</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.present }} /> Present</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.late }} /> Late</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.absent }} /> Absent</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.makeup }} /> Makeup</span>
+              <span className="text-[#2A2035]/40">·</span>
+              <span className="text-[#2A2035]/60">Previous week's HWK badge below each week</span>
+            </div>
+
+            <table className="w-full text-xs mt-4 border-collapse">
+              <thead>
+                <tr className="bg-[#F8FAFF] border-y border-[#DEE7FF]">
+                  <th className="text-left px-3 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099] w-[14%]">Week</th>
+                  <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Attendance</th>
+                  <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Previous week's HWK</th>
+                  <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">RQ %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weekly.filter(r => r.week !== 'Wk 1' && r.week !== 'Wk 10').map(r => (
+                  <tr key={r.week} className="border-b last:border-0 border-[#DEE7FF]">
+                    <td className="px-3 py-1.5 font-semibold text-[#2A2035]">{r.week}</td>
+                    <td className="px-2 py-1.5 text-center">
+                      {r.status ? (
+                        <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{
+                          background: r.status === 'present' ? '#D1FAE5' : r.status === 'late' ? '#FEF3C7' : r.status === 'absent' ? '#FEE2E2' : r.status === 'makeup' ? '#EDE9FE' : '#E0E7FF',
+                          color:      r.status === 'present' ? '#065F46' : r.status === 'late' ? '#92400E' : r.status === 'absent' ? '#991B1B' : r.status === 'makeup' ? '#5B21B6' : '#3730A3',
+                        }}>{r.status[0].toUpperCase() + r.status.slice(1)}</span>
+                      ) : <span className="text-[#2A2035]/30">—</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      {r.hw ? (
+                        <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full" style={{
+                          background: r.hw === 'A' ? '#D1FAE5' : r.hw === 'B' ? '#DEE7FF' : r.hw === 'C' ? '#FEF3C7' : r.hw === 'D' ? '#FFEDD5' : '#FEE2E2',
+                          color:      r.hw === 'A' ? '#065F46' : r.hw === 'B' ? '#062E63' : r.hw === 'C' ? '#92400E' : r.hw === 'D' ? '#9A3412' : '#991B1B',
+                        }}>{r.hw}</span>
+                      ) : <span className="text-[#2A2035]/30">—</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[#2A2035]">
+                      {r.noRq
+                        ? <span className="text-[#2A2035]/40 font-normal italic">No RQ</span>
+                        : r.score == null ? <span className="text-[#2A2035]/30 font-normal">—</span> : `${r.score}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+  )
+
   return (
     <div id={`student-report-${student.id}`}>
       {/* ── PAGE 1: Stats + Criteria + Teacher comment ── */}
-      <article className="report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 mb-4">
+      <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 ${
+        rk.singlePage && revisionOnPage1 ? (isLast ? '' : 'mb-8') : 'mb-4'}`}>
         {reportHeader(1)}
 
         <div className="grid grid-cols-3 gap-3 mb-6">
@@ -348,6 +500,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
           </section>
 
           {!prePostOwnPage && prePostBlock}
+          {revisionOnPage1 && revisionBlock}
         </div>
 
         {pageFooter}
@@ -363,151 +516,13 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
       )}
 
       {/* ── Revision quiz trend page ── */}
-      <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 ${hasExam ? 'mb-4' : (isLast ? '' : 'mb-8')}`}>
-        {reportHeader(revisionPageNo)}
-
-        <section className="mb-6">
-          <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-1">Revision quiz trend</h2>
-          <p className="text-xs text-[#2A2035]/60 mb-3">
-            RQ % per week (Wk 2–9) · attendance shaded · previous week's HWK grade shown below each week
-          </p>
-          <div style={{ width: '100%', height: 260 }}>
-            <ResponsiveContainer>
-              <ComposedChart
-                data={weekly.filter(d => d.week !== 'Wk 1' && d.week !== 'Wk 10')}
-                margin={{ top: 8, right: 20, bottom: 8, left: 12 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#DEE7FF" />
-                <XAxis
-                  dataKey="week"
-                  height={52}
-                  interval={0}
-                  stroke="#DEE7FF"
-                  tick={(props) => {
-                    const { x, y, payload } = props
-                    const wd = weekly.find(d => d.week === payload.value)
-                    const hw = wd?.hw || null
-                    const hwStyle = {
-                      A: { bg: '#D1FAE5', fg: '#065F46' },
-                      B: { bg: '#DEE7FF', fg: '#062E63' },
-                      C: { bg: '#FEF3C7', fg: '#92400E' },
-                      D: { bg: '#FFEDD5', fg: '#9A3412' },
-                      E: { bg: '#FEE2E2', fg: '#991B1B' },
-                    }
-                    const c = hw ? hwStyle[hw] : null
-                    return (
-                      <g transform={`translate(${x},${y})`}>
-                        <text x={0} y={0} dy={13} textAnchor="middle" fill="#6B7280" fontSize={10}>{payload.value}</text>
-                        {c ? (
-                          <>
-                            <rect x={-11} y={18} width={22} height={15} rx={5} fill={c.bg} />
-                            <text x={0} y={29} textAnchor="middle" fill={c.fg} fontSize={9} fontWeight="bold">{hw}</text>
-                          </>
-                        ) : (
-                          <text x={0} y={30} textAnchor="middle" fill="#CBD5E1" fontSize={9}>—</text>
-                        )}
-                      </g>
-                    )
-                  }}
-                />
-                <YAxis
-                  yAxisId="score"
-                  type="number"
-                  domain={[0, 100]}
-                  ticks={[0, 25, 50, 75, 100]}
-                  interval={0}
-                  tickFormatter={v => `${v}%`}
-                  tick={{ fontSize: 11, fill: '#1F2937', fontWeight: 600 }}
-                  tickMargin={6}
-                  axisLine={{ stroke: '#CBD5E1' }}
-                  tickLine={{ stroke: '#CBD5E1' }}
-                  width={46}
-                />
-                <YAxis yAxisId="att" orientation="right" hide domain={[0, 1]} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    const row = payload[0]?.payload || {}
-                    return (
-                      <div className="bg-white border border-[#DEE7FF] rounded-xl p-3 text-xs shadow-lg">
-                        <p className="font-semibold text-[#2A2035] mb-1">{label}</p>
-                        <p>RQ score: {row.noRq ? 'No RQ' : (row.score == null ? '—' : `${row.score}%`)}</p>
-                        <p>Prev week's HWK: {row.hw || '—'}</p>
-                        <p>Attendance: {row.status || '—'}</p>
-                      </div>
-                    )
-                  }}
-                />
-                <Bar yAxisId="att" dataKey="attended" barSize={40} fillOpacity={0.25}>
-                  {weekly.filter(d => d.week !== 'Wk 1' && d.week !== 'Wk 10').map((d, i) => (
-                    <Cell key={i} fill={ATT_COLOR[d.status] || ATT_COLOR.none} />
-                  ))}
-                </Bar>
-                <Line
-                  yAxisId="score"
-                  type="monotone"
-                  dataKey="score"
-                  stroke={col.line}
-                  strokeWidth={2.5}
-                  dot={{ r: 4, fill: col.line, strokeWidth: 0 }}
-                  connectNulls
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 mt-2 text-[11px] text-[#2A2035]/70">
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: col.line }} /> RQ score</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.present }} /> Present</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.late }} /> Late</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.absent }} /> Absent</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.makeup }} /> Makeup</span>
-            <span className="text-[#2A2035]/40">·</span>
-            <span className="text-[#2A2035]/60">Previous week's HWK badge below each week</span>
-          </div>
-
-          <table className="w-full text-xs mt-4 border-collapse">
-            <thead>
-              <tr className="bg-[#F8FAFF] border-y border-[#DEE7FF]">
-                <th className="text-left px-3 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099] w-[14%]">Week</th>
-                <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Attendance</th>
-                <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Previous week's HWK</th>
-                <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">RQ %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {weekly.filter(r => r.week !== 'Wk 1' && r.week !== 'Wk 10').map(r => (
-                <tr key={r.week} className="border-b last:border-0 border-[#DEE7FF]">
-                  <td className="px-3 py-1.5 font-semibold text-[#2A2035]">{r.week}</td>
-                  <td className="px-2 py-1.5 text-center">
-                    {r.status ? (
-                      <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{
-                        background: r.status === 'present' ? '#D1FAE5' : r.status === 'late' ? '#FEF3C7' : r.status === 'absent' ? '#FEE2E2' : r.status === 'makeup' ? '#EDE9FE' : '#E0E7FF',
-                        color:      r.status === 'present' ? '#065F46' : r.status === 'late' ? '#92400E' : r.status === 'absent' ? '#991B1B' : r.status === 'makeup' ? '#5B21B6' : '#3730A3',
-                      }}>{r.status[0].toUpperCase() + r.status.slice(1)}</span>
-                    ) : <span className="text-[#2A2035]/30">—</span>}
-                  </td>
-                  <td className="px-2 py-1.5 text-center">
-                    {r.hw ? (
-                      <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full" style={{
-                        background: r.hw === 'A' ? '#D1FAE5' : r.hw === 'B' ? '#DEE7FF' : r.hw === 'C' ? '#FEF3C7' : r.hw === 'D' ? '#FFEDD5' : '#FEE2E2',
-                        color:      r.hw === 'A' ? '#065F46' : r.hw === 'B' ? '#062E63' : r.hw === 'C' ? '#92400E' : r.hw === 'D' ? '#9A3412' : '#991B1B',
-                      }}>{r.hw}</span>
-                    ) : <span className="text-[#2A2035]/30">—</span>}
-                  </td>
-                  <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[#2A2035]">
-                    {r.noRq
-                      ? <span className="text-[#2A2035]/40 font-normal italic">No RQ</span>
-                      : r.score == null ? <span className="text-[#2A2035]/30 font-normal">—</span> : `${r.score}%`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        {pageFooter}
-      </article>
+      {!revisionOnPage1 && (
+        <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 ${hasExam ? 'mb-4' : (isLast ? '' : 'mb-8')}`}>
+          {reportHeader(revisionPageNo)}
+          {revisionBlock}
+          {pageFooter}
+        </article>
+      )}
 
       {/* ── Exam analytics page — only when this student has exam marks, so the
           "areas doing well / to improve" breakdown is never clipped, and the
