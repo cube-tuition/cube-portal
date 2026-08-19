@@ -170,21 +170,50 @@ function renderSegs(segs, marks, onMarkClick) {
   return out
 }
 
+/* How a teacher edit relates to the answer as it now stands.
+     'none'  — no edit, or the edit matches the answer exactly (nothing to show)
+     'fresh' — the answer still equals the text the edit marked (or the edit
+               predates base tracking): the tracked-changes diff is faithful
+     'stale' — the student has written on since the edit was made: diffing the
+               edit against the current answer would strike out every new word
+               as if the teacher crossed it out, so the markup is shown as a
+               frozen earlier version instead. */
+function editStateOf(text, editText, editBase) {
+  if (editText == null || editText === text) return 'none'
+  if (editBase != null && editBase !== text) return 'stale'
+  return 'fresh'
+}
+
 /* Student's answer, read-only, with commented ranges highlighted. Selecting
    text inside it offers to attach a comment to that selection. */
-function ReviewAnswer({ minHeight, text, editText, comments, onAnchor, activeId, onActivate, onEdit, registerRef }) {
+function ReviewAnswer({ minHeight, text, editText, editBase, comments, onAnchor, activeId, onActivate, onEdit, registerRef }) {
   const ref = useRef(null)
   const taRef = useRef(null)
   const [sel, setSel] = useState(null)       // { start, end, quote, top }
   const [editing, setEditing] = useState(false)
+  // Stale markup starts folded away; the toggle shows the frozen earlier version.
+  const [showOld, setShowOld] = useState(false)
+  // The student text this editing session started from — saved with every
+  // keystroke of the edit, so the markup stays pinned to the version it marked
+  // even if the student types while the editor is open.
+  const baseRef = useRef(null)
 
-  // The displayed text is the diff of the student's answer against the
-  // teacher's marked-up version; with no edit the "diff" is one eq segment
-  // and everything below collapses to the plain-text behaviour.
-  const segs = useMemo(() => (editText == null || editText === text
-    ? [{ t: 'eq', text }] : diffWords(text, editText)), [text, editText])
+  const editState = editStateOf(text, editText, editBase)
+  const frozen = editState === 'stale' && showOld && !editing
+
+  // The displayed text: the tracked-changes diff while the edit is fresh; the
+  // student's own text once they have written past it (no false strikeouts);
+  // or the frozen base-vs-edit diff when the teacher opens the earlier version.
+  const segs = useMemo(() => {
+    if (frozen) return diffWords(editBase, editText)
+    if (editState !== 'fresh') return [{ t: 'eq', text }]
+    return diffWords(text, editText)
+  }, [frozen, editState, text, editText, editBase])
 
   const pickSelection = () => {
+    // The frozen view shows an EARLIER version of the answer — offsets there
+    // don't exist in the current text, so nothing can anchor to them.
+    if (frozen) { setSel(null); return }
     const s = window.getSelection()
     if (!s || s.isCollapsed || !ref.current || !ref.current.contains(s.anchorNode)) { setSel(null); return }
     const range = s.getRangeAt(0)
@@ -225,16 +254,38 @@ function ReviewAnswer({ minHeight, text, editText, comments, onAnchor, activeId,
       </div>
       <textarea ref={taRef} className="bk-answer-input bk-edit-ta" style={{ minHeight }}
         value={editText ?? text} placeholder="Rewrite the answer…"
-        onChange={(e) => { onEdit(e.target.value); grow() }} />
+        onChange={(e) => { onEdit(e.target.value, baseRef.current ?? text); grow() }} />
     </div>
   )
+
+  const openEditor = () => {
+    baseRef.current = text
+    // Markup made against an older answer can't be extended meaningfully —
+    // start the re-mark from what the student has actually written now.
+    if (editState === 'stale') onEdit(text, text)
+    setShowOld(false)
+    setEditing(true)
+  }
 
   return (
     <div className="bk-answer-live" style={{ position: 'relative' }}>
       <div className="bk-edit-tools">
+        {editState === 'stale' && (
+          <button className="bk-tool" onClick={() => setShowOld(v => !v)}
+            title="The student has written more since this markup was made">
+            {showOld ? 'Current answer' : 'Marked version'}
+          </button>
+        )}
         <button className="bk-tool" title="Edit the student’s answer — deletions are struck through, your words show in red"
-          onClick={() => setEditing(true)}>✏️ Edit</button>
+          onClick={openEditor}>✏️ Edit</button>
       </div>
+      {editState === 'stale' && (
+        <div className="bk-edit-stale">
+          {showOld
+            ? 'The version you marked — the student has written more since.'
+            : 'Marked on an earlier version — the student has written more since.'}
+        </div>
+      )}
       <div
         ref={(el) => { ref.current = el; registerRef?.(el) }}
         className="bk-answer-input bk-answer-ro"
@@ -243,7 +294,7 @@ function ReviewAnswer({ minHeight, text, editText, comments, onAnchor, activeId,
         onKeyUp={pickSelection}
       >
         {text || editText
-          ? renderSegs(segs, marks, onActivate)
+          ? renderSegs(segs, frozen ? [] : marks, onActivate)
           : <span className="bk-answer-empty">Not answered yet</span>}
       </div>
       {sel && (
@@ -277,9 +328,12 @@ function paintText(text, marks) {
    sitting exactly under it: same font, same padding, same wrapping, its own
    text invisible. The textarea on top is transparent, so what shows through is
    the highlight behind the student's real, editable text. */
-function OwnAnswer({ minHeight, value, editText, marks = [], onChange, onSelect, registerRef }) {
+function OwnAnswer({ minHeight, value, editText, editBase, marks = [], onChange, onSelect, registerRef }) {
   const ref = useRef(null)
   const [editing, setEditing] = useState(false)
+  // Stale teacher markup is folded away behind a chip rather than diffed
+  // against text it never marked.
+  const [showOld, setShowOld] = useState(false)
   const grow = useCallback(() => {
     const el = ref.current
     if (!el) return
@@ -289,12 +343,14 @@ function OwnAnswer({ minHeight, value, editText, marks = [], onChange, onSelect,
   useEffect(() => { grow() }, [grow, value, editing])
   useEffect(() => { if (editing) ref.current?.focus({ preventScroll: true }) }, [editing])
   // A teacher-marked answer opens on the marked-up view — the student's words
-  // with deletions struck through and the teacher's in red — but it never locks:
-  // ✏️ Edit switches back to the student's own editable text (the markup keeps
-  // up, since the diff is recomputed against whatever they now write), and both
-  // sides can keep writing whenever they like.
-  const hasMarkup = editText != null && editText !== value
-  if (hasMarkup && !editing) {
+  // with deletions struck through and the teacher's in red — but only while the
+  // answer still matches the version the teacher marked. Once the student
+  // writes past it the markup goes stale: diffing it against the new text
+  // would strike out every word they just typed as if the teacher had crossed
+  // it out. A stale edit folds away behind "Teacher's markup (earlier
+  // version)" and the student types on a perfectly normal answer box.
+  const editState = editStateOf(value, editText, editBase)
+  if (editState === 'fresh' && !editing) {
     const segs = diffWords(value, editText)
     return (
       <div className="bk-answer-live" style={{ position: 'relative' }}>
@@ -308,11 +364,34 @@ function OwnAnswer({ minHeight, value, editText, marks = [], onChange, onSelect,
       </div>
     )
   }
+  // The frozen earlier version: what the answer said when the teacher marked
+  // it, with their tracked changes — read-only, clearly labelled, and the
+  // current answer is one tap away.
+  if (editState === 'stale' && showOld && !editing) {
+    const segs = diffWords(editBase, editText)
+    return (
+      <div className="bk-answer-live" style={{ position: 'relative' }}>
+        <div className="bk-edit-tools">
+          <button className="bk-tool bk-tool-on" onClick={() => setShowOld(false)}>Back to my answer</button>
+        </div>
+        <div className="bk-edit-stale">Your teacher marked an earlier version of this answer.</div>
+        <div ref={registerRef} className="bk-answer-input bk-answer-ro" style={{ minHeight }}>
+          {renderSegs(segs, [], null)}
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="bk-answer-live bk-answer-stack">
-      {hasMarkup && (
+      {editState === 'fresh' && (
         <div className="bk-edit-tools">
           <button className="bk-tool bk-tool-on" onClick={() => setEditing(false)}>Done</button>
+        </div>
+      )}
+      {editState === 'stale' && (
+        <div className="bk-edit-tools">
+          <button className="bk-tool" onClick={() => setShowOld(true)}
+            title="See the version your teacher marked">Teacher’s markup (earlier version)</button>
         </div>
       )}
       <div className="bk-answer-input bk-answer-back" aria-hidden="true" style={{ minHeight }}>
@@ -500,7 +579,9 @@ export default function WorkbookDoc({
           }, { onConflict: 'booklet_id,class_id,block_id,part_id' })
         : await supabase.from('workbook_answers').upsert({
             booklet_id: booklet.id, class_id: classId, owner_id: ownerId, is_teacher: !!e.isTeacher,
-            block_id: e.blockId, part_id: e.partId, body: e.body, updated_at: new Date().toISOString(),
+            block_id: e.blockId, part_id: e.partId, body: e.body,
+            base_body: e.isTeacher ? (e.base ?? null) : null,
+            updated_at: new Date().toISOString(),
           }, { onConflict: 'booklet_id,class_id,owner_id,block_id,part_id,is_teacher' })
       if (error) { anyFail = true; return }
       // Clear the slot only if nothing newer was typed while this was in flight.
@@ -518,8 +599,8 @@ export default function WorkbookDoc({
   }, [booklet.id, classId, ownerId, staffId, mirror])
   useEffect(() => { flushRef.current = flush }, [flush])
 
-  const queueSave = useCallback((k, blockId, partId, isTeacher, body) => {
-    pendingRef.current[isTeacher ? `t:${k}` : k] = { blockId, partId, isTeacher, body }
+  const queueSave = useCallback((k, blockId, partId, isTeacher, body, base) => {
+    pendingRef.current[isTeacher ? `t:${k}` : k] = { blockId, partId, isTeacher, body, ...(isTeacher ? { base: base ?? null } : {}) }
     mirror()
     setUnsaved(Object.keys(pendingRef.current).length)
     clearTimeout(flushTimer.current)
@@ -535,8 +616,10 @@ export default function WorkbookDoc({
     clearTimeout(flushTimer.current)
     flushTimer.current = setTimeout(flush, SAVE_DELAY)
   }, [flush, mirror])
-  // The teacher's tracked-changes copy: same table, is_teacher = true.
-  const saveEdit = useCallback((k, blockId, partId, body) => queueSave(k, blockId, partId, true, body), [queueSave])
+  // The teacher's tracked-changes copy: same table, is_teacher = true. `base`
+  // is the student text the markup was written against — rendering shows the
+  // tracked changes only while the answer still matches it.
+  const saveEdit = useCallback((k, blockId, partId, body, base) => queueSave(k, blockId, partId, true, body, base), [queueSave])
 
   // Leaving with unsent text gets the browser's are-you-sure prompt, and
   // coming back online flushes straight away instead of waiting out a backoff.
@@ -580,10 +663,14 @@ export default function WorkbookDoc({
         return
       }
       const a = await supabase.from('workbook_answers')
-        .select('block_id, part_id, body, is_teacher')
+        .select('block_id, part_id, body, base_body, is_teacher')
         .eq('booklet_id', booklet.id).eq('class_id', classId).eq('owner_id', ownerId)
       const map = {}, emap = {}
-      for (const r of a.data || []) (r.is_teacher ? emap : map)[`${r.block_id}::${r.part_id}`] = r.body
+      for (const r of a.data || []) {
+        const k = `${r.block_id}::${r.part_id}`
+        if (r.is_teacher) emap[k] = { text: r.body, base: r.base_body ?? null }
+        else map[k] = r.body
+      }
       let cs = []
       if (commentStudentId) {
         const c = await supabase.from('workbook_comments')
@@ -614,8 +701,14 @@ export default function WorkbookDoc({
           let restored = 0
           for (const [pk, e] of Object.entries(JSON.parse(raw))) {
             const k = pk.replace(/^t:/, '')
-            const m = e.isTeacher ? emap : map
-            if ((m[k] ?? '') !== e.body) { m[k] = e.body; pendingRef.current[pk] = e; restored++ }
+            if (e.isTeacher) {
+              if ((emap[k]?.text ?? '') !== e.body) {
+                emap[k] = { text: e.body, base: e.base ?? emap[k]?.base ?? null }
+                pendingRef.current[pk] = e; restored++
+              }
+            } else if ((map[k] ?? '') !== e.body) {
+              map[k] = e.body; pendingRef.current[pk] = e; restored++
+            }
           }
           if (restored) { setUnsaved(restored); flushTimer.current = setTimeout(flush, 1500) }
           else localStorage.removeItem(`wbdraft:${booklet.id}:${classId}:${ownerId}`)
@@ -637,8 +730,12 @@ export default function WorkbookDoc({
         const k = `${r.block_id}::${r.part_id}`
         const tk = r.is_teacher ? `t:${k}` : k
         if (pendingRef.current[tk]) return
-        const set = r.is_teacher ? setEdits : setAnswers
-        set(m => (m[k] === r.body ? m : { ...m, [k]: r.body }))
+        if (r.is_teacher) {
+          setEdits(m => (m[k]?.text === r.body && (m[k]?.base ?? null) === (r.base_body ?? null)
+            ? m : { ...m, [k]: { text: r.body, base: r.base_body ?? null } }))
+        } else {
+          setAnswers(m => (m[k] === r.body ? m : { ...m, [k]: r.body }))
+        }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workbook_comments', filter: `student_id=eq.${commentStudentId || ownerId}` }, async () => {
         const c = await supabase.from('workbook_comments')
@@ -1000,9 +1097,12 @@ export default function WorkbookDoc({
         if (mode === 'review') {
           const mine = comments.filter(c => `${c.block_id}::${c.part_id}` === key)
           return <ReviewAnswer key={j} minHeight={piece.minHeight} text={answers[key] ?? ''}
-            editText={edits[key] ?? null}
+            editText={edits[key]?.text ?? null} editBase={edits[key]?.base ?? null}
             comments={mine} activeId={activeComment} onActivate={setActiveComment} registerRef={reg}
-            onEdit={(v) => { setEdits(m => ({ ...m, [key]: v })); saveEdit(key, slot.blockId, slot.partId, v) }}
+            onEdit={(v, base) => {
+              setEdits(m => ({ ...m, [key]: { text: v, base: base ?? null } }))
+              saveEdit(key, slot.blockId, slot.partId, v, base ?? null)
+            }}
             onAnchor={(sel) => { setDraft({ key, slot, ...sel, body: '' }); setActiveComment(null) }} />
         }
         const myMarks = [
@@ -1021,7 +1121,7 @@ export default function WorkbookDoc({
         return (
           <div key={j}>
             <OwnAnswer minHeight={piece.minHeight} value={answers[key] ?? ''} registerRef={reg}
-              editText={edits[key] ?? null}
+              editText={edits[key]?.text ?? null} editBase={edits[key]?.base ?? null}
               marks={myMarks} onSelect={(el) => onAnswerSelect(slot, el)}
               onChange={(v) => { setAnswers(m => ({ ...m, [key]: v })); saveAnswer(key, slot.blockId, slot.partId, v) }} />
             {modelText && (
@@ -1167,6 +1267,7 @@ export default function WorkbookDoc({
 
         /* The teacher's tracked changes: struck-through deletions keep the
            student's words legible; the teacher's own words are red. */
+        .bk-edit-stale{ font-size:11px; color:#8a6d1a; background:#FDF6E3; border:1px solid #F1E3B4; border-radius:8px; padding:3px 10px; margin-bottom:6px; width:fit-content; }
         .bk-del{ text-decoration:line-through; text-decoration-color:#C22D2D; color:#8b8f9a; }
         .bk-ins{ text-decoration:none; color:#C22D2D; }
         .bk-del mark, .bk-ins mark{ color:inherit; }
