@@ -142,9 +142,18 @@ export default function MakeupLessonPage() {
       if (error || !row) { setAuthErr('Lesson not found.'); setLoading(false); return }
       setLesson(row)
 
-      // Prefill from existing attendance / quiz_results
+      // Prefill from existing attendance / quiz_results.
+      //
+      // quiz_results has no class_id — a row is identified by student, date and
+      // SUBJECT. A student can sit two makeups on the same day (e.g. a Maths
+      // one and an English one), so a lookup keyed only on student + date finds
+      // the other subject's row: it would show Maths marks on the English form
+      // and lock it as already-marked. Fetch the day's rows and keep only the
+      // one whose subject matches this lesson.
       const studentId = row.makeup_student_id
-      const [{ data: attRow }, { data: qzRow }] = await Promise.all([
+      const rowSubject = inferSubject({ class_name: row.classes?.class_name })
+        || row.classes?.class_name || ''
+      const [{ data: attRow }, { data: qzRows }] = await Promise.all([
         supabase.from(T_ATTENDANCE)
           .select('status, notes')
           .eq('class_id', row.class_id)
@@ -152,11 +161,12 @@ export default function MakeupLessonPage() {
           .eq('student_id', studentId)
           .maybeSingle(),
         supabase.from(T_QUIZ_RESULTS)
-          .select('score, homework_grade')
+          .select('subject, score, homework_grade')
           .eq('student_id', studentId)
           .eq('quiz_date', row.lesson_date)
-          .maybeSingle(),
+          .limit(20),
       ])
+      const qzRow = (qzRows || []).find(r => subjectsMatch(r.subject, rowSubject)) || null
 
       let hasData = false
       if (attRow) {
@@ -244,7 +254,12 @@ export default function MakeupLessonPage() {
         .eq('student_id', studentId)
         .eq('quiz_date', lesson.lesson_date)
         .limit(20)
-      const existingRow = (existingQz || []).find(r => subjectsMatch(r.subject, qzSubject)) || (existingQz || [])[0]
+      // Only a row for the SAME subject may be updated. The old fallback to
+      // "whatever row exists for this student on this date" meant marking an
+      // English makeup overwrote the Maths makeup's marks recorded earlier the
+      // same day, and no English row was ever created. With no subject match,
+      // insert a new row instead.
+      const existingRow = (existingQz || []).find(r => subjectsMatch(r.subject, qzSubject))
       const qzPayload = {
         student_id:      studentId,
         subject:         qzSubject,
