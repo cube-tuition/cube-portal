@@ -45,8 +45,66 @@ const PAGE_NAMES = {
   '/analytics': 'Analytics',
   '/reset-password': 'Password reset',
   '/': 'Login',
+
+  // Tutor portal
+  '/tutor': 'Tutor home',
+  '/tutor/classes': 'Classes',
+  '/tutor/classes/:id': 'Class page',
+  '/tutor/classes/:id/:date': 'Session page',
+  '/tutor/classes/makeup/:id': 'Makeup lesson',
+  '/tutor/booklets': 'Booklets',
+  '/tutor/booklets/master': 'Booklet master list',
+  '/tutor/booklets/builder/:id': 'Booklet builder',
+  '/tutor/workbook/:id': 'Workbook marking',
+  '/tutor/resources': 'Resources',
+  '/tutor/resources/maths': 'Resources · Maths',
+  '/tutor/resources/english': 'Resources · English',
+  '/tutor/resources/chemistry': 'Resources · Chemistry',
+  '/tutor/database': 'Database',
+  '/tutor/database/quality': 'Data quality',
+  '/tutor/payroll': 'Payroll',
+  '/tutor/pay': 'My pay',
+  '/tutor/accounting': 'Accounting',
+  '/tutor/accounting/invoices': 'Invoices',
+  '/tutor/accounting/forecast': 'Forecast',
+  '/tutor/qbank': 'Question bank',
+  '/tutor/qbank/worksheets': 'Worksheets',
+  '/tutor/qbank/generate': 'Generate questions',
+  '/tutor/qbank/exams': 'Exams',
+  '/tutor/reports': 'Reports',
+  '/tutor/reports/mid-term': 'Mid-term reports',
+  '/tutor/reports/end-of-term': 'End-of-term reports',
+  '/tutor/emails': 'Emails',
+  '/tutor/trials': 'Trials',
+  '/tutor/hub': 'Hub',
+  '/tutor/hub/:id': 'Hub article',
+  '/tutor/hub/online-booklets': 'Hub · Online booklets',
+  '/tutor/hub/manage': 'Hub · Manage',
+  '/tutor/resources/tests': 'Resources · Tests',
+  '/tutor/resources/online': 'Resources · Online',
+  '/tutor/resources/syllabus': 'Resources · Syllabus',
+  '/tutor/admin/timetable': 'Timetable admin',
+  '/tutor/transition': 'Term transition',
+  '/tutor/settings': 'Settings',
+  '/tutor/availability': 'Availability',
+  '/tutor/admin/monitoring': 'Monitoring',
+  '/tutor/unsaved-sessions': 'Unsaved sessions',
+  '/tutor/flags': 'Student flags',
 }
 const pageName = (p) => PAGE_NAMES[p] || p
+
+/*
+ * Which portal a route belongs to. Everything under /tutor is staff-facing;
+ * everything else is what a student sees. Splitting on this is what makes the
+ * student numbers readable at all — staff open far more pages far more often,
+ * so in one combined list the student rows sit at the bottom with share bars
+ * too short to compare.
+ */
+const portalOf = (path) => (path === '/tutor' || path.startsWith('/tutor/')) ? 'tutor' : 'student'
+const PORTALS = [
+  { key: 'student', title: 'Student portal', blurb: 'What students open when they sign in.' },
+  { key: 'tutor',   title: 'Tutor portal',   blurb: 'Staff-facing pages under /tutor.' },
+]
 
 /*
  * Activity buckets for the filter. Derived from "days since last seen" rather
@@ -198,19 +256,19 @@ export default function PortalMonitoringPage() {
     for (const [path, t] of pageTotals) {
       const label = pageName(path)
       if (needle && !label.toLowerCase().includes(needle) && !path.toLowerCase().includes(needle)) continue
-      let stuViews = 0
-      const stuUsers = new Set()
+      let stuViews = 0, staffViews = 0
+      const stuUsers = new Set(), staffUsers = new Set()
       for (const [uid, m] of pagesByUser) {
-        if (!studentIds.has(uid)) continue
         const cur = m.get(path)
         if (!cur) continue
-        stuViews += cur.views
-        stuUsers.add(uid)
+        if (studentIds.has(uid)) { stuViews += cur.views; stuUsers.add(uid) }
+        else { staffViews += cur.views; staffUsers.add(uid) }
       }
       out.push({
-        path, label,
+        path, label, portal: portalOf(path),
         views: t.views, users: t.users.size,
         stuViews, stuUsers: stuUsers.size,
+        staffViews, staffUsers: staffUsers.size,
         last: t.last, daysAgo: relDay(t.last, today),
       })
     }
@@ -218,7 +276,16 @@ export default function PortalMonitoringPage() {
     return out
   }, [pageTotals, pagesByUser, students, q, today])
 
-  const maxPageViews = pageRows.length ? pageRows[0].views : 0
+  // Grouped by portal, each with its own max so the share bars compare pages
+  // against their peers rather than against the busiest page in the portal.
+  const pageGroups = useMemo(() => PORTALS.map(p => {
+    const rows = pageRows.filter(r => r.portal === p.key)
+    return {
+      ...p, rows,
+      max: rows.length ? Math.max(...rows.map(r => r.views)) : 0,
+      views: rows.reduce((a, r) => a + r.views, 0),
+    }
+  }), [pageRows])
 
   const people = useMemo(() => {
     const isStudents = tab === 'students'
@@ -399,51 +466,77 @@ export default function PortalMonitoringPage() {
 
         {tab === 'pages' ? (
           <>
-            <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
-              <table className="w-full text-sm min-w-[680px]">
-                <thead>
-                  <tr className="text-left text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 border-b border-[#EEF2FB]">
-                    <th className="px-4 py-2.5 font-bold">Page</th>
-                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">Views · {WINDOW}d</th>
-                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">By students</th>
-                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">Students</th>
-                    <th className="px-4 py-2.5 font-bold whitespace-nowrap">Last opened</th>
-                    <th className="px-4 py-2.5 font-bold w-40">Share</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageRows.map(p => {
-                    const seen = lastSeenLabel(p.daysAgo)
-                    return (
-                      <tr key={p.path} className="border-b border-[#F4F7FF] last:border-0">
-                        <td className="px-4 py-2">
-                          <span className="font-semibold text-[#2A2035]">{p.label}</span>
-                          <span className="ml-2 text-[10px] text-[#2A2035]/35 font-mono">{p.path}</span>
-                        </td>
-                        <td className="px-4 py-2 tabular-nums font-semibold">{p.views}</td>
-                        <td className="px-4 py-2 tabular-nums">{p.stuViews || <span className="text-[#2A2035]/30">—</span>}</td>
-                        <td className="px-4 py-2 tabular-nums">{p.stuUsers || <span className="text-[#2A2035]/30">—</span>}</td>
-                        <td className="px-4 py-2 font-semibold whitespace-nowrap" style={{ color: seen.color }}>{seen.text}</td>
-                        <td className="px-4 py-2">
-                          <div className="h-2 rounded-full bg-[#EEF2FB] overflow-hidden">
-                            <div className="h-full rounded-full bg-[#325099]"
-                              style={{ width: `${maxPageViews ? Math.round((p.views / maxPageViews) * 100) : 0}%` }} />
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {pageRows.length === 0 && (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">
-                      No page views recorded yet.
-                    </td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {pageGroups.map(g => {
+              const isStudent = g.key === 'student'
+              return (
+                <div key={g.key} className="mb-6 last:mb-0">
+                  <div className="flex items-baseline gap-3 mb-2 flex-wrap">
+                    <h2 className="text-sm font-bold text-[#062E63] font-display">{g.title}</h2>
+                    <span className="text-[11px] text-[#2A2035]/45">{g.blurb}</span>
+                    <span className="ml-auto text-[10px] tracking-[0.16em] uppercase font-bold text-[#325099]/60">
+                      {g.rows.length} page{g.rows.length === 1 ? '' : 's'} · {g.views} view{g.views === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
+                    <table className="w-full text-sm min-w-[680px]">
+                      <thead>
+                        <tr className="text-left text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 border-b border-[#EEF2FB]">
+                          <th className="px-4 py-2.5 font-bold">Page</th>
+                          <th className="px-4 py-2.5 font-bold whitespace-nowrap">Views · {WINDOW}d</th>
+                          {isStudent
+                            ? <>
+                                <th className="px-4 py-2.5 font-bold whitespace-nowrap">By students</th>
+                                <th className="px-4 py-2.5 font-bold whitespace-nowrap">Students</th>
+                              </>
+                            : <th className="px-4 py-2.5 font-bold whitespace-nowrap">Staff</th>}
+                          <th className="px-4 py-2.5 font-bold whitespace-nowrap">Last opened</th>
+                          <th className="px-4 py-2.5 font-bold w-40">Share</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.rows.map(p => {
+                          const seen = lastSeenLabel(p.daysAgo)
+                          return (
+                            <tr key={p.path} className="border-b border-[#F4F7FF] last:border-0">
+                              <td className="px-4 py-2">
+                                <span className="font-semibold text-[#2A2035]">{p.label}</span>
+                                <span className="ml-2 text-[10px] text-[#2A2035]/35 font-mono">{p.path}</span>
+                              </td>
+                              <td className="px-4 py-2 tabular-nums font-semibold">{p.views}</td>
+                              {isStudent
+                                ? <>
+                                    <td className="px-4 py-2 tabular-nums">{p.stuViews || <span className="text-[#2A2035]/30">—</span>}</td>
+                                    <td className="px-4 py-2 tabular-nums">{p.stuUsers || <span className="text-[#2A2035]/30">—</span>}</td>
+                                  </>
+                                : <td className="px-4 py-2 tabular-nums">{p.staffUsers || <span className="text-[#2A2035]/30">—</span>}</td>}
+                              <td className="px-4 py-2 font-semibold whitespace-nowrap" style={{ color: seen.color }}>{seen.text}</td>
+                              <td className="px-4 py-2">
+                                <div className="h-2 rounded-full bg-[#EEF2FB] overflow-hidden">
+                                  <div className="h-full rounded-full" style={{
+                                    width: `${g.max ? Math.round((p.views / g.max) * 100) : 0}%`,
+                                    background: isStudent ? '#0E7490' : '#325099',
+                                  }} />
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        {g.rows.length === 0 && (
+                          <tr><td colSpan={isStudent ? 6 : 5} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">
+                            {q.trim() ? 'No pages match that search.' : 'No page views recorded yet.'}
+                          </td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })}
             <p className="text-[10px] text-[#2A2035]/40 mt-3">
               Pages are grouped by route, so every online workbook counts under <span className="font-mono">/workbook/:id</span> rather
-              than one row per booklet. &ldquo;By students&rdquo; excludes staff views.
+              than one row per booklet. Share bars are scaled within each portal, so a student page is compared
+              against other student pages — not against the far busier staff ones. A student page opened by staff
+              still counts under Views; &ldquo;By students&rdquo; excludes those.
             </p>
           </>
         ) : (
