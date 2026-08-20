@@ -2,6 +2,7 @@
 import { useMemo } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import { joinDisplayMath } from '../../lib/displayMath'
 
 /*
  * LatexContent — renders a string that mixes plain text and LaTeX math.
@@ -117,7 +118,9 @@ export function inlineRich(input) {
 export function richToHtml(input) {
   const text = String(input ?? '')
   if (!text.trim()) return ''
-  const lines = text.split('\n')
+  // Display maths may span lines; rejoin those blocks before formatting, or
+  // KaTeX receives half of one and prints the source. See lib/displayMath.js.
+  const lines = joinDisplayMath(text.split('\n'))
   let html = ''
   let curLevel = -1
   const closeList = () => { if (curLevel >= 0) { html += '</ul>'; curLevel = -1 } }
