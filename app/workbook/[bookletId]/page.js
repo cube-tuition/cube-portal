@@ -31,8 +31,8 @@ function StudentWorkbookInner() {
   const [student, setStudent] = useState(null)
   const [booklet, setBooklet] = useState(null)
   const [build, setBuild] = useState(null)
-  const [tab, setTab] = useState('workbook')   // 'workbook' | 'doc'
-  const [railClosed, toggleRail] = useSidebarCollapsed('wb:tabs-collapsed') | 'collab'
+  const [tab, setTab] = useState('workbook')   // 'workbook' | 'doc' | 'collab'
+  const [railClosed, toggleRail] = useSidebarCollapsed('wb:tabs-collapsed')
   const [err, setErr] = useState('')
 
   useEffect(() => {
