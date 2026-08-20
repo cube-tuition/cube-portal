@@ -59,13 +59,10 @@ const AREAS = (subjectValue) => [
     desc: 'Textbook chapters and dotpoints, with booklet coverage.' },
   { label: 'Additional Questions', icon: '📝', href: `/tutor/qbank/worksheets?subject=${subjectValue}`,
     desc: 'Saved worksheets assembled from the question bank.' },
-  // English keeps a library of reusable reading passages for comprehension
-  // work, and a library of online resources (websites, videos, tools).
+  // English keeps a library of reusable reading passages for comprehension work.
   ...(subjectValue === 'English' ? [
     { label: 'Texts / Stimuli', icon: '❝', href: '/tutor/resources/texts',
       desc: 'Reusable passages — poems, extracts, articles — ready to drop into a workbook’s Stimulus block.' },
-    { label: 'Online', icon: '🌐', href: '/tutor/resources/online',
-      desc: 'Online resources — websites, videos, articles and interactive tools worth reusing.' },
   ] : []),
 ]
 
