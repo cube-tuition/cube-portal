@@ -18,7 +18,7 @@ function TestsInner() {
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
   const tabParam = searchParams.get('tab')
-  const initialTab = ['level-tests', 'pre-tests'].includes(tabParam) ? tabParam : 'exams'
+  const initialTab = ['level-tests', 'pre-tests', 'mid-term'].includes(tabParam) ? tabParam : 'exams'
   const [tab, setTab] = useState(initialTab)
   // Subject-hub scope (?subject=Maths|English|Chemistry): each panel narrows to
   // that subject. Absent → unchanged behaviour.
@@ -42,7 +42,14 @@ function TestsInner() {
   if (!scope) return null
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
-  const TABS = [['exams', 'Term Tests'], ['level-tests', 'Level Tests'], ['pre-tests', 'Pre-tests']]
+  // Mid-term tests are a Maths thing for now — same format and builder as the
+  // term test, listed separately so the two sets never get mixed up.
+  const TABS = [
+    ['exams', 'Term Tests'],
+    ...(scope === 'Maths' ? [['mid-term', 'Mid-term Test']] : []),
+    ['level-tests', 'Level Tests'],
+    ['pre-tests', 'Pre-tests'],
+  ]
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
@@ -71,7 +78,8 @@ function TestsInner() {
           ))}
         </div>
 
-        {tab === 'exams' && <ExamsPanel profile={profile} scope={scope} />}
+        {tab === 'exams' && <ExamsPanel profile={profile} scope={scope} kind="term" />}
+        {tab === 'mid-term' && <ExamsPanel profile={profile} scope={scope} kind="mid_term" />}
         {tab === 'level-tests' && <LevelTestsPanel profile={profile} scope={scope} />}
         {tab === 'pre-tests' && <PreTestsPanel profile={profile} scope={scope} />}
       </div>
