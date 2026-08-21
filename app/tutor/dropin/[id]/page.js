@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
@@ -52,6 +53,7 @@ export default function DropinSessionPage() {
   const [ready, setReady] = useState(false)
   const [session, setSession] = useState(null)
   const [signins, setSignins] = useState([])
+  const [siblings, setSiblings] = useState([])   // other dates in this session's series
   const [shift, setShift] = useState(null)
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
@@ -87,6 +89,19 @@ export default function DropinSessionPage() {
     ])
     setSignins(si || [])
     setShift(sh || null)
+
+    // The other dates in this series. A drop-in that repeats is a row per date,
+    // so a tutor can be on one occurrence and not another — worth saying out
+    // loud on the date they are not on, rather than a flat "not rostered".
+    if (sess.series_id) {
+      const { data: sib } = await supabase.from('dropin_sessions')
+        .select('id, session_date, tutors')
+        .eq('series_id', sess.series_id).neq('id', sess.id)
+        .order('session_date')
+      setSiblings(sib || [])
+    } else {
+      setSiblings([])
+    }
     // An existing shift is the source of truth for the hours — the teacher may
     // already have trimmed or extended them.
     setStart(toInput(sh?.start_time || sess.start_time))
@@ -97,6 +112,11 @@ export default function DropinSessionPage() {
   useEffect(() => { load() }, [load])
 
   const rostered = useMemo(() => isRosteredTutor(session, profile?.full_name), [session, profile])
+  // Dates in the same series this person IS on, so "not this one" is obvious.
+  const myOtherDates = useMemo(
+    () => siblings.filter(x => isRosteredTutor(x, profile?.full_name)),
+    [siblings, profile],
+  )
   const hours = hoursBetween(start, end)
   const settled = shift && shift.status !== 'draft'
   const badge = STATUS_BADGE[shift?.status] || null
@@ -180,9 +200,26 @@ export default function DropinSessionPage() {
               </div>
               <div className="px-5 py-4">
                 {!rostered ? (
-                  <p className="text-sm text-[#2A2035]/60">
-                    You are not rostered on this drop-in, so there is no shift for you to save.
-                  </p>
+                  <>
+                    <p className="text-sm text-[#2A2035]/60">
+                      {(session?.tutors || []).length > 0
+                        ? <>This session is rostered to <span className="font-semibold text-[#2A2035]/80">{session.tutors.join(' and ')}</span>, so there is no shift here for you to save.</>
+                        : 'No one is rostered on this session, so there is no shift here for you to save.'}
+                    </p>
+                    {myOtherDates.length > 0 && (
+                      <p className="text-xs text-[#2A2035]/55 mt-2">
+                        You are on this drop-in on{' '}
+                        {myOtherDates.map((x, i) => (
+                          <span key={x.id}>
+                            {i > 0 && (i === myOtherDates.length - 1 ? ' and ' : ', ')}
+                            <Link href={`/tutor/dropin/${x.id}`} className="font-semibold text-[#325099] underline">
+                              {new Date(`${x.session_date}T00:00:00`).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                            </Link>
+                          </span>
+                        ))}.
+                      </p>
+                    )}
+                  </>
                 ) : settled ? (
                   <p className="text-sm text-[#2A2035]/70">
                     {fmt12(shift.start_time)} – {fmt12(shift.end_time)} · {Number(shift.hours).toFixed(2)} h.

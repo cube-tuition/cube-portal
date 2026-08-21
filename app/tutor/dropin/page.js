@@ -220,11 +220,11 @@ function SessionModal({ session, onClose, onSaved }) {
                     }`}>{label}</button>
                 ))}
               </div>
-              {scope === 'future' && (
-                <p className="text-[10px] text-[#2A2035]/40 mt-1.5">
-                  Details are applied to every later date in this series. Each keeps its own date.
-                </p>
-              )}
+              <p className="text-[10px] text-[#2A2035]/40 mt-1.5">
+                {scope === 'future'
+                  ? 'Details are applied to every later date in this series. Each keeps its own date.'
+                  : 'Only this date changes — the other dates in this series keep their current tutors and details.'}
+              </p>
             </div>
           )}
 
@@ -416,7 +416,14 @@ export default function DropinPage() {
     : '—'
 
   const todayIso = new Date().toISOString().slice(0, 10)
-  const upcoming = sessions.filter(s => s.session_date >= todayIso)
+  // Soonest first. The fetch orders newest-first so the past archive reads as
+  // an archive, but that put the FURTHEST-away date at the top of Upcoming —
+  // so editing "the next drop-in" quietly edited the last one in the series.
+  const upcoming = sessions.filter(s => s.session_date >= todayIso).sort((a, b) => (
+    a.session_date === b.session_date
+      ? String(a.start_time || '').localeCompare(String(b.start_time || ''))
+      : a.session_date.localeCompare(b.session_date)
+  ))
   const past     = sessions.filter(s => s.session_date <  todayIso)
   const [showPast, setShowPast] = useState(false)
 
