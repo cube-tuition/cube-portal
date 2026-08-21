@@ -213,7 +213,7 @@ export default function ExamBuilderPage() {
   const renderPreview = useCallback((container) => renderExamPreview(container, { meta: buildMeta(), sections: buildSections(), solutions: previewSolutions }), [buildMeta, buildSections, previewSolutions])
   const previewSig = useMemo(() => JSON.stringify({
     m: buildMeta(),
-    s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
+    s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.page_breaks, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
     sol: previewSolutions, ql: questions.length,
   }), [exam, buildMeta, previewSolutions, questions.length])
 
@@ -491,6 +491,14 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
     onCriteria({ working_lines: Object.keys(next).length ? next : null })
   }
   const lineInputCls = 'w-12 border border-[#DEE7FF] rounded px-1.5 py-0.5 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+  // Forced page breaks — same key shape as working_lines: "_" = the question
+  // itself, a part label = that part starts on a fresh page.
+  const setBreak = (key, on) => {
+    const next = { ...(slot.page_breaks || {}) }
+    if (on) next[key] = true
+    else delete next[key]
+    onCriteria({ page_breaks: Object.keys(next).length ? next : null })
+  }
 
   return (
     <div
@@ -552,6 +560,27 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
                   onChange={(e) => setLines('_', e.target.value)} className={lineInputCls} />
               )}
               <span className="text-[10px] text-[#2A2035]/35">blank = auto from marks</span>
+            </div>
+          )}
+          {section.type !== 'mcq' && (
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap pl-1">
+              <span className="text-[11px] font-semibold text-[#2A2035]/60">New page before:</span>
+              <label className="flex items-center gap-1 text-[11px] text-[#2A2035]/55 cursor-pointer">
+                <input type="checkbox" checked={!!slot.page_breaks?.['_']}
+                  onChange={(e) => setBreak('_', e.target.checked)} className="accent-[#325099]" />
+                <span className="font-semibold">Q{n}</span>
+              </label>
+              {chosenParts.map((p, i) => {
+                const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                return (
+                  <label key={p.id || lbl} className="flex items-center gap-1 text-[11px] text-[#2A2035]/55 cursor-pointer">
+                    <input type="checkbox" checked={!!slot.page_breaks?.[lbl]}
+                      onChange={(e) => setBreak(lbl, e.target.checked)} className="accent-[#325099]" />
+                    <span className="font-semibold">{lbl})</span>
+                  </label>
+                )
+              })}
+              <span className="text-[10px] text-[#2A2035]/35">unticked = flow normally</span>
             </div>
           )}
           {section.type !== 'mcq' && paperEnglish && (
