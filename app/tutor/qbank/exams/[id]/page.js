@@ -12,7 +12,7 @@ import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuickEditModal from '../../../../../components/qbank/QuickEditModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
-import { loadExam, saveExam, blankSlot, buildExamRenderPayload } from '../../../../../lib/qbankExams'
+import { loadExam, saveExam, blankSlot, buildExamRenderPayload, examTitle, isAutoExamTitle } from '../../../../../lib/qbankExams'
 import { exportExamPdf, renderExamPreview } from '../../../../../lib/qbankExam'
 import DocLivePreview from '../../../../../components/qbank/DocLivePreview'
 import { listRubrics, blankBands, blankCriterion, normaliseRubric, createRubricFrom } from '../../../../../lib/rubrics'
@@ -93,6 +93,21 @@ export default function ExamBuilderPage() {
 
   // ── mutators ──────────────────────────────────────────────────────────────
   const patch = (fields) => { setExam((e) => ({ ...e, ...fields })); setDirty(true) }
+
+  // Titles follow the naming convention ("5.M. 26T3 MTT") and track the exam's
+  // year / term / kind — but only while the title is still the generated one,
+  // so a hand-typed name is never overwritten. The two-digit year comes from
+  // today's date; exams are created in the term they are sat.
+  useEffect(() => {
+    if (!exam) return
+    if (!isAutoExamTitle(exam.title)) return
+    const auto = examTitle({
+      yearLabel: exam.year_label, paperType: exam.paper_type,
+      termYear2: String(new Date().getFullYear() % 100), term: exam.term, kind: exam.kind,
+    })
+    if (auto !== exam.title) patch({ title: auto })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exam?.year_label, exam?.paper_type, exam?.term, exam?.kind])
   const setSections = (fn) => { setExam((e) => ({ ...e, sections: fn(e.sections) })); setDirty(true) }
   const updateSection = (key, fields) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, ...fields } : s)))
   const addSlot = (key) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, slots: [...s.slots, blankSlot()] } : s)))
@@ -203,7 +218,7 @@ export default function ExamBuilderPage() {
 
   // Shared payload for both the PDF export and the live preview.
   const buildMeta = useCallback(() => ({
-    yearLabel: exam?.year_label, term: exam?.term, paperType: exam?.paper_type || 'maths',
+    title: exam?.title, yearLabel: exam?.year_label, term: exam?.term, paperType: exam?.paper_type || 'maths',
     readingTime: exam?.reading_time, workingTime: exam?.working_time, calculators: exam?.calculators,
   }), [exam])
   // Shared with the curriculum exam assign + student reports (single source of truth).
