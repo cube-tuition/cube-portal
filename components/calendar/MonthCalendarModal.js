@@ -4,7 +4,6 @@ import { supabase } from '../../lib/supabase'
 import { isoDate, addDays, mondayOf, weekLabelFor } from '../../lib/calendarWeeks'
 import { pickSubjectColor } from '../../lib/subjectColours'
 import { isRosteredTutor } from '../../lib/dropin'
-import DropinShiftModal from './DropinShiftModal'
 
 /*
  * Full-screen month calendar. Date-driven (no schedule projection): renders the
@@ -39,7 +38,6 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
   const [anchor, setAnchor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d })
   const [byDate, setByDate] = useState({})
   const [loading, setLoading] = useState(true)
-  const [openDropin, setOpenDropin] = useState(null)
 
   const classIds = useMemo(() => classes.map(c => c.id), [classes])
   const classById = useMemo(() => Object.fromEntries(classes.map(c => [c.id, c])), [classes])
@@ -188,10 +186,10 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
                           const inner = <>{p.time ? <span className="font-semibold mr-1">{fmtTime(p.time)}</span> : null}{p.name}</>
                           const title = `${p.name}${p.time ? ' · ' + fmtTime(p.time) : ''}${p.dropin ? ((p.dropin.tutors || []).length ? ' · ' + p.dropin.tutors.join(', ') : '') + ' · click to open' : ''}${p.levelTest ? ' · click to mark' : ''}`
                           return p.dropin ? (
-                            <button key={p.id} type="button" onClick={() => setOpenDropin(p.dropin)} title={title} style={style}
-                              className="block w-full text-left text-[10px] leading-tight rounded px-1.5 py-0.5 truncate hover:underline">
+                            <a key={p.id} href={`/tutor/dropin/${p.dropin.id}`} title={title} style={style}
+                              className="block text-[10px] leading-tight rounded px-1.5 py-0.5 truncate hover:underline">
                               {inner}
-                            </button>
+                            </a>
                           ) : p.levelTest ? (
                             <a key={p.id} href={`/tutor/lessons/${p.lessonId}`} title={title} style={style}
                               className="block text-[10px] leading-tight rounded px-1.5 py-0.5 truncate hover:underline">
@@ -214,10 +212,6 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
           {loading && <p className="text-center text-xs text-[#2A2035]/40 py-3">Loading…</p>}
         </div>
       </div>
-
-      {openDropin && (
-        <DropinShiftModal session={openDropin} staff={staff} onClose={() => setOpenDropin(null)} />
-      )}
     </div>
   )
 }
