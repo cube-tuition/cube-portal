@@ -148,6 +148,7 @@ export default function ReportPage() {
       if (kind.showExam) {
         const examAnalysis = await loadExamAnalysisForClass({
           classId, termNumber: t.term_number, termId, roster: students,
+          kind: kind.examKind || 'term',
         })
         setExamData(examAnalysis)
       }

@@ -96,6 +96,7 @@ export default function ClassOverviewPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState(initialTab)           // 1..10
+  const [examKind, setExamKind] = useState('term')     // exams tab: which paper is being marked
 
   useEffect(() => {
     (async () => {
@@ -467,15 +468,29 @@ export default function ClassOverviewPage() {
           </div>
         )}
 
-        {/* EXAMS TAB */}
+        {/* EXAMS TAB — a term now carries up to two papers (mid-term ~wk5,
+            term test ~wk9); the toggle picks which one is being marked. Marks
+            key on the exam id, so the two papers never mix. */}
         {tab === 'exams' && term && (
-          <ExamSection
-            classId={cls.id}
-            termId={term.id}
-            termNumber={term.term_number}
-            roster={roster}
-            canEdit={isClassTeacher}
-          />
+          <div className="space-y-4">
+            <div className="inline-flex rounded-lg border border-[#DEE7FF] overflow-hidden text-xs font-semibold bg-white">
+              {[['mid_term', 'Mid-term Test'], ['term', 'Term Test']].map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setExamKind(v)}
+                  className={`px-3.5 py-1.5 transition ${examKind === v ? 'bg-[#325099] text-white' : 'text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <ExamSection
+              key={examKind}
+              classId={cls.id}
+              termId={term.id}
+              termNumber={term.term_number}
+              roster={roster}
+              canEdit={isClassTeacher}
+              kind={examKind}
+            />
+          </div>
         )}
         {tab === 'exams' && !term && (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">

@@ -32,7 +32,7 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
-export default function ExamSection({ classId, termId, termNumber, roster, canEdit }) {
+export default function ExamSection({ classId, termId, termNumber, roster, canEdit, kind = 'term' }) {
   const [loading, setLoading] = useState(true)
   const [exam, setExam] = useState(null)        // { id, name }
   const [items, setItems] = useState([])        // [{ qid, n, section, topic, max, qtype, stem }]
@@ -53,7 +53,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       setLoading(true); setError(null)
       try {
         // Resolve the class's assigned exam (shared with the student reports).
-        const { examId, examName, backfillBookletId } = await resolveAssignedExamId(classId, termNumber)
+        const { examId, examName, backfillBookletId } = await resolveAssignedExamId(classId, termNumber, kind)
         if (!examId) { if (alive) { setExam(null); setItems([]); setLoading(false) } return }
         // Persist an old-style assignment's resolved link so future loads are direct.
         if (backfillBookletId) {
@@ -86,7 +86,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       } catch (e) { if (alive) { setError(e.message || 'Could not load the exam.'); setLoading(false) } }
     })()
     return () => { alive = false }
-  }, [classId, termId, termNumber])
+  }, [classId, termId, termNumber, kind])
 
   const setMark = (sid, qid, v) => setMarks((m) => ({ ...m, [sid]: { ...(m[sid] || {}), [qid]: v } }))
 

@@ -175,7 +175,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
   const revisionOnPage1 = rk.singlePage && estCommentLines <= 14
   const revisionPageNo = revisionOnPage1 ? 1 : (prePostOwnPage ? 3 : 2)
   const examPageNo     = revisionPageNo + 1
-  const totalPages     = rk.singlePage ? (revisionOnPage1 ? 1 : 2)
+  const totalPages     = rk.singlePage ? ((revisionOnPage1 ? 1 : 2) + (hasExam ? 1 : 0))
                        : (hasExam ? examPageNo : revisionPageNo)
 
   const reportHeader = (pageNum) => (
@@ -531,7 +531,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
         <article className={`report-page bg-white rounded-2xl border border-[#DEE7FF] p-8 ${isLast ? '' : 'mb-8'}`}>
           {reportHeader(examPageNo)}
           <section className="mb-6">
-            <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-3">Exam analytics</h2>
+            <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-3">{rk.examLabel || 'Exam analytics'}</h2>
             <StudentExamAnalysisView
               studentName={student.full_name}
               rows={examRows.rows}
