@@ -476,6 +476,10 @@ function MasterDatabaseInner() {
       supabase
         .from('booklets')
         .select('id, booklet_name, year, subject, topic, status, term_number, week, notes, fixes, suggestions, content, file_path, file_paths, pdf_filenames, delivery')
+        // Exam papers live on the Tests page. Assigning one to a week creates a
+        // lightweight is_exam shadow row so it slots into the schedule — that
+        // row is scheduling plumbing, not a workbook, and doesn't belong here.
+        .or('is_exam.is.null,is_exam.eq.false')
         .order('topic', { nullsFirst: false })
         .order('booklet_name'),
       supabase
