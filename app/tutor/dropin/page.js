@@ -15,16 +15,19 @@ const INP = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#
 // ── Session Modal (create + edit) ─────────────────────────────────────────────
 function SessionModal({ session, onClose, onSaved }) {
   const isEdit = !!session
+  // Only one centre, so location is no longer asked for — it is stamped on
+  // every session instead, which keeps the session cards and the payroll shift
+  // note ("Auto: drop-in @ …") reading exactly as they do now.
+  const CENTRE = 'Chatswood centre'
   const blank = {
     session_date: '', start_time: '', end_time: '',
-    location: 'Chatswood centre', subjects: [], tutors: [],
+    subjects: [], tutors: [],
     max_capacity: 5, notes: '', year_groups: [], repeat: 'none',
   }
   const [form, setForm] = useState(isEdit ? {
     session_date: session.session_date ?? '',
     start_time:   session.start_time?.slice(0, 5) ?? '',
     end_time:     session.end_time?.slice(0, 5) ?? '',
-    location:     session.location ?? 'Chatswood centre',
     subjects:     session.subjects ?? [],
     tutors:       session.tutors ?? [],
     max_capacity: session.max_capacity ?? 5,
@@ -84,7 +87,7 @@ function SessionModal({ session, onClose, onSaved }) {
     const details = {
       start_time:   form.start_time,
       end_time:     form.end_time,
-      location:     form.location || null,
+      location:     CENTRE,
       subjects:     form.subjects,
       tutors:       form.tutors,
       max_capacity: Number(form.max_capacity) || 5,
@@ -150,12 +153,6 @@ function SessionModal({ session, onClose, onSaved }) {
               <input type="number" min={1} max={50} value={form.max_capacity}
                 onChange={e => setForm(f => ({ ...f, max_capacity: e.target.value }))} className={INP} />
             </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Location</label>
-            <input type="text" value={form.location}
-              onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-              placeholder="Chatswood centre" className={INP} />
           </div>
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">
