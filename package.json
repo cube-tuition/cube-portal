@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "smoke": "node scripts/smoke-student-routes.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
@@ -34,6 +35,7 @@
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "puppeteer-core": "^25.8.0",
     "tailwindcss": "^4"
   }
 }
