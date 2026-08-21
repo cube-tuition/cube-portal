@@ -10,6 +10,8 @@ import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/ter
 import { weekLabelFor } from '../../../lib/calendarWeeks'
 import { pickSubjectColor } from '../../../lib/subjectColours'
 import MonthCalendarModal from '../../../components/calendar/MonthCalendarModal'
+import DropinShiftModal from '../../../components/calendar/DropinShiftModal'
+import { isRosteredTutor } from '../../../lib/dropin'
 import { inferSubject } from '../../../components/CourseDetail'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
 import { buildClassLabelMap } from '../../../lib/classLabels'
@@ -94,6 +96,7 @@ export default function TutorClassesPage() {
   const [subSessions, setSubSessions] = useState([]) // [{ classId, dateISO, cls }] — sessions this tutor is subbing
   const [makeupSessions, setMakeupSessions] = useState([]) // [{ dateISO, lesson }] — 1:1 makeup lessons for this tutor
   const [dropinSessions, setDropinSessions] = useState([]) // [dropin_sessions row] — drop-in sessions for this tutor
+  const [dropinOpen, setDropinOpen] = useState(null)      // drop-in whose session/shift panel is open
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
   const [weekLessons, setWeekLessons] = useState([])  // actual lesson rows for the current week
   const [monthOpen, setMonthOpen] = useState(false)   // full-screen month calendar modal
@@ -528,7 +531,7 @@ export default function TutorClassesPage() {
         cls: syntheticCls,
         isDropin: true,
         dropin: di,
-        mine: !!staff?.full_name && (di.tutors || []).includes(staff.full_name),
+        mine: isRosteredTutor(di, staff?.full_name),
       })
     }
     return map
@@ -780,6 +783,7 @@ export default function TutorClassesPage() {
             rosters={rosters}
             currentTerm={currentTerm}
             classLabelMap={classLabelMap}
+            onOpenDropin={setDropinOpen}
           />
         )}
       </section>
@@ -791,6 +795,10 @@ export default function TutorClassesPage() {
           </p>
         </div>
       </footer>
+
+      {dropinOpen && (
+        <DropinShiftModal session={dropinOpen} staff={staff} onClose={() => setDropinOpen(null)} />
+      )}
 
       {monthOpen && (
         <MonthCalendarModal
@@ -1208,7 +1216,7 @@ function termWeekNumber(dateISO, term) {
   return week >= 1 ? week : null
 }
 
-function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
+function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap, onOpenDropin }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
       {weekDays.map(d => {
@@ -1270,18 +1278,21 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                   const textColor  = grey ? '#868D9C' : mineBlue ? '#062E63' : isDropin ? '#0F766E' : isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
                   const subColor   = grey ? '#868D9C99' : mineBlue ? '#325099AA' : isDropin ? '#0F766E99' : isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
                   const badgeGrey  = 'bg-[#E2E5EB] text-[#868D9C]'
-                  const pillHref = isDropin
-                    ? '/tutor/dropin'
-                    : s.isLevelTest
+                  const pillHref = s.isLevelTest
                     ? `/tutor/lessons/${s.lessonId}`
                     : isMakeup
                     ? `/tutor/classes/makeup/${s.lesson?.id}`
                     : href
+                  const pillClass = 'block w-full text-left rounded-lg px-2.5 py-1.5 transition hover:shadow-[0_2px_10px_-4px_rgba(50,80,153,0.25)]'
+                  const Pill = isDropin ? 'button' : Link
+                  const pillProps = isDropin
+                    ? { type: 'button', onClick: () => onOpenDropin?.(s.dropin) }
+                    : { href: pillHref }
                   return (
-                    <Link
+                    <Pill
                       key={s.key}
-                      href={pillHref}
-                      className="block rounded-lg px-2.5 py-1.5 transition hover:shadow-[0_2px_10px_-4px_rgba(50,80,153,0.25)]"
+                      {...pillProps}
+                      className={pillClass}
                       style={{ background: pillBg, border: pillBorder }}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -1329,7 +1340,7 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                           </span>
                         )}
                       </div>
-                    </Link>
+                    </Pill>
                   )
                 })
               )}

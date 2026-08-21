@@ -3,20 +3,27 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { isoDate, addDays, mondayOf, weekLabelFor } from '../../lib/calendarWeeks'
 import { pickSubjectColor } from '../../lib/subjectColours'
+import { isRosteredTutor } from '../../lib/dropin'
+import DropinShiftModal from './DropinShiftModal'
 
 /*
  * Full-screen month calendar. Date-driven (no schedule projection): renders the
  * actual lesson rows for the visible classes plus 1:1 makeup overlays, exactly
  * like the weekly view. Navigable month-by-month; each week row is labelled
  * universally (W{n} inside a term, "Term N Holidays · Wk x" in the breaks).
+ *
+ * Drop-in sessions sit alongside the lessons, the same as they do in the weekly
+ * view. Clicking one opens it: the teacher rostered on can see who booked in
+ * and save the shift for the hours they worked.
  */
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 // Tutor-view pill colours: own lessons vs everyone else's.
-const MINE_COL = { bg: '#D6E4FF', fg: '#062E63' }
-const GREY_COL = { bg: '#EEF0F4', fg: '#868D9C' }
+const MINE_COL   = { bg: '#D6E4FF', fg: '#062E63' }
+const GREY_COL   = { bg: '#EEF0F4', fg: '#868D9C' }
+const DROPIN_COL = { bg: '#CCFBF1', fg: '#0F766E' }
 
 const isOneToOne = (name) => /\b1\s*:\s*1\b/.test(name || '')
 const startMin = (t) => { if (!t) return 0; const [h, m] = String(t).split(':').map(Number); return (h || 0) * 60 + (m || 0) }
@@ -32,6 +39,7 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
   const [anchor, setAnchor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d })
   const [byDate, setByDate] = useState({})
   const [loading, setLoading] = useState(true)
+  const [openDropin, setOpenDropin] = useState(null)
 
   const classIds = useMemo(() => classes.map(c => c.id), [classes])
   const classById = useMemo(() => Object.fromEntries(classes.map(c => [c.id, c])), [classes])
@@ -41,6 +49,7 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
   const mineOnly = isAdmin && classView === 'mine'
   const tutorMode = !isAdmin
   const myFirst = ((staff?.full_name || '').split(' ')[0] || '').toLowerCase()
+  const myName = staff?.full_name || ''
 
   const gridStart = useMemo(() => mondayOf(anchor), [anchor])
   const gridDays = useMemo(() => Array.from({ length: 42 }, (_, i) => addDays(gridStart, i)), [gridStart])
@@ -74,6 +83,15 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
       // unassigned overlay lessons (e.g. level tests, which have no teacher).
       if (mineOnly && staffId) mq = mq.or(`scheduled_teacher_id.eq.${staffId},scheduled_teacher_id.is.null`)
       const { data: makeups } = await mq
+
+      // Drop-ins. Everyone sees every drop-in (greyed unless they're on it);
+      // only the admin "My classes" toggle narrows the fetch, exactly as the
+      // weekly view does.
+      let dq = supabase.from('dropin_sessions').select('*')
+        .gte('session_date', minISO).lte('session_date', maxISO)
+      if (mineOnly && myName) dq = dq.contains('tutors', [myName])
+      const { data: dropins } = await dq
+
       const movedSrc = new Set((makeups || []).map(m => m.makeup_source_lesson_id).filter(Boolean))
 
       const map = {}
@@ -95,12 +113,19 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
         const prefix = isLevelTest ? 'Level Test' : (m.makeup_source_lesson_id ? '1:1 Makeup' : '1:1')
         push(m.lesson_date, { id: `m-${m.id}`, lessonId: m.id, levelTest: isLevelTest, name: `${prefix} · ${sn}`, time: m.start_time, sort: startMin(m.start_time), makeup: true, mine: !!staffId && m.scheduled_teacher_id === staffId, color: pickSubjectColor(subjName) })
       }
+      for (const d of (dropins || [])) {
+        push(d.session_date, {
+          id: `d-${d.id}`, dropin: d, name: 'Drop-in', time: d.start_time,
+          sort: startMin(d.start_time), makeup: false,
+          mine: isRosteredTutor(d, myName), color: DROPIN_COL,
+        })
+      }
       for (const k of Object.keys(map)) map[k].sort((a, b) => a.sort - b.sort)
       if (!cancelled) { setByDate(map); setLoading(false) }
     }
     run()
     return () => { cancelled = true }
-  }, [gridStart, gridDays, classIds, classById, mineOnly, staffId, myFirst])
+  }, [gridStart, gridDays, classIds, classById, mineOnly, staffId, myFirst, myName])
 
   const moveMonth = (delta) => setAnchor(a => { const d = new Date(a); d.setMonth(d.getMonth() + delta); d.setDate(1); return d })
   const thisMonth = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); setAnchor(d) }
@@ -153,11 +178,21 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
                         {pills.map(p => {
                           // Tutor view: own lessons highlighted blue, everyone
                           // else's greyed out (admins keep subject colours).
-                          const col = tutorMode ? (p.mine ? MINE_COL : GREY_COL) : p.color
+                          // Drop-ins keep their teal whoever is looking, unless
+                          // this viewer isn't on one — then they grey out like
+                          // anyone else's lesson.
+                          const col = p.dropin
+                            ? (tutorMode && !p.mine ? GREY_COL : DROPIN_COL)
+                            : tutorMode ? (p.mine ? MINE_COL : GREY_COL) : p.color
                           const style = { background: col?.bg || '#EEF4FF', color: col?.fg || '#325099', borderLeft: p.makeup ? `3px solid ${col?.fg || '#6B21A8'}` : 'none' }
                           const inner = <>{p.time ? <span className="font-semibold mr-1">{fmtTime(p.time)}</span> : null}{p.name}</>
-                          const title = `${p.name}${p.time ? ' · ' + fmtTime(p.time) : ''}${p.levelTest ? ' · click to mark' : ''}`
-                          return p.levelTest ? (
+                          const title = `${p.name}${p.time ? ' · ' + fmtTime(p.time) : ''}${p.dropin ? ((p.dropin.tutors || []).length ? ' · ' + p.dropin.tutors.join(', ') : '') + ' · click to open' : ''}${p.levelTest ? ' · click to mark' : ''}`
+                          return p.dropin ? (
+                            <button key={p.id} type="button" onClick={() => setOpenDropin(p.dropin)} title={title} style={style}
+                              className="block w-full text-left text-[10px] leading-tight rounded px-1.5 py-0.5 truncate hover:underline">
+                              {inner}
+                            </button>
+                          ) : p.levelTest ? (
                             <a key={p.id} href={`/tutor/lessons/${p.lessonId}`} title={title} style={style}
                               className="block text-[10px] leading-tight rounded px-1.5 py-0.5 truncate hover:underline">
                               {inner}
@@ -179,6 +214,10 @@ export default function MonthCalendarModal({ classes = [], staff, isAdmin = fals
           {loading && <p className="text-center text-xs text-[#2A2035]/40 py-3">Loading…</p>}
         </div>
       </div>
+
+      {openDropin && (
+        <DropinShiftModal session={openDropin} staff={staff} onClose={() => setOpenDropin(null)} />
+      )}
     </div>
   )
 }
