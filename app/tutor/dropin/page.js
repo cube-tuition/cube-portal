@@ -4,6 +4,9 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
+import { T_TERMS } from '../../../lib/tables'
+import { YEAR_GROUPS, REPEAT_OPTIONS, yearGroupLabel, seriesDates, termContaining,
+         buildSeriesRows } from '../../../lib/dropin'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SUBJECTS = ['Maths', 'English', 'Chemistry']
@@ -15,7 +18,7 @@ function SessionModal({ session, onClose, onSaved }) {
   const blank = {
     session_date: '', start_time: '', end_time: '',
     location: 'Chatswood centre', subjects: [], tutors: [],
-    max_capacity: 5, notes: '',
+    max_capacity: 5, notes: '', year_groups: [], repeat: 'none',
   }
   const [form, setForm] = useState(isEdit ? {
     session_date: session.session_date ?? '',
@@ -26,10 +29,16 @@ function SessionModal({ session, onClose, onSaved }) {
     tutors:       session.tutors ?? [],
     max_capacity: session.max_capacity ?? 5,
     notes:        session.notes ?? '',
+    year_groups:  session.year_groups ?? [],
+    repeat:       'none',      // editing changes one occurrence, never re-runs a series
   } : blank)
   const [tutorsList, setTutorsList] = useState([])
+  const [terms, setTerms]           = useState([])
   const [saving, setSaving]         = useState(false)
   const [err, setErr]               = useState('')
+  // Editing a session that belongs to a series: apply to this one, or to it and
+  // every later date in the series.
+  const [scope, setScope] = useState('one')
 
   useEffect(() => {
     Promise.all([
@@ -40,6 +49,7 @@ function SessionModal({ session, onClose, onSaved }) {
       all.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
       setTutorsList(all)
     })
+    supabase.from(T_TERMS).select('*').then(({ data }) => setTerms(data || []))
   }, [])
 
   const toggleSubject = s => setForm(f => ({
@@ -48,15 +58,30 @@ function SessionModal({ session, onClose, onSaved }) {
   const toggleTutor = name => setForm(f => ({
     ...f, tutors: f.tutors.includes(name) ? f.tutors.filter(x => x !== name) : [...f.tutors, name],
   }))
+  const toggleYear = y => setForm(f => ({
+    ...f, year_groups: f.year_groups.includes(y)
+      ? f.year_groups.filter(x => x !== y) : [...f.year_groups, y],
+  }))
+
+  // A repeat runs to the end of the term the start date sits in. Outside term
+  // dates there is no end to stop at, which the form says rather than silently
+  // creating a single session.
+  const term  = termContaining(terms, form.session_date)
+  const dates = seriesDates(form.session_date, form.repeat, term?.end_date)
+  const repeating = form.repeat !== 'none'
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
     if (!form.session_date || !form.start_time || !form.end_time) {
       setErr('Date and times are required.'); return
     }
+    if (repeating && !term) {
+      setErr('That date is outside term dates, so a repeat has no term end to stop at. Pick a date inside a term, or set it to not repeat.')
+      return
+    }
     setSaving(true); setErr('')
-    const payload = {
-      session_date: form.session_date,
+    // Details shared by every occurrence. The date is set per row below.
+    const details = {
       start_time:   form.start_time,
       end_time:     form.end_time,
       location:     form.location || null,
@@ -64,10 +89,34 @@ function SessionModal({ session, onClose, onSaved }) {
       tutors:       form.tutors,
       max_capacity: Number(form.max_capacity) || 5,
       notes:        form.notes || null,
+      year_groups:  form.year_groups.length ? form.year_groups : null,
     }
-    const { error } = isEdit
-      ? await supabase.from('dropin_sessions').update(payload).eq('id', session.id)
-      : await supabase.from('dropin_sessions').insert(payload)
+
+    let error = null
+    if (isEdit) {
+      // "This and all later" rewrites the shared details across the rest of the
+      // series but leaves each occurrence's own date alone — moving them all to
+      // one date would collapse the series onto itself.
+      if (scope === 'future' && session.series_id) {
+        ;({ error } = await supabase.from('dropin_sessions')
+          .update(details)
+          .eq('series_id', session.series_id)
+          .gte('session_date', session.session_date))
+        if (!error && form.session_date !== session.session_date) {
+          ;({ error } = await supabase.from('dropin_sessions')
+            .update({ session_date: form.session_date }).eq('id', session.id))
+        }
+      } else {
+        ;({ error } = await supabase.from('dropin_sessions')
+          .update({ ...details, session_date: form.session_date }).eq('id', session.id))
+      }
+    } else {
+      // A repeat is expanded into one row per date: bookings and capacity
+      // attach to a concrete session, so there is nothing for a stored rule to
+      // hang off. They share a series_id so they can be managed together.
+      const rows = buildSeriesRows(details, dates, crypto.randomUUID())
+      ;({ error } = await supabase.from('dropin_sessions').insert(rows))
+    }
     if (error) { setErr(error.message); setSaving(false); return }
     onSaved()
   }
@@ -108,6 +157,80 @@ function SessionModal({ session, onClose, onSaved }) {
               onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
               placeholder="Chatswood centre" className={INP} />
           </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">
+              Year groups
+              <span className="ml-2 font-normal normal-case tracking-normal text-[#2A2035]/40">
+                {form.year_groups.length === 0
+                  ? 'none ticked — open to every year'
+                  : yearGroupLabel(form.year_groups)}
+              </span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {YEAR_GROUPS.map(y => (
+                <button key={y} type="button" onClick={() => toggleYear(y)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                    form.year_groups.includes(y)
+                      ? 'bg-[#325099] text-white border-[#325099]'
+                      : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
+                  }`}>{y}</button>
+              ))}
+            </div>
+            <p className="text-[10px] text-[#2A2035]/40 mt-1.5">
+              Only students in a ticked year see this session in their portal. Tick none to show it to everyone.
+            </p>
+          </div>
+
+          {!isEdit && (
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">Repeat</label>
+              <div className="flex flex-wrap gap-2">
+                {REPEAT_OPTIONS.map(o => (
+                  <button key={o.value} type="button"
+                    onClick={() => setForm(f => ({ ...f, repeat: o.value }))}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                      form.repeat === o.value
+                        ? 'bg-[#325099] text-white border-[#325099]'
+                        : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
+                    }`}>{o.label}</button>
+                ))}
+              </div>
+              {repeating && (
+                <p className="text-[10px] mt-1.5 text-[#2A2035]/55">
+                  {!form.session_date
+                    ? 'Pick a start date to see the dates this will create.'
+                    : !term
+                      ? <span className="text-[#B45309] font-semibold">That date is outside term dates — a repeat has no term end to stop at.</span>
+                      : <>Creates <strong>{dates.length}</strong> session{dates.length === 1 ? '' : 's'}, every{' '}
+                        {form.repeat === 'fortnightly' ? 'second ' : ' '}
+                        {new Date(`${form.session_date}T00:00:00`).toLocaleDateString('en-AU', { weekday: 'long' })}
+                        {' '}until term ends on {new Date(`${term.end_date}T00:00:00`).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}.</>}
+                </p>
+              )}
+            </div>
+          )}
+
+          {isEdit && session.series_id && (
+            <div>
+              <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">Apply changes to</label>
+              <div className="flex flex-wrap gap-2">
+                {[['one', 'Just this session'], ['future', 'This and all later']].map(([v, label]) => (
+                  <button key={v} type="button" onClick={() => setScope(v)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                      scope === v
+                        ? 'bg-[#325099] text-white border-[#325099]'
+                        : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
+                    }`}>{label}</button>
+                ))}
+              </div>
+              {scope === 'future' && (
+                <p className="text-[10px] text-[#2A2035]/40 mt-1.5">
+                  Details are applied to every later date in this series. Each keeps its own date.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">Subjects available</label>
             <div className="flex flex-wrap gap-2">
@@ -263,10 +386,19 @@ export default function DropinPage() {
 
   useEffect(() => { if (staff) loadSessions() }, [staff, loadSessions])
 
-  const handleDeleteSession = async (id) => {
-    await supabase.from('dropin_signins').delete().eq('session_id', id)
-    await supabase.from('dropin_sessions').delete().eq('id', id)
-    setSessions(s => s.filter(x => x.id !== id))
+  // Deleting one date, or the rest of a series from this date on. Later dates
+  // only — past occurrences of a standing session are a record of what ran.
+  const handleDeleteSession = async (id, alsoFuture = false) => {
+    const target = sessions.find(x => x.id === id)
+    let ids = [id]
+    if (alsoFuture && target?.series_id) {
+      ids = sessions
+        .filter(x => x.series_id === target.series_id && x.session_date >= target.session_date)
+        .map(x => x.id)
+    }
+    await supabase.from('dropin_signins').delete().in('session_id', ids)
+    await supabase.from('dropin_sessions').delete().in('id', ids)
+    setSessions(s => s.filter(x => !ids.includes(x.id)))
     setDeleteSessionId(null)
   }
 
@@ -359,13 +491,21 @@ export default function DropinPage() {
                         {session.signins.length}/{session.max_capacity}
                       </span>
                     </div>
-                    {(session.subjects || []).length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {session.subjects.map(s => (
-                          <span key={s} className="text-[10px] font-semibold bg-[#EEF4FF] text-[#325099] px-2 py-0.5 rounded-full border border-[#DEE7FF]">{s}</span>
-                        ))}
-                      </div>
-                    )}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {(session.subjects || []).map(s => (
+                        <span key={s} className="text-[10px] font-semibold bg-[#EEF4FF] text-[#325099] px-2 py-0.5 rounded-full border border-[#DEE7FF]">{s}</span>
+                      ))}
+                      {(session.year_groups || []).length > 0 && (
+                        <span className="text-[10px] font-semibold bg-[#FEF3C7] text-[#92400E] px-2 py-0.5 rounded-full border border-[#FDE68A]">
+                          {yearGroupLabel(session.year_groups)}
+                        </span>
+                      )}
+                      {session.series_id && (
+                        <span className="text-[10px] font-semibold bg-[#F0F4FF] text-[#325099]/70 px-2 py-0.5 rounded-full border border-[#DEE7FF]" title="Part of a repeating series">
+                          ↻ repeats
+                        </span>
+                      )}
+                    </div>
                     {(session.tutors || []).length > 0 && (
                       <p className="mt-2 text-[10px] text-[#2A2035]/50">
                         <span className="font-semibold uppercase tracking-wider mr-1">Tutors:</span>
@@ -537,24 +677,52 @@ export default function DropinPage() {
           onAdded={() => { setAddSigninFor(null); loadSessions() }}
         />
       )}
-      {deleteSessionId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-80 border border-[#DEE7FF]">
-            <div className="px-6 py-5">
-              <p className="text-sm font-bold text-[#062E63] mb-2">Delete this session?</p>
-              <p className="text-xs text-[#2A2035]/60 leading-relaxed">
-                This will also remove all student sign-ins. This cannot be undone.
-              </p>
-            </div>
-            <div className="px-6 pb-5 flex gap-2 justify-end">
-              <button onClick={() => setDeleteSessionId(null)}
-                className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-              <button onClick={() => handleDeleteSession(deleteSessionId)}
-                className="px-4 py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Delete</button>
+      {deleteSessionId && (() => {
+        const target = sessions.find(x => x.id === deleteSessionId)
+        // The rest of the series from this date on — past dates are left alone.
+        const later = target?.series_id
+          ? sessions.filter(x => x.series_id === target.series_id && x.session_date >= target.session_date)
+          : []
+        const bookedHere  = target?.signins?.length || 0
+        const bookedLater = later.reduce((n, x) => n + (x.signins?.length || 0), 0)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-96 border border-[#DEE7FF]">
+              <div className="px-6 py-5">
+                <p className="text-sm font-bold text-[#062E63] mb-2">Delete this session?</p>
+                <p className="text-xs text-[#2A2035]/60 leading-relaxed">
+                  This will also remove all student sign-ins. This cannot be undone.
+                </p>
+                {bookedHere > 0 && (
+                  <p className="mt-2 text-xs font-semibold text-[#B45309]">
+                    {bookedHere} student{bookedHere === 1 ? ' has' : 's have'} booked this session.
+                  </p>
+                )}
+                {later.length > 1 && (
+                  <p className="mt-2 text-[11px] text-[#2A2035]/55 leading-relaxed">
+                    This is part of a repeating series — {later.length} session{later.length === 1 ? '' : 's'} from
+                    this date onwards{bookedLater > 0 ? `, with ${bookedLater} booking${bookedLater === 1 ? '' : 's'} between them` : ''}.
+                  </p>
+                )}
+              </div>
+              <div className="px-6 pb-5 flex flex-wrap gap-2 justify-end">
+                <button onClick={() => setDeleteSessionId(null)}
+                  className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+                {later.length > 1 && (
+                  <button onClick={() => handleDeleteSession(deleteSessionId, true)}
+                    className="px-4 py-2 text-xs font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition">
+                    Delete all {later.length}
+                  </button>
+                )}
+                <button onClick={() => handleDeleteSession(deleteSessionId, false)}
+                  className="px-4 py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                  {later.length > 1 ? 'Just this one' : 'Delete'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

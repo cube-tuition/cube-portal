@@ -6,6 +6,7 @@ import { requireStudent } from '../../lib/requireStudent'
 import { useRouter } from 'next/navigation'
 import PortalNav from '../../components/PortalNav'
 import { T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_STUDENTS } from '../../lib/tables'
+import { visibleSessions } from '../../lib/dropin'
 
 /*
  * Drop-in Booking
@@ -136,10 +137,16 @@ export default function DropinPage() {
         .order('session_date', { ascending: true })
         .order('start_time', { ascending: true })
 
+      // A drop-in can be aimed at particular year groups; one aimed nowhere
+      // is open to all. Filter before the example fallback, so a student who
+      // is targeted out of every session sees the example rather than an
+      // empty calendar.
+      const forMyYear = visibleSessions(sess, profile?.year)
+
       // If no real sessions exist yet, drop in an example session so the
       // booking flow can be previewed. The example disappears as soon as you
       // add any real dropin_sessions rows in Supabase.
-      const list = sess && sess.length > 0 ? sess : [buildExampleSession()]
+      const list = forMyYear.length > 0 ? forMyYear : [buildExampleSession()]
       setSessions(list)
 
       const { data: mine } = await supabase
