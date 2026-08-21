@@ -112,6 +112,11 @@ export default function DropinSessionPage() {
   useEffect(() => { load() }, [load])
 
   const rostered = useMemo(() => isRosteredTutor(session, profile?.full_name), [session, profile])
+  // The rostered session is the ceiling: a teacher can trim a shift, never
+  // extend it past the hours the centre put on. HH:MM sorts lexically.
+  const bounds = { start: toInput(session?.start_time), end: toInput(session?.end_time) }
+  const tooEarly = !!(start && bounds.start && start < bounds.start)
+  const tooLate  = !!(end && bounds.end && end > bounds.end)
   // Dates in the same series this person IS on, so "not this one" is obvious.
   const myOtherDates = useMemo(
     () => siblings.filter(x => isRosteredTutor(x, profile?.full_name)),
@@ -228,18 +233,21 @@ export default function DropinSessionPage() {
                 ) : (
                   <>
                     <p className="text-xs text-[#2A2035]/55 mb-3">
-                      Save the hours you actually worked — adjust them if the session ran short or long.
+                      Save the hours you actually worked. You can trim them if the session ran short,
+                      but not past {fmt12(session?.start_time)} – {fmt12(session?.end_time)}.
                     </p>
                     <div className="flex items-end gap-4 flex-wrap">
                       <label className="text-[11px] font-semibold text-[#325099]">
                         Start
-                        <input type="time" value={start} onChange={e => { setStart(e.target.value); setSaved(false) }}
-                          className="block mt-1 text-sm border border-[#DEE7FF] rounded-lg px-3 py-2 text-[#2A2035]" />
+                        <input type="time" value={start} min={bounds.start} max={bounds.end}
+                          onChange={e => { setStart(e.target.value); setSaved(false) }}
+                          className={`block mt-1 text-sm border rounded-lg px-3 py-2 text-[#2A2035] ${tooEarly ? 'border-[#FCA5A5] bg-[#FEF2F2]' : 'border-[#DEE7FF]'}`} />
                       </label>
                       <label className="text-[11px] font-semibold text-[#325099]">
                         Finish
-                        <input type="time" value={end} onChange={e => { setEnd(e.target.value); setSaved(false) }}
-                          className="block mt-1 text-sm border border-[#DEE7FF] rounded-lg px-3 py-2 text-[#2A2035]" />
+                        <input type="time" value={end} min={bounds.start} max={bounds.end}
+                          onChange={e => { setEnd(e.target.value); setSaved(false) }}
+                          className={`block mt-1 text-sm border rounded-lg px-3 py-2 text-[#2A2035] ${tooLate ? 'border-[#FCA5A5] bg-[#FEF2F2]' : 'border-[#DEE7FF]'}`} />
                       </label>
                       <p className="text-sm text-[#2A2035]/60 pb-2.5">
                         {hours ? `${hours.toFixed(2)} h` : 'Finish must be after start'}
@@ -247,12 +255,19 @@ export default function DropinSessionPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3 mt-4 flex-wrap">
-                      <button onClick={save} disabled={saving || !hours}
+                      <button onClick={save} disabled={saving || !hours || tooEarly || tooLate}
                         className="text-xs font-bold text-white bg-[#062E63] hover:bg-[#325099] rounded-full px-5 py-2.5 transition disabled:opacity-40">
                         {saving ? 'Saving…' : shift ? 'Update shift' : 'Save shift'}
                       </button>
+                      {(tooEarly || tooLate) && (
+                        <span className="text-xs font-semibold text-[#991B1B]">
+                          {tooEarly
+                            ? `The session starts at ${fmt12(session?.start_time)} — a shift can't start earlier.`
+                            : `The session finishes at ${fmt12(session?.end_time)} — a shift can't run later.`}
+                        </span>
+                      )}
                       {saved && <span className="text-xs font-semibold text-[#166534]">Saved — it will show on your pay page for approval.</span>}
-                      {!shift && !saved && <span className="text-xs text-[#2A2035]/50">No shift has been raised for you on this drop-in yet.</span>}
+                      {!shift && !saved && !tooEarly && !tooLate && <span className="text-xs text-[#2A2035]/50">No shift has been raised for you on this drop-in yet.</span>}
                     </div>
                     {saveError && <p className="text-xs text-[#991B1B] mt-3">{saveError}</p>}
                   </>
