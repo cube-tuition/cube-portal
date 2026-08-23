@@ -530,6 +530,11 @@ function EmbeddedTableSection({ block, set }) {
         <button type="button" onClick={() => set({ table: null })} className="text-[11px] text-rose-500 hover:underline">Remove</button>
       </div>
       <TableEditor block={t} set={patch => set({ table: { ...t, ...patch } })} />
+      {typeof block.body === 'string' && (
+        <p className="text-[10px] text-[#2A2035]/45 leading-snug">
+          The table sits under the text. To place it mid-way instead, put <code className="font-mono">[[table]]</code> on its own line in the body.
+        </p>
+      )}
     </div>
   )
 }
