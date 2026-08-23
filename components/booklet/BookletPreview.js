@@ -83,10 +83,11 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
     // delay here is latency the preview would pay for no reason. Scheduling on
     // a frame also coalesces bursts and lets layout settle before heights are
     // read.
+    let cancelled = false
     const raf = requestAnimationFrame(() => measureAndPaginate())
-    return () => cancelAnimationFrame(raf)
+    return () => { cancelled = true; cancelAnimationFrame(raf) }
 
-    function measureAndPaginate() {
+    async function measureAndPaginate() {
     // Ordered render items (content then homework) — same source the exporter
     // uses, so the preview can never drift from the printed PDF.
     const items = bookletRenderItems(blocks, { solutions, meta })
@@ -165,10 +166,36 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
         countOnPage++
       }
     }
-    for (const it of items) {
+    // Build every item once, at the real content width, and wait for its images
+    // BEFORE measuring anything. A data-URI <img> has NO layout height in the
+    // tick it is inserted (it gains one on the next frame), so a page holding a
+    // diagram used to measure short, keep the block after it, and clip that
+    // block off the bottom of the fixed-height page. The exporter preloads for
+    // exactly this reason; the preview has to as well or the two disagree.
+    const pool = document.createElement('div')
+    pool.style.cssText = `width:${PAGE_W - 96}px`   // .bk-page inner width (794 − 2×48 padding)
+    stage.appendChild(pool)
+    const prepared = items.map(it => {
       const tmp = document.createElement('div')
       tmp.innerHTML = it.html
       const el = tmp.firstElementChild
+      if (el) pool.appendChild(el)
+      return { it, el }
+    })
+    // Fast path: nothing to wait for once the images have been decoded once,
+    // which is the case for every keystroke after the first pass.
+    const cold = Array.from(pool.querySelectorAll('img')).filter(im => !im.clientHeight)
+    if (cold.length) {
+      await Promise.all(cold.map(im => (im.complete
+        ? Promise.resolve()
+        : new Promise(res => { im.onload = im.onerror = res }))))
+      // Layout only reflects the decoded intrinsic size on the following frame.
+      await new Promise(res => requestAnimationFrame(res))
+      if (cancelled) { stage.remove(); return }
+    }
+    pool.remove()
+
+    for (const { it, el } of prepared) {
       if (!el) continue
       if (it.pageBreakBefore && countOnPage > 0) {
         cur = newPage(); result.push(cur); countOnPage = 0
@@ -221,6 +248,7 @@ export default function BookletPreview({ meta = {}, blocks = [], solutions = fal
     }
 
     document.body.removeChild(stage)
+    if (cancelled) return
     setPages(result.map(r => ({ html: r.html.join(''), homework: r.homework, quiz: r.quiz })))
     }
   }, [blocks, solutions, meta])
