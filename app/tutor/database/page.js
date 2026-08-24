@@ -310,6 +310,12 @@ function getPkCol(cols) { return cols.includes('id') ? 'id' : null }
 
 const COLUMN_TYPES = ['text','integer','bigint','numeric','boolean','uuid','timestamp with time zone','date','jsonb']
 
+// Short date for the lesson preview list: "Thu 27 Aug". Parsed as local
+// midnight — new Date('2026-08-27') is UTC and lands a day earlier in Sydney.
+const fmtLessonDate = (d) => (d
+  ? new Date(`${d}T00:00:00`).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+  : '—')
+
 // Schema editing has been removed for security (the arbitrary-SQL endpoint is
 // gone). Structural changes are done via migrations / the Supabase dashboard.
 async function execDDL() {
@@ -1651,6 +1657,8 @@ export default function DatabasePage() {
   const [lessonClassFilter, setLessonClassFilter]   = useState('')   // class_id to filter lessons by
   const [allClassesForFilter, setAllClassesForFilter] = useState([]) // for the dropdown
   const [generatingLessons, setGeneratingLessons]   = useState(false)
+  // Preview of an Add/Update lessons run: what WOULD change, awaiting confirm.
+  const [lessonPlan, setLessonPlan]                 = useState(null)
   const [allStaffForLessons, setAllStaffForLessons] = useState([])   // [{id, full_name}] for scheduled_teacher dropdown
   const [editingSchedTeacher, setEditingSchedTeacher] = useState(null) // rowId being edited
   const [editingEnrolClass, setEditingEnrolClass] = useState(null)     // enrolment rowId whose class is being reassigned
@@ -2780,38 +2788,59 @@ export default function DatabasePage() {
     })))
   }, [allStaffForLessons, selectedTable])
 
-  const handleGenerateLessons = async () => {
-    setGeneratingLessons(true)
-    // Syncs upcoming lessons to the class schedule: adds missing dates, updates
-    // time/room/week on existing future lessons (keeping their teacher), and
-    // removes empty orphaned lessons. Never touches past lessons. With "All
-    // classes" selected it syncs every class in the current term filter.
+  // "Generate lessons" used to add, update AND delete behind one button, so a
+  // run could not be explained after the fact and a class changing day quietly
+  // destroyed its future rows. It is now two deliberate actions, neither of
+  // which deletes anything, and both preview before they write.
+  //
+  //   Add    — create lessons for scheduled dates that have none
+  //   Update — make FUTURE lessons match the class, moving a lesson off a day
+  //            the class no longer runs onto a free scheduled date, same row
+  //
+  // Past lessons are never touched by either: they record when the class ran.
+  const runLessonAction = async (mode, apply) => {
+    const rpc = mode === 'add' ? 'add_lessons_for_class' : 'update_lessons_for_class'
     const targets = lessonClassFilter
       ? allClassesForFilter.filter(c => String(c.id) === String(lessonClassFilter))
       : allClassesForFilter
-    const totals = { inserted: 0, updated: 0, deleted: 0, protected: 0 }
-    const skipped = [], skippedInactive = [], failed = []
+    const perClass = [], skippedInactive = [], skipped = [], failed = []
+    let stranded = []
     for (const cls of targets) {
-      // Inactive classes no longer run — never generate lessons for them.
       if ((cls.status || 'active') !== 'active') { skippedInactive.push(cls.class_name); continue }
       if (!cls.day_of_week) { skipped.push(cls.class_name); continue }
-      const { data, error } = await supabase.rpc('sync_lessons_for_class', { p_class_id: Number(cls.id) })
+      const { data, error } = await supabase.rpc(rpc, { p_class_id: Number(cls.id), p_apply: apply })
       if (error) { failed.push(`${cls.class_name}: ${error.message}`); continue }
-      for (const k of Object.keys(totals)) totals[k] += (data?.[k] || 0)
+      const rows = mode === 'add' ? (data?.lessons || []) : (data?.changes || [])
+      if (rows.length) perClass.push({ id: cls.id, className: cls.class_name, teacher: cls.teacher, rows })
+      for (const st of (data?.stranded || [])) stranded.push({ className: cls.class_name, ...st })
     }
+    return { mode, targets: targets.length, perClass, stranded, skippedInactive, skipped, failed,
+             total: perClass.reduce((n, g) => n + g.rows.length, 0) }
+  }
+
+  const previewLessonAction = async (mode) => {
+    setGeneratingLessons(true)
+    const plan = await runLessonAction(mode, false)
     setGeneratingLessons(false)
-    if (!targets.length) { alert('No classes to generate for — check the term filter.'); return }
-    const parts = []
-    if (totals.inserted) parts.push(`${totals.inserted} added`)
-    if (totals.updated) parts.push(`${totals.updated} updated`)
-    if (totals.deleted) parts.push(`${totals.deleted} removed`)
+    if (!plan.targets) { alert('No classes to work on — check the term filter.'); return }
+    setLessonPlan(plan)
+  }
+
+  const applyLessonPlan = async () => {
+    const mode = lessonPlan.mode
+    setGeneratingLessons(true)
+    // Re-runs server-side rather than replaying the previewed list, so a class
+    // edited between preview and confirm still gets the correct result.
+    const done = await runLessonAction(mode, true)
+    setGeneratingLessons(false)
+    setLessonPlan(null)
+    const verb = mode === 'add' ? 'added' : 'updated'
     const notes = []
-    if (totals.protected) notes.push(`${totals.protected} upcoming lesson(s) no longer match the schedule but were kept because they have attendance, notes, a makeup, or are cancelled — remove those manually if needed.`)
-    if (skippedInactive.length) notes.push(`Skipped (inactive): ${skippedInactive.join(', ')}.`)
-    if (skipped.length) notes.push(`Skipped (no day set): ${skipped.join(', ')}.`)
-    if (failed.length) notes.push(`Failed: ${failed.join(' · ')}`)
-    const scope = lessonClassFilter ? '' : ` across ${targets.length} classes`
-    alert(`${parts.length ? `Lessons synced${scope}: ` + parts.join(' · ') + '.' : `Lessons already up to date${scope}.`}${notes.length ? '\n\n' + notes.join('\n') : ''}`)
+    if (done.stranded.length) notes.push(`${done.stranded.length} lesson(s) sit on a day the class no longer runs and had no free date to move to — they were left untouched.`)
+    if (done.skippedInactive.length) notes.push(`Skipped (inactive): ${done.skippedInactive.join(', ')}.`)
+    if (done.skipped.length) notes.push(`Skipped (no day set): ${done.skipped.join(', ')}.`)
+    if (done.failed.length) notes.push(`Failed: ${done.failed.join(' · ')}`)
+    alert(`${done.total ? `${done.total} lesson${done.total === 1 ? '' : 's'} ${verb}.` : `Nothing to ${mode === 'add' ? 'add' : 'update'}.`}${notes.length ? '\n\n' + notes.join('\n') : ''}`)
     setReloadKey(k => k + 1)
   }
 
@@ -4515,14 +4544,24 @@ export default function DatabasePage() {
                   </select>
                   )}
                   {lessonViewMode === 'lessons' && (
+                  <>
                   <button
-                    onClick={handleGenerateLessons}
+                    onClick={() => previewLessonAction('add')}
                     disabled={generatingLessons || loading}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Sync upcoming lessons to the class schedule: add missing dates, update time/room on future lessons (keeping their teacher), and remove empty orphaned lessons. Past lessons are never changed. With “All classes” selected, syncs every class in the term."
+                    title="Create lessons for scheduled dates that don't have one yet — a new class, or a gap in an existing one. Never changes or removes an existing lesson. Shows you the list before anything is saved."
                   >
-                    {generatingLessons ? '⟳ Generating…' : '⟳ Generate Lessons'}
+                    {generatingLessons ? '⟳ Working…' : '+ Add Lessons'}
                   </button>
+                  <button
+                    onClick={() => previewLessonAction('update')}
+                    disabled={generatingLessons || loading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Bring UPCOMING lessons into line with the class: new time, new room, and moving a lesson off a day the class no longer runs onto a free scheduled date — the same lesson, so its notes travel with it. Past lessons are never touched, and nothing is deleted. Shows you the list before anything is saved."
+                  >
+                    {generatingLessons ? '⟳ Working…' : '⟳ Update Lessons'}
+                  </button>
+                  </>
                   )}
                   <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                     <span className="text-sm leading-none">+</span> {lessonViewMode === 'level_tests' ? 'Add Level Test' : 'Add Lesson'}
@@ -6115,6 +6154,101 @@ export default function DatabasePage() {
 
 
       {/* ── Add Lesson Modal ─────────────────────────────────────────────────── */}
+      {/* What an Add / Update run is about to do — nothing is written until
+          this is confirmed, so a run can be read before it happens instead of
+          being reconstructed afterwards. */}
+      {lessonPlan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
+          onClick={e => { if (e.target === e.currentTarget) setLessonPlan(null) }}>
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-[#DEE7FF] overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-[#DEE7FF] flex items-center justify-center text-lg">{lessonPlan.mode === 'add' ? '＋' : '⟳'}</div>
+                <div>
+                  <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold">Lessons · Preview</p>
+                  <p className="text-sm font-bold text-[#2A2035] leading-tight">
+                    {lessonPlan.mode === 'add' ? 'Lessons to add' : 'Lessons to update'}
+                    {' · '}{lessonPlan.total} across {lessonPlan.perClass.length} class{lessonPlan.perClass.length === 1 ? '' : 'es'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setLessonPlan(null)} className="w-8 h-8 rounded-full flex items-center justify-center text-[#2A2035]/40 hover:text-[#2A2035] hover:bg-[#DEE7FF] transition text-lg">×</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+              {lessonPlan.total === 0 && (
+                <p className="text-sm text-[#2A2035]/60 py-6 text-center">
+                  Nothing to {lessonPlan.mode === 'add' ? 'add' : 'update'} — every lesson already matches its class.
+                </p>
+              )}
+              {lessonPlan.perClass.map(g => (
+                <div key={g.id}>
+                  <p className="text-xs font-bold text-[#062E63]">{g.className}{g.teacher ? <span className="font-normal text-[#325099]/70"> · {g.teacher}</span> : null}</p>
+                  <ul className="mt-1.5 space-y-1">
+                    {g.rows.map((r, i) => (
+                      <li key={i} className="text-xs text-[#2A2035] bg-[#F7F9FF] rounded-lg px-2.5 py-1.5 flex flex-wrap gap-x-2">
+                        {lessonPlan.mode === 'add' ? (
+                          <>
+                            <span className="font-semibold">{fmtLessonDate(r.lesson_date)}</span>
+                            <span className="text-[#325099]/80">{r.start_time}–{r.end_time}</span>
+                            {r.room && <span className="text-[#325099]/60">{r.room}</span>}
+                            <span className="text-[#2A2035]/40">week {r.week}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full self-center ${r.moved ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-[#DEE7FF] text-[#062E63]'}`}>{r.moved ? 'moved' : 'retimed'}</span>
+                            <span className="font-semibold">{fmtLessonDate(r.from_date)}</span>
+                            {r.moved && <><span className="text-[#2A2035]/40">→</span><span className="font-semibold">{fmtLessonDate(r.to_date)}</span></>}
+                            {r.from_time !== r.to_time && <span className="text-[#325099]/80">{r.from_time} → {r.to_time}</span>}
+                            {r.from_room !== r.to_room && <span className="text-[#325099]/80">{r.from_room || '—'} → {r.to_room || '—'}</span>}
+                            {r.from_week !== r.to_week && <span className="text-[#2A2035]/40">week {r.from_week} → {r.to_week}</span>}
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {lessonPlan.stranded.length > 0 && (
+                <div className="rounded-lg bg-[#FEF9EC] border border-[#FDE68A] px-3 py-2">
+                  <p className="text-xs font-bold text-[#92400E]">
+                    {lessonPlan.mode === 'add'
+                      ? 'These classes already have lessons on a day they no longer run'
+                      : 'Left alone — no free date to move to'}
+                  </p>
+                  <p className="text-[11px] text-[#92400E]/80 mt-0.5">
+                    {lessonPlan.stranded.map(x => `${x.className} ${fmtLessonDate(x.lesson_date)}`).join(' · ')}
+                  </p>
+                  <p className="text-[11px] text-[#92400E]/70 mt-1">
+                    {lessonPlan.mode === 'add'
+                      ? 'Adding here would leave the class with lessons on BOTH days. Use “Update Lessons” instead — it moves the existing ones onto the new day and keeps their notes.'
+                      : 'These sit on a day the class no longer runs. Nothing is deleted — move or cancel them by hand.'}
+                  </p>
+                </div>
+              )}
+              {(lessonPlan.failed.length > 0 || lessonPlan.skipped.length > 0 || lessonPlan.skippedInactive.length > 0) && (
+                <div className="text-[11px] text-[#2A2035]/55 space-y-0.5 border-t border-[#EEF2FF] pt-2">
+                  {lessonPlan.skippedInactive.length > 0 && <p>Skipped (inactive): {lessonPlan.skippedInactive.join(', ')}</p>}
+                  {lessonPlan.skipped.length > 0 && <p>Skipped (no day set): {lessonPlan.skipped.join(', ')}</p>}
+                  {lessonPlan.failed.length > 0 && <p className="text-[#991B1B]">Failed: {lessonPlan.failed.join(' · ')}</p>}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-[#DEE7FF] bg-[#F8FAFF] flex items-center justify-between gap-3 shrink-0">
+              <p className="text-[11px] text-[#2A2035]/50">Nothing has been saved yet. Past lessons are never changed, and nothing is deleted.</p>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={() => setLessonPlan(null)} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">Cancel</button>
+                <button onClick={applyLessonPlan} disabled={generatingLessons || lessonPlan.total === 0}
+                  className="px-4 py-2 text-xs font-bold text-white bg-[#062E63] rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                  {generatingLessons ? 'Saving…' : lessonPlan.mode === 'add' ? `Add ${lessonPlan.total}` : `Update ${lessonPlan.total}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddLessonModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddLessonModal(false) }}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">

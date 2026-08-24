@@ -1,0 +1,35 @@
+-- "Generate lessons" did three jobs behind one button — insert, update and
+-- delete — so a run could not be explained afterwards, and a class changing day
+-- silently destroyed its future rows. Split into two deliberate actions, and
+-- NEITHER deletes anything:
+--
+--   add_lessons_for_class(p_class_id, p_apply)
+--       create lessons for scheduled dates that have none. Also reports any
+--       upcoming lesson sitting on a weekday the class no longer runs, because
+--       adding for a moved-day class would otherwise leave it with both days.
+--
+--   update_lessons_for_class(p_class_id, p_apply)
+--       make FUTURE lessons match the class: retime, re-room, renumber the
+--       week, and MOVE a lesson off a day the class no longer runs onto a free
+--       scheduled date — keeping the same row, so notes, the RQ flag and any
+--       makeup links travel with it. Lessons with attendance already saved, or
+--       marked cancelled, are left alone. Anything with nowhere free to move to
+--       is reported and left exactly where it is.
+--
+-- Past lessons are never touched by either: they are the record of when the
+-- class actually ran.
+--
+-- p_apply = false writes nothing and returns exactly the rows that WOULD
+-- change, so the confirm dialog runs the same code as the apply and cannot
+-- drift from it.
+--
+-- The plan is held in jsonb rather than a temp table so the functions are
+-- re-entrant — an earlier cut used `create temp table … on commit drop` and
+-- died with "relation _plan already exists" on the second call in a
+-- transaction.
+--
+-- sync_lessons_for_class is left in place, unused by the UI.
+--
+-- Applied via MCP as: split_lesson_sync_add_and_update,
+-- update_lessons_reentrant_no_temp_table, add_lessons_warns_about_stranded.
+-- See those migrations for the function bodies as shipped.
