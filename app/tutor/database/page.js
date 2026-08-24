@@ -4560,7 +4560,7 @@ export default function DatabasePage() {
                     onClick={() => previewLessonAction('add')}
                     disabled={generatingLessons || loading}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Create lessons for scheduled dates that don't have one yet — a new class, or a gap in an existing one. Never changes or removes an existing lesson. Shows you the list before anything is saved."
+                    title="Fill in the weeks a class is missing a lesson — a new class, or a gap in an existing one. A week that already has a lesson is left alone, even if that lesson was moved to another day. Never changes or removes an existing lesson. Shows you the list before anything is saved."
                   >
                     {generatingLessons ? '⟳ Working…' : '+ Create Lessons'}
                   </button>
@@ -6221,7 +6221,7 @@ export default function DatabasePage() {
                   </p>
                   <p className="text-[11px] text-[#92400E]/70 mt-1">
                     {lessonPlan.mode === 'add'
-                      ? 'Creating here would leave the class with lessons on BOTH days. Use “Update Lessons” instead — it moves the existing ones onto the new day and keeps their notes.'
+                      ? 'Those weeks are left alone, so no second lesson is created for them. To bring these onto the class’s day, use “Update Lessons” — it moves the same lesson across and keeps its notes.'
                       : 'These sit on a day the class no longer runs. Nothing is deleted — move or cancel them by hand.'}
                   </p>
                 </div>
