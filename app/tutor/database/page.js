@@ -2834,13 +2834,13 @@ export default function DatabasePage() {
     const done = await runLessonAction(mode, true)
     setGeneratingLessons(false)
     setLessonPlan(null)
-    const verb = mode === 'add' ? 'added' : 'updated'
+    const verb = mode === 'add' ? 'created' : 'updated'
     const notes = []
     if (done.stranded.length) notes.push(`${done.stranded.length} lesson(s) sit on a day the class no longer runs and had no free date to move to — they were left untouched.`)
     if (done.skippedInactive.length) notes.push(`Skipped (inactive): ${done.skippedInactive.join(', ')}.`)
     if (done.skipped.length) notes.push(`Skipped (no day set): ${done.skipped.join(', ')}.`)
     if (done.failed.length) notes.push(`Failed: ${done.failed.join(' · ')}`)
-    alert(`${done.total ? `${done.total} lesson${done.total === 1 ? '' : 's'} ${verb}.` : `Nothing to ${mode === 'add' ? 'add' : 'update'}.`}${notes.length ? '\n\n' + notes.join('\n') : ''}`)
+    alert(`${done.total ? `${done.total} lesson${done.total === 1 ? '' : 's'} ${verb}.` : `Nothing to ${mode === 'add' ? 'create' : 'update'}.`}${notes.length ? '\n\n' + notes.join('\n') : ''}`)
     setReloadKey(k => k + 1)
   }
 
@@ -4543,16 +4543,11 @@ export default function DatabasePage() {
                     ))}
                   </select>
                   )}
+                  <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    <span className="text-sm leading-none">+</span> {lessonViewMode === 'level_tests' ? 'Add Level Test' : 'Add Lesson'}
+                  </button>
                   {lessonViewMode === 'lessons' && (
                   <>
-                  <button
-                    onClick={() => previewLessonAction('add')}
-                    disabled={generatingLessons || loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Create lessons for scheduled dates that don't have one yet — a new class, or a gap in an existing one. Never changes or removes an existing lesson. Shows you the list before anything is saved."
-                  >
-                    {generatingLessons ? '⟳ Working…' : '+ Add Lessons'}
-                  </button>
                   <button
                     onClick={() => previewLessonAction('update')}
                     disabled={generatingLessons || loading}
@@ -4561,11 +4556,16 @@ export default function DatabasePage() {
                   >
                     {generatingLessons ? '⟳ Working…' : '⟳ Update Lessons'}
                   </button>
+                  <button
+                    onClick={() => previewLessonAction('add')}
+                    disabled={generatingLessons || loading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Create lessons for scheduled dates that don't have one yet — a new class, or a gap in an existing one. Never changes or removes an existing lesson. Shows you the list before anything is saved."
+                  >
+                    {generatingLessons ? '⟳ Working…' : '+ Create Lessons'}
+                  </button>
                   </>
                   )}
-                  <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
-                    <span className="text-sm leading-none">+</span> {lessonViewMode === 'level_tests' ? 'Add Level Test' : 'Add Lesson'}
-                  </button>
                 </>
               ) : selectedTable === T_STUDENTS ? (
                 <>
@@ -6167,7 +6167,7 @@ export default function DatabasePage() {
                 <div>
                   <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold">Lessons · Preview</p>
                   <p className="text-sm font-bold text-[#2A2035] leading-tight">
-                    {lessonPlan.mode === 'add' ? 'Lessons to add' : 'Lessons to update'}
+                    {lessonPlan.mode === 'add' ? 'Lessons to create' : 'Lessons to update'}
                     {' · '}{lessonPlan.total} across {lessonPlan.perClass.length} class{lessonPlan.perClass.length === 1 ? '' : 'es'}
                   </p>
                 </div>
@@ -6178,7 +6178,7 @@ export default function DatabasePage() {
             <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
               {lessonPlan.total === 0 && (
                 <p className="text-sm text-[#2A2035]/60 py-6 text-center">
-                  Nothing to {lessonPlan.mode === 'add' ? 'add' : 'update'} — every lesson already matches its class.
+                  Nothing to {lessonPlan.mode === 'add' ? 'create' : 'update'} — every lesson already matches its class.
                 </p>
               )}
               {lessonPlan.perClass.map(g => (
@@ -6221,7 +6221,7 @@ export default function DatabasePage() {
                   </p>
                   <p className="text-[11px] text-[#92400E]/70 mt-1">
                     {lessonPlan.mode === 'add'
-                      ? 'Adding here would leave the class with lessons on BOTH days. Use “Update Lessons” instead — it moves the existing ones onto the new day and keeps their notes.'
+                      ? 'Creating here would leave the class with lessons on BOTH days. Use “Update Lessons” instead — it moves the existing ones onto the new day and keeps their notes.'
                       : 'These sit on a day the class no longer runs. Nothing is deleted — move or cancel them by hand.'}
                   </p>
                 </div>
@@ -6241,7 +6241,7 @@ export default function DatabasePage() {
                 <button onClick={() => setLessonPlan(null)} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">Cancel</button>
                 <button onClick={applyLessonPlan} disabled={generatingLessons || lessonPlan.total === 0}
                   className="px-4 py-2 text-xs font-bold text-white bg-[#062E63] rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
-                  {generatingLessons ? 'Saving…' : lessonPlan.mode === 'add' ? `Add ${lessonPlan.total}` : `Update ${lessonPlan.total}`}
+                  {generatingLessons ? 'Saving…' : lessonPlan.mode === 'add' ? `Create ${lessonPlan.total}` : `Update ${lessonPlan.total}`}
                 </button>
               </div>
             </div>
