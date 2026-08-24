@@ -427,6 +427,10 @@ export default function WorkbookDoc({
   const [unsaved, setUnsaved] = useState(0)
   const [failing, setFailing] = useState(false)
   const [pages, setPages] = useState(null)
+  // Page navigator: which page the reader is on, and whether the jump list is open.
+  const [curPage, setCurPage] = useState(0)
+  const [jumpOpen, setJumpOpen] = useState(false)
+  const navRef = useRef(null)
   const [activeComment, setActiveComment] = useState(null)
   const [draft, setDraft] = useState(null)     // { key, slot, start, end, quote, body }
   // The student's own highlights. Private to them, so they are never loaded on
@@ -546,6 +550,75 @@ export default function WorkbookDoc({
     })
     return () => cancelAnimationFrame(raf)
   }, [items])
+
+  // ── page navigator ────────────────────────────────────────────────────────
+  // A workbook runs to twenty-odd pages, so scrolling to "the homework" or
+  // "question 7" is a chore. Each page gets the heading it sits under, taken
+  // from the same html the page is built from, and the reader can jump.
+  // The rendered pages, read straight from the container that holds them.
+  const pageNodes = useCallback(
+    () => Array.from(pagesRef.current?.querySelectorAll('.bk-doc-page') || []), [])
+
+  const pageLabels = useMemo(() => {
+    if (!pages) return []
+    const HEADS = [
+      [/class="[^"]*bk-quiz-head/, () => 'Revision Quiz'],
+      [/class="[^"]*bk-section-hw/, () => 'Homework'],
+      [/class="bk-block bk-section-wrap"[\s\S]*?class="bk-section-title">([\s\S]*?)<\/span>/, (m) => m[1]],
+      [/class="bk-block bk-subtopic">([\s\S]*?)<\/div>/, (m) => m[1]],
+    ]
+    const strip = (h) => String(h).replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').trim()
+    let carried = ''
+    return pages.map((chunks) => {
+      const html = chunks.join('')
+      for (const [re, pick] of HEADS) {
+        const m = html.match(re)
+        if (m) { carried = strip(pick(m)); break }
+      }
+      return carried
+    })
+  }, [pages])
+
+  // Which page is the reader on? Whichever one crosses a band just below the
+  // sticky header. An observer rather than a scroll handler: the browser does
+  // the hit-testing, and it keeps working while the tab is in the background,
+  // where rAF-throttled scroll handlers stop running.
+  useEffect(() => {
+    const nodes = pageNodes()
+    if (!nodes.length) return undefined
+    const io = new IntersectionObserver((entries) => {
+      const hit = entries.filter(e => e.isIntersecting)
+      if (!hit.length) return
+      const i = nodes.indexOf(hit[hit.length - 1].target)
+      if (i >= 0) setCurPage(i)
+    }, { rootMargin: '-96px 0px -82% 0px', threshold: 0 })
+    nodes.forEach(n => io.observe(n))
+    return () => io.disconnect()
+  }, [pages, pageNodes])
+
+  // Dismiss the jump list on an outside click or Escape. Not on mouse-leave:
+  // the pointer can clip the corner of the pill on its way to an item, and a
+  // touch device never fires it at all.
+  useEffect(() => {
+    if (!jumpOpen) return undefined
+    const onDown = (e) => { if (!navRef.current?.contains(e.target)) setJumpOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setJumpOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [jumpOpen])
+
+  // scrollIntoView would tuck the page top under the sticky header, so the
+  // offset is applied by hand.
+  const goToPage = useCallback((i) => {
+    const el = pageNodes()[i]
+    if (!el) return
+    setJumpOpen(false)
+    window.scrollTo({ top: window.scrollY + el.getBoundingClientRect().top - 74, behavior: 'smooth' })
+  }, [pageNodes])
 
   /* ── saving, with a safety net ──────────────────────────────────────────
      Every keystroke lands in a pending queue keyed by answer slot (teacher
@@ -1272,6 +1345,36 @@ export default function WorkbookDoc({
         .bk-ins{ text-decoration:none; color:#C22D2D; }
         .bk-del mark, .bk-ins mark{ color:inherit; }
         .bk-edit-tools{ position:absolute; top:-11px; right:10px; display:flex; gap:6px; z-index:4; }
+        /* Page navigator: a pill fixed to the foot of the window, with the
+           jump list opening upwards above it. Fixed (not sticky) so it stays
+           reachable no matter how far down the workbook the reader is. */
+        .bk-nav{ position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+          z-index:40; display:flex; flex-direction:column; align-items:center; gap:6px; }
+        .bk-nav-bar{ display:flex; align-items:stretch; background:#fff; border:1px solid #DEE7FF;
+          border-radius:999px; box-shadow:0 4px 16px rgba(16,32,64,.16); overflow:hidden; }
+        .bk-nav-arrow{ width:34px; font-size:18px; line-height:1; color:#325099; background:#fff;
+          border:0; cursor:pointer; }
+        .bk-nav-arrow:hover:not(:disabled){ background:#F0F4FF; }
+        .bk-nav-arrow:disabled{ color:#c9cfdd; cursor:default; }
+        .bk-nav-cur{ border:0; border-left:1px solid #EEF2FF; border-right:1px solid #EEF2FF;
+          background:#fff; padding:7px 14px; font-size:12px; font-weight:700; color:#2A2035;
+          cursor:pointer; white-space:nowrap; }
+        .bk-nav-cur:hover{ background:#F8FAFF; }
+        .bk-nav-of{ font-weight:500; color:#2A2035; opacity:.45; }
+        .bk-nav-here{ font-weight:600; color:#325099; margin-left:8px; padding-left:8px;
+          border-left:1px solid #E4EAF8; max-width:230px; overflow:hidden; text-overflow:ellipsis;
+          display:inline-block; vertical-align:bottom; }
+        .bk-nav-list{ max-height:min(52vh,420px); overflow-y:auto; width:290px; background:#fff;
+          border:1px solid #DEE7FF; border-radius:12px; box-shadow:0 8px 24px rgba(16,32,64,.18);
+          padding:5px; }
+        .bk-nav-item{ display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+          background:none; border:0; border-radius:8px; padding:5px 8px; cursor:pointer;
+          font-size:12px; color:#2A2035; }
+        .bk-nav-item:hover{ background:#F0F4FF; }
+        .bk-nav-item-on{ background:#325099; color:#fff; }
+        .bk-nav-n{ flex:0 0 26px; font-weight:700; font-size:11px; text-align:right; opacity:.75; }
+        .bk-nav-lbl{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        @media print{ .bk-nav{ display:none; } }
         .bk-tool{ border:1px solid #c3cee6; background:#fff; color:#325099; border-radius:8px;
           padding:2px 9px; font-size:11px; font-weight:700; cursor:pointer; }
         .bk-tool:hover{ border-color:#325099; }
@@ -1318,6 +1421,37 @@ export default function WorkbookDoc({
           </p>
         )}
       </div>
+
+      {/* Page navigator — floats over the foot of the window on every copy
+          (student, teacher, model, solutions). Hidden for a one-page doc,
+          where there is nothing to navigate to. */}
+      {ready && pages.length > 1 && (
+        <div className="bk-nav" ref={navRef}>
+          {jumpOpen && (
+            <div className="bk-nav-list" role="listbox" aria-label="Go to page">
+              {pages.map((_c, i) => (
+                <button key={i} role="option" aria-selected={i === curPage}
+                  className={`bk-nav-item${i === curPage ? ' bk-nav-item-on' : ''}`}
+                  onClick={() => goToPage(i)}>
+                  <span className="bk-nav-n">{i + 1}</span>
+                  <span className="bk-nav-lbl">{pageLabels[i] || ''}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="bk-nav-bar">
+            <button className="bk-nav-arrow" title="Previous page" aria-label="Previous page"
+              disabled={curPage === 0} onClick={() => goToPage(curPage - 1)}>‹</button>
+            <button className="bk-nav-cur" onClick={() => setJumpOpen(o => !o)}
+              aria-expanded={jumpOpen} title="Go to page">
+              Page {curPage + 1} <span className="bk-nav-of">of {pages.length}</span>
+              {pageLabels[curPage] ? <span className="bk-nav-here">{pageLabels[curPage]}</span> : null}
+            </button>
+            <button className="bk-nav-arrow" title="Next page" aria-label="Next page"
+              disabled={curPage >= pages.length - 1} onClick={() => goToPage(curPage + 1)}>›</button>
+          </div>
+        </div>
+      )}
 
       {/* The comment margin is always laid out — even on the solutions copy,
           where it stays empty — so the page sits in the same place on every

@@ -106,6 +106,10 @@ function fmtSavedAt(iso) {
 
 export default function SessionMarker({ classId, dateISO, cls, staff, readOnly = false, footer = null }) {
   const isAdmin = staff?.role === 'admin'
+  // "Notes to CUBE" belongs to whoever taught the session. Tutors always;
+  // directors too, because they teach classes themselves. (RLS already lets
+  // directors write lessons rows — only this flag was in the way.)
+  const canWriteToCube = (staff?.role === 'tutor' || staff?.role === 'director') && !readOnly
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
   const [roster, setRoster] = useState([])
@@ -667,15 +671,18 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             onSave={isAdmin && !readOnly ? saveNotesFromCube : undefined}
             saveStatus={notesSaveStatus}
           />
+          {/* Writable by whoever TAUGHT the session: tutors, and directors —
+              who take classes themselves and were stuck with a read-only box.
+              Admin stays read-only here; the "from CUBE" box is theirs. */}
           <NotesGroup
             label="Notes to CUBE"
             sub="Tutor → admin. How the session went, homework set."
-            editable={staff?.role === 'tutor' && !readOnly}
+            editable={canWriteToCube}
             sections={[
               { key: 'general',  label: 'General',                  value: notesGeneral,  onChange: setNotesGeneral,
-                placeholder: staff?.role === 'tutor' ? 'How the session went, blockers, asks…' : 'Nothing from the tutor yet.' },
+                placeholder: canWriteToCube ? 'How the session went, blockers, asks…' : 'Nothing from the tutor yet.' },
               { key: 'homework', label: 'Homework given',           value: notesHomework, onChange: setNotesHomework,
-                placeholder: staff?.role === 'tutor' ? 'Pages, exercises, extra practice assigned…' : '—' },
+                placeholder: canWriteToCube ? 'Pages, exercises, extra practice assigned…' : '—' },
             ]}
           />
         </div>
