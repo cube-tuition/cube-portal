@@ -5,6 +5,7 @@ import { fetchAllTerms, getCurrentTerm } from '../lib/terms'
 import { inferSubject, subjectsMatch } from './CourseDetail'
 import { T_ATTENDANCE, T_BOOKLETS, T_ENROLMENTS, T_QUIZ_RESULTS } from '../lib/tables'
 import { authedFetch } from '../lib/authedFetch'
+import { firstName } from '../lib/lessonAccess'
 import FlagStudentModal from './FlagStudentModal'
 
 /*
@@ -106,12 +107,25 @@ function fmtSavedAt(iso) {
 
 export default function SessionMarker({ classId, dateISO, cls, staff, readOnly = false, footer = null }) {
   const isAdmin = staff?.role === 'admin'
-  // "Notes to CUBE" belongs to whoever taught the session — and at CUBE that
-  // can be anyone on staff: tutors, and the directors, who take classes
-  // themselves. NOTE the directors authenticate with the ADMIN role (there is
-  // no 'director' JWT role in this project; the directors table only holds
-  // their profiles), so gating on 'director' alone locks them out.
-  const canWriteToCube = ['tutor', 'admin', 'director'].includes(staff?.role) && !readOnly
+  /*
+   * "Notes to CUBE" belongs to whoever teaches the class.
+   *
+   * Tutors only ever reach an editable marker on their own sessions
+   * (lessonAccess hands everyone else 'view' or 'none'), so the role alone is
+   * enough for them. The directors are different: they authenticate with the
+   * ADMIN role (no 'director' JWT role exists here — the directors table only
+   * holds their profiles), and that role gets 'edit' on EVERY class — so a
+   * bare role check let them write tutors' notes on classes they never taught.
+   * They therefore also need to BE this class's teacher, matched on first
+   * name, which is the same convention lessonAccess and the database use for
+   * classes.teacher.
+   */
+  const teachesThisClass = !!firstName(staff?.full_name)
+    && firstName(staff?.full_name) === firstName(cls?.teacher)
+  const canWriteToCube = !readOnly && (
+    staff?.role === 'tutor'
+    || (['admin', 'director'].includes(staff?.role) && teachesThisClass)
+  )
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
   const [roster, setRoster] = useState([])
@@ -673,8 +687,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             onSave={isAdmin && !readOnly ? saveNotesFromCube : undefined}
             saveStatus={notesSaveStatus}
           />
-          {/* Writable by all staff: tutors, and the directors — who teach
-              classes themselves and sign in under the admin role. */}
+          {/* Writable by whoever teaches this class: its tutor, or a
+              director when the class is their own. */}
           <NotesGroup
             label="Notes to CUBE"
             sub="Tutor → admin. How the session went, homework set."
