@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { autoLines } from '../../lib/answerLines'
 import { useState, useRef, useEffect, memo } from 'react'
 import { supabase } from '../../lib/supabase'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
@@ -610,7 +611,7 @@ function AnswerSpace({ holder, patch, dflt = 3, maths = true }) {
         </div>
       </div>
       {mode === 'lines' && (
-        <div className="w-28"><label className={L}>Answer lines</label><LiftedInput className={I} type="text" inputMode="numeric" value={holder.lines ?? ''} onCommit={v => patch({ lines: v.replace(/\D/g, '') })} placeholder={String(dflt)} /></div>
+        <div className="w-28"><label className={L}>Answer lines</label><LiftedInput className={I} type="text" inputMode="numeric" value={holder.lines ?? ''} onCommit={v => patch({ lines: v.replace(/\D/g, '') })} placeholder={`auto ${autoLines(holder, dflt)}`} title="Blank = sized from the solution's length; type a number to override" /></div>
       )}
       {mode === 'blank' && (
         <div className="w-32"><label className={L}>Height (cm)</label><LiftedInput className={I} type="text" inputMode="decimal" value={holder.answerBlank ?? ''} onCommit={v => patch({ answerBlank: v.replace(/[^\d.]/g, '') })} placeholder="4" /></div>
