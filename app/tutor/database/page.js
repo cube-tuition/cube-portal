@@ -4543,7 +4543,7 @@ export default function DatabasePage() {
                     ))}
                   </select>
                   )}
-                  <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed">
                     <span className="text-sm leading-none">+</span> {lessonViewMode === 'level_tests' ? 'Add Level Test' : 'Add Lesson'}
                   </button>
                   {lessonViewMode === 'lessons' && (
@@ -4559,7 +4559,7 @@ export default function DatabasePage() {
                   <button
                     onClick={() => previewLessonAction('add')}
                     disabled={generatingLessons || loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Create lessons for scheduled dates that don't have one yet — a new class, or a gap in an existing one. Never changes or removes an existing lesson. Shows you the list before anything is saved."
                   >
                     {generatingLessons ? '⟳ Working…' : '+ Create Lessons'}
