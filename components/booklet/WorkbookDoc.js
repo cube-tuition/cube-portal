@@ -555,6 +555,10 @@ export default function WorkbookDoc({
   // A workbook runs to twenty-odd pages, so scrolling to "the homework" or
   // "question 7" is a chore. Each page gets the heading it sits under, taken
   // from the same html the page is built from, and the reader can jump.
+  // Pages are only in the DOM once this is true — until then the doc shows
+  // "Loading…" and there is nothing to observe or scroll to.
+  const ready = pages !== null && (solutions || loaded)
+
   // The rendered pages, read straight from the container that holds them.
   const pageNodes = useCallback(
     () => Array.from(pagesRef.current?.querySelectorAll('.bk-doc-page') || []), [])
@@ -579,22 +583,49 @@ export default function WorkbookDoc({
     })
   }, [pages])
 
-  // Which page is the reader on? Whichever one crosses a band just below the
-  // sticky header. An observer rather than a scroll handler: the browser does
-  // the hit-testing, and it keeps working while the tab is in the background,
-  // where rAF-throttled scroll handlers stop running.
+  // Which page is the reader on? The last one whose top has passed a reading
+  // line just below the sticky header. Measured from the scroll position
+  // rather than an observer band: a band has to be sized as a share of the
+  // viewport, which collapses to nothing on a short window, whereas this is
+  // correct at any height.
+  //
+  // `ready` matters — the pages enter the DOM only when it flips, which on a
+  // student's copy happens AFTER their answers load. Watching `pages` alone
+  // measured an empty document and never looked again, so the pill sat on
+  // page 1 for the whole workbook.
   useEffect(() => {
+    if (!ready) return undefined
     const nodes = pageNodes()
     if (!nodes.length) return undefined
-    const io = new IntersectionObserver((entries) => {
-      const hit = entries.filter(e => e.isIntersecting)
-      if (!hit.length) return
-      const i = nodes.indexOf(hit[hit.length - 1].target)
-      if (i >= 0) setCurPage(i)
-    }, { rootMargin: '-96px 0px -82% 0px', threshold: 0 })
-    nodes.forEach(n => io.observe(n))
-    return () => io.disconnect()
-  }, [pages, pageNodes])
+    let frame = 0
+    const measure = () => {
+      frame = 0
+      const line = 140
+      let best = 0
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].getBoundingClientRect().top > line) break
+        best = i
+      }
+      setCurPage(best)
+    }
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure) }
+    measure()
+    // The workbook scrolls with the window on most screens, but its <main>
+    // wrapper carries overflow (which makes it a scroll box of its own), so
+    // every scrollable ancestor is listened to as well.
+    const targets = [window]
+    for (let el = pagesRef.current?.parentElement; el; el = el.parentElement) {
+      const oy = getComputedStyle(el).overflowY
+      if (oy === 'auto' || oy === 'scroll') targets.push(el)
+    }
+    targets.forEach(t => t.addEventListener('scroll', onScroll, { passive: true }))
+    window.addEventListener('resize', onScroll)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      targets.forEach(t => t.removeEventListener('scroll', onScroll))
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [pages, ready, pageNodes])
 
   // Dismiss the jump list on an outside click or Escape. Not on mouse-leave:
   // the pointer can clip the corner of the pill on its way to an item, and a
@@ -612,12 +643,22 @@ export default function WorkbookDoc({
   }, [jumpOpen])
 
   // scrollIntoView would tuck the page top under the sticky header, so the
-  // offset is applied by hand.
+  // offset is applied by hand — to whichever box actually scrolls.
   const goToPage = useCallback((i) => {
     const el = pageNodes()[i]
     if (!el) return
     setJumpOpen(false)
-    window.scrollTo({ top: window.scrollY + el.getBoundingClientRect().top - 74, behavior: 'smooth' })
+    let box = null
+    for (let a = el.parentElement; a; a = a.parentElement) {
+      const oy = getComputedStyle(a).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && a.scrollHeight > a.clientHeight + 2) { box = a; break }
+    }
+    if (box) {
+      box.scrollTo({ top: box.scrollTop + el.getBoundingClientRect().top - box.getBoundingClientRect().top - 12,
+        behavior: 'smooth' })
+    } else {
+      window.scrollTo({ top: window.scrollY + el.getBoundingClientRect().top - 74, behavior: 'smooth' })
+    }
   }, [pageNodes])
 
   /* ── saving, with a safety net ──────────────────────────────────────────
@@ -1210,7 +1251,6 @@ export default function WorkbookDoc({
     )
   }
 
-  const ready = pages !== null && (solutions || loaded)
 
   return (
     <div className="bk-doc-scroll">
