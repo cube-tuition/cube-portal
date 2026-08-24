@@ -95,6 +95,10 @@ export default function BookletBuilderEditor() {
   const [lastAddedId, setLastAddedId] = useState(null)
   // Clicking a block selects it as the insertion anchor — new blocks go after it.
   const [selectedBlockId, setSelectedBlockId] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)   // block awaiting delete confirmation
+  // "Don't ask for 5 minutes" — a ref, so it survives re-renders but not a
+  // reload: the quiet window should not outlive the tidy-up it was for.
+  const deleteAskAgainAt = useRef(0)
   // Real page grouping for the content cards — measured the same way the preview
   // paginates, so headers mirror the printed pages (manual breaks + overflow).
   const [physicalPages, setPhysicalPages] = useState(null)
@@ -497,6 +501,18 @@ export default function BookletBuilderEditor() {
     return h
   }
   const removeBlock = (bid) => { setBlocks(bk.blocks.filter(b => b.id !== bid), 'Delete block'); if (selectedBlockId === bid) setSelectedBlockId(null) }
+  // The bin sits next to the move arrows and a mis-click costs a whole block,
+  // so it asks first — unless the 5-minute quiet window is still open, which is
+  // there for clearing out several blocks in a row.
+  const requestRemoveBlock = (b) => {
+    if (Date.now() < deleteAskAgainAt.current) { removeBlock(b.id); return }
+    setPendingDelete(b)
+  }
+  const confirmRemoveBlock = (quietFor5Min) => {
+    if (quietFor5Min) deleteAskAgainAt.current = Date.now() + 5 * 60 * 1000
+    if (pendingDelete) removeBlock(pendingDelete.id)
+    setPendingDelete(null)
+  }
   // Move within the same section/group only (skips over blocks of other groups).
   const moveBlock = (bid, dir) => {
     const arr = [...(bk.blocks || [])]
@@ -902,7 +918,7 @@ export default function BookletBuilderEditor() {
           )}
           <button onClick={e => { e.stopPropagation(); moveBlock(b.id, -1) }} disabled={i === 0} className="hover:text-[#325099] disabled:opacity-20 text-sm">↑</button>
           <button onClick={e => { e.stopPropagation(); moveBlock(b.id, 1) }} disabled={i === list.length - 1} className="hover:text-[#325099] disabled:opacity-20 text-sm">↓</button>
-          <button onClick={e => { e.stopPropagation(); removeBlock(b.id) }} className="hover:text-rose-500 text-sm ml-1">🗑</button>
+          <button onClick={e => { e.stopPropagation(); requestRemoveBlock(b) }} title="Delete this block" className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
       <BlockEditor block={b} onChange={onChangeFor(b.id)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null} />
@@ -1402,6 +1418,46 @@ export default function BookletBuilderEditor() {
           </div>
         </div>
       </div>
+
+      {pendingDelete && (() => {
+        const label = BLOCK_TYPES.find(t => t.type === pendingDelete.type)?.label || pendingDelete.type
+        // Enough of the block to recognise which one is about to go.
+        const gist = (pendingDelete.title || pendingDelete.prompt || pendingDelete.body
+                   || pendingDelete.text || pendingDelete.caption || '').replace(/\s+/g, ' ').trim()
+        const parts = (pendingDelete.parts || []).length
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget) setPendingDelete(null) }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              // Enter is left to the focused Delete button. Handling it here too
+              // fired the delete twice and cost two Ctrl+Z presses to undo.
+              onKeyDown={e => { if (e.key === 'Escape') setPendingDelete(null) }}>
+              <div className="px-6 pt-5 pb-4">
+                <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold">Delete block</p>
+                <h2 className="text-base font-bold text-[#062E63] mt-1">Delete this {label.toLowerCase()}?</h2>
+                {(gist || parts > 0) && (
+                  <div className="mt-3 rounded-lg bg-[#F7F9FF] border border-[#DEE7FF] px-3 py-2">
+                    {gist && <p className="text-xs text-[#2A2035] line-clamp-3">{gist.slice(0, 180)}{gist.length > 180 ? '…' : ''}</p>}
+                    {parts > 0 && <p className="text-[11px] text-[#325099]/70 mt-1">{parts} part{parts === 1 ? '' : 's'} will go with it.</p>}
+                  </div>
+                )}
+                <p className="text-[11px] text-[#2A2035]/55 mt-3">You can bring it back with Ctrl/Cmd+Z.</p>
+              </div>
+              <div className="px-6 py-3 bg-[#F8FAFF] border-t border-[#DEE7FF] flex flex-wrap items-center justify-end gap-2">
+                <button onClick={() => setPendingDelete(null)}
+                  className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">Cancel</button>
+                <button onClick={() => confirmRemoveBlock(true)}
+                  title="Delete this one and stop asking for the next 5 minutes"
+                  className="px-3 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">
+                  Delete · don&rsquo;t ask for 5 min
+                </button>
+                <button onClick={() => confirmRemoveBlock(false)} autoFocus
+                  className="px-4 py-2 text-xs font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition">Delete</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {bankOpen && <BankPicker booklet={bk} onClose={() => setBankOpen(false)} onPick={(blk) => insertBlock(blk)} />}
       {newQOpen && (
