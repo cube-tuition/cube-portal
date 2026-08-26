@@ -653,6 +653,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
           )}
           <MarkTable
             roster={roster}
+            hwEnabled={hwEnabled}
             marks={marks}
             history={history}
             term={term}
@@ -871,7 +872,7 @@ const UNDERSTANDING_OPTIONS = [
 ]
 
 function MarkTable({
-  roster, marks, history, term, currentWeek, rqEnabled = true,
+  roster, marks, history, term, currentWeek, rqEnabled = true, hwEnabled = true,
   expanded, onToggleExpand,
   onChange,
   isLocked, savedAt, savedBy, onEdit,
