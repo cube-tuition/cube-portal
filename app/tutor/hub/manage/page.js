@@ -190,7 +190,9 @@ export default function InfoManagePage() {
                     {unpub && p.status === 'published' && <span className="text-[9px] font-bold uppercase tracking-wider text-[#92400E] bg-[#FFF7ED] border border-[#FDE2B8] rounded-full px-1.5 py-0.5">Unpublished changes</span>}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#2A2035]/50">
-                    {catName(p.category_id) && <span className="text-[#325099]/70">{catName(p.category_id)}</span>}
+                    {p.parent_id
+                      ? <span className="text-[#5B21B6]/70" title="Subpage">↳ {(pages || []).find(x => x.id === p.parent_id)?.title || 'parent'}</span>
+                      : catName(p.category_id) && <span className="text-[#325099]/70">{catName(p.category_id)}</span>}
                     <span>Updated {fmtDate(p.updated_at)}{p.updated_by_name ? ` · ${p.updated_by_name}` : ''}</span>
                     {(p.tags || []).slice(0, 3).map(t => <span key={t} className="text-[#5b7bc4]">#{t}</span>)}
                   </div>
@@ -241,7 +243,7 @@ export default function InfoManagePage() {
 
       {/* Per-page settings */}
       {settingsPage && (
-        <SettingsModal page={settingsPage} cats={cats.filter(c => !c.archived)} onClose={() => setSettingsPage(null)}
+        <SettingsModal page={settingsPage} cats={cats.filter(c => !c.archived)} pages={pages || []} onClose={() => setSettingsPage(null)}
           onSaved={async () => { setSettingsPage(null); await reload() }} />
       )}
 
@@ -278,10 +280,16 @@ function Modal({ title, children, onClose }) {
   )
 }
 
-function SettingsModal({ page, cats, onClose, onSaved }) {
+function SettingsModal({ page, cats, pages = [], onClose, onSaved }) {
   const [categoryId, setCategoryId] = useState(page.category_id || '')
   const [tags, setTags] = useState((page.tags || []).join(', '))
   const [audience, setAudience] = useState(audienceOf(page))
+  const [parentId, setParentId] = useState(page.parent_id || '')
+  // One level deep: a page that already has subpages cannot become one, and a
+  // subpage cannot be chosen as a parent. The database enforces both too.
+  const hasKids = pages.some(x => x.parent_id === page.id)
+  const parentChoices = pages.filter(x => x.id !== page.id && !x.parent_id)
+  const parentPage = pages.find(x => x.id === parentId) || null
   const [mandatory, setMandatory] = useState(!!page.mandatory)
   const [icon, setIcon] = useState(page.icon || '')
   const [scheduledAt, setScheduledAt] = useState(page.scheduled_at ? page.scheduled_at.slice(0, 16) : '')
@@ -291,8 +299,11 @@ function SettingsModal({ page, cats, onClose, onSaved }) {
     try {
       const patch = {
         category_id: categoryId || null,
+        parent_id: parentId || null,
         tags: tags.split(',').map(s => s.trim()).filter(Boolean),
-        visible_roles: rolesFor(audience),
+        // A subpage takes its parent's audience (the database applies this as
+        // well, so the two cannot drift).
+        visible_roles: parentPage ? parentPage.visible_roles : rolesFor(audience),
         mandatory, icon: icon || null,
         scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
       }
@@ -312,18 +323,37 @@ function SettingsModal({ page, cats, onClose, onSaved }) {
             </select>
           </div>
         </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-[#325099]/70 mb-1">Parent page</label>
+          <select value={parentId} onChange={e => setParentId(e.target.value)} disabled={hasKids}
+            className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm disabled:bg-[#F8FAFF] disabled:text-[#2A2035]/40">
+            <option value="">None — a top-level page</option>
+            {parentChoices.map(x => <option key={x.id} value={x.id}>{x.title}</option>)}
+          </select>
+          <p className="text-[11px] text-[#2A2035]/45 mt-1.5">
+            {hasKids
+              ? 'This page has subpages of its own, so it cannot become one. Subpages go one level deep.'
+              : parentId
+                ? `Listed under “${parentPage?.title || 'its parent'}” in the sidebar instead of a category.`
+                : 'Choose a page to file this one underneath it.'}
+          </p>
+        </div>
         <div><label className="block text-[11px] font-semibold text-[#325099]/70 mb-1">Tags (comma-separated)</label><input value={tags} onChange={e => setTags(e.target.value)} placeholder="onboarding, policy" className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm" /></div>
         <div>
           <label className="block text-[11px] font-semibold text-[#325099]/70 mb-1">Who can view this page</label>
           <div className="flex gap-1.5">
-            {AUDIENCES.map(a => (
-              <button key={a.id} onClick={() => setAudience(a.id)} title={a.hint}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${audience === a.id ? 'bg-[#325099] text-white border-[#325099]' : 'text-[#325099] border-[#DEE7FF]'}`}>{a.label}</button>
-            ))}
+            {AUDIENCES.map(a => {
+              const on = parentPage ? audienceOf(parentPage) === a.id : audience === a.id
+              return (
+                <button key={a.id} onClick={() => !parentPage && setAudience(a.id)} title={a.hint} disabled={!!parentPage}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${on ? 'bg-[#325099] text-white border-[#325099]' : 'text-[#325099] border-[#DEE7FF]'} ${parentPage ? 'opacity-60 cursor-not-allowed' : ''}`}>{a.label}</button>
+              )
+            })}
           </div>
           <p className="text-[11px] text-[#2A2035]/45 mt-1.5">
-            {AUDIENCES.find(a => a.id === audience)?.hint}
-            {audience === 'director' && ' · listed under “Director” in the sidebar'}
+            {parentPage
+              ? `Follows its parent — “${parentPage.title}” is set to ${audienceOf(parentPage) === 'director' ? 'Director' : 'Everyone'}.`
+              : <>{AUDIENCES.find(a => a.id === audience)?.hint}{audience === 'director' && ' · listed under “Director” in the sidebar'}</>}
           </p>
         </div>
         <div className="flex items-center gap-4">

@@ -44,8 +44,21 @@ export default function TutorSidebar({ defaultOpen = true }) {
     // among the categories. Teachers never receive them — the read policy on
     // infohub_pages filters them out before they reach the browser — so this
     // group simply does not appear for them.
-    const director = list.filter(p => isDirectorOnly(p)).sort((a, b) => a.sort_order - b.sort_order)
-    const open = list.filter(p => !isDirectorOnly(p))
+    // Subpages hang off their parent, so they are taken out of the flat lists.
+    // A filter is the exception: while searching, matches show on their own —
+    // hiding a hit because its parent did not match would be unhelpful.
+    const kids = new Map()
+    if (!filter) {
+      for (const p of list) {
+        if (!p.parent_id) continue
+        if (!kids.has(p.parent_id)) kids.set(p.parent_id, [])
+        kids.get(p.parent_id).push(p)
+      }
+      for (const arr of kids.values()) arr.sort((a, b) => a.sort_order - b.sort_order)
+    }
+    const tops = filter ? list : list.filter(p => !p.parent_id)
+    const director = tops.filter(p => isDirectorOnly(p)).sort((a, b) => a.sort_order - b.sort_order)
+    const open = tops.filter(p => !isDirectorOnly(p))
     const pinned = open.filter(p => p.pinned)
     const rest = open.filter(p => !p.pinned)
     const byCat = []
@@ -55,20 +68,29 @@ export default function TutorSidebar({ defaultOpen = true }) {
     }
     const uncat = rest.filter(p => !p.category_id || !cats.some(c => c.id === p.category_id))
     if (uncat.length) byCat.push({ name: cats.length ? 'Other' : null, items: uncat })
-    return { pinned, byCat, director }
+    return { pinned, byCat, director, kids }
   }, [pages, cats, filter])
 
-  const Item = ({ slug, icon, title, mandatory }) => {
+  const Item = ({ slug, icon, title, mandatory, sub = false }) => {
     const active = isActive(slug)
     return (
       <Link href={`/tutor/hub/${slug}`} title={title}
-        className={`flex items-center gap-2.5 px-2 py-1.5 rounded-xl transition ${active ? 'bg-[#DEE7FF] text-[#062E63] font-semibold' : 'text-[#2A2035]/65 hover:text-[#062E63] hover:bg-[#F8FAFF]'}`}>
-        <span className="text-sm shrink-0 w-5 text-center" aria-hidden="true">{icon || '📄'}</span>
-        {open && <span className="text-sm truncate flex-1">{title}</span>}
+        className={`flex items-center gap-2.5 py-1.5 rounded-xl transition ${sub && open ? 'pl-6 pr-2' : 'px-2'} ${active ? 'bg-[#DEE7FF] text-[#062E63] font-semibold' : 'text-[#2A2035]/65 hover:text-[#062E63] hover:bg-[#F8FAFF]'}`}>
+        <span className={`shrink-0 text-center ${sub && open ? 'text-xs w-4' : 'text-sm w-5'}`} aria-hidden="true">{icon || (sub ? '·' : '📄')}</span>
+        {open && <span className={`truncate flex-1 ${sub ? 'text-[13px]' : 'text-sm'}`}>{title}</span>}
         {open && mandatory && <span className="w-1.5 h-1.5 rounded-full bg-[#B91C1C] shrink-0" title="Mandatory reading" />}
       </Link>
     )
   }
+  // A page plus whatever hangs off it.
+  const Branch = ({ p }) => (
+    <div>
+      <Item slug={p.slug} icon={p.icon} title={p.title} mandatory={p.mandatory} />
+      {(groups.kids.get(p.id) || []).map(k => (
+        <Item key={k.id} slug={k.slug} icon={k.icon} title={k.title} mandatory={k.mandatory} sub />
+      ))}
+    </div>
+  )
 
   return (
     <aside className={`shrink-0 transition-all duration-200 ${open ? 'w-56' : 'w-14'} flex flex-col`}>
@@ -98,13 +120,13 @@ export default function TutorSidebar({ defaultOpen = true }) {
               {groups.pinned.length > 0 && (
                 <div className="mb-1">
                   {open && <p className="px-2 pt-1 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35">Pinned</p>}
-                  {groups.pinned.map(p => <Item key={p.id} slug={p.slug} icon={p.icon} title={p.title} mandatory={p.mandatory} />)}
+                  {groups.pinned.map(p => <Branch key={p.id} p={p} />)}
                 </div>
               )}
               {groups.byCat.map((g, gi) => (
                 <div key={gi} className="mb-1">
                   {open && g.name && <p className="px-2 pt-1 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35">{g.name}</p>}
-                  {g.items.map(p => <Item key={p.id} slug={p.slug} icon={p.icon} title={p.title} mandatory={p.mandatory} />)}
+                  {g.items.map(p => <Branch key={p.id} p={p} />)}
                 </div>
               ))}
               {groups.director.length > 0 && (
@@ -114,7 +136,7 @@ export default function TutorSidebar({ defaultOpen = true }) {
                       <span aria-hidden="true">🔒</span> Director
                     </p>
                   )}
-                  {groups.director.map(p => <Item key={p.id} slug={p.slug} icon={p.icon} title={p.title} mandatory={p.mandatory} />)}
+                  {groups.director.map(p => <Branch key={p.id} p={p} />)}
                 </div>
               )}
             </>

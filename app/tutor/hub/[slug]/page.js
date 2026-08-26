@@ -12,7 +12,7 @@ import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { useHub } from '../context'
 import InfoBlocks from '../../../../components/infohub/InfoBlocks'
-import { loadPageBySlug, getAck, acknowledgePage } from '../../../../lib/infohub/data'
+import { loadPageBySlug, getAck, acknowledgePage, listSubpages, loadPageCrumb } from '../../../../lib/infohub/data'
 import { mdToBlocks } from '../../../../lib/infohub/convert'
 
 function fmtDate(d) {
@@ -27,6 +27,8 @@ export default function InfoViewPage() {
   const [legacy, setLegacy] = useState(null)    // { title, blocks } fallback
   const [ack, setAck] = useState(null)
   const [acking, setAcking] = useState(false)
+  const [subpages, setSubpages] = useState([])
+  const [parent, setParent] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -35,6 +37,12 @@ export default function InfoViewPage() {
       if (!active) return
       if (p) {
         setPage(p)
+        // Editors see unpublished subpages listed (greyed); everyone else sees
+        // only what is live. The read policy filters restricted ones regardless.
+        const kids = await listSubpages(p.id, { publishedOnly: !canEdit })
+        if (active) setSubpages(kids)
+        const up = p.parent_id ? await loadPageCrumb(p.parent_id) : null
+        if (active) setParent(up)
         if (p.mandatory && staff?.id) { const a = await getAck(p.id, staff.id); if (active) setAck(a) }
         return
       }
@@ -45,7 +53,7 @@ export default function InfoViewPage() {
       setPage(lp ? 'legacy' : null)
     })()
     return () => { active = false }
-  }, [slug, staff?.id])
+  }, [slug, staff?.id, canEdit])
 
   if (page === undefined) return <div className="max-w-3xl mx-auto px-6 py-12 text-sm text-[#2A2035]/45">Loading…</div>
   if (page === null) return (
@@ -77,6 +85,12 @@ export default function InfoViewPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-6 md:px-8 py-10">
+      {parent && (
+        <Link href={`/tutor/hub/${parent.slug}`}
+          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] hover:underline mb-2">
+          <span aria-hidden="true">↖</span>{parent.icon ? `${parent.icon} ` : ''}{parent.title}
+        </Link>
+      )}
       <div className="flex items-start justify-between gap-3 mb-1">
         <div className="flex items-center gap-2 min-w-0">
           {page.icon && <span className="text-2xl" aria-hidden="true">{page.icon}</span>}
@@ -103,6 +117,28 @@ export default function InfoViewPage() {
       <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-8">
         {blocks.length ? <InfoBlocks blocks={blocks} /> : <p className="text-sm text-[#2A2035]/40 text-center py-6">This page is empty.</p>}
       </div>
+
+      {subpages.length > 0 && (
+        <section className="mt-6">
+          <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#325099]/60 mb-2">In this section</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {subpages.map(sp => (
+              <Link key={sp.id} href={`/tutor/hub/${sp.slug}`}
+                className="bg-white rounded-xl border border-[#DEE7FF] px-4 py-3 hover:border-[#325099] transition flex items-start gap-3">
+                <span className="text-base shrink-0" aria-hidden="true">{sp.icon || '📄'}</span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-[#062E63] truncate">
+                    {sp.title}
+                    {sp.mandatory && <span className="ml-1.5 align-middle w-1.5 h-1.5 inline-block rounded-full bg-[#B91C1C]" title="Mandatory reading" />}
+                    {sp.status !== 'published' && <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wider text-[#92400E]">Draft</span>}
+                  </span>
+                  {sp.summary && <span className="block text-[11px] text-[#2A2035]/50 truncate mt-0.5">{sp.summary}</span>}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
