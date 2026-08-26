@@ -86,7 +86,8 @@ export default function ExamBuilderPage() {
   // Exam subject (maths/english) + year → the matching qbank_subject that drives topic scope.
   const subjectFor = useCallback((yr, paper) => {
     const subs = (tax?.subjects || []).filter((s) => String(s.year_level) === String(yr))
-    const re = paper === 'english' ? /english|eald|eal/i : /math/i
+    const re = paper === 'english' ? /english|eald|eal/i
+             : paper === 'chemistry' ? /chem/i : /math/i
     return (subs.find((s) => re.test(s.name)) || subs[0])?.id || null
   }, [tax])
   const scopeTopics = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
@@ -219,6 +220,7 @@ export default function ExamBuilderPage() {
   // Shared payload for both the PDF export and the live preview.
   const buildMeta = useCallback(() => ({
     title: exam?.title, yearLabel: exam?.year_label, term: exam?.term, paperType: exam?.paper_type || 'maths',
+    kind: exam?.kind || 'term',
     readingTime: exam?.reading_time, workingTime: exam?.working_time, calculators: exam?.calculators,
   }), [exam])
   // Shared with the curriculum exam assign + student reports (single source of truth).
@@ -301,7 +303,7 @@ export default function ExamBuilderPage() {
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Exam subject</label>
                   <select value={exam.paper_type || 'maths'} className={inCls}
                     onChange={(e) => patch({ paper_type: e.target.value, subject_id: subjectFor(exam.year_label, e.target.value), topic_ids: [] })}>
-                    <option value="maths">Maths</option><option value="english">English</option>
+                    <option value="maths">Maths</option><option value="english">English</option><option value="chemistry">Chemistry</option>
                   </select></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Year</label>
                   <select value={exam.year_label || ''} className={inCls}

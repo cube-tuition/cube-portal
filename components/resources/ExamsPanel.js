@@ -14,7 +14,7 @@ import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
  * one panel serves both tabs — only the filter and the wording differ. Exams
  * written before the split have no kind and read as term tests.
  */
-const KIND_NOUN = { term: 'exam', mid_term: 'mid-term test' }
+const KIND_NOUN = { term: 'exam', mid_term: 'mid-term test', mock: 'mock' }
 
 export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
   const noun = KIND_NOUN[kind] || KIND_NOUN.term
@@ -23,7 +23,10 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
   const [exams, setExams] = useState([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [tab, setTab] = useState(scope === 'English' ? 'english' : 'maths')   // 'maths' | 'english'
+  // 'maths' | 'english' | 'chemistry' — a hub scope locks it to that subject.
+  const PAPER_OF = { English: 'english', Chemistry: 'chemistry', Maths: 'maths' }
+  const [tab, setTab] = useState(PAPER_OF[scope] || 'maths')
+  const paperLabel = tab === 'english' ? 'English' : tab === 'chemistry' ? 'Chemistry' : 'Maths'
   const [terms, setTerms] = useState([])
   const [termId, setTermId] = useState('')
 
@@ -55,10 +58,12 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
     } catch (e) { alert(`Could not create ${noun}: ` + (e.message || e)); setCreating(false) }
   }
 
-  const isEnglish = (e) => e.paper_type === 'english'
-  const shown = scope === 'Chemistry' ? [] : exams.filter((e) => (tab === 'english' ? isEnglish(e) : !isEnglish(e)) && matchesTerm(e) && isKind(e))
-  const mathsN = exams.filter((e) => !isEnglish(e) && matchesTerm(e) && isKind(e)).length
-  const englishN = exams.filter((e) => isEnglish(e) && matchesTerm(e) && isKind(e)).length
+  const paperOf = (e) => (e.paper_type === 'english' || e.paper_type === 'chemistry' ? e.paper_type : 'maths')
+  const shown = exams.filter((e) => paperOf(e) === tab && matchesTerm(e) && isKind(e))
+  const countIn = (paper) => exams.filter((e) => paperOf(e) === paper && matchesTerm(e) && isKind(e)).length
+  const mathsN = countIn('maths')
+  const englishN = countIn('english')
+  const chemN = countIn('chemistry')
 
   const handleDelete = async (id, title) => {
     if (!confirm(`Delete "${title}"? This cannot be undone.`)) return
@@ -89,18 +94,15 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
           )}
           <button onClick={handleNew} disabled={creating}
             className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
-            {creating ? 'Creating…' : `+ New ${tab === 'english' ? 'English' : 'Maths'} ${noun}`}
+            {creating ? 'Creating…' : `+ New ${paperLabel} ${noun}`}
           </button>
         </div>
       </div>
 
       {/* Maths / English folders (hidden when a hub scope locks the subject) */}
-      {scope === 'Chemistry' && (
-        <p className="text-sm text-[#2A2035]/50 italic py-6 text-center bg-white rounded-2xl border border-dashed border-[#DEE7FF] mb-5">{kind === 'mid_term' ? 'Mid-term tests' : 'Term tests'} only come in Maths and English paper types — there are no Chemistry ones yet.</p>
-      )}
       {!scope && (
       <div className="flex gap-1 mb-5 border-b border-[#DEE7FF]">
-        {[['maths', 'Maths', mathsN], ['english', 'English', englishN]].map(([v, label, n]) => (
+        {[['maths', 'Maths', mathsN], ['english', 'English', englishN], ['chemistry', 'Chemistry', chemN]].map(([v, label, n]) => (
           <button key={v} onClick={() => setTab(v)}
             className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${tab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
             {label} <span className="text-[11px] font-normal text-[#2A2035]/40">{n}</span>
@@ -109,12 +111,12 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
       </div>
       )}
 
-      {scope === 'Chemistry' ? null : loading ? (
+      {loading ? (
         <p className="text-center text-sm text-[#2A2035]/40 py-12 animate-pulse">Loading…</p>
       ) : shown.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
-          <p className="text-sm text-[#2A2035]/50">No {tab === 'english' ? 'English' : 'Maths'} {noun}s yet.</p>
-          <button onClick={handleNew} className="inline-block mt-3 px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold">Plan your first {tab === 'english' ? 'English' : 'Maths'} {noun}</button>
+          <p className="text-sm text-[#2A2035]/50">No {paperLabel} {noun}s yet.</p>
+          <button onClick={handleNew} className="inline-block mt-3 px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold">Plan your first {paperLabel} {noun}</button>
         </div>
       ) : (
         <div className="space-y-2">
