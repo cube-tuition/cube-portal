@@ -8,7 +8,7 @@ import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getEnrolmentTerm, formatTermLabel } from '../../../lib/terms'
 import { DUE_DATES, daysUntil } from '../../../lib/complianceDates'
 import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
-import { CASH_RETAINERS, fortnightlyRetainerFor } from '../../../lib/cashRetainers'
+import { CASH_RETAINERS, RETAINERS_FROM, fortnightlyRetainerFor } from '../../../lib/cashRetainers'
 
 /*
  * Accounting Dashboard — /tutor/accounting
@@ -257,12 +257,45 @@ export default function AccountingDashboard() {
       byTutor.set(sh.tutor_id, r)
     }
 
+    // Retainers accrue per fortnight whether or not shifts were logged in it:
+    // every started run since RETAINERS_FROM gets a card for each retainer
+    // director, so a quiet fortnight's $300 can't hide.
+    const todayISOForRuns = now.toISOString().slice(0, 10)
+    // One retainer per FORTNIGHT, not per run row: pay_runs carries stray
+    // overlapping runs from before the fortnight grid was term-aligned (empty,
+    // status open). Walking chronologically and skipping any run that overlaps
+    // the last accrued one charges each fortnight exactly once.
+    const retainerRuns = []
+    for (const run of [...allRuns].sort((a, b) => a.period_start.localeCompare(b.period_start))) {
+      if (run.period_start < RETAINERS_FROM || run.period_start > todayISOForRuns) continue
+      const last = retainerRuns[retainerRuns.length - 1]
+      if (last && run.period_start <= last.period_end) continue
+      retainerRuns.push(run)
+    }
+    const retainerRunIds = new Set(retainerRuns.map(r => r.id))
+    const retainerStaff = [...(tutorsRes.data || []), ...(dirRes.data || [])]
+      .filter(p => fortnightlyRetainerFor(p.full_name) > 0)
+    for (const p of retainerStaff) {
+      const r = byTutor.get(p.id) || {
+        id: p.id, name: p.full_name,
+        owed: 0, draft: 0, hours: 0, shifts: 0, noRate: 0, oldest: null,
+        runs: new Map(),
+      }
+      for (const run of retainerRuns) {
+        if (!r.runs.has(run.id)) r.runs.set(run.id, {
+          key: run.id, start: run.period_start, end: run.period_end,
+          label: labelPeriod(run.period_start, run.period_end, allTerms),
+          owed: 0, draft: 0, shifts: 0, noRate: 0,
+        })
+      }
+      byTutor.set(p.id, r)
+    }
+
     // Cash settlements recorded per (run, tutor) — money the payroll page has
     // already marked as handed over. Subtracted from that run's owed amount;
     // anything approved beyond the recorded payment stays visible.
     const cashPaidByRunTutor = new Map(
       (cashPaidRes.data || []).map(c => [`${c.pay_run_id}:${c.tutor_id}`, Number(c.amount) || 0]))
-    const todayISO = now.toISOString().slice(0, 10)
     const unpaidRows = [...byTutor.values()]
       .map(r => {
         const runs = [...r.runs.values()]
@@ -270,8 +303,7 @@ export default function AccountingDashboard() {
             // Director retainers ($300/fortnight cash) ride the pay run: owed
             // alongside that run's shifts once the fortnight has started, and
             // settled by the same Mark-paid that records the shift cash.
-            const retainer = p.key !== 'unscheduled' && p.start && p.start <= todayISO
-              ? fortnightlyRetainerFor(r.name) : 0
+            const retainer = retainerRunIds.has(p.key) ? fortnightlyRetainerFor(r.name) : 0
             const cashPaid = cashPaidByRunTutor.get(`${p.key}:${r.id}`) || 0
             const owed = Math.max(0, p.owed + retainer - cashPaid)
             return { ...p, retainer, owed, total: owed + p.draft }
