@@ -170,6 +170,160 @@ function SummaryCard({ label, value, sub, color = '#062E63' }) {
   )
 }
 
+// ── Class table (shared between live and play) ───────────────────────────────
+function ClassTable({ rows, editable = false, onChange, hideStudents = false }) {
+  const headers = ['Class', ...(!hideStudents ? ['Students'] : []), 'Term Fee', 'Term Income', 'Teacher', 'Rate ($/hr)', 'Hours', 'Super?', 'Weekly Pay', 'Termly Cost (inc. Super)', 'Profit']
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-[#DEE7FF]">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
+            {headers.map(h => (
+              <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider whitespace-nowrap">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#F0F4FF]">
+          {rows.map((c, i) => {
+            const profit = c.termProfit ?? (c.termIncome - c.totalTeacherCost)
+            return (
+              <tr key={c.id ?? i} className={`hover:bg-[#F8FAFF] transition ${profit < 0 ? 'bg-red-50' : ''}`}>
+                <td className="px-3 py-2 font-medium text-[#062E63] whitespace-nowrap">
+                  {c.class_name}
+                  {c.studentName && <span className="ml-1.5 text-[#325099]/50 font-normal">· {c.studentName}</span>}
+                </td>
+                {!hideStudents && <td className="px-3 py-2 text-center">
+                  {editable ? (
+                    <input type="number" min="0" value={c.studentCount}
+                      onChange={e => onChange(i, 'studentCount', parseInt(e.target.value) || 0)}
+                      className="w-12 border border-[#DEE7FF] rounded px-1 py-0.5 text-center text-xs" />
+                  ) : c.studentCount}
+                </td>}
+                <td className="px-3 py-2">
+                  {editable ? (
+                    <input type="number" min="0" value={c.termFee}
+                      onChange={e => onChange(i, 'termFee', parseFloat(e.target.value) || 0)}
+                      className="w-16 border border-[#DEE7FF] rounded px-1 py-0.5 text-xs" />
+                  ) : fmt(c.termFee)}
+                </td>
+                <td className="px-3 py-2 font-semibold text-[#062E63]">{fmt(c.termIncome)}</td>
+                <td className="px-3 py-2 text-[#325099]/70">{c.teacher || '—'}</td>
+                <td className="px-3 py-2">
+                  {editable ? (
+                    <input type="number" min="0" value={c.teacherRate}
+                      onChange={e => onChange(i, 'teacherRate', parseFloat(e.target.value) || 0)}
+                      className="w-14 border border-[#DEE7FF] rounded px-1 py-0.5 text-xs" />
+                  ) : (c.teacherRate ? `$${c.teacherRate}` : <span className="text-[#325099]/30">—</span>)}
+                </td>
+                <td className="px-3 py-2">
+                  {editable ? (
+                    <input type="number" min="0" step="0.5" value={c.lessonHrs}
+                      onChange={e => onChange(i, 'lessonHrs', parseFloat(e.target.value) || 0)}
+                      className="w-12 border border-[#DEE7FF] rounded px-1 py-0.5 text-xs" />
+                  ) : c.lessonHrs.toFixed(1)}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {editable ? (
+                    <input type="checkbox" checked={c.superApplies}
+                      onChange={e => onChange(i, 'superApplies', e.target.checked)}
+                      className="accent-[#325099]" />
+                  ) : (
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${c.superApplies ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
+                      {c.superApplies ? 'Yes' : 'No'}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2">{c.weeklyTeacherFee ? fmt(c.weeklyTeacherFee) : '—'}</td>
+                <td className="px-3 py-2">{c.totalTeacherCost ? fmt(c.totalTeacherCost) : '—'}</td>
+                <td className={`px-3 py-2 font-bold ${profit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                  {fmt(profit)}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── Summary grid ─────────────────────────────────────────────────────────────
+function SummaryGrid({ s, yearly = false }) {
+  const m = yearly ? 4 : 1
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Income */}
+      <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
+        <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Total Income</p>
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class Income</span><span className="font-semibold">{fmt(s.classIncome * m)}</span></div>
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 Income</span><span className="font-semibold">{fmt(s.oneOnOneIncome * m)}</span></div>
+          <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt(s.totalIncome * m)}</span></div>
+          <div className="flex justify-between text-xs text-emerald-700 font-semibold"><span>After GST</span><span>{fmt(s.afterGst * m)}</span></div>
+        </div>
+      </div>
+      {/* Expenses */}
+      <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
+        <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Total Expenses</p>
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class Teacher Pay</span><span className="font-semibold">{fmt(s.classTeacherCost * m)}</span></div>
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 Teacher Pay</span><span className="font-semibold">{fmt(s.oneOnOneTeacherCost * m)}</span></div>
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Fixed Costs</span><span className="font-semibold">{fmt(s.fixedTermly * m)}</span></div>
+          <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt(s.totalExpenses * m)}</span></div>
+        </div>
+      </div>
+      {/* Discounts (live only) */}
+      <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
+        <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Discounts &amp; credits</p>
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Multi-course</span><span className="font-semibold">{fmt((s.multiCourseDiscount ?? 0) * m)}</span></div>
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Sibling</span><span className="font-semibold">{fmt((s.siblingDiscount ?? 0) * m)}</span></div>
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Cash discount (10%)</span><span className="font-semibold">{fmt((s.cashDiscount ?? 0) * m)}</span></div>
+          <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Referral</span><span className="font-semibold">{fmt((s.referralDiscount ?? 0) * m)}</span></div>
+          <div className="flex justify-between text-xs text-[#325099]/40"><span>Credits &amp; adjustments <span className="text-[10px]">(not counted — assumes full attendance)</span></span><span className="font-semibold">{fmt((s.creditsOther ?? 0) * m)}</span></div>
+          <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt((s.totalDiscount ?? 0) * m)}</span></div>
+        </div>
+      </div>
+      {/* Profit */}
+      <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
+        <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Profit</p>
+        <div className="space-y-1">
+          {(() => {
+            // Split after-GST income proportionally between class and 1-on-1
+            const total     = s.totalIncome || 1
+            const classShare   = s.classIncome    / total
+            const oneOnOneShare= s.oneOnOneIncome / total
+            const classP    = (s.afterGst * classShare    - s.classTeacherCost)    * m
+            const oneOnOneP = (s.afterGst * oneOnOneShare - s.oneOnOneTeacherCost) * m
+            const fixedCost = (s.fixedTermly ?? 0) * m
+            const discount  = (s.totalDiscount  ?? 0) * m
+            return (<>
+              <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class (after GST − teacher)</span><span className="font-semibold">{fmt(classP)}</span></div>
+              <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 (after GST − teacher)</span><span className="font-semibold">{fmt(oneOnOneP)}</span></div>
+              {fixedCost > 0 && <div className="flex justify-between text-xs text-red-500"><span>Fixed Costs</span><span>−{fmt(fixedCost)}</span></div>}
+              {discount  > 0 && <div className="flex justify-between text-xs text-red-500"><span>Discounts</span><span>−{fmt(discount)}</span></div>}
+              {s.cashPosition != null && (
+                <div className="flex justify-between text-xs border-t border-[#DEE7FF] pt-1 mt-1">
+                  <span className="text-[#325099]/70">Cash taken in − cash wages out</span>
+                  <span className={`font-semibold ${s.cashPosition < 0 ? 'text-red-600' : ''}`}>{fmt(s.cashPosition * m)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total Profit</span><span className={s.totalProfit * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.totalProfit * m)}</span></div>
+              {s.cashProfit != null && (
+                <div className="flex justify-between text-xs"><span className="text-[#325099]/70 pl-2">↳ Cash profit (untaxed)</span><span className="font-semibold">{fmt(s.cashProfit * m)}</span></div>
+              )}
+              {s.bankProfit != null && (
+                <div className="flex justify-between text-xs"><span className="text-[#325099]/70 pl-2">↳ Bank profit (taxed 25%)</span><span className="font-semibold">{fmt(s.bankProfit * m)}</span></div>
+              )}
+              <div className="flex justify-between text-xs font-bold"><span className="text-[#325099]/70">After Tax (25%)</span><span className={s.afterTax * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.afterTax * m)}</span></div>
+            </>)
+          })()}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ForecastPage() {
   const router = useRouter()
@@ -757,159 +911,6 @@ export default function ForecastPage() {
   }
 
 
-  // ── Class table (shared between live and play) ───────────────────────────────
-  function ClassTable({ rows, editable = false, onChange, hideStudents = false }) {
-    const headers = ['Class', ...(!hideStudents ? ['Students'] : []), 'Term Fee', 'Term Income', 'Teacher', 'Rate ($/hr)', 'Hours', 'Super?', 'Weekly Pay', 'Termly Cost (inc. Super)', 'Profit']
-    return (
-      <div className="overflow-x-auto rounded-2xl border border-[#DEE7FF]">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-              {headers.map(h => (
-                <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider whitespace-nowrap">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#F0F4FF]">
-            {rows.map((c, i) => {
-              const profit = c.termProfit ?? (c.termIncome - c.totalTeacherCost)
-              return (
-                <tr key={c.id ?? i} className={`hover:bg-[#F8FAFF] transition ${profit < 0 ? 'bg-red-50' : ''}`}>
-                  <td className="px-3 py-2 font-medium text-[#062E63] whitespace-nowrap">
-                    {c.class_name}
-                    {c.studentName && <span className="ml-1.5 text-[#325099]/50 font-normal">· {c.studentName}</span>}
-                  </td>
-                  {!hideStudents && <td className="px-3 py-2 text-center">
-                    {editable ? (
-                      <input type="number" min="0" value={c.studentCount}
-                        onChange={e => onChange(i, 'studentCount', parseInt(e.target.value) || 0)}
-                        className="w-12 border border-[#DEE7FF] rounded px-1 py-0.5 text-center text-xs" />
-                    ) : c.studentCount}
-                  </td>}
-                  <td className="px-3 py-2">
-                    {editable ? (
-                      <input type="number" min="0" value={c.termFee}
-                        onChange={e => onChange(i, 'termFee', parseFloat(e.target.value) || 0)}
-                        className="w-16 border border-[#DEE7FF] rounded px-1 py-0.5 text-xs" />
-                    ) : fmt(c.termFee)}
-                  </td>
-                  <td className="px-3 py-2 font-semibold text-[#062E63]">{fmt(c.termIncome)}</td>
-                  <td className="px-3 py-2 text-[#325099]/70">{c.teacher || '—'}</td>
-                  <td className="px-3 py-2">
-                    {editable ? (
-                      <input type="number" min="0" value={c.teacherRate}
-                        onChange={e => onChange(i, 'teacherRate', parseFloat(e.target.value) || 0)}
-                        className="w-14 border border-[#DEE7FF] rounded px-1 py-0.5 text-xs" />
-                    ) : (c.teacherRate ? `$${c.teacherRate}` : <span className="text-[#325099]/30">—</span>)}
-                  </td>
-                  <td className="px-3 py-2">
-                    {editable ? (
-                      <input type="number" min="0" step="0.5" value={c.lessonHrs}
-                        onChange={e => onChange(i, 'lessonHrs', parseFloat(e.target.value) || 0)}
-                        className="w-12 border border-[#DEE7FF] rounded px-1 py-0.5 text-xs" />
-                    ) : c.lessonHrs.toFixed(1)}
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    {editable ? (
-                      <input type="checkbox" checked={c.superApplies}
-                        onChange={e => onChange(i, 'superApplies', e.target.checked)}
-                        className="accent-[#325099]" />
-                    ) : (
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${c.superApplies ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
-                        {c.superApplies ? 'Yes' : 'No'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">{c.weeklyTeacherFee ? fmt(c.weeklyTeacherFee) : '—'}</td>
-                  <td className="px-3 py-2">{c.totalTeacherCost ? fmt(c.totalTeacherCost) : '—'}</td>
-                  <td className={`px-3 py-2 font-bold ${profit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                    {fmt(profit)}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-  // ── Summary grid ─────────────────────────────────────────────────────────────
-  function SummaryGrid({ s, yearly = false }) {
-    const m = yearly ? 4 : 1
-    return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {/* Income */}
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
-          <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Total Income</p>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class Income</span><span className="font-semibold">{fmt(s.classIncome * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 Income</span><span className="font-semibold">{fmt(s.oneOnOneIncome * m)}</span></div>
-            <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt(s.totalIncome * m)}</span></div>
-            <div className="flex justify-between text-xs text-emerald-700 font-semibold"><span>After GST</span><span>{fmt(s.afterGst * m)}</span></div>
-          </div>
-        </div>
-        {/* Expenses */}
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
-          <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Total Expenses</p>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class Teacher Pay</span><span className="font-semibold">{fmt(s.classTeacherCost * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 Teacher Pay</span><span className="font-semibold">{fmt(s.oneOnOneTeacherCost * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Fixed Costs</span><span className="font-semibold">{fmt(s.fixedTermly * m)}</span></div>
-            <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt(s.totalExpenses * m)}</span></div>
-          </div>
-        </div>
-        {/* Discounts (live only) */}
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
-          <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Discounts &amp; credits</p>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Multi-course</span><span className="font-semibold">{fmt((s.multiCourseDiscount ?? 0) * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Sibling</span><span className="font-semibold">{fmt((s.siblingDiscount ?? 0) * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Cash discount (10%)</span><span className="font-semibold">{fmt((s.cashDiscount ?? 0) * m)}</span></div>
-            <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Referral</span><span className="font-semibold">{fmt((s.referralDiscount ?? 0) * m)}</span></div>
-            <div className="flex justify-between text-xs text-[#325099]/40"><span>Credits &amp; adjustments <span className="text-[10px]">(not counted — assumes full attendance)</span></span><span className="font-semibold">{fmt((s.creditsOther ?? 0) * m)}</span></div>
-            <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total</span><span>{fmt((s.totalDiscount ?? 0) * m)}</span></div>
-          </div>
-        </div>
-        {/* Profit */}
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
-          <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Profit</p>
-          <div className="space-y-1">
-            {(() => {
-              // Split after-GST income proportionally between class and 1-on-1
-              const total     = s.totalIncome || 1
-              const classShare   = s.classIncome    / total
-              const oneOnOneShare= s.oneOnOneIncome / total
-              const classP    = (s.afterGst * classShare    - s.classTeacherCost)    * m
-              const oneOnOneP = (s.afterGst * oneOnOneShare - s.oneOnOneTeacherCost) * m
-              const fixedCost = (s.fixedTermly ?? 0) * m
-              const discount  = (s.totalDiscount  ?? 0) * m
-              return (<>
-                <div className="flex justify-between text-xs"><span className="text-[#325099]/70">Class (after GST − teacher)</span><span className="font-semibold">{fmt(classP)}</span></div>
-                <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 (after GST − teacher)</span><span className="font-semibold">{fmt(oneOnOneP)}</span></div>
-                {fixedCost > 0 && <div className="flex justify-between text-xs text-red-500"><span>Fixed Costs</span><span>−{fmt(fixedCost)}</span></div>}
-                {discount  > 0 && <div className="flex justify-between text-xs text-red-500"><span>Discounts</span><span>−{fmt(discount)}</span></div>}
-                {s.cashPosition != null && (
-                  <div className="flex justify-between text-xs border-t border-[#DEE7FF] pt-1 mt-1">
-                    <span className="text-[#325099]/70">Cash taken in − cash wages out</span>
-                    <span className={`font-semibold ${s.cashPosition < 0 ? 'text-red-600' : ''}`}>{fmt(s.cashPosition * m)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total Profit</span><span className={s.totalProfit * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.totalProfit * m)}</span></div>
-                {s.cashProfit != null && (
-                  <div className="flex justify-between text-xs"><span className="text-[#325099]/70 pl-2">↳ Cash profit (untaxed)</span><span className="font-semibold">{fmt(s.cashProfit * m)}</span></div>
-                )}
-                {s.bankProfit != null && (
-                  <div className="flex justify-between text-xs"><span className="text-[#325099]/70 pl-2">↳ Bank profit (taxed 25%)</span><span className="font-semibold">{fmt(s.bankProfit * m)}</span></div>
-                )}
-                <div className="flex justify-between text-xs font-bold"><span className="text-[#325099]/70">After Tax (25%)</span><span className={s.afterTax * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.afterTax * m)}</span></div>
-              </>)
-            })()}
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen bg-[#F0F4FF]">
