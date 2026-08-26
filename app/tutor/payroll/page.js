@@ -142,6 +142,7 @@ export default function PayrollPage() {
   const [error, setError] = useState(null)
   const [savingId, setSavingId] = useState(null)
   const [approving, setApproving] = useState(false)
+  const [shiftActing, setShiftActing] = useState(null)   // shift id mid approve/undo
   const router = useRouter()
 
   // Load (or create) the pay run for the given (term, fortnight).
@@ -277,7 +278,11 @@ export default function PayrollPage() {
       amount += Number(s.amount || 0)
       if (s.rate_snapshot == null) missingRate += 1
     }
-    return { hours, amount, missingRate, tutorCount: byTutor.length, shiftCount: shifts.length }
+    let approvedCount = 0, approvedAmount = 0
+    for (const s of shifts) {
+      if (s.status === 'approved') { approvedCount += 1; approvedAmount += Number(s.amount || 0) }
+    }
+    return { hours, amount, missingRate, approvedCount, approvedAmount, tutorCount: byTutor.length, shiftCount: shifts.length }
   }, [shifts, byTutor])
 
   // Inline-edit a shift. Re-prices and saves to DB.
@@ -412,8 +417,32 @@ export default function PayrollPage() {
     }
   }
 
+  // Approve or pull back ONE shift. Approving attaches it to this run and the
+  // run totals follow live; the run itself stays open until it is finalised.
+  const approveShift = async (shift) => {
+    setShiftActing(shift.id)
+    try {
+      const { error: e } = await supabase.rpc('approve_shift', { p_shift: shift.id, p_pay_run: run.id })
+      if (e) throw e
+      await reload()
+    } catch (e) {
+      alert('Could not approve the shift: ' + (e.message || String(e)))
+    } finally { setShiftActing(null) }
+  }
+  const unapproveShift = async (shift) => {
+    setShiftActing(shift.id)
+    try {
+      const { error: e } = await supabase.rpc('unapprove_shift', { p_shift: shift.id })
+      if (e) throw e
+      await reload()
+    } catch (e) {
+      alert('Could not unapprove the shift: ' + (e.message || String(e)))
+    } finally { setShiftActing(null) }
+  }
+
   const approveRun = async () => {
-    if (!confirm(`Approve ${totals.shiftCount} shifts for ${totals.tutorCount} tutors? Total: ${fmtMoney(totals.amount)}`)) return
+    const pending = totals.shiftCount - totals.approvedCount
+    if (!confirm(`Approve ${pending ? `the remaining ${pending}` : 'all'} shift${pending === 1 ? '' : 's'} and finalise this run? Run total: ${fmtMoney(totals.amount)}`)) return
     setApproving(true)
     try {
       const { error: e } = await supabase.rpc('approve_pay_run', { p_pay_run: run.id })
@@ -426,8 +455,31 @@ export default function PayrollPage() {
     }
   }
 
+  // Finalise the run with ONLY the individually-approved shifts — the pending
+  // ones stay submitted and unattached, to be dealt with separately.
+  const finaliseApprovedOnly = async () => {
+    const pending = totals.shiftCount - totals.approvedCount
+    if (!confirm(`Finalise this run with only the ${totals.approvedCount} approved shift${totals.approvedCount === 1 ? '' : 's'} (${fmtMoney(totals.approvedAmount)})?\n\n${pending} pending shift${pending === 1 ? '' : 's'} will be left out of the run — they stay unpaid until approved into a run later.`)) return
+    setApproving(true)
+    try {
+      const { error: e } = await supabase.rpc('approve_pay_run', { p_pay_run: run.id, p_sweep: false })
+      if (e) throw e
+      await reload()
+    } catch (e) {
+      alert('Finalising failed: ' + (e.message || String(e)))
+    } finally {
+      setApproving(false)
+    }
+  }
+
   // ── Payslips — one per tutor for this run (PDF + email summary) ──────────────
+  // A finalised run may hold only SOME of the fortnight's shifts (approved
+  // individually, finalised without the sweep). Payslips cover what the run
+  // pays: the shifts attached to it — never the pending leftovers.
+  const runFinalised = ['approved', 'exported', 'paid'].includes(run?.status)
+  const paidShiftsOf = (g) => (runFinalised ? g.shifts.filter(s => s.pay_run_id === run.id) : g.shifts)
   const payslipDataFor = (g) => {
+    const paidShifts = paidShiftsOf(g)
     const tutorId   = g.shifts[0]?.tutor_id
     const payMethod = (payMethods[tutorId] || 'bank').toLowerCase()
     const mapShift = (s) => ({
@@ -435,7 +487,7 @@ export default function PayrollPage() {
       description: (s.notes || '').replace(/^Auto:\s*/, '') || `(${s.kind})`,
       hours: Number(s.hours || 0), rate: s.rate_snapshot, amount: Number(s.amount || 0),
     })
-    const shifts = g.shifts.map(mapShift)
+    const shifts = paidShifts.map(mapShift)
     // Split into the two weeks of the fortnight (Week 1 = first 7 days).
     const weekIdx = (wd) => {
       if (!run?.period_start) return 0
@@ -443,7 +495,7 @@ export default function PayrollPage() {
       return diff < 7 ? 0 : 1
     }
     const buckets = [[], []]
-    for (const s of g.shifts) buckets[Math.min(1, Math.max(0, weekIdx(s.work_date)))].push(s)
+    for (const s of paidShifts) buckets[Math.min(1, Math.max(0, weekIdx(s.work_date)))].push(s)
     const weeks = buckets.map((arr, wi) => ({
       label: `Week ${wi + 1}`,
       range: run?.period_start ? `${fmtDate(addDaysIso(run.period_start, wi * 7))}–${fmtDate(addDaysIso(run.period_start, wi * 7 + 6))}` : '',
@@ -451,8 +503,8 @@ export default function PayrollPage() {
       hours: arr.reduce((a, s) => a + Number(s.hours || 0), 0),
       amount: arr.reduce((a, s) => a + Number(s.amount || 0), 0),
     })).filter(w => w.shifts.length)
-    const gross = g.shifts.reduce((a, s) => a + Number(s.amount || 0), 0)
-    const hours = g.shifts.reduce((a, s) => a + Number(s.hours || 0), 0)
+    const gross = paidShifts.reduce((a, s) => a + Number(s.amount || 0), 0)
+    const hours = paidShifts.reduce((a, s) => a + Number(s.hours || 0), 0)
     const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
     const superYtd    = payMethod !== 'cash' ? (Number(quarterGrossByTutor[tutorId] || 0) * SUPER_RATE) : 0
     const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${fortnightLabel(fortnight)} (${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
@@ -463,7 +515,10 @@ export default function PayrollPage() {
   // Emailed payslips go to bank-transfer teachers only. Cash teachers are paid
   // in person outside Xero/STP, so an emailed "payslip" would overstate what the
   // formal payroll covers; their pay lives in the cash schedule + cash log.
-  const payslipTutors = useMemo(() => byTutor.filter(t => t.payGroup !== 'cash'), [byTutor])
+  const payslipTutors = useMemo(
+    () => byTutor.filter(t => t.payGroup !== 'cash' && paidShiftsOf(t).length > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [byTutor, run?.status, run?.id])
 
   const buildPayslips = async () => {
     const out = []
@@ -791,6 +846,12 @@ export default function PayrollPage() {
                     saving={savingId === s.id}
                     onUpdate={(patch) => updateShift(s.id, patch)}
                     onDelete={() => deleteShift(s.id)}
+                    approval={run ? {
+                      canAct: !['exported', 'paid'].includes(run.status),
+                      acting: shiftActing === s.id,
+                      onApprove: () => approveShift(s),
+                      onUndo: () => unapproveShift(s),
+                    } : null}
                   />
                 ))}
               </div>
@@ -890,13 +951,33 @@ export default function PayrollPage() {
                 </>
               )}
               {editable ? (
-                <button
-                  onClick={approveRun}
-                  disabled={approving || totals.shiftCount === 0}
-                  className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] disabled:bg-[#2A2035]/30 px-5 py-2 rounded-full transition"
-                >
-                  {approving ? 'Approving…' : `Approve all ${totals.shiftCount} shifts`}
-                </button>
+                <>
+                  {totals.approvedCount > 0 && (
+                    <span className="text-xs font-semibold text-[#065F46]">
+                      {totals.approvedCount}/{totals.shiftCount} approved · {fmtMoney(totals.approvedAmount)}
+                    </span>
+                  )}
+                  {totals.approvedCount > 0 && totals.approvedCount < totals.shiftCount && (
+                    <button
+                      onClick={finaliseApprovedOnly}
+                      disabled={approving}
+                      title="Finalise the run with only the shifts approved so far; the rest stay out of it"
+                      className="text-sm font-semibold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] px-4 py-2 rounded-full transition disabled:opacity-50"
+                    >
+                      Finalise {totals.approvedCount} approved only
+                    </button>
+                  )}
+                  <button
+                    onClick={approveRun}
+                    disabled={approving || totals.shiftCount === 0}
+                    className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] disabled:bg-[#2A2035]/30 px-5 py-2 rounded-full transition"
+                  >
+                    {approving ? 'Approving…'
+                      : totals.approvedCount > 0 && totals.approvedCount < totals.shiftCount
+                        ? `Approve remaining ${totals.shiftCount - totals.approvedCount} & finalise`
+                        : `Approve all ${totals.shiftCount} shifts`}
+                  </button>
+                </>
               ) : (
                 <span className="text-xs font-semibold text-[#2A2035]/50">
                   Already {run?.status}
@@ -982,7 +1063,7 @@ function lessonUrl(shift) {
   return null
 }
 
-function ShiftRow({ shift, editable, saving, onUpdate, onDelete }) {
+function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null }) {
   const rowKey = `${shift.id}-${shift.hours}-${shift.rate_snapshot ?? 'null'}`
   const url    = lessonUrl(shift)
 
@@ -1065,10 +1146,33 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete }) {
           <p className="text-sm font-semibold text-[#2A2035]">{shift.rate_snapshot == null ? '—' : fmtMoney(shift.rate_snapshot)}</p>
         )}
       </div>
-      {/* amount */}
+      {/* amount + per-shift approval */}
       <div className="col-span-4 md:col-span-2 text-right">
         <label className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold block">Amount</label>
         <p className="text-sm font-bold text-[#062E63] font-display">{fmtMoney(amount)}</p>
+        {approval && (
+          shift.status === 'approved' ? (
+            <p className="text-[10px] font-bold text-[#065F46] mt-0.5">
+              ✓ Approved
+              {approval.canAct && (
+                <button
+                  onClick={e => { e.stopPropagation(); approval.onUndo() }}
+                  disabled={approval.acting}
+                  className="ml-1.5 font-semibold text-[#2A2035]/40 hover:text-[#B23A3A] disabled:opacity-40"
+                >{approval.acting ? '…' : 'Undo'}</button>
+              )}
+            </p>
+          ) : approval.canAct ? (
+            <button
+              onClick={e => { e.stopPropagation(); approval.onApprove() }}
+              disabled={approval.acting || missingRate}
+              title={missingRate ? 'Set a rate before approving' : 'Approve just this shift'}
+              className="mt-0.5 text-[10px] font-bold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] rounded-full px-2 py-0.5 transition disabled:opacity-40"
+            >{approval.acting ? 'Approving…' : 'Approve'}</button>
+          ) : (
+            <p className="text-[10px] font-semibold text-[#92400E] mt-0.5">Pending</p>
+          )
+        )}
       </div>
     </div>
   )
