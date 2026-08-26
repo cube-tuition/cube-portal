@@ -51,6 +51,20 @@ export async function POST(req) {
     .order('id')
   if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
 
+  // The query above only sees invoices still eligible to push, so on its own a
+  // small "pushed" number looks like a failure — the term's other invoices have
+  // simply already gone, or been voided. Count them so the result can say so.
+  const [{ count: alreadyInXero }, { count: voidedSkipped }] = await Promise.all([
+    supabase.from('invoices').select('id', { count: 'exact', head: true })
+      .eq('term_id', term_id).not('xero_invoice_id', 'is', null),
+    supabase.from('invoices').select('id', { count: 'exact', head: true })
+      .eq('term_id', term_id).eq('status', 'voided').is('xero_invoice_id', null),
+  ])
+  const termCounts = {
+    already_in_xero: alreadyInXero || 0,
+    voided_skipped:  voidedSkipped || 0,
+  }
+
   // A draft is still being worked on — approving it is the moment it becomes
   // the family's real bill, so that is the moment it may go to Xero.
   const draftSkipped = (allInvoices || []).filter(i => i.status !== 'approved')
@@ -67,6 +81,7 @@ export async function POST(req) {
     ].filter(Boolean).join(', ')
     return NextResponse.json({
       pushed: 0, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length,
+      ...termCounts, no_line_items: 0, errors: [],
       message: why ? `No new invoices to push — ${why}.` : 'No new invoices to push',
     })
   }
@@ -116,12 +131,12 @@ export async function POST(req) {
   const guardianMap = Object.fromEntries((guardians || []).map(g => [g.student_id, g]))
 
   // ── Step 2: build invoice payloads from stored line_items ────────────────────
-  const built   = []
-  const skipped = []
+  const built    = []
+  const noLines  = []
 
   for (const inv of invoices) {
     const enrolLines = (inv.line_items || []).filter(l => l.type === 'enrolment')
-    if (!enrolLines.length) { skipped.push(inv.id); continue }
+    if (!enrolLines.length) { noLines.push(inv.id); continue }
 
     // Derive contact from the first student's guardian
     const firstStudentId = enrolLines[0]?.student_id
@@ -202,7 +217,7 @@ export async function POST(req) {
     })
   }
 
-  if (!built.length) return NextResponse.json({ pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, errors: [] })
+  if (!built.length) return NextResponse.json({ pushed: 0, no_line_items: noLines.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, ...termCounts, errors: [] })
 
   // ── Step 3: deduplicate contacts, batch-upsert in ONE Xero call ──────────────
   const contactKeyOrder = []
@@ -240,7 +255,7 @@ export async function POST(req) {
   }
 
   // ── Step 5: save Xero IDs back to Supabase ───────────────────────────────────
-  const results = { pushed: 0, skipped: skipped.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, errors: [] }
+  const results = { pushed: 0, no_line_items: noLines.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, ...termCounts, errors: [] }
   const now     = new Date().toISOString()
 
   for (let i = 0; i < built.length; i++) {

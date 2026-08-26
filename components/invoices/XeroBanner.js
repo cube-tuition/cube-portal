@@ -115,12 +115,16 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
           </span>
           {xeroConnected && xeroResult && (
             <span className="text-xs text-[#325099]/60">
+              {/* Everything held back is named, or a "3 pushed" on a 54-invoice
+                  term reads as a failure. `already_in_xero` is usually the bulk
+                  of the gap: those invoices were sent by an earlier sync and are
+                  never candidates again. */}
               Last sync: {xeroResult.pushed} pushed
-              {xeroResult.skipped ? `, ${xeroResult.skipped} already in Xero` : ''}
-              {/* Cash invoices and drafts are held back on purpose — say so, or
-                  a smaller "pushed" number than expected looks like a failure. */}
+              {xeroResult.already_in_xero ? `, ${xeroResult.already_in_xero} already in Xero` : ''}
+              {xeroResult.voided_skipped ? `, ${xeroResult.voided_skipped} voided` : ''}
               {xeroResult.cash_skipped ? `, ${xeroResult.cash_skipped} cash (not sent)` : ''}
               {xeroResult.draft_skipped ? `, ${xeroResult.draft_skipped} still draft` : ''}
+              {xeroResult.no_line_items ? `, ${xeroResult.no_line_items} with no billable lines` : ''}
               {xeroResult.errors?.length ? `, ${xeroResult.errors.length} errors` : ''}
             </span>
           )}

@@ -187,7 +187,7 @@ function InvoiceDashboardInner() {
   // Xero
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
   const [xeroSyncing,   setXeroSyncing]   = useState(false)
-  const [xeroResult,    setXeroResult]    = useState(null)  // { pushed, skipped, errors }
+  const [xeroResult,    setXeroResult]    = useState(null)  // { pushed, already_in_xero, voided_skipped, cash_skipped, draft_skipped, no_line_items, errors }
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
