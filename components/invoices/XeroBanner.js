@@ -13,6 +13,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
   const [saving,        setSaving]        = useState(false)
   const [saved,         setSaved]         = useState(false)
   const [courseNames,   setCourseNames]   = useState([])
+  const [hiddenNames,   setHiddenNames]   = useState([])
   const [itemMappings,  setItemMappings]  = useState({})
   const [savingItems,   setSavingItems]   = useState(false)
   const [savedItems,    setSavedItems]    = useState(false)
@@ -39,6 +40,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
       })
       const names = itemMappingRes.courseNames || []
       setCourseNames(names)
+      setHiddenNames(itemMappingRes.hiddenCourseNames || [])
       const mappingMap = {}
       for (const m of (itemMappingRes.mappings || [])) {
         mappingMap[m.class_name] = { item_code: m.item_code || '', item_name: m.item_name || '' }
@@ -92,10 +94,16 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
     </div>
   )
 
+  // Retired courses (Homework Help and the like) no longer generate invoices,
+  // so they are dropped from the list rather than sitting there unmappable.
+  // Their saved rows are left untouched in the database — Save only upserts the
+  // names shown here, and the push looks mappings up by name server-side, so a
+  // historical invoice that still references one keeps pushing correctly.
+  const retired = new Set(hiddenNames)
   const allCourseNames = [...new Set([
     ...courseNames,
     ...Object.keys(itemMappings).filter(k => itemMappings[k].item_code),
-  ])].sort()
+  ])].filter(n => !retired.has(n)).sort()
 
   return (
     <div className="bg-white border border-[#DEE7FF] rounded-xl mb-5 overflow-hidden">
@@ -207,6 +215,13 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                     Map each course to a Xero Product &amp; Service item. Xero handles the account code and tax type from the item itself.
                     {!termId && ' Select a term above to load courses from that term.'}
                   </p>
+                  {hiddenNames.length > 0 && (
+                    <p className="text-[11px] text-[#325099]/40 -mt-2 mb-3">
+                      {hiddenNames.length} retired {hiddenNames.length === 1 ? 'course is' : 'courses are'} hidden
+                      ({hiddenNames.join(', ')}). Set the course back to Active in the database to map
+                      {hiddenNames.length === 1 ? ' it' : ' them'} again.
+                    </p>
+                  )}
                   {xeroItems.length === 0 && (
                     <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
                       No items found in Xero yet — create your Products &amp; Services in Xero first, then come back to map them here.

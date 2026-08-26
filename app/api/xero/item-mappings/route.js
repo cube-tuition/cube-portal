@@ -14,7 +14,11 @@ function adminSb() {
  *
  * Returns:
  *   - mappings: all saved class_name → item_code rows
- *   - courseNames: unique class names from invoices in the given term
+ *   - courseNames: unique class names from invoices in the given term, with
+ *     retired courses left out
+ *   - hiddenCourseNames: exactly the names that were left out — those the
+ *     client would otherwise have listed, from this term's invoices or from a
+ *     saved mapping — so it can drop them too and say how many it dropped
  */
 export async function GET(req) {
   const auth = await requireApiRole(req, ['admin', 'director'])
@@ -24,17 +28,35 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url)
   const termId = searchParams.get('term_id')
 
-  const [{ data: mappings, error: mapErr }, courseResult] = await Promise.all([
-    sb.from('xero_item_mappings').select('*').order('class_name'),
-    termId
-      ? sb.from('invoices')
-          .select('line_items')
-          .eq('term_id', termId)
-          .not('line_items', 'is', null)
-      : Promise.resolve({ data: [] }),
-  ])
+  const [{ data: mappings, error: mapErr }, courseResult, { data: classRows }, { data: courseRows }] =
+    await Promise.all([
+      sb.from('xero_item_mappings').select('*').order('class_name'),
+      termId
+        ? sb.from('invoices')
+            .select('line_items')
+            .eq('term_id', termId)
+            .not('line_items', 'is', null)
+        : Promise.resolve({ data: [] }),
+      // Deliberately cross-term: mappings are keyed by class NAME, which spans
+      // every term the course has run, so the active/retired verdict for a name
+      // has to consider all of them. Nothing here is listed per row.
+      sb.from('classes').select('id, class_name, course_id'),
+      sb.from('courses').select('id, active'),
+    ])
 
   if (mapErr) return NextResponse.json({ error: mapErr.message }, { status: 500 })
+
+  const courseActive = Object.fromEntries((courseRows || []).map(c => [c.id, c.active]))
+  // A name is only treated as retired when EVERY class carrying it belongs to a
+  // retired course. A name shared with a course that still runs stays listed,
+  // as does one whose course row can't be resolved — hiding a course staff still
+  // invoice for would silently drop it from the Xero item mapping.
+  const nameStillRuns = {}
+  for (const c of classRows || []) {
+    const retired = c.course_id != null && courseActive[c.course_id] === false
+    nameStillRuns[c.class_name] = (nameStillRuns[c.class_name] || false) || !retired
+  }
+  const retired = new Set(Object.keys(nameStillRuns).filter(n => !nameStillRuns[n]))
 
   // Invoice lines can carry a customised label ("… (Holiday 6 lessons)") while
   // still pointing at their class via class_id. Collapse every label variant
@@ -42,16 +64,23 @@ export async function GET(req) {
   const lines = (courseResult.data || [])
     .flatMap(inv => (inv.line_items || []))
     .filter(l => l.type === 'enrolment' && l.class_name)
-  const classIds = [...new Set(lines.map(l => l.class_id).filter(Boolean))]
-  const { data: classRows } = classIds.length
-    ? await sb.from('classes').select('id, class_name').in('id', classIds)
-    : { data: [] }
   const nameById = Object.fromEntries((classRows || []).map(c => [c.id, c.class_name]))
-  const courseNames = [...new Set(
-    lines.map(l => nameById[l.class_id] || l.class_name)
-  )].sort()
+  const invoiceNames = [...new Set(lines.map(l => nameById[l.class_id] || l.class_name))]
 
-  return NextResponse.json({ mappings: mappings || [], courseNames })
+  // Count as hidden only what the client would actually have shown, so the
+  // "n retired courses hidden" note can't over- or under-report: a retired
+  // course invisible this term is not something the user is missing. This set
+  // must mirror the client's union — invoiced names, plus saved mappings that
+  // actually carry an item code.
+  const listed = new Set([
+    ...invoiceNames,
+    ...(mappings || []).filter(m => m.item_code).map(m => m.class_name),
+  ])
+  const hiddenCourseNames = [...listed].filter(n => retired.has(n)).sort()
+
+  const courseNames = invoiceNames.filter(n => !retired.has(n)).sort()
+
+  return NextResponse.json({ mappings: mappings || [], courseNames, hiddenCourseNames })
 }
 
 /**
