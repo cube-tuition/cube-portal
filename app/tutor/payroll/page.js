@@ -234,6 +234,17 @@ export default function PayrollPage() {
       setFortnight(f)
       if (term) reload(term, f)
       else setLoading(false)
+
+      // Pull Xero's posted-run truth in the background: posted runs flip their
+      // shifts (and the portal run) to paid, so bank settlements never need a
+      // manual catch-up. Refresh only if something actually settled.
+      authedFetch('/api/xero/payroll/reconcile', { method: 'POST' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => {
+          const settled = data && (data.shiftsMarkedPaid > 0 || (data.runsMarkedPaid?.length || 0) > 0)
+          if (settled && term) reload(term, f)
+        })
+        .catch(() => {}) // Xero disconnected or offline — the page works without it
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
