@@ -607,14 +607,17 @@ export default function ForecastPage() {
       return s + (fc.frequency === 'monthly' ? amt * 3 : amt / 4)
     }, 0)
     const totalExpenses      = classTeacherCost + oneOnOneTeacherCost + fixedTermly
-    // Carry actual invoice reductions from the live term (same as live)
-    const reductions         = invoiceReductions(invoices)
-    const siblingDiscount    = reductions.sibling
-    const multiCourseDiscount= reductions.multiCourse
-    const cashDiscount       = reductions.cash
-    const referralDiscount   = reductions.referral
-    const creditsOther       = reductions.creditsOther
-    const totalDiscount      = reductions.total
+    // Discounts scale with the scenario: the live term's reductions are a fixed
+    // dollar figure for the live enrolment mix, so a what-if with double the
+    // income shouldn't still subtract today's exact totals. Assume reductions
+    // keep their current share of gross income.
+    const discountScale      = summary.totalIncome > 0 ? totalIncome / summary.totalIncome : 0
+    const siblingDiscount    = summary.siblingDiscount    * discountScale
+    const multiCourseDiscount= summary.multiCourseDiscount * discountScale
+    const cashDiscount       = summary.cashDiscount       * discountScale
+    const referralDiscount   = summary.referralDiscount   * discountScale
+    const creditsOther       = summary.creditsOther       * discountScale
+    const totalDiscount      = summary.totalDiscount      * discountScale
     // Same cash-untaxed split as the live summary: costs apportioned by share of
     // gross income, only the bank side taxed.
     const totalCosts         = totalExpenses + totalDiscount
@@ -629,7 +632,7 @@ export default function ForecastPage() {
       siblingDiscount, multiCourseDiscount, cashDiscount, referralDiscount, creditsOther, totalDiscount,
       cashProfit, bankProfit, totalProfit, afterTax,
     }
-  }, [playMetrics, playFixedCosts, invoices])
+  }, [playMetrics, playFixedCosts, summary])
 
   // Sorted once per change — the editable table re-renders on every keystroke,
   // and each render (plus each onChange) was re-filtering and re-sorting the
