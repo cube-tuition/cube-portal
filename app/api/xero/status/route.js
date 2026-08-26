@@ -21,11 +21,17 @@ export async function GET(req) {
 
   const tokens = await getStoredTokens()
   const scopes = tokens ? await getTokenScopes() : []
+  const { data: settings } = await supabase
+    .from('xero_settings').select('payment_account_code').eq('id', 1).maybeSingle()
   return NextResponse.json({
     connected: !!tokens,
     expires_at: tokens?.expires_at || null,
     // False on a connection made before the payments scope was added — it keeps
     // pushing invoices happily and only fails when a payment is attempted.
     payments_enabled: scopes.includes(PAYMENTS_SCOPE),
+    // Both must be true before anything can be marked paid in Xero. Reported
+    // separately because the fixes are different — one is Reconnect, the other
+    // is picking a bank account.
+    payment_account_set: !!settings?.payment_account_code,
   })
 }

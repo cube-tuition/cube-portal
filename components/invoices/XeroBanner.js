@@ -2,7 +2,7 @@
 import { authedFetch } from '../../lib/authedFetch'
 import { useState } from 'react'
 
-export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync, onResetXero, xeroPaymentsEnabled = true }) {
+export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync, onResetXero, xeroPaymentsEnabled = true, xeroPaymentAccountSet = true }) {
   const [showSettings,  setShowSettings]  = useState(false)
   const [activeTab,     setActiveTab]     = useState('global')
   const [accounts,      setAccounts]      = useState([])
@@ -60,6 +60,11 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
   // Two steps on purpose: this unlinks real accounting records, and the count
   // is the whole point of the confirmation — "reset 89 invoices" is a very
   // different decision from "reset 3".
+  const openPaymentSetup = async () => {
+    setActiveTab('global')
+    if (!showSettings) await openSettings()
+  }
+
   const askReset = async () => {
     setResetInfo({ loading: true })
     try {
@@ -239,6 +244,22 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
             paid in Xero. Click <span className="font-semibold">Reconnect</span> to grant the permission —
             nothing else changes.
           </p>
+        </div>
+      )}
+
+      {/* Setting the bank account is a one-off, and until it is done every sync
+          silently marks nothing paid. That is a standing warning with a button,
+          not a line item buried among per-invoice reasons. */}
+      {xeroConnected && xeroPaymentsEnabled && !xeroPaymentAccountSet && (
+        <div className="px-4 py-2.5 border-t border-[#DEE7FF] bg-[#FFFBEB] flex items-center gap-3 flex-wrap">
+          <p className="text-[11px] text-amber-700 flex-1 min-w-[280px]">
+            <span className="font-semibold">Payments aren’t set up yet.</span> Syncing won’t mark anything
+            paid in Xero until you choose the bank account payments land in.
+          </p>
+          <button onClick={openPaymentSetup}
+            className="text-[11px] font-semibold text-amber-900 bg-amber-100 border border-amber-300 hover:bg-amber-200 px-3 py-1.5 rounded-full transition">
+            Choose bank account
+          </button>
         </div>
       )}
 

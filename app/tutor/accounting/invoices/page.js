@@ -188,6 +188,7 @@ function InvoiceDashboardInner() {
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
   const [xeroSyncing,   setXeroSyncing]   = useState(false)
   const [xeroPaymentsEnabled, setXeroPaymentsEnabled] = useState(true)  // assume ok until told otherwise
+  const [xeroPaymentAccountSet, setXeroPaymentAccountSet] = useState(true)
   const [xeroResult,    setXeroResult]    = useState(null)  // { pushed, already_in_xero, voided_skipped, cash_skipped, draft_skipped, no_line_items, errors }
 
   useEffect(() => {
@@ -225,6 +226,7 @@ function InvoiceDashboardInner() {
       }).then(r => r.json()).then(d => {
         setXeroConnected(d.connected)
         setXeroPaymentsEnabled(d.payments_enabled)
+        setXeroPaymentAccountSet(d.payment_account_set)
       }).catch(() => setXeroConnected(false))
     })
   }, [searchParams])
@@ -895,6 +897,7 @@ function InvoiceDashboardInner() {
           onSync={handleSyncToXero}
           onResetXero={handleResetXero}
           xeroPaymentsEnabled={xeroPaymentsEnabled}
+          xeroPaymentAccountSet={xeroPaymentAccountSet}
         />
 
         {termId && (
