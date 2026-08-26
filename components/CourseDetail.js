@@ -1,5 +1,6 @@
 'use client'
 import { useMemo } from 'react'
+import { showsHomeworkGrade } from '../lib/homeworkGrades'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { normalizeDay } from '../lib/format'
 
@@ -110,6 +111,8 @@ function homeworkPill(grade) {
 
 // ── Main component ─────────────────────────────────────────────────────────
 export default function CourseDetail({ course, subject, col, quizzes, exams, attendance }) {
+  // Year 11/12 classes carry no homework grade — see lib/homeworkGrades.
+  const hwEnabled = showsHomeworkGrade(course)
   const quizAvg = quizzes.length
     ? Math.round(quizzes.reduce((s, q) => s + (q.score / q.max_score) * 100, 0) / quizzes.length)
     : null
@@ -167,7 +170,7 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
       {/* STATS STRIP */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Quiz average" value={quizAvg !== null ? `${quizAvg}%` : '—'} sub={`${quizzes.length} quiz${quizzes.length === 1 ? '' : 'zes'}`} />
-        <StatCard label="Average Homework" value={latestHw || '—'}                     sub={latestHw ? 'Most recent grade' : 'No homework recorded'} />
+        {hwEnabled && <StatCard label="Average Homework" value={latestHw || '—'}                     sub={latestHw ? 'Most recent grade' : 'No homework recorded'} />}
         <StatCard label="Attendance"   value={attStats.pct !== null ? `${attStats.pct}%` : '—'} sub={`${attStats.tally.present + attStats.tally.late}/${attStats.total} sessions`} />
       </div>
 
@@ -198,7 +201,7 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-                    {['Week','Attendance','Score','%','Progress',"Previous week's HWK"].map(h => (
+                    {['Week','Attendance','Score','%','Progress', ...(hwEnabled ? ["Previous week's HWK"] : [])].map(h => (
                       <th key={h} className="text-left px-6 py-3 text-[10px] tracking-[0.25em] uppercase font-semibold text-[#325099]">
                         {h}
                       </th>
@@ -233,6 +236,7 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
                             <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, background: col.line }} />
                           </div>
                         </td>
+                        {hwEnabled && (
                         <td className="px-6 py-3">
                           <span
                             className="inline-flex text-[11px] font-semibold px-2.5 py-1 rounded-full"
@@ -241,6 +245,7 @@ export default function CourseDetail({ course, subject, col, quizzes, exams, att
                             {q.homework_grade || '—'}
                           </span>
                         </td>
+                        )}
                       </tr>
                     )
                   })}

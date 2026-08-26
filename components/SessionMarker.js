@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { fetchAllTerms, getCurrentTerm } from '../lib/terms'
 import { inferSubject, subjectsMatch } from './CourseDetail'
 import { T_ATTENDANCE, T_BOOKLETS, T_ENROLMENTS, T_QUIZ_RESULTS } from '../lib/tables'
+import { showsHomeworkGrade } from '../lib/homeworkGrades'
 import { authedFetch } from '../lib/authedFetch'
 import { firstName } from '../lib/lessonAccess'
 import FlagStudentModal from './FlagStudentModal'
@@ -107,6 +108,8 @@ function fmtSavedAt(iso) {
 
 export default function SessionMarker({ classId, dateISO, cls, staff, readOnly = false, footer = null }) {
   const isAdmin = staff?.role === 'admin'
+  // Year 11/12 classes do not carry a homework grade — see lib/homeworkGrades.
+  // `roster` is declared with the other state below; the flag is derived there.
   /*
    * "Notes to CUBE" belongs to whoever teaches the class.
    *
@@ -129,6 +132,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
   const [roster, setRoster] = useState([])
+  // Year 11/12 classes carry no homework grade — see lib/homeworkGrades.
+  const hwEnabled = showsHomeworkGrade(cls, roster)
   const [flagOpen, setFlagOpen] = useState(false)
   const [flagToast, setFlagToast] = useState(null)
   const [marks, setMarks] = useState({})
@@ -191,7 +196,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       }
       if (!isAbsent && bookletWeek !== 1 && bookletWeek !== 10) {
         const issues = []
-        if (!m.hw) issues.push("prev week's HWK")
+        if (hwEnabled && !m.hw) issues.push("prev week's HWK")
         if (rqEnabled && (m.rq === '' || m.rq == null)) issues.push('RQ')
         if (issues.length) missing.push(`${s.full_name} (${issues.join(', ')})`)
       }
@@ -429,7 +434,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       const m = marks[s.id] || {}
       const hasAttendance    = !!m.attendance
       const hasComment       = (m.comment || '').trim() !== ''
-      const hasHw            = !!m.hw
+      const hasHw            = hwEnabled && !!m.hw
       const hasRq            = m.rq !== '' && m.rq != null
       const hasTrialFeedback = s.enrolmentStatus === 'trial' && (m.trialFeedback || '').trim() !== ''
 
@@ -893,7 +898,7 @@ function MarkTable({
             <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
               <Th className="text-left pl-5 pr-3 w-[26%]">Student name</Th>
               <Th className="text-center px-3 w-[14%]">Attendance <span className="text-[#EF4444]">*</span></Th>
-              {currentWeek !== 1 && currentWeek !== 10 && <Th className="text-center px-3 w-[14%]">HW completion <span className="text-[#EF4444]">*</span></Th>}
+              {hwEnabled && currentWeek !== 1 && currentWeek !== 10 && <Th className="text-center px-3 w-[14%]">HW completion <span className="text-[#EF4444]">*</span></Th>}
               {currentWeek !== 1 && currentWeek !== 10 && rqEnabled && <Th className="text-center px-3 w-[14%]">{isOneToOne ? 'Understanding %' : 'RQ mark %'} <span className="text-[#EF4444]">*</span></Th>}
               <Th className="text-left px-5 bg-[#EEF4FF] text-[#062E63]">Additional comments</Th>
             </tr>
@@ -912,7 +917,7 @@ function MarkTable({
 
               // Validation highlights — only shown after a failed save attempt
               const attInvalid          = showValidation && !att && !isCancelled
-              const hwInvalid           = showValidation && !isAbsent && !isCancelled && att && !m.hw
+              const hwInvalid           = hwEnabled && showValidation && !isAbsent && !isCancelled && att && !m.hw
               const rqInvalid           = showValidation && rqEnabled && !isAbsent && !isCancelled && att && (m.rq === '' || m.rq == null)
               const trialFeedbackInvalid = showValidation && isTrial && !isAbsent && !isCancelled && !(m.trialFeedback || '').trim()
 
@@ -977,7 +982,7 @@ function MarkTable({
                                     onChange={v => onChange(s.id, 'attendance', v)} disabled={isLocked} />
                       </div>
                     </td>
-                    {currentWeek !== 1 && currentWeek !== 10 && (
+                    {hwEnabled && currentWeek !== 1 && currentWeek !== 10 && (
                       <td className="px-3 py-3">
                         <div className={hwInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
                           <PillSelect value={m.hw || ''} options={GRADE_OPTIONS}
@@ -1035,7 +1040,7 @@ function MarkTable({
                   {isOpen && (
                     <tr className="border-b last:border-0 border-[#DEE7FF]" style={{ background: '#FBFCFF' }}>
                       <td colSpan={5} className="px-5 md:px-6 py-4">
-                        <HistoryPanel student={s} quizzes={sHist.quizzes} attendance={sHist.attendance}
+                        <HistoryPanel student={s} quizzes={sHist.quizzes} attendance={sHist.attendance} hwEnabled={hwEnabled}
                                       term={term} currentWeek={currentWeek} />
                       </td>
                     </tr>
@@ -1106,7 +1111,7 @@ function NumberPill({ value, min = 1, max = 100, onChange, disabled = false }) {
   )
 }
 
-function HistoryPanel({ student, quizzes, attendance, term, currentWeek }) {
+function HistoryPanel({ student, quizzes, attendance, term, currentWeek, hwEnabled = true }) {
   const rows = useMemo(
     () => buildHistoryByWeek({ quizzes, attendance, term, currentWeek }),
     [quizzes, attendance, term, currentWeek]
@@ -1141,15 +1146,17 @@ function HistoryPanel({ student, quizzes, attendance, term, currentWeek }) {
   }
   return (
     <div>
-      <div className="grid grid-cols-3 gap-2 mb-4">
+      <div className={`grid ${hwEnabled ? 'grid-cols-3' : 'grid-cols-2'} gap-2 mb-4`}>
         <SummaryTile label="RQ Average"
           value={stats.avgRq == null ? '—' : `${stats.avgRq}`}
           sub={stats.scored ? `${stats.scored} quiz${stats.scored === 1 ? '' : 'zes'}` : 'no quizzes'}
           tone={stats.avgRq == null ? 'neutral' : stats.avgRq >= 70 ? 'good' : stats.avgRq >= 50 ? 'warn' : 'bad'} />
+        {hwEnabled && (
         <SummaryTile label="Prev week's HWK"
           value={stats.hwMode ?? '—'}
           sub={stats.hwTotal ? `${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'}` : 'no data'}
           tone={stats.hwMode == null ? 'neutral' : (stats.hwMode === 'A' || stats.hwMode === 'B') ? 'good' : stats.hwMode === 'C' ? 'warn' : 'bad'} />
+        )}
         <SummaryTile label="Attendance"
           value={stats.attPct == null ? '—' : `${stats.attPct}%`}
           sub={stats.attTotal ? `${stats.attTotal} session${stats.attTotal === 1 ? '' : 's'}` : 'no data'}
@@ -1162,13 +1169,13 @@ function HistoryPanel({ student, quizzes, attendance, term, currentWeek }) {
               <Th className="text-left pl-4 pr-2 py-2 w-[18%]">Week</Th>
               <Th className="text-left px-2 py-2 w-[22%]">Date</Th>
               <Th className="text-center px-2 py-2 w-[20%]">Attendance</Th>
-              <Th className="text-center px-2 py-2 w-[18%]">Prev week&rsquo;s HWK</Th>
+              {hwEnabled && <Th className="text-center px-2 py-2 w-[18%]">Prev week&rsquo;s HWK</Th>}
               <Th className="text-center px-2 py-2 w-[22%]">RQ</Th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={5} className="text-center text-[11px] text-[#2A2035]/50 py-4">No weekly data yet.</td></tr>
+              <tr><td colSpan={hwEnabled ? 5 : 4} className="text-center text-[11px] text-[#2A2035]/50 py-4">No weekly data yet.</td></tr>
             ) : rows.map(r => {
               const att = r.att ? ATTEND_COLOR[r.att.status] : null
               const hw = r.quiz?.homework_grade ? HW_COLOR[r.quiz.homework_grade] : null
@@ -1179,9 +1186,11 @@ function HistoryPanel({ student, quizzes, attendance, term, currentWeek }) {
                   <td className="px-2 py-2 text-center">
                     {att ? <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: att.bg, color: att.fg }}>{att.label}</span> : <span className="text-[#2A2035]/30">—</span>}
                   </td>
+                  {hwEnabled && (
                   <td className="px-2 py-2 text-center">
                     {hw ? <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: hw.bg, color: hw.fg }}>{r.quiz.homework_grade}</span> : <span className="text-[#2A2035]/30">—</span>}
                   </td>
+                  )}
                   <td className="px-2 py-2 text-center font-semibold tabular-nums">
                     {r.quiz?.score != null ? <span style={{ color: numberTier(Number(r.quiz.score)).fg }}>{r.quiz.score}</span> : <span className="text-[#2A2035]/30">—</span>}
                   </td>
