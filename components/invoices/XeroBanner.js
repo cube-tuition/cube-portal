@@ -2,7 +2,7 @@
 import { authedFetch } from '../../lib/authedFetch'
 import { useState } from 'react'
 
-export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync }) {
+export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync, onResetXero }) {
   const [showSettings,  setShowSettings]  = useState(false)
   const [activeTab,     setActiveTab]     = useState('global')
   const [accounts,      setAccounts]      = useState([])
@@ -17,6 +17,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
   const [itemMappings,  setItemMappings]  = useState({})
   const [savingItems,   setSavingItems]   = useState(false)
   const [savedItems,    setSavedItems]    = useState(false)
+  const [resetInfo,     setResetInfo]     = useState(null)   // null = not confirming
 
   const openSettings = async () => {
     setShowSettings(true)
@@ -51,6 +52,19 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
       setItemMappings(mappingMap)
     } catch (e) { setAccError(e.message) }
     setLoadingAcc(false)
+  }
+
+  // Two steps on purpose: this unlinks real accounting records, and the count
+  // is the whole point of the confirmation — "reset 89 invoices" is a very
+  // different decision from "reset 3".
+  const askReset = async () => {
+    setResetInfo({ loading: true })
+    try {
+      const r = await authedFetch('/api/xero/reset?term_id=' + termId)
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      setResetInfo(d)
+    } catch (e) { setResetInfo({ error: e.message }) }
   }
 
   const handleSaveGlobal = async () => {
@@ -135,6 +149,42 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
               className="text-xs font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#A7F3D0] hover:bg-[#D1FAE5] px-4 py-1.5 rounded-full transition disabled:opacity-40">
               {xeroSyncing ? 'Syncing…' : '↑ Sync to Xero'}
             </button>
+          )}
+          {xeroConnected && termId && onResetXero && (
+            resetInfo ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-[#325099]/70">
+                  {resetInfo.loading ? 'Checking…'
+                    : resetInfo.error ? `Couldn't check: ${resetInfo.error}`
+                    : resetInfo.linked === 0 ? 'Nothing in this term is linked to Xero.'
+                    : `Unlink ${resetInfo.linked} invoice${resetInfo.linked === 1 ? '' : 's'} from Xero?`}
+                </span>
+                {/* Spell out what survives: staff reset because they deleted the
+                    Xero side, and need to know voided bills won't come back. */}
+                {!resetInfo.loading && !resetInfo.error && resetInfo.linked > 0 && (
+                  <span className="text-[11px] text-[#325099]/45">
+                    {resetInfo.reopened} back to Approved
+                    {resetInfo.voided ? `, ${resetInfo.voided} stay voided` : ''}
+                  </span>
+                )}
+                {!resetInfo.loading && !resetInfo.error && resetInfo.linked > 0 && (
+                  <button onClick={() => { setResetInfo(null); onResetXero() }} disabled={xeroSyncing}
+                    className="text-[11px] font-semibold bg-red-500 text-white px-2.5 py-1 rounded-full hover:bg-red-600 transition disabled:opacity-40">
+                    Yes, unlink
+                  </button>
+                )}
+                <button onClick={() => setResetInfo(null)}
+                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] px-1.5 py-1">
+                  {resetInfo.loading || resetInfo.error || !resetInfo.linked ? 'Close' : 'Cancel'}
+                </button>
+              </div>
+            ) : (
+              <button onClick={askReset} disabled={xeroSyncing}
+                title="Clears the Xero link so these invoices can be pushed again — use after deleting them in Xero"
+                className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full transition disabled:opacity-40">
+                ⟲ Reset Xero link
+              </button>
+            )
           )}
           {xeroConnected && (
             <button onClick={showSettings ? () => setShowSettings(false) : openSettings}

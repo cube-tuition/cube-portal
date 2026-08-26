@@ -243,6 +243,30 @@ function InvoiceDashboardInner() {
     finally { setXeroSyncing(false) }
   }
 
+  // Clearing the Xero link is the only way back for invoices that were deleted
+  // on the Xero side: the push query selects on xero_invoice_id IS NULL, so the
+  // status dropdown alone leaves them permanently unpushable.
+  const handleResetXero = async () => {
+    if (!termId) return
+    setXeroSyncing(true); setXeroResult(null); setError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/xero/reset', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body:    JSON.stringify({ term_id: termId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setSuccessMsg(
+        `Cleared the Xero link on ${data.reset} invoice${data.reset === 1 ? '' : 's'}` +
+        (data.reopened ? ` — ${data.reopened} back to Approved and ready to sync again.` : '.')
+      )
+      await loadInvoices()
+    } catch (e) { setError('Xero reset failed: ' + e.message) }
+    finally { setXeroSyncing(false) }
+  }
+
   const term = terms.find(t => t.id === termId)
 
   const loadInvoices = useCallback(async () => {
@@ -857,6 +881,7 @@ function InvoiceDashboardInner() {
           xeroSyncing={xeroSyncing}
           termId={termId}
           onSync={handleSyncToXero}
+          onResetXero={handleResetXero}
         />
 
         {termId && (

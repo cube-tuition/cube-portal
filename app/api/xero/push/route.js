@@ -31,12 +31,17 @@ export async function POST(req) {
     // Back to 'approved' as well as clearing the Xero ids — the invoice is no
     // longer synced, and only approved invoices are eligible to push, so
     // leaving it 'synced_to_xero' would make a reset invoice unpushable.
+    //
+    // Scoped to status = 'synced_to_xero' on purpose: an unfiltered update would
+    // also flip VOIDED invoices to approved, and the lines below would then push
+    // those cancelled bills straight into Xero. See /api/xero/reset, which does
+    // the same job for a whole term.
     await supabase.from('invoices').update({
       xero_invoice_id: null,
       xero_contact_id: null,
       xero_pushed_at:  null,
       status:          'approved',
-    }).in('id', reset_ids)
+    }).in('id', reset_ids).eq('status', 'synced_to_xero')
   }
 
   // Candidates: not yet in Xero, with line_items (new format), and never
