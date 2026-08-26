@@ -5,6 +5,7 @@
  * categorise, tag, role-visibility, schedule, archive/restore, duplicate, delete.
  */
 import { useEffect, useMemo, useState } from 'react'
+import { AUDIENCES, audienceOf, rolesFor, isDirectorOnly } from '../../../../lib/infohub/visibility'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useHub } from '../context'
@@ -17,9 +18,6 @@ import {
 import { TEMPLATES } from '../../../../lib/infohub/templates'
 import { mdToBlocks } from '../../../../lib/infohub/convert'
 
-const ROLES = [
-  { id: 'admin', label: 'Admin' }, { id: 'director', label: 'Director' }, { id: 'tutor', label: 'Teacher' },
-]
 const STATUS_STYLE = {
   draft:     'text-[#92400E] bg-[#FFF7ED] border-[#FDE2B8]',
   published: 'text-[#166534] bg-[#F0FDF4] border-[#A7F3D0]',
@@ -188,6 +186,7 @@ export default function InfoManagePage() {
                     {p.icon && <span aria-hidden="true">{p.icon}</span>}
                     <Link href={`/tutor/hub/manage/${p.id}`} className="text-sm font-semibold text-[#062E63] truncate hover:underline">{p.title}</Link>
                     {p.mandatory && <span className="text-[9px] font-bold uppercase tracking-wider text-[#991B1B] bg-[#FEE2E2] border border-[#FCA5A5] rounded-full px-1.5 py-0.5">Mandatory</span>}
+                    {isDirectorOnly(p) && <span className="text-[9px] font-bold uppercase tracking-wider text-[#5B21B6] bg-[#F5F3FF] border border-[#DDD6FE] rounded-full px-1.5 py-0.5" title="Directors only — hidden from teachers">Director</span>}
                     {unpub && p.status === 'published' && <span className="text-[9px] font-bold uppercase tracking-wider text-[#92400E] bg-[#FFF7ED] border border-[#FDE2B8] rounded-full px-1.5 py-0.5">Unpublished changes</span>}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#2A2035]/50">
@@ -282,19 +281,18 @@ function Modal({ title, children, onClose }) {
 function SettingsModal({ page, cats, onClose, onSaved }) {
   const [categoryId, setCategoryId] = useState(page.category_id || '')
   const [tags, setTags] = useState((page.tags || []).join(', '))
-  const [roles, setRoles] = useState(page.visible_roles || ['admin', 'director', 'tutor'])
+  const [audience, setAudience] = useState(audienceOf(page))
   const [mandatory, setMandatory] = useState(!!page.mandatory)
   const [icon, setIcon] = useState(page.icon || '')
   const [scheduledAt, setScheduledAt] = useState(page.scheduled_at ? page.scheduled_at.slice(0, 16) : '')
   const [saving, setSaving] = useState(false)
-  const toggleRole = (r) => setRoles(rs => rs.includes(r) ? rs.filter(x => x !== r) : [...rs, r])
   const save = async () => {
     setSaving(true)
     try {
       const patch = {
         category_id: categoryId || null,
         tags: tags.split(',').map(s => s.trim()).filter(Boolean),
-        visible_roles: roles.length ? roles : ['admin', 'director', 'tutor'],
+        visible_roles: rolesFor(audience),
         mandatory, icon: icon || null,
         scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
       }
@@ -318,10 +316,15 @@ function SettingsModal({ page, cats, onClose, onSaved }) {
         <div>
           <label className="block text-[11px] font-semibold text-[#325099]/70 mb-1">Who can view this page</label>
           <div className="flex gap-1.5">
-            {ROLES.map(r => (
-              <button key={r.id} onClick={() => toggleRole(r.id)} className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${roles.includes(r.id) ? 'bg-[#325099] text-white border-[#325099]' : 'text-[#325099] border-[#DEE7FF]'}`}>{r.label}</button>
+            {AUDIENCES.map(a => (
+              <button key={a.id} onClick={() => setAudience(a.id)} title={a.hint}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${audience === a.id ? 'bg-[#325099] text-white border-[#325099]' : 'text-[#325099] border-[#DEE7FF]'}`}>{a.label}</button>
             ))}
           </div>
+          <p className="text-[11px] text-[#2A2035]/45 mt-1.5">
+            {AUDIENCES.find(a => a.id === audience)?.hint}
+            {audience === 'director' && ' · listed under “Director” in the sidebar'}
+          </p>
         </div>
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm text-[#2A2035]"><input type="checkbox" checked={mandatory} onChange={e => setMandatory(e.target.checked)} className="accent-[#991B1B]" /> Mandatory reading</label>

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useHub } from '../app/tutor/hub/context'
 import { listNavPages, listCategories } from '../lib/infohub/data'
+import { isDirectorOnly } from '../lib/infohub/visibility'
 
 /*
  * TutorSidebar — collapsible left navigation for /tutor/hub. Now data-driven:
@@ -39,8 +40,14 @@ export default function TutorSidebar({ defaultOpen = true }) {
 
   const groups = useMemo(() => {
     const list = (pages || []).filter(p => !filter || (p.title || '').toLowerCase().includes(filter.toLowerCase()))
-    const pinned = list.filter(p => p.pinned)
-    const rest = list.filter(p => !p.pinned)
+    // Director-only pages are gathered under their own label rather than left
+    // among the categories. Teachers never receive them — the read policy on
+    // infohub_pages filters them out before they reach the browser — so this
+    // group simply does not appear for them.
+    const director = list.filter(p => isDirectorOnly(p)).sort((a, b) => a.sort_order - b.sort_order)
+    const open = list.filter(p => !isDirectorOnly(p))
+    const pinned = open.filter(p => p.pinned)
+    const rest = open.filter(p => !p.pinned)
     const byCat = []
     for (const c of cats) {
       const items = rest.filter(p => p.category_id === c.id).sort((a, b) => a.sort_order - b.sort_order)
@@ -48,7 +55,7 @@ export default function TutorSidebar({ defaultOpen = true }) {
     }
     const uncat = rest.filter(p => !p.category_id || !cats.some(c => c.id === p.category_id))
     if (uncat.length) byCat.push({ name: cats.length ? 'Other' : null, items: uncat })
-    return { pinned, byCat }
+    return { pinned, byCat, director }
   }, [pages, cats, filter])
 
   const Item = ({ slug, icon, title, mandatory }) => {
@@ -100,6 +107,16 @@ export default function TutorSidebar({ defaultOpen = true }) {
                   {g.items.map(p => <Item key={p.id} slug={p.slug} icon={p.icon} title={p.title} mandatory={p.mandatory} />)}
                 </div>
               ))}
+              {groups.director.length > 0 && (
+                <div className="mb-1 mt-1 pt-1 border-t border-[#EEF2FF]">
+                  {open && (
+                    <p className="px-2 pt-1 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-[#5B21B6]/70 flex items-center gap-1">
+                      <span aria-hidden="true">🔒</span> Director
+                    </p>
+                  )}
+                  {groups.director.map(p => <Item key={p.id} slug={p.slug} icon={p.icon} title={p.title} mandatory={p.mandatory} />)}
+                </div>
+              )}
             </>
           )}
         </nav>
