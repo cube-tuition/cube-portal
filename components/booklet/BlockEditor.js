@@ -7,6 +7,11 @@ import { supabase } from '../../lib/supabase'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
 import { selectedToSyllabusText, countSelected, filterModulesToPool } from '../../lib/syllabus'
 import { partUid } from '../../lib/bookletRender'
+
+// Option letters are positional everywhere: the letter shown is the index, and
+// `answer` stores that letter. Anything that reorders options must re-letter
+// them and carry the correct answer across with its option.
+const OPT_LETTERS = 'ABCDEFGH'
 import { onTextKey, onInlineKey } from '../../lib/textShortcuts'
 
 /*
@@ -854,7 +859,6 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
       // Option letters are positional (A, B, C…). Reordering re-letters the
       // options and moves the "Correct" answer with the option it points to.
       const opts = block.options || []
-      const OPT_LETTERS = 'ABCDEFGH'
       const moveOption = (i, dir) => {
         const j = i + dir
         if (j < 0 || j >= opts.length) return
@@ -1224,6 +1228,38 @@ function TableEditor({ block, set }) {
 
 function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, onCols }) {
   const twoCol = Number(cols) === 2
+
+  /*
+   * Reordering parts.
+   *
+   * Part letters are positional, so a moved part re-letters itself. The catch
+   * is identity: a student's answer is bound to `blockId::partId`, and a part
+   * with no id falls back to `#index` — under which a reorder would silently
+   * hand one student's answer to a different prompt. So every part gets a
+   * stable id before the first swap. Nothing in the database keys by #index
+   * today, so backfilling costs nothing and closes the hole for good.
+   */
+  const movePart = (i, dir) => {
+    const j = i + dir
+    if (j < 0 || j >= parts.length) return
+    const arr = parts.map(p => (p.id ? p : { ...p, id: partUid() }))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+    onChange(arr)
+  }
+
+  // Same rule as the standalone MCQ block: re-letter positionally and carry
+  // the correct answer across with the option it points at.
+  const moveOption = (i, oi, dir) => {
+    const opts = parts[i].options || []
+    const j = oi + dir
+    if (j < 0 || j >= opts.length) return
+    const arr = [...opts]
+    const correct = arr.find(o => o.k === parts[i].answer)
+    ;[arr[oi], arr[j]] = [arr[j], arr[oi]]
+    const options = arr.map((o, k) => ({ ...o, k: OPT_LETTERS[k] }))
+    const answer = correct ? OPT_LETTERS[arr.indexOf(correct)] : parts[i].answer
+    onChange(parts.map((x, k) => (k === i ? { ...x, options, answer } : x)))
+  }
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-0.5">
@@ -1256,7 +1292,17 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
         {parts.map((p, i) => (
           <div key={i} data-part={String(p.id ?? i)} className="border border-[#E8EDF8] rounded-lg p-2 bg-[#F8FAFF]">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-bold text-[#325099]">{String.fromCharCode(97 + i)}.</span>
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] font-bold text-[#325099]">{String.fromCharCode(97 + i)}.</span>
+                {parts.length > 1 && (
+                  <>
+                    <button type="button" onClick={() => movePart(i, -1)} disabled={i === 0} title="Move this part up"
+                      className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#E8EEFF] disabled:opacity-20 disabled:hover:bg-transparent text-[10px] leading-none">▲</button>
+                    <button type="button" onClick={() => movePart(i, 1)} disabled={i === parts.length - 1} title="Move this part down"
+                      className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#E8EEFF] disabled:opacity-20 disabled:hover:bg-transparent text-[10px] leading-none">▼</button>
+                  </>
+                )}
+              </div>
               <div className="flex items-center gap-3">
                 {showMarks && (
                   <label className="flex items-center gap-1 text-[11px] text-[#325099]" title="Marks for this part">
@@ -1312,9 +1358,15 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                           ? { ...x, options: x.options.map((y, k) => k === oi ? { ...y, t: v } : y) } : x))}
                         inlineKey
                       />
+                      <div className="flex flex-col shrink-0 text-[#2A2035]/40">
+                        <button type="button" onClick={() => moveOption(i, oi, -1)} disabled={oi === 0} title="Move up"
+                          className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▲</button>
+                        <button type="button" onClick={() => moveOption(i, oi, 1)} disabled={oi === p.options.length - 1} title="Move down"
+                          className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▼</button>
+                      </div>
                       <button
                         onClick={() => onChange(parts.map((x, j) => j === i
-                          ? { ...x, options: x.options.filter((_, k) => k !== oi).map((y, k) => ({ ...y, k: 'ABCDEFGH'[k] })) } : x))}
+                          ? { ...x, options: x.options.filter((_, k) => k !== oi).map((y, k) => ({ ...y, k: OPT_LETTERS[k] })) } : x))}
                         className="text-rose-400 hover:text-rose-600 text-xs shrink-0"
                       >✕</button>
                     </div>
@@ -1323,7 +1375,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                 <div className="flex items-end gap-3 mt-1.5">
                   <button
                     onClick={() => onChange(parts.map((x, j) => j === i
-                      ? { ...x, options: [...x.options, { k: 'ABCDEFGH'[x.options.length] || 'Z', t: '' }] } : x))}
+                      ? { ...x, options: [...x.options, { k: OPT_LETTERS[x.options.length] || 'Z', t: '' }] } : x))}
                     className="text-[11px] font-semibold text-[#325099] hover:underline"
                   >＋ Add option</button>
                   <div className="ml-auto">
