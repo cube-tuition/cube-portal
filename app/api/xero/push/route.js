@@ -1,10 +1,70 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { upsertXeroContacts, createXeroInvoicesBatch } from '../../../../lib/xero'
+import { upsertXeroContacts, createXeroInvoicesBatch, fetchXeroInvoicesByIds } from '../../../../lib/xero'
+import { syncInvoicePayment } from '../../../../lib/xeroPayments'
 import { isOneToOneClass } from '../../../../lib/classFormat'
 
 // 2 Xero API calls total (batch contacts + batch invoices) — fast and safe
 export const maxDuration = 60
+
+/*
+ * Sweep the whole term's paid flags into Xero.
+ *
+ * Runs on every sync, not just for invoices pushed in this run: an invoice
+ * marked paid while it was still a draft in Xero — or while Xero was
+ * unreachable — would otherwise stay owing there forever, since marking an
+ * already-paid invoice paid again is a no-op that never fires the hook on
+ * /api/update-invoice-status.
+ *
+ * Returns { applied, reversed, pending: [{ invoice_number, reason }] }.
+ */
+async function reconcilePayments(supabase, termId) {
+  const { data: settings } = await supabase.from('xero_settings')
+    .select('payment_account_code').eq('id', 1).maybeSingle()
+  const accountCode = settings?.payment_account_code || null
+
+  // Anything linked to Xero that is either paid here (and may need a payment)
+  // or carries a payment we created (and may need it reversed).
+  const { data: rows } = await supabase.from('invoices')
+    .select('id, invoice_number, payment_status, paid_date, xero_invoice_id, xero_payment_id')
+    .eq('term_id', termId)
+    .not('xero_invoice_id', 'is', null)
+    .or('payment_status.eq.paid,xero_payment_id.not.is.null')
+
+  const candidates = rows || []
+  if (!candidates.length) return { applied: 0, reversed: 0, pending: [] }
+  if (!accountCode) {
+    return { applied: 0, reversed: 0, pending: [{ invoice_number: null, reason: 'no payment account set — choose a bank account under Account mapping' }] }
+  }
+
+  // One bulk read of Xero's current view, so a term of invoices costs a couple
+  // of calls rather than one per invoice.
+  let xeroById = new Map()
+  try {
+    xeroById = await fetchXeroInvoicesByIds(candidates.map(i => i.xero_invoice_id))
+  } catch (err) {
+    return { applied: 0, reversed: 0, pending: [{ invoice_number: null, reason: `could not read invoices from Xero: ${err.message}` }] }
+  }
+
+  let applied = 0, reversed = 0
+  const pending = []
+  for (const inv of candidates) {
+    let verdict
+    try {
+      verdict = await syncInvoicePayment(supabase, inv, {
+        accountCode, xeroInvoice: xeroById.get(inv.xero_invoice_id),
+      })
+    } catch (err) { verdict = `failed: ${err.message}` }
+
+    if (verdict === 'marked paid in Xero')        applied++
+    else if (verdict === 'payment removed in Xero') reversed++
+    // "already paid" and "nothing to reverse" are the steady state, not news.
+    else if (verdict && !['already paid in Xero', 'nothing to reverse', 'not in Xero'].includes(verdict)) {
+      pending.push({ invoice_number: inv.invoice_number, reason: verdict })
+    }
+  }
+  return { applied, reversed, pending }
+}
 
 /**
  * POST /api/xero/push
@@ -87,6 +147,7 @@ export async function POST(req) {
     return NextResponse.json({
       pushed: 0, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length,
       ...termCounts, no_line_items: 0, errors: [],
+      payments: await reconcilePayments(supabase, term_id),
       message: why ? `No new invoices to push — ${why}.` : 'No new invoices to push',
     })
   }
@@ -222,7 +283,7 @@ export async function POST(req) {
     })
   }
 
-  if (!built.length) return NextResponse.json({ pushed: 0, no_line_items: noLines.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, ...termCounts, errors: [] })
+  if (!built.length) return NextResponse.json({ pushed: 0, no_line_items: noLines.length, cash_skipped: cashSkipped.length, draft_skipped: draftSkipped.length, ...termCounts, errors: [], payments: await reconcilePayments(supabase, term_id) })
 
   // ── Step 3: deduplicate contacts, batch-upsert in ONE Xero call ──────────────
   const contactKeyOrder = []
@@ -279,6 +340,10 @@ export async function POST(req) {
     }).eq('id', inv.id)
     results.pushed++
   }
+
+  // After the push, so an invoice created in this very run can still be paid
+  // in the same sync once it has been approved in Xero.
+  results.payments = await reconcilePayments(supabase, term_id)
 
   return NextResponse.json(results)
 }

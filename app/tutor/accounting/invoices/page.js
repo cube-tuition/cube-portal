@@ -187,6 +187,7 @@ function InvoiceDashboardInner() {
   // Xero
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
   const [xeroSyncing,   setXeroSyncing]   = useState(false)
+  const [xeroPaymentsEnabled, setXeroPaymentsEnabled] = useState(true)  // assume ok until told otherwise
   const [xeroResult,    setXeroResult]    = useState(null)  // { pushed, already_in_xero, voided_skipped, cash_skipped, draft_skipped, no_line_items, errors }
 
   useEffect(() => {
@@ -221,7 +222,10 @@ function InvoiceDashboardInner() {
       if (!session) return
       fetch('/api/xero/status', {
         headers: { Authorization: `Bearer ${session.access_token}` },
-      }).then(r => r.json()).then(d => setXeroConnected(d.connected)).catch(() => setXeroConnected(false))
+      }).then(r => r.json()).then(d => {
+        setXeroConnected(d.connected)
+        setXeroPaymentsEnabled(d.payments_enabled)
+      }).catch(() => setXeroConnected(false))
     })
   }, [searchParams])
 
@@ -695,6 +699,14 @@ function InvoiceDashboardInner() {
       else if (typeof data.cash_log === 'string' && data.cash_log.startsWith('failed')) {
         setError(`Marked as paid, but the cash log entry could not be added (${data.cash_log.slice(8)}). Add it by hand.`)
       }
+      // Bank invoices carry their paid state through to Xero. Say whether that
+      // landed: silence would leave staff assuming Xero agrees when it may not.
+      const xp = data.xero_payment
+      if (xp === 'marked paid in Xero') setSuccessMsg('Marked as paid here and in Xero.')
+      else if (xp === 'payment removed in Xero') setSuccessMsg('Payment cleared here and in Xero.')
+      else if (xp && !['already paid in Xero', 'nothing to reverse', 'not in Xero'].includes(xp)) {
+        setError(`Marked as paid in the portal, but not in Xero: ${xp}. Run Sync to Xero once that's sorted.`)
+      }
     } catch (e) { setError('Status update failed: ' + e.message) }
     setStatusEditing(null)
   }
@@ -882,6 +894,7 @@ function InvoiceDashboardInner() {
           termId={termId}
           onSync={handleSyncToXero}
           onResetXero={handleResetXero}
+          xeroPaymentsEnabled={xeroPaymentsEnabled}
         />
 
         {termId && (

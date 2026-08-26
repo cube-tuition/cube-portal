@@ -2,12 +2,13 @@
 import { authedFetch } from '../../lib/authedFetch'
 import { useState } from 'react'
 
-export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync, onResetXero }) {
+export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onSync, onResetXero, xeroPaymentsEnabled = true }) {
   const [showSettings,  setShowSettings]  = useState(false)
   const [activeTab,     setActiveTab]     = useState('global')
   const [accounts,      setAccounts]      = useState([])
   const [xeroItems,     setXeroItems]     = useState([])
-  const [settings,      setSettings]      = useState({ enrolment_account_code: '', enrolment_1on1_account_code: '', discount_account_code: '', credit_account_code: '' })
+  const [bankAccounts,  setBankAccounts]  = useState([])
+  const [settings,      setSettings]      = useState({ enrolment_account_code: '', enrolment_1on1_account_code: '', discount_account_code: '', credit_account_code: '', payment_account_code: '' })
   const [loadingAcc,    setLoadingAcc]    = useState(false)
   const [accError,      setAccError]      = useState(null)
   const [saving,        setSaving]        = useState(false)
@@ -32,12 +33,14 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
       ])
       if (!accRes.accounts?.length) throw new Error('No accounts returned from Xero — your chart of accounts may be empty or all accounts are archived.')
       setAccounts(accRes.accounts)
+      setBankAccounts(accRes.bankAccounts || [])
       setXeroItems(xeroItemsRes.items || [])
       if (settRes && !settRes.error) setSettings({
         enrolment_account_code:      settRes.enrolment_account_code      || '',
         enrolment_1on1_account_code: settRes.enrolment_1on1_account_code || '',
         discount_account_code:       settRes.discount_account_code       || '',
         credit_account_code:         settRes.credit_account_code         || '',
+        payment_account_code:        settRes.payment_account_code        || '',
       })
       const names = itemMappingRes.courseNames || []
       setCourseNames(names)
@@ -140,6 +143,9 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
               {xeroResult.draft_skipped ? `, ${xeroResult.draft_skipped} still draft` : ''}
               {xeroResult.no_line_items ? `, ${xeroResult.no_line_items} with no billable lines` : ''}
               {xeroResult.errors?.length ? `, ${xeroResult.errors.length} errors` : ''}
+              {xeroResult.payments?.applied ? `, ${xeroResult.payments.applied} marked paid in Xero` : ''}
+              {xeroResult.payments?.reversed ? `, ${xeroResult.payments.reversed} payment${xeroResult.payments.reversed === 1 ? '' : 's'} reversed` : ''}
+              {xeroResult.payments?.pending?.length ? `, ${xeroResult.payments.pending.length} payment${xeroResult.payments.pending.length === 1 ? '' : 's'} not applied` : ''}
             </span>
           )}
         </div>
@@ -207,6 +213,35 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
         </div>
       </div>
 
+      {/* The count alone doesn't tell anyone what to do next, and each reason
+          has a different fix — approve it in Xero, reset a stale link, pick a
+          bank account. Group by reason so a term of invoices stays readable. */}
+      {xeroResult?.payments?.pending?.length > 0 && (
+        <div className="px-4 py-2 border-t border-[#DEE7FF] bg-[#F8FAFF]">
+          {Object.entries(
+            xeroResult.payments.pending.reduce((acc, p) => {
+              (acc[p.reason] ||= []).push(p.invoice_number)
+              return acc
+            }, {})
+          ).map(([reason, nums]) => (
+            <p key={reason} className="text-[11px] text-[#325099]/60">
+              <span className="font-semibold">Not marked paid in Xero</span> — {reason}
+              {nums.filter(Boolean).length ? `: ${nums.filter(Boolean).join(', ')}` : ''}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {xeroConnected && !xeroPaymentsEnabled && (
+        <div className="px-4 py-2 border-t border-[#DEE7FF] bg-[#FFFBEB]">
+          <p className="text-[11px] text-amber-700">
+            This Xero connection predates payment support, so marking an invoice paid here won’t mark it
+            paid in Xero. Click <span className="font-semibold">Reconnect</span> to grant the permission —
+            nothing else changes.
+          </p>
+        </div>
+      )}
+
       {showSettings && (
         <div className="border-t border-[#DEE7FF] bg-[#F8FAFF]">
           {loadingAcc ? (
@@ -254,6 +289,34 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                     A 1:1 line is recognised from its course’s delivery mode (class name as a fallback).
                     Leave “1:1” unset and those lines use the class account.
                   </p>
+
+                  <div className="mt-5 pt-4 border-t border-[#DEE7FF]">
+                    <p className="text-[11px] text-[#325099]/50 mb-3">
+                      Marking an invoice paid in the portal records the payment against it in Xero.
+                      Choose the bank account that money lands in — Xero requires one, so until it is
+                      set nothing is marked paid there.
+                    </p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Payments land in</label>
+                        <select
+                          value={settings.payment_account_code || ''}
+                          onChange={e => setSettings(p => ({ ...p, payment_account_code: e.target.value }))}
+                          className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+                        >
+                          <option value="">— don’t mark paid in Xero</option>
+                          {bankAccounts.map(a => (
+                            <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    {bankAccounts.length === 0 && (
+                      <p className="text-[11px] text-amber-600 mt-2">
+                        No bank accounts found in Xero — add one there first.
+                      </p>
+                    )}
+                  </div>
                   <div className="flex justify-end mt-4">
                     <button onClick={handleSaveGlobal} disabled={saving}
                       className="text-xs font-semibold bg-[#062E63] text-white px-5 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">

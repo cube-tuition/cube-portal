@@ -6,6 +6,10 @@ import { requireApiRole } from '../../../../lib/apiAuth'
  * GET /api/xero/accounts
  * Returns Xero chart-of-accounts entries suitable for invoice line item mapping.
  * Filters to REVENUE + SALES account types and adds tax types.
+ *
+ * `bankAccounts` comes back separately: a payment must land in a BANK account,
+ * and a BANK account can never appear on an invoice line — so the two lists can
+ * never be offered in the same selector.
  */
 export async function GET(request) {
   try {
@@ -51,7 +55,12 @@ export async function GET(request) {
       { value: 'NONE',        label: 'No Tax' },
     ]
 
-    return NextResponse.json({ accounts: relevant, taxTypes: TAX_TYPES })
+    const bankAccounts = (Accounts || [])
+      .filter(a => a.Status === 'ACTIVE' && a.Type === 'BANK')
+      .map(a => ({ code: a.Code, name: a.Name, currency: a.CurrencyCode }))
+      .sort((a, b) => (a.code || '').localeCompare(b.code || ''))
+
+    return NextResponse.json({ accounts: relevant, bankAccounts, taxTypes: TAX_TYPES })
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

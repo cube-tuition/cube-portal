@@ -28,7 +28,8 @@ export async function POST(req) {
 
     const body = await req.json()
     const allowed = ['enrolment_account_code', 'enrolment_1on1_account_code',
-      'discount_account_code', 'credit_account_code', 'tax_type']
+      'discount_account_code', 'credit_account_code', 'tax_type',
+      'payment_account_code']
     const update = {}
     for (const k of allowed) if (body[k] !== undefined) update[k] = body[k] || null
     update.updated_at = new Date().toISOString()

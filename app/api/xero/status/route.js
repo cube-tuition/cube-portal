@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getStoredTokens } from '../../../../lib/xero'
+import { getStoredTokens, getTokenScopes, PAYMENTS_SCOPE } from '../../../../lib/xero'
 
 /**
  * GET /api/xero/status
- * Returns whether Xero is connected (admin only).
+ * Returns whether Xero is connected (admin only), and whether the connection
+ * carries the scope needed to record payments.
  */
 export async function GET(req) {
   // Verify admin JWT
@@ -19,8 +20,12 @@ export async function GET(req) {
   if (user.app_metadata?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const tokens = await getStoredTokens()
+  const scopes = tokens ? await getTokenScopes() : []
   return NextResponse.json({
     connected: !!tokens,
     expires_at: tokens?.expires_at || null,
+    // False on a connection made before the payments scope was added — it keeps
+    // pushing invoices happily and only fails when a payment is attempted.
+    payments_enabled: scopes.includes(PAYMENTS_SCOPE),
   })
 }

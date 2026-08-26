@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { fetchXeroInvoicesByIds } from '../../../lib/xero'
+import { syncInvoicePayment } from '../../../lib/xeroPayments'
 
 /*
  * POST /api/update-invoice-status
@@ -15,6 +17,12 @@ import { requireApiRole } from '../../../lib/apiAuth'
  * Marking a CASH invoice paid also adds the matching inflow to the cash log
  * (and un-marking removes it) — see syncCashLog below. The response reports
  * what happened as `cash_log`: added | removed | exists | failed: … | null.
+ *
+ * A BANK invoice that is already in Xero also has the payment applied there,
+ * so "paid" means the same thing in both systems — reported as `xero_payment`.
+ * Xero never gets to fail the portal's own record: if it is unreachable, or the
+ * invoice is still a draft there, the verdict says so and the next Sync to Xero
+ * picks it up.
  */
 
 const ALLOWED_FIELDS = {
@@ -72,6 +80,31 @@ async function syncCashLog(sb, invoiceId, isPaid) {
   return { cash_log: error ? `failed: ${error.message}` : 'added', cash_log_id: row?.id ?? null }
 }
 
+/*
+ * Mirror the paid flag into Xero for one invoice. Reads the invoice back after
+ * the update so it sees the new payment_status, then hands off to the shared
+ * reconciler that Sync to Xero also uses.
+ */
+async function syncXeroPayment(sb, invoiceId) {
+  const { data: inv } = await sb.from('invoices')
+    .select('id, invoice_number, payment_status, paid_date, xero_invoice_id, xero_payment_id')
+    .eq('id', invoiceId).single()
+  if (!inv?.xero_invoice_id) return null            // cash, or never pushed
+
+  const { data: settings } = await sb.from('xero_settings')
+    .select('payment_account_code').eq('id', 1).maybeSingle()
+  const accountCode = settings?.payment_account_code || null
+
+  // Only the paid direction needs Xero's current view of the invoice; the
+  // un-marking path deletes a payment by id and can skip the lookup.
+  let xeroInvoice
+  if (inv.payment_status === 'paid' && accountCode) {
+    const map = await fetchXeroInvoicesByIds([inv.xero_invoice_id])
+    xeroInvoice = map.get(inv.xero_invoice_id)
+  }
+  return syncInvoicePayment(sb, inv, { accountCode, xeroInvoice })
+}
+
 export async function POST(req) {
   try {
     const auth = await requireApiRole(req, ['admin', 'director'])
@@ -110,11 +143,14 @@ export async function POST(req) {
     // Cash invoices book themselves into the cash log when paid. Never let this
     // fail the payment: the invoice is already updated by here.
     let cashLog = {}
+    let xeroPayment
     if (field === 'payment_status') {
       try { cashLog = await syncCashLog(sb, invoice_id, value === 'paid') }
       catch (e) { cashLog = { cash_log: `failed: ${e.message}` } }
+      try { xeroPayment = await syncXeroPayment(sb, invoice_id) }
+      catch (e) { xeroPayment = `failed: ${e.message}` }
     }
-    return Response.json({ success: true, patch, ...cashLog })
+    return Response.json({ success: true, patch, ...cashLog, ...(xeroPayment ? { xero_payment: xeroPayment } : {}) })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })
   }
