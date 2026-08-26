@@ -1,5 +1,6 @@
 'use client'
 import { useMemo, useState, useEffect, useRef } from 'react'
+import { isSeniorClass } from '../../lib/homeworkGrades'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
@@ -242,10 +243,13 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
           && ['resources', 'pastpapers', 'study', 'dropin'].includes(featureOf(v.path)?.key))
           .map(v => v.day)).size
 
+      // Year 11/12 classes carry no homework grade, so a student whose classes
+      // are all senior is scored without that component rather than zeroed on it.
+      const noHomework = rec.classes.length > 0 && rec.classes.every(c => isSeniorClass(c))
       const { total: score, parts } = engagementScore({
         activeDays: inScoreWin.length, windowDays: daysBetween(scoreFrom, to) + 1,
         windowWeeks: scoreWeeks, hwGrades, rqWeeks, rqPossible, resourceDays,
-        activeWeeks: new Set(inScoreWin.map(mondayOf)).size,
+        activeWeeks: new Set(inScoreWin.map(mondayOf)).size, noHomework,
       })
       const status = statusOf(score, daysSince)
       const mySess = sessByUser.get(s.id) || []
@@ -254,7 +258,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
       const firstHalf = inWin.filter(d => d < mid).length
       const secondHalf = inWin.filter(d => d >= mid).length
       return {
-        s, rec, score, parts, status, lastDay, daysSince,
+        s, rec, score, parts, status, lastDay, daysSince, noHomework,
         activeDays: inWin.length, sessions: mySess.length,
         sessMs: mySess.reduce((a, x) => a + x.ms, 0),
         hwGrades, rqWeeks, rqPossible,
@@ -372,7 +376,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
         total: roster.length, active,
         engagement: Math.round(avg(r => r.score)),
         avgDays: avg(r => r.activeDays),
-        hw: Math.round(avg(r => r.parts.homework * 100)),
+        hw: isSeniorClass(c) ? null : Math.round(avg(r => r.parts.homework * 100)),
         rq: Math.round(avg(r => r.parts.quiz * 100)),
       }
     }).filter(Boolean).sort((a, b) => b.engagement - a.engagement)
@@ -415,7 +419,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
       ...tableRows.map(r => [
         esc(r.s.full_name), r.s.year ?? '', esc(r.rec.classes.map(c => c.class_name).join('; ')),
         r.lastDay ?? 'never', r.activeDays, eventsCover ? r.sessions : '',
-        Math.round(r.parts.homework * 100) + '%', Math.round(r.parts.quiz * 100) + '%',
+        r.noHomework ? '' : Math.round(r.parts.homework * 100) + '%', Math.round(r.parts.quiz * 100) + '%',
         r.score, r.status.label,
       ].join(',')),
     ]
@@ -646,7 +650,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
                     </div>
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-xs">{c.avgDays.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 tabular-nums text-xs">{c.hw}%</td>
+                  <td className="px-3 py-2.5 tabular-nums text-xs">{c.hw == null ? <span className="text-[#2A2035]/30">—</span> : `${c.hw}%`}</td>
                   <td className="px-3 py-2.5 tabular-nums text-xs">{c.rq}%</td>
                 </tr>
               ))}
@@ -710,7 +714,10 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
                     {relLabel(r.daysSince)}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-xs">{r.activeDays}</td>
-                  <td className="px-3 py-2.5 tabular-nums text-xs">{Math.round(r.parts.homework * 100)}%</td>
+                  <td className="px-3 py-2.5 tabular-nums text-xs">
+                    {r.noHomework ? <span className="text-[#2A2035]/30" title="Year 11/12 — no homework grade kept">—</span>
+                                  : `${Math.round(r.parts.homework * 100)}%`}
+                  </td>
                   <td className="px-3 py-2.5 tabular-nums text-xs">{Math.round(r.parts.quiz * 100)}%</td>
                   <td className="px-3 py-2.5">
                     <span className="text-sm font-bold tabular-nums font-display" style={{ color: NAVY }}

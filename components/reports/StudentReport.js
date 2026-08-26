@@ -1,5 +1,6 @@
 'use client'
 import { useMemo } from 'react'
+import { showsHomeworkGrade } from '../../lib/homeworkGrades'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Bar, ComposedChart, Cell,
@@ -59,6 +60,8 @@ function StatBox({ label, value, sub }) {
 }
 
 export function StudentReport({ student, cls, term, roster, attendance, quizzes, comment, criteria, prepost, examData, rqByWeek = {}, isLast, kind }) {
+  // Year 11/12 classes carry no homework grade — see lib/homeworkGrades.
+  const hwEnabled = showsHomeworkGrade(cls, roster)
   const col = subjectColor(inferSubject(cls))
   // Callers that predate the mid-term split (and anything rendering a single
   // report elsewhere) get the full end-of-term report, as before.
@@ -287,7 +290,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
           <section className="mb-6">
             <h2 className="text-sm font-bold tracking-[0.2em] uppercase text-[#325099] mb-1">Revision quiz trend</h2>
             <p className="text-xs text-[#2A2035]/60 mb-3">
-              RQ % per week (Wk 2–{lastWeek === 10 ? 9 : lastWeek}) · attendance shaded · previous week's HWK grade shown below each week
+              RQ % per week (Wk 2–{lastWeek === 10 ? 9 : lastWeek}) · attendance shaded{hwEnabled ? " · previous week's HWK grade shown below each week" : ''}
             </p>
             <div style={{ width: '100%', height: 260 }}>
               <ResponsiveContainer>
@@ -304,7 +307,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                     tick={(props) => {
                       const { x, y, payload } = props
                       const wd = weekly.find(d => d.week === payload.value)
-                      const hw = wd?.hw || null
+                      const hw = hwEnabled ? (wd?.hw || null) : null
                       const hwStyle = {
                         A: { bg: '#D1FAE5', fg: '#065F46' },
                         B: { bg: '#DEE7FF', fg: '#062E63' },
@@ -321,9 +324,9 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                               <rect x={-11} y={18} width={22} height={15} rx={5} fill={c.bg} />
                               <text x={0} y={29} textAnchor="middle" fill={c.fg} fontSize={9} fontWeight="bold">{hw}</text>
                             </>
-                          ) : (
+                          ) : hwEnabled ? (
                             <text x={0} y={30} textAnchor="middle" fill="#CBD5E1" fontSize={9}>—</text>
-                          )}
+                          ) : null}
                         </g>
                       )
                     }}
@@ -380,8 +383,8 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.late }} /> Late</span>
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.absent }} /> Absent</span>
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm opacity-40" style={{ background: ATT_COLOR.makeup }} /> Makeup</span>
-              <span className="text-[#2A2035]/40">·</span>
-              <span className="text-[#2A2035]/60">Previous week's HWK badge below each week</span>
+              {hwEnabled && <><span className="text-[#2A2035]/40">·</span>
+              <span className="text-[#2A2035]/60">Previous week's HWK badge below each week</span></>}
             </div>
 
             <table className="w-full text-xs mt-4 border-collapse">
@@ -389,7 +392,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                 <tr className="bg-[#F8FAFF] border-y border-[#DEE7FF]">
                   <th className="text-left px-3 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099] w-[14%]">Week</th>
                   <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Attendance</th>
-                  <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Previous week's HWK</th>
+                  {hwEnabled && <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">Previous week's HWK</th>}
                   <th className="text-center px-2 py-2 text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]">RQ %</th>
                 </tr>
               </thead>
@@ -405,6 +408,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                         }}>{r.status[0].toUpperCase() + r.status.slice(1)}</span>
                       ) : <span className="text-[#2A2035]/30">—</span>}
                     </td>
+                    {hwEnabled && (
                     <td className="px-2 py-1.5 text-center">
                       {r.hw ? (
                         <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full" style={{
@@ -413,6 +417,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
                         }}>{r.hw}</span>
                       ) : <span className="text-[#2A2035]/30">—</span>}
                     </td>
+                    )}
                     <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-[#2A2035]">
                       {r.noRq
                         ? <span className="text-[#2A2035]/40 font-normal italic">No RQ</span>
@@ -432,9 +437,9 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
         rk.singlePage && revisionOnPage1 ? (isLast ? '' : 'mb-8') : 'mb-4'}`}>
         {reportHeader(1)}
 
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className={`grid ${hwEnabled ? 'grid-cols-3' : 'grid-cols-2'} gap-3 mb-6`}>
           <StatBox label="Quiz average" value={stats.avgRq != null ? `${stats.avgRq}%` : '—'} sub={`${stats.scoredCount} quiz${stats.scoredCount === 1 ? '' : 'zes'}`} />
-          <StatBox label="Average HWK grade" value={stats.hwMode ?? '—'} sub={`${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'} logged`} />
+          {hwEnabled && <StatBox label="Average HWK grade" value={stats.hwMode ?? '—'} sub={`${stats.hwTotal} week${stats.hwTotal === 1 ? '' : 's'} logged`} />}
           <StatBox label="Attendance" value={stats.attPct != null ? `${stats.attPct}%` : '—'} sub={`${stats.attTotal} session${stats.attTotal === 1 ? '' : 's'}`} />
         </div>
 

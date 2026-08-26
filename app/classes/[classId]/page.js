@@ -275,6 +275,7 @@ export default function ClassPage() {
         ) : cls ? (
           <CourseDetail
             course={cls}
+            student={student}
             subject={subject}
             col={col}
             quizzes={courseQuizzes}

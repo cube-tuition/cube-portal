@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { showsHomeworkGrade } from '../../../../../lib/homeworkGrades'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
@@ -192,6 +193,8 @@ export default function MakeupLessonPage() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const isOneToOne = /1.?:?.?1/i.test(lesson?.classes?.class_name || '')
+  // Year 11/12 classes carry no homework grade — see lib/homeworkGrades.
+  const hwEnabled = showsHomeworkGrade(lesson?.classes)
   const isAbsent   = attendance === 'absent'
   const studentId  = lesson?.makeup_student_id
   const subject    = lesson ? inferSubject({ class_name: lesson.classes?.class_name }) : ''
@@ -218,7 +221,7 @@ export default function MakeupLessonPage() {
     if (!attendance) missing.push('Attendance')
     if (!isAbsent) {
       if (isOneToOne && !understanding) missing.push('Understanding %')
-      if (!isOneToOne && !hw) missing.push('HW Completion')
+      if (hwEnabled && !isOneToOne && !hw) missing.push('HW Completion')
       if (!isOneToOne && (rq === '' || rq == null)) missing.push('RQ Mark')
     }
     if (missing.length > 0) {
@@ -266,7 +269,7 @@ export default function MakeupLessonPage() {
         week:            lesson.week ? `Week ${lesson.week}` : null,
         score:           scoreVal,
         max_score:       100,
-        homework_grade:  isOneToOne ? null : (hw || null),
+        homework_grade:  (isOneToOne || !hwEnabled) ? null : (hw || null),
         quiz_date:       lesson.lesson_date,
       }
       const { error: qzErr } = existingRow
@@ -374,6 +377,7 @@ export default function MakeupLessonPage() {
         {/* ── GROUP CLASS FIELDS ── */}
         {!isOneToOne && !isAbsent && (
           <>
+            {hwEnabled && (
             <FieldCard label="Previous week's HW completion" required>
               <div className="flex flex-wrap gap-2">
                 {GRADE_OPTIONS.map(opt => (
@@ -382,6 +386,7 @@ export default function MakeupLessonPage() {
               </div>
               {hwMissing && <p className="text-[11px] text-[#DC2626] mt-2">HW completion is required.</p>}
             </FieldCard>
+            )}
 
             <FieldCard label="RQ mark %" required>
               <div className="flex items-center gap-3">

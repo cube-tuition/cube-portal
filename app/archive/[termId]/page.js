@@ -191,6 +191,7 @@ export default function ArchiveTermPage() {
         ) : (
           <CourseDetail
             course={activeCourse}
+            student={student}
             subject={activeSubject}
             col={col}
             quizzes={courseQuizzes}
