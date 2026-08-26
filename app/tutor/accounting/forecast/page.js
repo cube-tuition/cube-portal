@@ -289,8 +289,10 @@ export default function ForecastPage() {
         // Inactive classes are finished business — their students have left, but
         // the class row (and its teacher) survives the term. Costing them would
         // book teacher pay against no income. Legacy rows have no status yet.
+        // Left join on enrolments: a class with NO students yet must still show —
+        // its teacher is being paid against zero income, the board's worst case.
         classesForTerm(termId, `id, class_name, course_id, teacher, start_time, end_time,
-            enrolments!inner(id, student_id, price, status, students(full_name))`)
+            enrolments(id, student_id, price, status, students(full_name))`)
           .or('status.eq.active,status.is.null'),
         supabase.from('invoices')
           .select('sibling_discount, multi_course_discount, total, payment_method, student_id, line_items')
