@@ -24,6 +24,7 @@ import { blockElements, checkQuote, paintRange, rangeToOffsets, unpaint } from '
 const PAGE_W = 794
 const GUTTER_W = 250   // comment margin; the balance strip mirrors it
 const PAGE_H = 1123
+const SPREAD_GAP = 24  // between the two pages of an open-book spread
 const SAVE_DELAY = 900
 
 const BOX_RE = /<div class="bk-answer-box"[^>]*style="min-height:(\d+)px"[^>]*><\/div>/g
@@ -231,7 +232,11 @@ function ReviewAnswer({ minHeight, text, editText, editBase, comments, onAnchor,
     if (!quote.trim()) { setSel(null); return }
     const box = ref.current.getBoundingClientRect()
     const r = range.getBoundingClientRect()
-    setSel({ ...hit, quote, top: r.top - box.top })
+    // The button this positions sits INSIDE the (possibly zoomed) spread, so
+    // its px are scaled on the way back out — divide the visual delta by the
+    // effective zoom (visual width / layout width) to land where measured.
+    const z = box.width / (ref.current.offsetWidth || 1) || 1
+    setSel({ ...hit, quote, top: (r.top - box.top) / z })
   }
 
   const marks = useMemo(() => comments
@@ -431,6 +436,37 @@ export default function WorkbookDoc({
   const [curPage, setCurPage] = useState(0)
   const [jumpOpen, setJumpOpen] = useState(false)
   const navRef = useRef(null)
+  /* Booklet view: two consecutive pages side by side, like an open book — a
+     lot of the work is "read the text on one page, answer on the next", and a
+     spread saves the scrolling back and forth. Off by default; the choice
+     sticks per browser. Two A4 pages rarely fit a window at full size, so the
+     spread is scaled to fit with CSS zoom, which reflows — pagination still
+     measures at full size, so pages break exactly where print does. */
+  const [spread, setSpread] = useState(false)
+  const [fitZoom, setFitZoom] = useState(1)
+  useEffect(() => {
+    let saved = false
+    try { saved = localStorage.getItem('wb:spread') === '1' } catch { /* no store */ }
+    if (!saved) return undefined
+    const raf = requestAnimationFrame(() => setSpread(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+  const toggleSpread = useCallback(() => {
+    setSpread(s => {
+      try { localStorage.setItem('wb:spread', s ? '0' : '1') } catch { /* no store */ }
+      return !s
+    })
+  }, [])
+  useEffect(() => {
+    const calc = () => {
+      if (!spread) { setFitZoom(1); return }
+      const avail = window.innerWidth - GUTTER_W - 3 * 18 - 24
+      setFitZoom(Math.max(0.45, Math.min(1, avail / (PAGE_W * 2 + SPREAD_GAP))))
+    }
+    const raf = requestAnimationFrame(calc)
+    window.addEventListener('resize', calc)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', calc) }
+  }, [spread])
   const [activeComment, setActiveComment] = useState(null)
   const [draft, setDraft] = useState(null)     // { key, slot, start, end, quote, body }
   // The student's own highlights. Private to them, so they are never loaded on
@@ -606,7 +642,8 @@ export default function WorkbookDoc({
         if (nodes[i].getBoundingClientRect().top > line) break
         best = i
       }
-      setCurPage(best)
+      // In the spread, both pages of a pair share a top — report the left one.
+      setCurPage(spread ? best - (best % 2) : best)
     }
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure) }
     measure()
@@ -625,7 +662,7 @@ export default function WorkbookDoc({
       targets.forEach(t => t.removeEventListener('scroll', onScroll))
       window.removeEventListener('resize', onScroll)
     }
-  }, [pages, ready, pageNodes])
+  }, [pages, ready, pageNodes, spread])
 
   // Dismiss the jump list on an outside click or Escape. Not on mouse-leave:
   // the pointer can clip the corner of the pill on its way to an item, and a
@@ -1043,9 +1080,12 @@ export default function WorkbookDoc({
     const hit = rangeToOffsets(blockElements(pagesRef.current, blockId), range)
     if (!hit) { setSelection(null); return }
     const r = range.getBoundingClientRect()
+    const pbox = pagesRef.current.getBoundingClientRect()
+    // Note button renders inside the (possibly zoomed) spread — see AnswerArea.
+    const z = pbox.width / (pagesRef.current.offsetWidth || 1) || 1
     setSelection({
       target: 'text', blockId, partId: '', ...hit,
-      top: r.top - (pagesRef.current.getBoundingClientRect().top || 0),
+      top: (r.top - (pbox.top || 0)) / z,
     })
   }, [canNote, canAnnotate])
 
@@ -1056,10 +1096,12 @@ export default function WorkbookDoc({
     const { selectionStart: a, selectionEnd: b, value } = el
     if (a == null || b <= a || !value.slice(a, b).trim()) { setSelection(null); return }
     const r = el.getBoundingClientRect()
+    const pbox = pagesRef.current?.getBoundingClientRect()
+    const z = (pbox?.width || 0) / (pagesRef.current?.offsetWidth || 1) || 1
     setSelection({
       target: 'answer', blockId: slot.blockId, partId: slot.partId,
       start: a, end: b, quote: value.slice(a, b),
-      top: r.top - (pagesRef.current?.getBoundingClientRect().top || 0),
+      top: (r.top - (pbox?.top || 0)) / z,
     })
   }, [canNote])
 
@@ -1371,6 +1413,12 @@ export default function WorkbookDoc({
           width:100%; min-width:${PAGE_W + GUTTER_W + 36}px; }
         .bk-doc-balance{ flex:0 1 ${GUTTER_W + 18}px; min-width:0; }
         .bk-doc-pages{ width:${PAGE_W}px; flex:0 0 ${PAGE_W}px; }
+        /* Booklet view: pages flow two-up like an open book. The container is
+           zoomed to fit the window (inline style), which reflows — every rect
+           measurement stays consistent because they are all visual deltas. */
+        .bk-doc-pages.bk-spread{ width:${PAGE_W * 2 + SPREAD_GAP}px; flex:0 0 auto;
+          display:flex; flex-wrap:wrap; gap:0 ${SPREAD_GAP}px; align-content:flex-start; }
+        .bk-doc-pages.bk-spread > p{ width:100%; }
         .bk-doc-page{ position:relative; width:${PAGE_W}px; min-height:${PAGE_H}px; background:#fff;
           box-shadow:0 1px 4px rgba(16,32,64,.14); border-radius:4px; margin:0 0 20px;
           padding:48px; box-sizing:border-box; }
@@ -1498,6 +1546,8 @@ export default function WorkbookDoc({
           border:0; cursor:pointer; }
         .bk-nav-arrow:hover:not(:disabled){ background:#F0F4FF; }
         .bk-nav-arrow:disabled{ color:#c9cfdd; cursor:default; }
+        .bk-nav-view{ width:44px; font-size:13px; letter-spacing:1px; border-left:1px solid #EEF2FF; }
+        .bk-nav-view[aria-pressed="true"]{ background:#EAF1FF; }
         .bk-nav-cur{ border:0; border-left:1px solid #EEF2FF; border-right:1px solid #EEF2FF;
           background:#fff; padding:7px 14px; font-size:12px; font-weight:700; color:#2A2035;
           cursor:pointer; white-space:nowrap; }
@@ -1527,8 +1577,8 @@ export default function WorkbookDoc({
       {/* Mirrors the comment margin so the page lands in the true centre. */}
       <div className="bk-doc-balance" aria-hidden="true" />
 
-      <div className={`bk-root bk-doc-pages${mode === 'own' ? ' bk-doc-own' : ''}`} ref={pagesRef}
-        style={{ position: 'relative' }}
+      <div className={`bk-root bk-doc-pages${spread ? ' bk-spread' : ''}${mode === 'own' ? ' bk-doc-own' : ''}`} ref={pagesRef}
+        style={{ position: 'relative', zoom: spread ? fitZoom : undefined }}
         onMouseUp={canNote || canAnnotate ? onPageSelect : undefined}
         onClick={mode === 'own' ? onPageClick : undefined}>
         {(canNote || canAnnotate) && selection && !noteDraft && !classDraft && (
@@ -1583,14 +1633,21 @@ export default function WorkbookDoc({
           )}
           <div className="bk-nav-bar">
             <button className="bk-nav-arrow" title="Previous page" aria-label="Previous page"
-              disabled={curPage === 0} onClick={() => goToPage(curPage - 1)}>‹</button>
+              disabled={curPage === 0}
+              onClick={() => goToPage(Math.max(0, (spread ? curPage - (curPage % 2) : curPage) - (spread ? 2 : 1)))}>‹</button>
             <button className="bk-nav-cur" onClick={() => setJumpOpen(o => !o)}
               aria-expanded={jumpOpen} title="Go to page">
               Page {curPage + 1} <span className="bk-nav-of">of {pages.length}</span>
               {pageLabels[curPage] ? <span className="bk-nav-here">{pageLabels[curPage]}</span> : null}
             </button>
             <button className="bk-nav-arrow" title="Next page" aria-label="Next page"
-              disabled={curPage >= pages.length - 1} onClick={() => goToPage(curPage + 1)}>›</button>
+              disabled={(spread ? curPage - (curPage % 2) + 2 : curPage + 1) > pages.length - 1}
+              onClick={() => goToPage(Math.min(pages.length - 1, (spread ? curPage - (curPage % 2) : curPage) + (spread ? 2 : 1)))}>›</button>
+            <button className="bk-nav-arrow bk-nav-view" onClick={toggleSpread} aria-pressed={spread}
+              title={spread ? 'One page at a time' : 'Booklet view — two pages side by side'}
+              aria-label={spread ? 'Switch to single page view' : 'Switch to booklet view'}>
+              {spread ? '▯' : '▯▯'}
+            </button>
           </div>
         </div>
       )}
