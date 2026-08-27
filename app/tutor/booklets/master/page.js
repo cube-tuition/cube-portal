@@ -604,7 +604,9 @@ function MasterDatabaseInner() {
       .select('id').single()
     setOpeningBuilder(null)
     if (error) { alert('Could not create the workbook in the builder: ' + error.message); return }
-    router.push(`/tutor/booklets/builder/${data.id}`)
+    // New tab, like every other open-in-builder action — the insert is quick
+    // enough that the click's user activation still covers window.open.
+    window.open(`/tutor/booklets/builder/${data.id}`, '_blank', 'noopener')
   }
 
   // Permanently delete a booklet: its PDFs in storage, any curriculum
@@ -806,12 +808,12 @@ function MasterDatabaseInner() {
             <div className="divide-y divide-[#F0F4FF]">
               {draftBuilds.map(wb => (
                 <div key={wb.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
-                  <button onClick={() => router.push(`/tutor/booklets/builder/${wb.id}`)} className="text-left min-w-0 truncate">
+                  <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="text-left min-w-0 truncate">
                     <span className="font-semibold text-sm text-[#062E63]">{wb.title || 'Untitled workbook'}</span>
                     <span className="text-xs text-[#2A2035]/50 ml-2">{[wb.subject, wb.year ? `Year ${wb.year}` : null, wb.topic].filter(Boolean).join(' · ') || 'No details yet'}</span>
-                  </button>
+                  </a>
                   <div className="flex items-center gap-3 shrink-0 text-[11px]">
-                    <button onClick={() => router.push(`/tutor/booklets/builder/${wb.id}`)} className="font-semibold text-[#325099] hover:underline">Open →</button>
+                    <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#325099] hover:underline">Open ↗</a>
                     <button onClick={() => duplicateWorkbook(wb.id)} disabled={duplicating === wb.id} className="text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-40" title="Copy this workbook into a new draft (e.g. for another year)">{duplicating === wb.id ? 'Duplicating…' : 'Duplicate'}</button>
                     <button onClick={() => deleteWorkbook(wb)} className="text-[#2A2035]/40 hover:text-rose-500">Delete</button>
                   </div>
@@ -884,14 +886,15 @@ function MasterDatabaseInner() {
                         <div className="shrink-0">
                           {buildByBookletId[b.id] ? (
                             <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => router.push(`/tutor/booklets/builder/${buildByBookletId[b.id].id}`)}
+                              <a
+                                href={`/tutor/booklets/builder/${buildByBookletId[b.id].id}`}
+                                target="_blank" rel="noopener noreferrer"
                                 className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap"
                                 style={{ background: accentBg, color: accentColor }}
                                 title="Open this workbook in the builder"
                               >
                                 Open builder ↗
-                              </button>
+                              </a>
                               <button
                                 onClick={() => duplicateWorkbook(buildByBookletId[b.id].id)}
                                 disabled={duplicating === buildByBookletId[b.id].id}

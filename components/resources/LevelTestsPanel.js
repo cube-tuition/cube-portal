@@ -157,10 +157,10 @@ export default function LevelTestsPanel({ profile, scope = null }) {
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <button onClick={() => router.push(`/tutor/booklets/builder/${t.id}`)}
+                <a href={`/tutor/booklets/builder/${t.id}`} target="_blank" rel="noopener noreferrer"
                   className="text-xs font-semibold bg-[#325099] text-white px-5 py-2 rounded-full hover:bg-[#062E63] transition">
-                  Open →
-                </button>
+                  Open ↗
+                </a>
                 <button onClick={() => deleteTest(t.id)}
                   className={`text-[11px] font-semibold px-3 py-1.5 rounded-full transition ${deletingId === t.id ? 'bg-[#FEE2E2] text-[#991B1B]' : 'text-[#991B1B]/60 hover:bg-[#FEE2E2]'}`}>
                   {deletingId === t.id ? 'Confirm?' : 'Delete'}

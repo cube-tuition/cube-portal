@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 import { T_CLASSES, T_PREPOST_TESTS, T_BOOKLET_BUILDS } from '../../lib/tables'
@@ -37,7 +36,6 @@ function detectYear(name) {
 }
 
 export default function PreTestsPanel({ profile, scope = null }) {
-  const router = useRouter()
   const [terms, setTerms] = useState([])
   const [termId, setTermId] = useState('')
   const [classes, setClasses] = useState([])
@@ -77,7 +75,7 @@ export default function PreTestsPanel({ profile, scope = null }) {
   // Open the class's pre-test paper in the builder, creating it if needed.
   const openBuilder = async (cls) => {
     const existing = buildsByClass[cls.id]
-    if (existing) { router.push(`/tutor/booklets/builder/${existing.id}`); return }
+    if (existing) { window.open(`/tutor/booklets/builder/${existing.id}`, '_blank', 'noopener'); return }
     setBusyClass(cls.id)
     const subject = detectSubject(cls.class_name)
     const year = detectYear(cls.class_name)
@@ -101,7 +99,9 @@ export default function PreTestsPanel({ profile, scope = null }) {
       created_by: profile?.id ?? null,
     }).select('id').single()
     if (error) { alert('Could not create the pre-test: ' + (error.message || error)); setBusyClass(null); return }
-    router.push(`/tutor/booklets/builder/${data.id}`)
+    setBusyClass(null)
+    // Same button as the open-existing path, so it opens the same way.
+    window.open(`/tutor/booklets/builder/${data.id}`, '_blank', 'noopener')
   }
 
   const rows = useMemo(() => classes.map((c) => {
