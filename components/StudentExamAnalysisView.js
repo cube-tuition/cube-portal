@@ -11,8 +11,9 @@
  *   studentName : string
  *   rows        : [{ topic, studentPct, classPct, studentAwarded, studentMax }]
  *   overall     : { awarded, max, pct }
- *   strengths   : string[]   topics scored >= 80%
- *   weaknesses  : string[]   topics scored < 60%
+ *   strengths   : string[]   topics scored >= 80%  → shown as "Best topics"
+ *   weaknesses  : string[]   topics scored < 60%   → shown as "Topics needing
+ *                                                    most improvement"
  */
 const band = (p) => {
   if (p == null) return { color: '#9CA3AF', bg: '#F3F4F6', label: '—' }
@@ -28,6 +29,14 @@ export default function StudentExamAnalysisView({ studentName, rows = [], overal
   }
   const ov = band(overall.pct)
   const hasClass = rows.some((r) => r.classPct != null)
+
+  // "Best topic" has to name one. The list it is given holds topics at 80% or
+  // better, which on a hard paper can be empty — so when it is, the strongest
+  // topic stands in rather than the box contradicting its own heading.
+  const scored = rows.filter((r) => r.studentPct != null)
+  const bestTopics = strengths.length
+    ? strengths
+    : scored.length ? [scored.reduce((a, b) => (b.studentPct > a.studentPct ? b : a)).topic] : []
 
   return (
     <div className="space-y-4">
@@ -100,11 +109,11 @@ export default function StudentExamAnalysisView({ studentName, rows = [], overal
       {/* Plain-language summary */}
       <div className="grid sm:grid-cols-2 gap-3">
         <div className="rounded-xl border border-[#D1FAE5] bg-[#ECFDF5] p-3">
-          <p className="text-xs font-bold text-[#047857] mb-1">Doing well in</p>
-          <p className="text-sm text-[#065F46]">{strengths.length ? strengths.join(', ') : 'Keep working across all topics.'}</p>
+          <p className="text-xs font-bold text-[#047857] mb-1">{bestTopics.length === 1 ? 'Best topic' : 'Best topics'}</p>
+          <p className="text-sm text-[#065F46]">{bestTopics.length ? bestTopics.join(', ') : 'Keep working across all topics.'}</p>
         </div>
         <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] p-3">
-          <p className="text-xs font-bold text-[#B91C1C] mb-1">Areas to focus on</p>
+          <p className="text-xs font-bold text-[#B91C1C] mb-1">{weaknesses.length === 1 ? 'Topic needing most improvement' : 'Topics needing most improvement'}</p>
           <p className="text-sm text-[#991B1B]">{weaknesses.length ? weaknesses.join(', ') : 'No major gaps — solid across the board.'}</p>
         </div>
       </div>
