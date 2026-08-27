@@ -834,9 +834,102 @@ export default function WorkbookDoc({
     return () => { alive = false }
   }, [solutions, isModel, mode, booklet.id, classId, ownerId, commentStudentId, canNote, flush])
 
+  /* Pull current server state on demand — the safety net around realtime.
+     A postgres_changes channel can die without ever reporting an error: the
+     websocket drops while the tab is backgrounded (iPads are aggressive about
+     this), or the JWT it was opened with expires mid-lesson. Either way the
+     page keeps saying SUBSCRIBED locally while receiving nothing, and the only
+     cure used to be a hard refresh. So the channel is treated as a fast path
+     only; correctness comes from refetching whenever the tab wakes up, the
+     channel (re)joins, and on a slow heartbeat. Unsent local keystrokes
+     (pendingRef) always win over whatever the server returns. */
+  const lastRefreshRef = useRef(0)
+  const refresh = useCallback(async (force = false) => {
+    if (solutions) return
+    const now = Date.now()
+    if (!force && now - lastRefreshRef.current < 2500) return
+    lastRefreshRef.current = now
+    const overlayModels = (rows) => {
+      const mmap = {}
+      for (const r of rows || []) mmap[`${r.block_id}::${r.part_id}`] = r.body
+      for (const [pk, e] of Object.entries(pendingRef.current)) {
+        if (e.model) mmap[pk.replace(/^m:/, '')] = e.body
+      }
+      setModels(prev => (JSON.stringify(prev) === JSON.stringify(mmap) ? prev : mmap))
+    }
+    supabase.from('workbook_class_notes').select('*')
+      .eq('booklet_id', booklet.id).eq('class_id', classId).order('created_at')
+      .then(r => { if (r.data) setClassNotes(prev => (JSON.stringify(prev) === JSON.stringify(r.data) ? prev : r.data)) })
+    if (isModel) {
+      const m = await supabase.from('workbook_model_answers')
+        .select('block_id, part_id, body')
+        .eq('booklet_id', booklet.id).eq('class_id', classId)
+      if (m.data) overlayModels(m.data)
+      return
+    }
+    const [a, c, n, m] = await Promise.all([
+      supabase.from('workbook_answers')
+        .select('block_id, part_id, body, base_body, is_teacher')
+        .eq('booklet_id', booklet.id).eq('class_id', classId).eq('owner_id', ownerId),
+      commentStudentId
+        ? supabase.from('workbook_comments')
+            .select('*').eq('booklet_id', booklet.id).eq('class_id', classId)
+            .eq('student_id', commentStudentId).order('created_at')
+        : Promise.resolve({ data: null }),
+      canNote
+        ? supabase.from('workbook_notes')
+            .select('*').eq('booklet_id', booklet.id).eq('class_id', classId)
+            .eq('owner_id', ownerId).order('created_at')
+        : Promise.resolve({ data: null }),
+      (mode === 'own' || mode === 'review')
+        ? supabase.from('workbook_model_answers')
+            .select('block_id, part_id, body')
+            .eq('booklet_id', booklet.id).eq('class_id', classId)
+        : Promise.resolve({ data: null }),
+    ])
+    if (a.data) {
+      const map = {}, emap = {}
+      for (const r of a.data) {
+        const k = `${r.block_id}::${r.part_id}`
+        if (r.is_teacher) emap[k] = { text: r.body, base: r.base_body ?? null }
+        else map[k] = r.body
+      }
+      for (const [pk, e] of Object.entries(pendingRef.current)) {
+        if (e.model) continue
+        const k = pk.replace(/^t:/, '')
+        if (e.isTeacher) emap[k] = { text: e.body, base: e.base ?? emap[k]?.base ?? null }
+        else map[k] = e.body
+      }
+      setAnswers(prev => (JSON.stringify(prev) === JSON.stringify(map) ? prev : map))
+      setEdits(prev => (JSON.stringify(prev) === JSON.stringify(emap) ? prev : emap))
+    }
+    if (c.data) setComments(prev => (JSON.stringify(prev) === JSON.stringify(c.data) ? prev : c.data))
+    if (n.data) setNotes(prev => (JSON.stringify(prev) === JSON.stringify(n.data) ? prev : n.data))
+    if (m.data) overlayModels(m.data)
+  }, [solutions, isModel, mode, booklet.id, classId, ownerId, commentStudentId, canNote])
+
+  // Wake-up + heartbeat: refetch when the tab comes back to the front (that's
+  // when a dead socket is most likely) and every 30 s while visible, so a
+  // silently broken channel converges within seconds instead of never.
+  useEffect(() => {
+    if (solutions) return undefined
+    const onWake = () => { if (document.visibilityState === 'visible') refresh() }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    window.addEventListener('online', onWake)
+    const beat = setInterval(onWake, 30000)
+    return () => {
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+      window.removeEventListener('online', onWake)
+      clearInterval(beat)
+    }
+  }, [solutions, refresh])
+
   // ── live refresh ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (solutions) return undefined
+    let joined = false
     const ch = supabase.channel(`wb:${booklet.id}:${classId}:${ownerId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workbook_answers', filter: `owner_id=eq.${ownerId}` }, (p) => {
         const r = p.new
@@ -857,9 +950,14 @@ export default function WorkbookDoc({
           .eq('student_id', commentStudentId || ownerId).order('created_at')
         setComments(c.data || [])
       })
-      .subscribe()
+      .subscribe((status) => {
+        // A re-join after a dropped socket means events were missed while the
+        // channel was down — pull the gap. The first join is skipped: the
+        // initial-load effect has just fetched everything.
+        if (status === 'SUBSCRIBED') { if (joined) refresh(true); joined = true }
+      })
     return () => { supabase.removeChannel(ch) }
-  }, [solutions, booklet.id, classId, ownerId, commentStudentId])
+  }, [solutions, booklet.id, classId, ownerId, commentStudentId, refresh])
 
   useEffect(() => () => clearTimeout(flushTimer.current), [])
 
@@ -889,10 +987,14 @@ export default function WorkbookDoc({
         return JSON.stringify(prev) === JSON.stringify(mmap) ? prev : mmap
       })
     }
+    let joined = false
     const ch = supabase.channel(`wbclass:${booklet.id}:${classId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workbook_class_notes', filter: `class_id=eq.${classId}` }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workbook_model_answers', filter: `class_id=eq.${classId}` }, loadModels)
-      .subscribe()
+      .subscribe((status) => {
+        // Catch up after a reconnect (first join already loaded above).
+        if (status === 'SUBSCRIBED') { if (joined) { load(); loadModels() } joined = true }
+      })
     return () => { alive = false; supabase.removeChannel(ch) }
   }, [booklet.id, classId])
 
