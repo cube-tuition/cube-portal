@@ -439,16 +439,35 @@ export default function WorkbookDoc({
   /* Booklet view: two consecutive pages side by side, like an open book — a
      lot of the work is "read the text on one page, answer on the next", and a
      spread saves the scrolling back and forth. Off by default; the choice
-     sticks per browser. Two A4 pages rarely fit a window at full size, so the
-     spread is scaled to fit with CSS zoom, which reflows — pagination still
-     measures at full size, so pages break exactly where print does. */
+     sticks per browser. Scaling is CSS zoom, which reflows — pagination still
+     measures at full size, so pages break exactly where print does.
+
+     Zoom is Docs-style: "Fit" scales to the container (the default), or the
+     reader types/steps a percentage, which sticks per browser too. Fit
+     measures the actual scroll box, NOT the window — staff pages carry a
+     sidebar, and measuring the window over-sized the spread so its left edge
+     was cut off. If a manual zoom does overflow, min-width on the outer row
+     grows to match (computed below), so the overflow is scrollable instead of
+     centre-clipped. */
   const [spread, setSpread] = useState(false)
+  const [zoomPct, setZoomPct] = useState('fit')  // 'fit' | percent number
   const [fitZoom, setFitZoom] = useState(1)
+  const [zoomField, setZoomField] = useState(null)  // input text while editing
+  const zoom = zoomPct === 'fit' ? fitZoom : Math.max(0.4, Math.min(2, zoomPct / 100))
   useEffect(() => {
-    let saved = false
-    try { saved = localStorage.getItem('wb:spread') === '1' } catch { /* no store */ }
-    if (!saved) return undefined
-    const raf = requestAnimationFrame(() => setSpread(true))
+    let savedSpread = false, savedZoom = null
+    try {
+      savedSpread = localStorage.getItem('wb:spread') === '1'
+      savedZoom = localStorage.getItem('wb:zoom')
+    } catch { /* no store */ }
+    if (!savedSpread && !savedZoom) return undefined
+    const raf = requestAnimationFrame(() => {
+      if (savedSpread) setSpread(true)
+      if (savedZoom && savedZoom !== 'fit') {
+        const n = parseInt(savedZoom, 10)
+        if (Number.isFinite(n)) setZoomPct(Math.max(40, Math.min(200, n)))
+      }
+    })
     return () => cancelAnimationFrame(raf)
   }, [])
   const toggleSpread = useCallback(() => {
@@ -457,15 +476,31 @@ export default function WorkbookDoc({
       return !s
     })
   }, [])
+  const setZoom = useCallback((v) => {
+    setZoomPct(v)
+    try { localStorage.setItem('wb:zoom', String(v)) } catch { /* no store */ }
+  }, [])
+  const bumpZoom = (d) => setZoom(Math.max(40, Math.min(200, Math.round(zoom * 10) * 10 + d)))
+  const commitZoom = () => {
+    if (zoomField === null) return
+    const n = parseInt(zoomField, 10)
+    setZoomField(null)
+    if (Number.isFinite(n)) setZoom(Math.max(40, Math.min(200, n)))
+  }
+  // Fit factor for the current view, tracked against the scroll box's real
+  // width (sidebars open and close; windows resize).
   useEffect(() => {
+    const scrollEl = pagesRef.current?.closest('.bk-doc-scroll')
+    if (!scrollEl) return undefined
     const calc = () => {
-      if (!spread) { setFitZoom(1); return }
-      const avail = window.innerWidth - GUTTER_W - 3 * 18 - 24
-      setFitZoom(Math.max(0.45, Math.min(1, avail / (PAGE_W * 2 + SPREAD_GAP))))
+      const avail = scrollEl.clientWidth - GUTTER_W - 3 * 18 - 24
+      const needed = spread ? PAGE_W * 2 + SPREAD_GAP : PAGE_W
+      setFitZoom(Math.max(0.4, Math.min(1, avail / needed)))
     }
+    const ro = new ResizeObserver(calc)
+    ro.observe(scrollEl)
     const raf = requestAnimationFrame(calc)
-    window.addEventListener('resize', calc)
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', calc) }
+    return () => { ro.disconnect(); cancelAnimationFrame(raf) }
   }, [spread])
   const [activeComment, setActiveComment] = useState(null)
   const [draft, setDraft] = useState(null)     // { key, slot, start, end, quote, body }
@@ -1410,9 +1445,9 @@ export default function WorkbookDoc({
            is safe here; with the old width:max-content it would have overflowed
            BOTH ways and slid the page off the left edge. */
         .bk-doc-outer{ display:flex; gap:18px; align-items:flex-start; justify-content:center;
-          width:100%; min-width:${PAGE_W + GUTTER_W + 36}px; }
+          width:100%; min-width:${Math.ceil((spread ? PAGE_W * 2 + SPREAD_GAP : PAGE_W) * zoom) + GUTTER_W + 36}px; }
         .bk-doc-balance{ flex:0 1 ${GUTTER_W + 18}px; min-width:0; }
-        .bk-doc-pages{ width:${PAGE_W}px; flex:0 0 ${PAGE_W}px; }
+        .bk-doc-pages{ width:${PAGE_W}px; flex:0 0 auto; }
         /* Booklet view: pages flow two-up like an open book. The container is
            zoomed to fit the window (inline style), which reflows — every rect
            measurement stays consistent because they are all visual deltas. */
@@ -1548,6 +1583,13 @@ export default function WorkbookDoc({
         .bk-nav-arrow:disabled{ color:#c9cfdd; cursor:default; }
         .bk-nav-view{ width:44px; font-size:13px; letter-spacing:1px; border-left:1px solid #EEF2FF; }
         .bk-nav-view[aria-pressed="true"]{ background:#EAF1FF; }
+        .bk-nav-zbtn{ font-size:14px; border-left:1px solid #EEF2FF; }
+        .bk-nav-zin{ width:46px; border:0; text-align:center; font:inherit; font-size:12px;
+          font-weight:700; color:#2A2035; padding:0; background:#fff; }
+        .bk-nav-zin:focus{ outline:none; background:#F8FAFF; }
+        .bk-nav-fit{ width:auto; font-size:11px; font-weight:700; padding:0 10px;
+          border-left:1px solid #EEF2FF; }
+        .bk-nav-fit[aria-pressed="true"]{ background:#EAF1FF; }
         .bk-nav-cur{ border:0; border-left:1px solid #EEF2FF; border-right:1px solid #EEF2FF;
           background:#fff; padding:7px 14px; font-size:12px; font-weight:700; color:#2A2035;
           cursor:pointer; white-space:nowrap; }
@@ -1578,7 +1620,7 @@ export default function WorkbookDoc({
       <div className="bk-doc-balance" aria-hidden="true" />
 
       <div className={`bk-root bk-doc-pages${spread ? ' bk-spread' : ''}${mode === 'own' ? ' bk-doc-own' : ''}`} ref={pagesRef}
-        style={{ position: 'relative', zoom: spread ? fitZoom : undefined }}
+        style={{ position: 'relative', zoom: zoom !== 1 ? zoom : undefined }}
         onMouseUp={canNote || canAnnotate ? onPageSelect : undefined}
         onClick={mode === 'own' ? onPageClick : undefined}>
         {(canNote || canAnnotate) && selection && !noteDraft && !classDraft && (
@@ -1643,6 +1685,21 @@ export default function WorkbookDoc({
             <button className="bk-nav-arrow" title="Next page" aria-label="Next page"
               disabled={(spread ? curPage - (curPage % 2) + 2 : curPage + 1) > pages.length - 1}
               onClick={() => goToPage(Math.min(pages.length - 1, (spread ? curPage - (curPage % 2) : curPage) + (spread ? 2 : 1)))}>›</button>
+            <button className="bk-nav-arrow bk-nav-zbtn" title="Zoom out" aria-label="Zoom out"
+              disabled={Math.round(zoom * 100) <= 40} onClick={() => bumpZoom(-10)}>−</button>
+            <input className="bk-nav-zin" aria-label="Zoom percentage" inputMode="numeric"
+              value={zoomField !== null ? zoomField : `${Math.round(zoom * 100)}%`}
+              onFocus={(e) => { const t = e.target; requestAnimationFrame(() => t.select()) }}
+              onChange={(e) => setZoomField(e.target.value)}
+              onBlur={commitZoom}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { commitZoom(); e.target.blur() }
+                if (e.key === 'Escape') { setZoomField(null); e.target.blur() }
+              }} />
+            <button className="bk-nav-arrow bk-nav-zbtn" title="Zoom in" aria-label="Zoom in"
+              disabled={Math.round(zoom * 100) >= 200} onClick={() => bumpZoom(10)}>+</button>
+            <button className="bk-nav-arrow bk-nav-fit" onClick={() => setZoom('fit')} aria-pressed={zoomPct === 'fit'}
+              title="Fit to window" aria-label="Fit to window">Fit</button>
             <button className="bk-nav-arrow bk-nav-view" onClick={toggleSpread} aria-pressed={spread}
               title={spread ? 'One page at a time' : 'Booklet view — two pages side by side'}
               aria-label={spread ? 'Switch to single page view' : 'Switch to booklet view'}>
