@@ -134,6 +134,16 @@ export async function POST(req) {
       else warning = sent.error
     }
 
+    // Record what went out, so "have they been given this yet?" has an answer.
+    // A link handed over in person counts too — it is still a delivery.
+    await sb.from('login_deliveries').insert({
+      person_id, kind: isTutor ? 'tutor' : 'student',
+      channel: deliver, sent_to: sentTo,
+      sent_by: auth.user?.id || null,
+      sent_by_name: auth.user?.user_metadata?.full_name || auth.user?.email || null,
+      purpose: 'reset',
+    })
+
     return Response.json({ success: true, link, sentTo, warning, options, deliver })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })

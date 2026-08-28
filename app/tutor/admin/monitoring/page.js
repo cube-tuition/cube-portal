@@ -5,6 +5,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import AnalyticsDashboard from '../../../../components/analytics/AnalyticsDashboard'
+import LoginsPanel from '../../../../components/analytics/LoginsPanel'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
 import { classesForTerm } from '../../../../lib/classes'
 import { T_ENROLMENTS, T_QUIZ_RESULTS, T_STUDENTS } from '../../../../lib/tables'
@@ -149,6 +150,9 @@ export default function MonitoringPage() {
         <>
           <CrashStrip crashes={data.crashes} students={data.students} />
           <AnalyticsDashboard {...data} />
+          <div className="max-w-7xl mx-auto px-6 md:px-10 pb-10">
+            <LoginsPanel />
+          </div>
         </>
       )}
     </div>
