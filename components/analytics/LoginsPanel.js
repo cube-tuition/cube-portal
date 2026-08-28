@@ -20,10 +20,23 @@ import { authedFetch } from '../../lib/authedFetch'
  */
 const fmt = (iso) => {
   if (!iso) return null
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
 }
-const CHANNEL = { account: 'to them', guardian: 'to parent', link: 'link given' }
+const ago = (iso) => {
+  if (!iso) return null
+  const days = Math.floor((Date.now() - new Date(iso)) / 86400000)
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
+}
+const CHANNEL = { account: 'to them', guardian: 'to their parent', link: 'link handed over' }
+
+// The status a row leads with, so "who has had this?" is answerable at a glance
+// rather than by reading two date columns.
+function statusOf(r) {
+  if (!r.hasLogin) return { key: 'no-login', label: 'No login', fg: '#B23A3A', bg: '#FEF2F2', bd: '#FECACA' }
+  if (!r.sentAt)   return { key: 'not-sent', label: 'Not sent', fg: '#B45309', bg: '#FFF7ED', bd: '#FDE2B8' }
+  if (!r.lastSignInAt) return { key: 'sent', label: 'Sent · not used', fg: '#5B21B6', bg: '#F5F3FF', bd: '#DDD6FE' }
+  return { key: 'in-use', label: 'Signed in', fg: '#047857', bg: '#ECFDF5', bd: '#D1FAE5' }
+}
 
 export default function LoginsPanel() {
   const [rows, setRows] = useState(null)
@@ -63,19 +76,29 @@ export default function LoginsPanel() {
 
   const stats = useMemo(() => {
     const list = rows || []
+    const by = (k) => list.filter(r => statusOf(r).key === k).length
     return {
       total: list.length,
-      noLogin: list.filter(r => !r.hasLogin).length,
-      neverSent: list.filter(r => r.hasLogin && !r.sentAt).length,
+      sent: list.filter(r => r.sentAt).length,
+      notSent: list.filter(r => !r.sentAt).length,
+      noLogin: by('no-login'),
+      neverSent: by('not-sent'),
       neverSignedIn: list.filter(r => r.hasLogin && !r.lastSignInAt).length,
       unreachable: list.filter(r => r.hasLogin && !r.deliverable && !r.guardianEmail).length,
     }
   }, [rows])
 
+  const ORDER = { 'no-login': 0, 'not-sent': 1, sent: 2, 'in-use': 3 }
   const shown = useMemo(() => {
-    const list = rows || []
-    if (filter === 'all') return list
-    return list.filter(r => !r.hasLogin || !r.sentAt || !r.lastSignInAt)
+    const list = (rows || []).filter((r) => {
+      if (filter === 'all') return true
+      if (filter === 'not-sent') return !r.sentAt
+      if (filter === 'sent') return !!r.sentAt
+      return !r.hasLogin || !r.sentAt || !r.lastSignInAt   // 'todo'
+    })
+    // Anyone still waiting comes first — that is the list staff are working from.
+    return [...list].sort((a, b) =>
+      (ORDER[statusOf(a).key] - ORDER[statusOf(b).key]) || a.name.localeCompare(b.name))
   }, [rows, filter])
 
   if (err) return <p className="text-sm text-[#B23A3A]">{err}</p>
@@ -86,13 +109,19 @@ export default function LoginsPanel() {
       <div className="px-5 py-4 border-b border-[#EEF2FF] flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-bold text-[#062E63]">Portal logins</h2>
-          <p className="text-[11px] text-[#2A2035]/50 mt-0.5">
-            {stats.noLogin} without a login · {stats.neverSent} never sent · {stats.neverSignedIn} never signed in
+          <p className="text-[12px] text-[#2A2035]/70 mt-0.5">
+            <span className="font-bold text-[#047857]">{stats.sent} sent</span>
+            <span className="text-[#2A2035]/30"> · </span>
+            <span className="font-bold text-[#B45309]">{stats.notSent} not sent</span>
+            <span className="text-[#2A2035]/45"> of {stats.total} students</span>
+          </p>
+          <p className="text-[11px] text-[#2A2035]/45 mt-0.5">
+            {stats.noLogin} without a login · {stats.neverSignedIn} never signed in
             {stats.unreachable > 0 && <span className="text-[#B45309]"> · {stats.unreachable} with no address to send to</span>}
           </p>
         </div>
         <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-          {[['todo', 'Needs attention'], ['all', `All ${stats.total}`]].map(([v, label]) => (
+          {[['todo', 'Needs attention'], ['not-sent', `Not sent ${stats.notSent}`], ['sent', `Sent ${stats.sent}`], ['all', `All ${stats.total}`]].map(([v, label]) => (
             <button key={v} onClick={() => setFilter(v)}
               className={`px-3 py-1.5 text-xs font-semibold transition ${filter === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
               {label}
@@ -111,8 +140,9 @@ export default function LoginsPanel() {
             <thead className="bg-[#F8FAFF] text-[10px] uppercase tracking-wider text-[#325099]">
               <tr>
                 <th className="px-5 py-2.5 font-bold">Student</th>
+                <th className="px-3 py-2.5 font-bold">Status</th>
+                <th className="px-3 py-2.5 font-bold">Login details sent</th>
                 <th className="px-3 py-2.5 font-bold">Username</th>
-                <th className="px-3 py-2.5 font-bold">Details sent</th>
                 <th className="px-3 py-2.5 font-bold">Signed in</th>
                 <th className="px-3 py-2.5 font-bold text-right">Send</th>
               </tr>
@@ -120,11 +150,30 @@ export default function LoginsPanel() {
             <tbody className="divide-y divide-[#EEF2FF]">
               {shown.map((r) => {
                 const target = r.deliverable ? r.username : r.guardianEmail
+                const st = statusOf(r)
                 return (
-                  <tr key={r.id} className="hover:bg-[#FAFBFF]">
+                  <tr key={r.id} className={`hover:bg-[#FAFBFF] ${r.sentAt ? '' : 'bg-[#FFFDF7]'}`}>
                     <td className="px-5 py-2.5">
                       <span className="text-sm font-semibold text-[#062E63]">{r.name}</span>
                       {r.year && <span className="ml-1.5 text-[11px] text-[#2A2035]/40">Y{r.year}</span>}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border whitespace-nowrap"
+                        style={{ color: st.fg, background: st.bg, borderColor: st.bd }}>{st.label}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-xs">
+                      {r.sentAt ? (
+                        <>
+                          <span className="block text-[#2A2035] break-all">{r.sentTo || CHANNEL[r.sentChannel]}</span>
+                          <span className="block text-[10px] text-[#2A2035]/45">
+                            {fmt(r.sentAt)} · {ago(r.sentAt)}
+                            {r.sentChannel === 'guardian' && ' · parent'}
+                            {r.sentBy ? ` · by ${r.sentBy.split(' ')[0]}` : ''}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-[#B45309] font-semibold">Not sent yet</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-[#2A2035]/70">
                       {r.hasLogin
@@ -133,11 +182,6 @@ export default function LoginsPanel() {
                             {!r.deliverable && <span className="ml-1.5 text-[10px] font-bold text-[#B45309]" title="No mailbox — this address cannot receive email">no mailbox</span>}
                           </>
                         : <span className="text-[10px] font-bold text-[#B23A3A] bg-[#FEF2F2] border border-[#FECACA] px-1.5 py-0.5 rounded">no login</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs">
-                      {r.sentAt
-                        ? <span className="text-[#065F46]">{fmt(r.sentAt)} <span className="text-[#2A2035]/45">{CHANNEL[r.sentChannel] || ''}</span></span>
-                        : <span className="text-[#2A2035]/35">never</span>}
                     </td>
                     <td className="px-3 py-2.5 text-xs">
                       {r.lastSignInAt
