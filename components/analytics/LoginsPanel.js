@@ -194,9 +194,15 @@ export default function LoginsPanel() {
                       ) : !target ? (
                         <span className="text-[11px] text-[#B45309]" title="Their login has no mailbox and no parent email is on file">nowhere to send</span>
                       ) : (
+                        // A first send is the action to take; a repeat is a
+                        // quieter outline, so a row already dealt with does not
+                        // pull the eye like one still waiting.
                         <button onClick={() => send(r)} disabled={busy === r.id}
                           title={`Sends the username and a set-password link to ${target}`}
-                          className="text-xs font-semibold text-white bg-[#325099] hover:bg-[#062E63] rounded-full px-3 py-1.5 disabled:opacity-40">
+                          className={`text-xs font-semibold rounded-full px-3 py-1.5 transition disabled:opacity-40 ${
+                            r.sentAt
+                              ? 'text-[#325099] bg-white border border-[#DEE7FF] hover:border-[#325099] hover:bg-[#F0F4FF]'
+                              : 'text-white bg-[#325099] border border-[#325099] hover:bg-[#062E63]'}`}>
                           {busy === r.id ? 'Sending…' : r.sentAt ? 'Send again' : 'Send login'}
                         </button>
                       )}
