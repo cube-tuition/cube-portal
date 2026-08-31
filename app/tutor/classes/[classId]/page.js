@@ -8,7 +8,7 @@ import TutorNav from '../../../../components/TutorNav'
 import SessionMarker from '../../../../components/SessionMarker'
 import WeekBooklet from '../../../../components/WeekBooklet'
 import { normalizeDays, fmtTime, isoDate } from '../../../../lib/format'
-import { fetchAllTerms, getCurrentTerm } from '../../../../lib/terms'
+import { fetchAllTerms, getCurrentTerm, isHolidayTerm } from '../../../../lib/terms'
 import { inferSubject, subjectColor, subjectsMatch } from '../../../../components/CourseDetail'
 import PrePostSection from '../../../../components/PrePostSection'
 import ExamSection    from '../../../../components/ExamSection'
@@ -256,7 +256,10 @@ export default function ClassOverviewPage() {
         // still appears under its original week tab instead of jumping weeks or
         // disappearing. Fall back to computing the week from the date.
         const computedWeek = Math.floor((d - termStart) / (7 * 24 * 60 * 60 * 1000)) + 1
-        const weekNum = (Number.isInteger(lesson.week) && lesson.week >= 1 && lesson.week <= 10)
+        // A holiday course numbers its lessons 1..N in date order (one session
+        // per tab), so its week is authoritative and not capped at 10.
+        const maxWeek = isHolidayTerm(term) ? Infinity : 10
+        const weekNum = (Number.isInteger(lesson.week) && lesson.week >= 1 && lesson.week <= maxWeek)
           ? lesson.week
           : computedWeek
         if (weekNum < 1) continue
@@ -410,7 +413,7 @@ export default function ClassOverviewPage() {
                     }`}
                   >
                     <span className="text-sm font-semibold whitespace-nowrap max-w-full truncate">
-                      {isHoliday ? '🏖 Holidays' : `Wk ${week}`}
+                      {isHoliday ? '🏖 Holidays' : isHolidayTerm(term) ? `Session ${week}` : `Wk ${week}`}
                       {allCancelled && <span className="ml-1 text-[9px] font-bold tracking-wide opacity-80">✕</span>}
                       {!allCancelled && hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" title="Sub assigned" />}
                       {!allCancelled && hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
@@ -507,7 +510,9 @@ export default function ClassOverviewPage() {
               <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
                 <div className="text-4xl mb-2">📅</div>
                 <p className="text-sm font-semibold text-[#2A2035] mb-1">
-                  {currentWeek.isHoliday ? 'No holiday sessions' : `Week ${currentWeek.week} has no matching session date.`}
+                  {currentWeek.isHoliday ? 'No holiday sessions'
+                    : isHolidayTerm(term) ? `Session ${currentWeek.week} has no matching date.`
+                    : `Week ${currentWeek.week} has no matching session date.`}
                 </p>
                 <p className="text-xs text-[#2A2035]/60 max-w-md mx-auto">
                   Check the class&rsquo;s day_of_week / term boundaries.
@@ -628,7 +633,7 @@ export default function ClassOverviewPage() {
                             <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
                               Workbook
                             </p>
-                            <h3 className="text-lg font-semibold text-[#2A2035] font-display">Week {currentWeek.week}</h3>
+                            <h3 className="text-lg font-semibold text-[#2A2035] font-display">{isHolidayTerm(term) ? 'Session' : 'Week'} {currentWeek.week}</h3>
                           </div>
                           <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
                             {term ? (term.name || `Term ${term.term_number}`) : ''}
@@ -677,7 +682,7 @@ export default function ClassOverviewPage() {
                     <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
                       Workbook
                     </p>
-                    <h3 className="text-lg font-semibold text-[#2A2035] font-display">Week {currentWeek.week}</h3>
+                    <h3 className="text-lg font-semibold text-[#2A2035] font-display">{isHolidayTerm(term) ? 'Session' : 'Week'} {currentWeek.week}</h3>
                   </div>
                   <span className="text-[10px] tracking-widest uppercase font-semibold text-[#325099]/60">
                     {term ? (term.name || `Term ${term.term_number}`) : ''}

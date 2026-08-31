@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
-import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, isHolidayTerm } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
@@ -1638,7 +1638,7 @@ export default function DatabasePage() {
 
   // Add Class modal (classes table only)
   const [showAddClassModal, setShowAddClassModal] = useState(false)
-  const [newClassForm, setNewClassForm] = useState({ course_id: '', day_of_week: '', start_time: '', end_time: '' })
+  const [newClassForm, setNewClassForm] = useState({ course_id: '', day_of_week: '', start_time: '', end_time: '', dates: [] })
   const [coursesList, setCoursesList]   = useState([])
   // Add Lesson modal (lessons table) — a student-based lesson that shows on the calendar.
   const [showAddLessonModal, setShowAddLessonModal] = useState(false)
@@ -2032,7 +2032,7 @@ export default function DatabasePage() {
             supabase.from(T_CLASSES).select('id, class_name, term_id'),
           ])
           const lessonClassLabelMap = buildClassLabelMap(allClassRowsForLessons || [])
-          const cMap = Object.fromEntries((classRows || []).map(c => [c.id, `${lessonClassLabelMap.get(c.id) ?? c.class_name} (${c.day_of_week})`]))
+          const cMap = Object.fromEntries((classRows || []).map(c => [c.id, `${lessonClassLabelMap.get(c.id) ?? c.class_name}${c.day_of_week ? ` (${c.day_of_week})` : ''}`]))
           enrichedRows = enrichedRows.map(row => ({ ...row, [LESSON_CLASS_COL]: cMap[row.class_id] ?? null }))
         } else {
           enrichedRows = enrichedRows.map(row => ({ ...row, [LESSON_CLASS_COL]: null }))
@@ -2504,7 +2504,7 @@ export default function DatabasePage() {
   // ── Add Class modal ───────────────────────────────────────────────────────────
   const openAddClassModal = async () => {
     setShowAddClassModal(true)
-    setNewClassForm({ course_id: '', day_of_week: '', start_time: '', end_time: '' })
+    setNewClassForm({ course_id: '', day_of_week: '', start_time: '', end_time: '', dates: [] })
     if (coursesList.length === 0) {
       const { data } = await supabase.from(T_COURSES).select('id, course_name, course_code')
         .eq('active', true).order('course_name')   // retired courses aren't offered for new classes
@@ -2512,19 +2512,48 @@ export default function DatabasePage() {
     }
   }
 
+  // The term a new class would be created into, and whether it is a holiday
+  // period. A holiday course runs on hand-picked dates rather than a weekday,
+  // so the form swaps the Day dropdown for a date picker.
+  const addClassTerm = useMemo(
+    () => (allTerms || []).find(t => t.id === (dbTermFilter || currentTermId)) || null,
+    [allTerms, dbTermFilter, currentTermId])
+  const addClassIsHoliday = isHolidayTerm(addClassTerm)
+  const addClassReady =
+    !!newClassForm.course_id && !!newClassForm.start_time && !!newClassForm.end_time &&
+    (addClassIsHoliday ? newClassForm.dates.length > 0 : !!newClassForm.day_of_week)
+
   const handleAddClass = async () => {
-    if (!newClassForm.course_id || !newClassForm.day_of_week || !newClassForm.start_time || !newClassForm.end_time) return
+    if (!addClassReady) return
     setAddClassSaving(true)
     const course = coursesList.find(c => c.id === Number(newClassForm.course_id))
     const payload = {
       class_name:  course?.course_name ?? '',
       course_id:   Number(newClassForm.course_id),
-      day_of_week: newClassForm.day_of_week,
+      // No weekday for a holiday course — that is what marks it as running on
+      // its own dates, and it keeps the weekly generator from touching it.
+      day_of_week: addClassIsHoliday ? null : newClassForm.day_of_week,
       start_time:  newClassForm.start_time,
       end_time:    newClassForm.end_time,
       term_id:     dbTermFilter || currentTermId || null,
     }
     const { data, error } = await supabase.from(T_CLASSES).insert(payload).select().single()
+    // Holiday courses get their lessons here and now, one per chosen date,
+    // numbered in date order so each becomes its own session tab. Nothing else
+    // will create them: add_lessons_for_class needs a weekday and skips this class.
+    if (!error && data && addClassIsHoliday && newClassForm.dates.length) {
+      const rows = [...newClassForm.dates].sort().map((d, i) => ({
+        class_id:    data.id,
+        lesson_date: d,
+        week:        i + 1,
+        start_time:  newClassForm.start_time,
+        end_time:    newClassForm.end_time,
+        status:      'scheduled',
+        is_makeup:   false,
+      }))
+      const { error: lessonErr } = await supabase.from(T_LESSONS).insert(rows)
+      if (lessonErr) alert(`Class created, but its lessons failed: ${lessonErr.message}`)
+    }
     if (!error && data) {
       const enriched = {
         ...data,
@@ -4539,7 +4568,7 @@ export default function DatabasePage() {
                   >
                     <option value="">All classes</option>
                     {allClassesForFilter.map(c => (
-                      <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
+                      <option key={c.id} value={c.id}>{c.class_name}{c.day_of_week ? ` (${c.day_of_week})` : ''}</option>
                     ))}
                   </select>
                   )}
@@ -6069,7 +6098,11 @@ export default function DatabasePage() {
             {/* Header */}
             <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
               <h2 className="text-base font-bold text-[#2A2035] font-display">Add Class</h2>
-              <p className="text-xs text-[#2A2035]/50 mt-0.5">Creates a new class for the current term. Fill in teacher, room and times afterwards.</p>
+              <p className="text-xs text-[#2A2035]/50 mt-0.5">
+                {addClassIsHoliday
+                  ? `Holiday course in ${addClassTerm?.name}. Pick the dates it runs on — its lessons are created with it.`
+                  : 'Creates a new class for the current term. Fill in teacher, room and times afterwards.'}
+              </p>
             </div>
 
             {/* Body */}
@@ -6089,20 +6122,65 @@ export default function DatabasePage() {
                 </select>
               </div>
 
-              {/* Day */}
-              <div>
-                <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Day <span className="text-red-400">*</span></label>
-                <select
-                  value={newClassForm.day_of_week}
-                  onChange={e => setNewClassForm(p => ({ ...p, day_of_week: e.target.value }))}
-                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
-                >
-                  <option value="">Select a day…</option>
-                  {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
+              {/* Day — or, in a holiday term, the dates the course runs on */}
+              {addClassIsHoliday ? (
+                <div>
+                  <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">
+                    Dates <span className="text-red-400">*</span>
+                    <span className="ml-1.5 font-medium text-[#2A2035]/45">
+                      holiday course — pick each day it runs
+                    </span>
+                  </label>
+                  <input
+                    type="date"
+                    value=""
+                    min={addClassTerm?.start_date}
+                    max={addClassTerm?.end_date}
+                    onChange={e => {
+                      const d = e.target.value
+                      if (!d) return
+                      setNewClassForm(p => p.dates.includes(d) ? p : ({ ...p, dates: [...p.dates, d].sort() }))
+                      e.target.value = ''
+                    }}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#9333EA]/30 focus:border-[#9333EA]"
+                  />
+                  {newClassForm.dates.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {newClassForm.dates.map((d, i) => (
+                        <span key={d} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-[#FBF7FF] border border-[#E9D5FF] text-[11px] font-semibold text-[#9333EA]">
+                          <span className="opacity-60 tabular-nums">{i + 1}</span>
+                          {new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}
+                          <button
+                            type="button"
+                            onClick={() => setNewClassForm(p => ({ ...p, dates: p.dates.filter(x => x !== d) }))}
+                            className="w-4 h-4 rounded-full hover:bg-[#9333EA]/15 leading-none"
+                            aria-label={`Remove ${d}`}
+                          >×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-[#2A2035]/45 mt-1.5">
+                    {newClassForm.dates.length > 0
+                      ? `${newClassForm.dates.length} session${newClassForm.dates.length === 1 ? '' : 's'} — each becomes its own tab, in date order.`
+                      : `Any date within ${addClassTerm?.name}.`}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-[#2A2035] mb-1.5">Day <span className="text-red-400">*</span></label>
+                  <select
+                    value={newClassForm.day_of_week}
+                    onChange={e => setNewClassForm(p => ({ ...p, day_of_week: e.target.value }))}
+                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30 focus:border-[#325099]"
+                  >
+                    <option value="">Select a day…</option>
+                    {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Times */}
               <div className="flex gap-3">
@@ -6127,7 +6205,7 @@ export default function DatabasePage() {
               </div>
 
               {/* Validation hint */}
-              {(!newClassForm.course_id || !newClassForm.day_of_week || !newClassForm.start_time || !newClassForm.end_time) && (
+              {!addClassReady && (
                 <p className="text-[11px] text-[#2A2035]/40">All fields are required.</p>
               )}
             </div>
@@ -6142,7 +6220,7 @@ export default function DatabasePage() {
               </button>
               <button
                 onClick={handleAddClass}
-                disabled={addClassSaving || !newClassForm.course_id || !newClassForm.day_of_week || !newClassForm.start_time || !newClassForm.end_time}
+                disabled={addClassSaving || !addClassReady}
                 className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {addClassSaving ? 'Adding…' : 'Add Class'}
