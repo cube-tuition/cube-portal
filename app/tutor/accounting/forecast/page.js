@@ -379,9 +379,11 @@ export default function ForecastPage() {
 
   // ── Load terms ──────────────────────────────────────────────────────────────
   useEffect(() => {
+    // Ordered by date, not term_number: holiday terms carry numbers 11-14 (see
+    // the terms table), so ordering by number would list them above Term 4
+    // instead of between the terms they sit in.
     supabase.from('terms').select('id, name, year, term_number, start_date, end_date')
-      .order('year', { ascending: false })
-      .order('term_number', { ascending: false })
+      .order('start_date', { ascending: false })
       .then(({ data, error }) => {
         reportError('Terms failed to load')(error)
         setTerms(data || [])
