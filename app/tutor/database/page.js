@@ -1040,7 +1040,14 @@ function SessionModal({ session, onClose, onSaved }) {
   const [err, setErr] = useState('')
 
   useEffect(() => {
-    supabase.from('tutors').select('id, full_name').eq('active', true).order('full_name').then(({ data }) => setTutorsList(data || []))
+    // Directors staff drop-in sessions too, so the picker offers both.
+    Promise.all([
+      supabase.from(T_TUTORS).select('id, full_name').eq('active', true),
+      supabase.from(T_ADMINS).select('id, full_name'),
+    ]).then(([{ data: tutorRows }, { data: dirRows }]) => {
+      setTutorsList([...(tutorRows || []), ...(dirRows || [])]
+        .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')))
+    })
   }, [])
 
   const toggleSubject = s => setForm(f => ({
@@ -1401,8 +1408,12 @@ export default function DatabasePage() {
   // than typed by hand — so we offer the tutor names as dropdown options.
   const cellDropdownFor = useCallback((table, col) => {
     if (table === T_CLASSES && col === 'teacher') {
-      const names = refData.options(T_TUTORS).map(o => o.label).filter(Boolean)
-      return names.length ? Array.from(new Set(names)) : null
+      // Teaching staff is tutors AND directors: directors take classes too, and
+      // offering only tutors made them unpickable here even though they already
+      // teach. Same union the lessons scheduled-teacher column already uses.
+      const names = [...refData.options(T_TUTORS), ...refData.options(T_ADMINS)]
+        .map(o => o.label).filter(Boolean)
+      return names.length ? Array.from(new Set(names)).sort((a, b) => a.localeCompare(b)) : null
     }
     // tutors.active / courses.active are boolean columns, but presented as an
     // Active/Inactive picker.
