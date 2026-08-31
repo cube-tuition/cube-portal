@@ -36,7 +36,11 @@ function termWeekNumber(dateISO, term) {
    counts and deep links. The hour range hugs the week's sessions rather than
    always running 8am–9pm, so an afternoon-only week doesn't waste half the
    grid on empty mornings. */
-const GRID_HOUR_PX = 56
+// Tall hours and wide columns: a 1-hour class is 72px and a day never drops
+// under 200px, so names and rooms stay readable — the grid scrolls
+// horizontally instead of squeezing (the hour ruler stays pinned).
+const GRID_HOUR_PX = 72
+const DAY_MIN_PX = 200
 
 export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
   let minM = Infinity, maxM = -Infinity
@@ -80,15 +84,15 @@ export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showT
 
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
-      <div className="min-w-[900px]">
+      <div className="w-max min-w-full">
         {/* Day headers */}
         <div className="flex border-b border-[#DEE7FF]">
-          <div className="w-14 flex-shrink-0 border-r border-[#DEE7FF]" />
+          <div className="w-14 flex-shrink-0 border-r border-[#DEE7FF] sticky left-0 bg-white z-30" />
           {weekDays.map(d => {
             const iso = isoDate(d)
             const isToday = iso === todayISO
             return (
-              <div key={iso} className={`flex-1 px-2 py-2.5 text-center border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]' : ''}`}>
+              <div key={iso} className={`px-2 py-2.5 text-center border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]' : 'bg-white'}`} style={{ flex: `1 0 ${DAY_MIN_PX}px`, width: DAY_MIN_PX }}>
                 <div className="flex items-baseline justify-center gap-1.5">
                   <span className={`text-[10px] tracking-[0.25em] uppercase font-semibold ${isToday ? 'text-[#065F46]' : 'text-[#325099]/70'}`}>
                     {DAY_SHORT[dayNameOf(d)]}
@@ -111,7 +115,7 @@ export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showT
         {/* Grid body */}
         <div className="flex relative" style={{ height: gridHeight }}>
           {/* Hour ruler */}
-          <div className="w-14 flex-shrink-0 border-r border-[#DEE7FF] relative">
+          <div className="w-14 flex-shrink-0 border-r border-[#DEE7FF] relative sticky left-0 bg-white z-30">
             {hours.map((h, i) => i > 0 && (
               <div key={h} className="absolute right-1.5 text-[10px] font-semibold text-[#325099]/50" style={{ top: i * GRID_HOUR_PX - 6 }}>
                 {hourLabel(h)}
@@ -124,7 +128,7 @@ export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showT
             const isToday = iso === todayISO
             const evs = layout(sessionsByDate.get(iso) || [])
             return (
-              <div key={iso} className={`flex-1 relative border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]/40' : ''}`}>
+              <div key={iso} className={`relative border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]/40' : ''}`} style={{ flex: `1 0 ${DAY_MIN_PX}px`, width: DAY_MIN_PX }}>
                 {hours.map((h, i) => i > 0 && (
                   <div key={h} className="absolute left-0 right-0 border-t border-[#EEF2FB]" style={{ top: i * GRID_HOUR_PX }} />
                 ))}
