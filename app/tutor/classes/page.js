@@ -10,7 +10,6 @@ import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/ter
 import { weekLabelFor } from '../../../lib/calendarWeeks'
 import { pickSubjectColor } from '../../../lib/subjectColours'
 import MonthCalendarModal from '../../../components/calendar/MonthCalendarModal'
-import WeekTimeGrid from '../../../components/calendar/WeekTimeGrid'
 import { isRosteredTutor } from '../../../lib/dropin'
 import { inferSubject } from '../../../components/CourseDetail'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
@@ -773,7 +772,7 @@ export default function TutorClassesPage() {
             </p>
           </div>
         ) : (
-          <WeekTimeGrid
+          <WeekCards
             weekDays={weekDays}
             sessionsByDate={sessionsByDate}
             todayISO={todayISO}
@@ -1193,6 +1192,152 @@ function CourseCard({ course, expanded, onToggle, showTeacher }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Weekly card view ──────────────────────────────────────────────────────
+// One card per day. Each class is a soft subject-tinted block — no double
+// borders, no nested header strip. Optimised for a glance.
+// Compute the 1-based term week number for a given ISO date string.
+function termWeekNumber(dateISO, term) {
+  if (!term || !term.start_date) return null
+  const termStart = new Date(`${term.start_date}T00:00:00`)
+  const sessionDate = new Date(`${dateISO}T00:00:00`)
+  const diff = sessionDate.getTime() - termStart.getTime()
+  const week = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1
+  return week >= 1 ? week : null
+}
+
+function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
+      {weekDays.map(d => {
+        const iso = isoDate(d)
+        const isToday = iso === todayISO
+        const sessions = sessionsByDate.get(iso) || []
+        return (
+          <div
+            key={iso}
+            className={`rounded-2xl border p-3 flex flex-col min-h-[160px] transition ${
+              isToday
+                ? 'border-[#A7F3D0] bg-[#F0FDF4]/40'
+                : 'border-[#DEE7FF] bg-white'
+            }`}
+          >
+            {/* Day header — no background fill, no divider */}
+            <div className="flex items-baseline justify-between px-1 mb-2.5">
+              <div className="flex items-baseline gap-1.5">
+                <span className={`text-[10px] tracking-[0.25em] uppercase font-semibold ${isToday ? 'text-[#065F46]' : 'text-[#325099]/70'}`}>
+                  {DAY_SHORT[dayNameOf(d)]}
+                </span>
+                <span className={`text-base font-bold tabular-nums font-display leading-none ${isToday ? 'text-[#065F46]' : 'text-[#2A2035]'}`}>
+                  {d.getDate()}
+                </span>
+                <span className={`text-[10px] font-medium leading-none ${isToday ? 'text-[#065F46]/70' : 'text-[#2A2035]/35'}`}>
+                  {MONTH_SHORT[d.getMonth()]}
+                </span>
+              </div>
+              {isToday && (
+                <span className="text-[9px] font-bold tracking-[0.15em] uppercase text-[#065F46]">Today</span>
+              )}
+            </div>
+
+            {/* Class list */}
+            <div className="flex-1 space-y-1.5">
+              {sessions.length === 0 ? (
+                <div className="flex items-center justify-center h-full pb-3">
+                  <span className="text-[#2A2035]/20 text-lg leading-none">·</span>
+                </div>
+              ) : (
+                sessions.map(s => {
+                  const col = pickSubjectColor(s.cls.class_name)
+                  const count = (rosters?.[s.cls.id] || []).length
+                  const wk = termWeekNumber(s.dateISO, currentTerm)
+                  const href = wk
+                    ? `/tutor/classes/${s.cls.id}?week=${wk}`
+                    : `/tutor/classes/${s.cls.id}`
+                  // Tutor view: every lesson is visible (director-style), but
+                  // only the viewer's own are in colour — theirs highlighted
+                  // blue, everyone else's greyed out. Special states (sub /
+                  // makeup / drop-in) keep their colours on OWN lessons only.
+                  const grey = tutorMode && !s.mine
+                  const isAmber  = !grey && (s.isSub || s.hasSub)
+                  const isMakeup = s.isMakeup
+                  const isDropin = s.isDropin
+                  const mineBlue = tutorMode && s.mine && !isAmber && !isMakeup && !isDropin
+                  const pillBg     = grey ? '#EEF0F4' : mineBlue ? '#D6E4FF' : isDropin ? '#CCFBF1CC' : isMakeup ? '#EDE9FECC' : isAmber ? '#FEF9ECCC' : col.bg + 'AA'
+                  const pillBorder = grey ? 'none' : mineBlue ? '1px solid #9DBBF5' : isDropin ? '1px solid #5EEAD4' : isMakeup ? '1px solid #C4B5FD' : isAmber ? '1px solid #FDE68A' : 'none'
+                  const textColor  = grey ? '#868D9C' : mineBlue ? '#062E63' : isDropin ? '#0F766E' : isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
+                  const subColor   = grey ? '#868D9C99' : mineBlue ? '#325099AA' : isDropin ? '#0F766E99' : isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
+                  const badgeGrey  = 'bg-[#E2E5EB] text-[#868D9C]'
+                  const pillHref = isDropin
+                    ? `/tutor/dropin/${s.dropin?.id}`
+                    : s.isLevelTest
+                    ? `/tutor/lessons/${s.lessonId}`
+                    : isMakeup
+                    ? `/tutor/classes/makeup/${s.lesson?.id}`
+                    : href
+                  return (
+                    <Link
+                      key={s.key}
+                      href={pillHref}
+                      className="block rounded-lg px-2.5 py-1.5 transition hover:shadow-[0_2px_10px_-4px_rgba(50,80,153,0.25)]"
+                      style={{ background: pillBg, border: pillBorder }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <p
+                              className="text-[12px] font-bold truncate leading-tight"
+                              style={{ color: textColor }}
+                            >
+                              {classLabelMap.get(s.cls.id) ?? s.cls.class_name}
+                            </p>
+                            {isAmber && (
+                              <span className="text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#F59E0B]/20 text-[#92400E] shrink-0 whitespace-nowrap">
+                                {s.isSub ? 'Sub' : 'Sub covering'}
+                              </span>
+                            )}
+                            {isMakeup && (
+                              <span className={`text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${grey ? badgeGrey : 'bg-[#8B5CF6]/15 text-[#5B21B6]'}`}>
+                                Makeup
+                              </span>
+                            )}
+                            {isDropin && (
+                              <span className={`text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${grey ? badgeGrey : 'bg-[#CCFBF1] text-[#0F766E]'}`}>
+                                Drop-in
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] mt-0.5 leading-tight truncate" style={{ color: subColor }}>
+                            {fmtTimeRange(s.cls.start_time, s.cls.end_time)}
+                            {!isDropin && s.cls.room && <> · {s.cls.room}</>}
+                            {isDropin && s.dropin?.tutors?.length > 0 && <> · {s.dropin.tutors.join(', ')}</>}
+                          </p>
+                          {showTeacher && s.cls.teacher && (
+                            <p className="text-[10px] leading-tight truncate" style={{ color: textColor + '88' }}>
+                              {s.cls.teacher}
+                            </p>
+                          )}
+                        </div>
+                        {count > 0 && (
+                          <span
+                            className="text-[9px] font-bold tabular-nums px-1.5 py-0.5 rounded-full bg-white/70 shrink-0"
+                            style={{ color: textColor }}
+                          >
+                            {count}
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
