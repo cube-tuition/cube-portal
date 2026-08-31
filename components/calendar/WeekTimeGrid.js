@@ -36,11 +36,14 @@ function termWeekNumber(dateISO, term) {
    counts and deep links. The hour range hugs the week's sessions rather than
    always running 8am–9pm, so an afternoon-only week doesn't waste half the
    grid on empty mornings. */
-// Tall hours and wide columns: a 1-hour class is 72px and a day never drops
-// under 200px, so names and rooms stay readable — the grid scrolls
-// horizontally instead of squeezing (the hour ruler stays pinned).
+// Tall hours and wide columns: a 1-hour class is 72px, and a day's width
+// scales with how many classes run at once — every simultaneous class gets a
+// full lane of at least 180px, so a three-way overlap gets a triple-width day
+// instead of three slivers. The grid grows as wide as it needs to and scrolls
+// horizontally (the hour ruler stays pinned).
 const GRID_HOUR_PX = 72
 const DAY_MIN_PX = 200
+const LANE_MIN_PX = 180
 
 export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
   let minM = Infinity, maxM = -Infinity
@@ -82,17 +85,25 @@ export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showT
     return evs
   }
 
+  // Lay out every day once, up front — the header cell and the body column
+  // must agree on each day's width, which depends on its widest overlap.
+  const days = weekDays.map(d => {
+    const iso = isoDate(d)
+    const evs = layout(sessionsByDate.get(iso) || [])
+    const lanes = evs.reduce((n, ev) => Math.max(n, ev.lanes || 1), 1)
+    return { d, iso, evs, width: Math.max(DAY_MIN_PX, lanes * LANE_MIN_PX) }
+  })
+
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
       <div className="w-max min-w-full">
         {/* Day headers */}
         <div className="flex border-b border-[#DEE7FF]">
           <div className="w-14 flex-shrink-0 border-r border-[#DEE7FF] sticky left-0 bg-white z-30" />
-          {weekDays.map(d => {
-            const iso = isoDate(d)
+          {days.map(({ d, iso, width }) => {
             const isToday = iso === todayISO
             return (
-              <div key={iso} className={`px-2 py-2.5 text-center border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]' : 'bg-white'}`} style={{ flex: `1 0 ${DAY_MIN_PX}px`, width: DAY_MIN_PX }}>
+              <div key={iso} className={`px-2 py-2.5 text-center border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]' : 'bg-white'}`} style={{ flex: `1 0 ${width}px`, width }}>
                 <div className="flex items-baseline justify-center gap-1.5">
                   <span className={`text-[10px] tracking-[0.25em] uppercase font-semibold ${isToday ? 'text-[#065F46]' : 'text-[#325099]/70'}`}>
                     {DAY_SHORT[dayNameOf(d)]}
@@ -123,12 +134,10 @@ export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showT
             ))}
           </div>
 
-          {weekDays.map(d => {
-            const iso = isoDate(d)
+          {days.map(({ iso, evs, width }) => {
             const isToday = iso === todayISO
-            const evs = layout(sessionsByDate.get(iso) || [])
             return (
-              <div key={iso} className={`relative border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]/40' : ''}`} style={{ flex: `1 0 ${DAY_MIN_PX}px`, width: DAY_MIN_PX }}>
+              <div key={iso} className={`relative border-r border-[#DEE7FF] last:border-r-0 ${isToday ? 'bg-[#F0FDF4]/40' : ''}`} style={{ flex: `1 0 ${width}px`, width }}>
                 {hours.map((h, i) => i > 0 && (
                   <div key={h} className="absolute left-0 right-0 border-t border-[#EEF2FB]" style={{ top: i * GRID_HOUR_PX }} />
                 ))}
