@@ -1676,11 +1676,13 @@ export default function DatabasePage() {
   const [editingClassCourse, setEditingClassCourse] = useState(null)   // class rowId whose course is being reassigned
   const [courseOptions, setCourseOptions] = useState([])               // courses for the class-course picker
   const termNameById = useMemo(() => Object.fromEntries((allTerms || []).map(t => [t.id, t.name])), [allTerms])
+  const termLabel = useCallback((t) => t ? (t.name || `Term ${t.term_number} ${t.year}`) : '', [])
 
   // Term filter — applies to classes, enrolments, lessons, invoices
   // Tables where rows have a direct or indirect term_id relationship
   const TERM_SCOPED = useMemo(() => new Set([T_CLASSES, T_ENROLMENTS, T_LESSONS, T_INVOICES]), [])
   const [dbTermFilter, setDbTermFilter] = useState(null) // term id | null = all terms
+  const [termPickerRect, setTermPickerRect] = useState(null) // anchor rect while the term popover is open
   const [tutorStatusTab, setTutorStatusTab] = useState('active') // tutors view: 'active' | 'inactive' | 'all'
   const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
   const [courseStatusTab, setCourseStatusTab]   = useState('active') // courses view: 'active' | 'inactive' | 'all'
@@ -4037,6 +4039,23 @@ export default function DatabasePage() {
         />
       )}
 
+      {/* ── Term filter picker (searchable popover) ──────────────────────────── */}
+      {termPickerRect && (
+        <SearchSelectPopover
+          anchor={termPickerRect}
+          placeholder="Search terms…"
+          options={allTerms.map(t => ({
+            value: t.id,
+            label: termLabel(t),
+            sub: [t.start_date, t.end_date].filter(Boolean).join(' → '),
+          }))}
+          currentValue={dbTermFilter ?? ''}
+          clearLabel="— all terms —"
+          onSelect={(id) => { setDbTermFilter(id || null); setTermPickerRect(null) }}
+          onClose={() => setTermPickerRect(null)}
+        />
+      )}
+
       {/* ── Enrolment class picker (searchable popover) ───────────────────────── */}
       {editingEnrolClass && (
         <SearchSelectPopover
@@ -4472,20 +4491,22 @@ export default function DatabasePage() {
                 {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/60 text-xs">✕</button>}
               </div>
 
-              {/* Term filter — shown for classes, enrolments, lessons, invoices */}
+              {/* Term filter — shown for classes, enrolments, lessons, invoices.
+                  Uses the explorer's searchable popover, like the grid's own
+                  dropdowns, so terms can be typed at rather than scrolled for. */}
               {TERM_SCOPED.has(selectedTable) && allTerms.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-semibold text-[#325099]/50 shrink-0">Term</span>
-                  <select
-                    value={dbTermFilter ?? ''}
-                    onChange={e => setDbTermFilter(e.target.value || null)}
-                    className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] max-w-[150px]"
+                  <button
+                    type="button"
+                    onClick={e => setTermPickerRect(termPickerRect ? null : e.currentTarget.getBoundingClientRect())}
+                    className={`flex items-center justify-between gap-1.5 border rounded-lg px-2 py-1.5 text-xs bg-white w-[150px] transition ${termPickerRect ? 'border-[#325099]' : 'border-[#DEE7FF] hover:border-[#BACBFF]'}`}
                   >
-                    <option value="">All terms</option>
-                    {allTerms.map(t => (
-                      <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>
-                    ))}
-                  </select>
+                    <span className={`truncate ${dbTermFilter ? 'text-[#2A2035] font-semibold' : 'text-[#2A2035]/50'}`}>
+                      {dbTermFilter ? (termLabel(allTerms.find(t => t.id === dbTermFilter)) || 'All terms') : 'All terms'}
+                    </span>
+                    <span className="text-[#325099]/60 text-[13px] leading-none shrink-0">▾</span>
+                  </button>
                 </div>
               )}
 
