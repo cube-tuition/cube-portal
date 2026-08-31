@@ -38,12 +38,12 @@ function termWeekNumber(dateISO, term) {
    grid on empty mornings. */
 // Tall hours and wide columns: a 1-hour class is 72px, and a day's width
 // scales with how many classes run at once — every simultaneous class gets a
-// full lane of at least 280px, so a three-way overlap gets a triple-width day
+// full lane of at least 230px, so a three-way overlap gets a triple-width day
 // instead of three slivers. The grid grows as wide as it needs to and scrolls
 // horizontally (the hour ruler stays pinned).
 const GRID_HOUR_PX = 72
-const DAY_MIN_PX = 280
-const LANE_MIN_PX = 280
+const DAY_MIN_PX = 230
+const LANE_MIN_PX = 230
 
 export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
   let minM = Infinity, maxM = -Infinity
