@@ -38,12 +38,12 @@ function termWeekNumber(dateISO, term) {
    grid on empty mornings. */
 // Tall hours and wide columns: a 1-hour class is 72px, and a day's width
 // scales with how many classes run at once — every simultaneous class gets a
-// full lane of at least 180px, so a three-way overlap gets a triple-width day
+// full lane of at least 280px, so a three-way overlap gets a triple-width day
 // instead of three slivers. The grid grows as wide as it needs to and scrolls
 // horizontally (the hour ruler stays pinned).
 const GRID_HOUR_PX = 72
-const DAY_MIN_PX = 200
-const LANE_MIN_PX = 180
+const DAY_MIN_PX = 280
+const LANE_MIN_PX = 280
 
 export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
   let minM = Infinity, maxM = -Infinity
@@ -187,7 +187,7 @@ export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showT
                       }}
                     >
                       <div className="flex items-center gap-1">
-                        <p className="text-[11px] font-bold truncate leading-tight flex-1 min-w-0" style={{ color: textColor }}>
+                        <p className="text-[12px] font-bold truncate leading-tight flex-1 min-w-0" style={{ color: textColor }}>
                           {classLabelMap.get(s.cls.id) ?? s.cls.class_name}
                         </p>
                         {isAmber && (
@@ -211,7 +211,7 @@ export default function WeekTimeGrid({ weekDays, sessionsByDate, todayISO, showT
                           </span>
                         )}
                       </div>
-                      <p className="text-[9px] leading-tight truncate" style={{ color: subColor }}>
+                      <p className="text-[10px] leading-tight truncate" style={{ color: subColor }}>
                         {fmtTimeRange(s.cls.start_time, s.cls.end_time)}
                         {!isDropin && s.cls.room && <> · {s.cls.room}</>}
                         {isDropin && s.dropin?.tutors?.length > 0 && <> · {s.dropin.tutors.join(', ')}</>}
