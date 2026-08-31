@@ -6138,9 +6138,17 @@ export default function DatabasePage() {
                     max={addClassTerm?.end_date}
                     onChange={e => {
                       const d = e.target.value
-                      if (!d) return
-                      setNewClassForm(p => p.dates.includes(d) ? p : ({ ...p, dates: [...p.dates, d].sort() }))
                       e.target.value = ''
+                      if (!d) return
+                      // min/max on a date input only constrains the picker UI —
+                      // a typed or pasted date still arrives here. Without this
+                      // check a date outside the term is accepted, and the class
+                      // page then has a lesson its own term does not contain.
+                      if (d < addClassTerm.start_date || d > addClassTerm.end_date) {
+                        alert(`${d} is outside ${addClassTerm.name} (${addClassTerm.start_date} to ${addClassTerm.end_date}).`)
+                        return
+                      }
+                      setNewClassForm(p => p.dates.includes(d) ? p : ({ ...p, dates: [...p.dates, d].sort() }))
                     }}
                     className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:ring-2 focus:ring-[#9333EA]/30 focus:border-[#9333EA]"
                   />

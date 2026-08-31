@@ -238,6 +238,22 @@ export default function ClassOverviewPage() {
   // cancellations, etc.). Otherwise fall back to computing dates dynamically.
   const weekDates = useMemo(() => {
     if (lessons.length > 0 && term) {
+      // A holiday course has no weekly rhythm — its sessions ARE its lessons, in
+      // date order. Numbering them here rather than trusting lesson.week keeps
+      // the tabs correct after a date is edited, and keeps a date that strays
+      // outside the term visible as its own session instead of being swept into
+      // the "Holidays" bucket below, which exists for holiday-intensive lessons
+      // hanging off a TEACHING term and reads as nonsense on a holiday course.
+      if (isHolidayTerm(term)) {
+        const byDate = new Map()
+        for (const lesson of lessons) {
+          if (!byDate.has(lesson.lesson_date)) byDate.set(lesson.lesson_date, [])
+          byDate.get(lesson.lesson_date).push(lesson)
+        }
+        return [...byDate.entries()]
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, ls], i) => ({ week: i + 1, dates: [date], lessons: ls }))
+      }
       const termStart = new Date(term.start_date + 'T00:00:00')
       const weekMap = new Map()
       // Holiday-intensive lessons run in the break BETWEEN terms, so they have no
