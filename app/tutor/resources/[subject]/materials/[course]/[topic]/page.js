@@ -6,6 +6,7 @@ import { supabase } from '../../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../../components/TutorNav'
 import { courseTabs, subjectConfig, statusStyle, bookletPdfs, PDF_BUTTON_STYLE } from '../../../../../../../lib/resourceSubjects'
+import OpenInBuilderButton from '../../../../../../../components/booklet/OpenInBuilderButton'
 import BookletInfoModal from '../../../../../../../components/booklet/BookletInfoModal'
 
 /*
@@ -181,10 +182,10 @@ export default function TopicPage() {
                   {p.label}
                   </a>
                   ))}
-                  {build
-                    ? <a href={`/tutor/booklets/builder/${build}`} target="_blank" rel="noopener noreferrer"
-                        className="text-[11px] font-semibold shrink-0 hover:underline" style={{ color: cfg.accent }}>Open ↗</a>
-                    : <span className="text-[11px] text-[#2A2035]/30 shrink-0">no build</span>}
+                  <OpenInBuilderButton
+                    booklet={b} buildId={build} year={tab.year} subject={tab.subject}
+                    accent={cfg.accent}
+                    onCreated={(bid, id) => setBuilds((m) => ({ ...m, [bid]: id }))} />
                 </div>
               )
             })}
