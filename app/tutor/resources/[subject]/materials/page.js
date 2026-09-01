@@ -153,8 +153,15 @@ function CoursePanel({ slug, cfg, tab, profile }) {
       // it does not match any curriculum topic name for this year. Surfacing
       // them here keeps them findable and makes the mismatch visible.
       const { data: bs } = await supabase.from('booklets')
-        .select('id, booklet_name, status, topic, file_path, file_paths, pdf_filenames')
-        .eq('year', tab.year).eq('subject', tab.subject).order('booklet_name')
+        .select('id, booklet_name, status, topic, file_path, file_paths, pdf_filenames, is_exam')
+        .eq('year', tab.year).eq('subject', tab.subject)
+        // Term tests carry a booklets row only so the curriculum grid can slot
+        // them into a week; they belong to the exam database. They have no
+        // topic, so without this every one of them lands in Unfiled — and their
+        // name is the exam's, which already carries the code, so they render
+        // with it doubled ("9.M. 9.M. 26T2 TT").
+        .or('is_exam.is.null,is_exam.eq.false')
+        .order('booklet_name')
       if (dead) return
       const known = new Set((ts || []).map((t) => t.name.trim().toLowerCase()))
       const orphans = (bs || []).filter(
