@@ -157,7 +157,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
         ))}
       </div>
 
-      {readOnly ? <div className="pb-1.5" /> : <div className="px-3.5 pb-3 flex items-end gap-1.5">
+      <div className="px-3.5 pb-3 flex items-end gap-1.5">
         <textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
@@ -174,7 +174,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
           disabled={!draft.trim() || busy === 'add:' + list}
           className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-[#325099] hover:bg-[#062E63] transition disabled:opacity-40 disabled:hover:bg-[#325099]"
         >{busy === 'add:' + list ? '…' : 'Add'}</button>
-      </div>}
+      </div>
     </div>
   )
 }
@@ -582,6 +582,14 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                   Chemistry content is chosen as a dotpoint checklist on the workbook builder’s Content tab, then allocated to section headers on its Content page — edit it there.
                 </p>
               </>
+            ) : readOnly ? (
+              shownContent.trim() ? (
+                <div className="max-h-52 overflow-y-auto rounded-xl border border-[#EEF2FB] bg-[#FBFCFF] px-4 py-3">
+                  <BookletContentView text={shownContent} />
+                </div>
+              ) : (
+                <p className="text-[12px] text-[#2A2035]/35">No content listed for this booklet yet.</p>
+              )
             ) : syll === null ? (
               <p className="text-[12px] text-[#2A2035]/35">Loading syllabus…</p>
             ) : hasPicker ? (
@@ -699,7 +707,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
             </div>
             <p className="text-[10px] text-[#2A2035]/40 mt-2">
               {readOnly
-                ? 'Add items from your lesson page — the directors tick them off here once dealt with.'
+                ? 'Spotted something? Add it — the directors tick items off once dealt with.'
                 : 'Tutors add items from their lesson page; tick them off here once dealt with. Ticked items stay, struck through.'}
             </p>
           </div>
