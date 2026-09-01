@@ -128,7 +128,23 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
           </form>
         )}
 
-        <iframe src={url} title={filename || 'PDF preview'}
+        {/*
+          * The browser's own PDF viewer has a download button, and it fetches
+          * the file straight from the URL — walking past the gate above. Two
+          * things hold it back, because either alone is not enough:
+          *
+          *   #toolbar=0  hides the viewer's toolbar. Chrome honours it;
+          *               Firefox's pdf.js ignores it, so the button can remain.
+          *   sandbox     omits allow-downloads, so the browser refuses any
+          *               download the frame starts even if the button is there.
+          *               allow-same-origin + allow-scripts are what the PDF
+          *               viewer itself needs to run.
+          *
+          * Neither stops devtools, Ctrl+P, or the file's public URL — this is a
+          * workflow gate, as the note at the top of this file says.
+          */}
+        <iframe src={`${url}#toolbar=0&navpanes=0`} title={filename || 'PDF preview'}
+          sandbox="allow-same-origin allow-scripts"
           className="flex-1 w-full rounded-xl bg-white border border-white/10 min-h-0" />
       </div>
     </div>
