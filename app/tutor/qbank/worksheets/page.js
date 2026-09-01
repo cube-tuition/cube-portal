@@ -76,7 +76,10 @@ function AdditionalQuestionsInner() {
   const dirtyRef = useRef(false)
 
   // filters
-  const [year, setYear] = useState('')
+  // A Materials tab can open this page already scoped (?year=11&subj=Ext+1+Maths).
+  // The subject arrives as a NAME; it is resolved to an id once the taxonomy
+  // has loaded, in the effect below.
+  const [year, setYear] = useState(searchParams.get('year') || '')
   const [subjectId, setSubjectId] = useState('')
   const [topicId, setTopicId] = useState('')
   const [subtopicId, setSubtopicId] = useState('')
@@ -223,6 +226,17 @@ function AdditionalQuestionsInner() {
   }, [tax, scope])
   const years = useMemo(() => yearsFromSubjects(scopedSubjects), [scopedSubjects])
   const subjectsForYear = useMemo(() => (year ? scopedSubjects.filter((s) => String(s.year_level) === String(year)) : []), [scopedSubjects, year])
+  // Seed the subject filter from ?subj=<name>, once for the initial load.
+  const subjSeeded = useRef(false)
+  useEffect(() => {
+    if (subjSeeded.current) return
+    const name = searchParams.get('subj')
+    if (!name || !scopedSubjects.length) return
+    const hit = scopedSubjects.find(
+      (s) => s.name === name && (!year || String(s.year_level) === String(year)))
+    if (hit) { setSubjectId(hit.id); subjSeeded.current = true }
+  }, [scopedSubjects, searchParams, year])
+
   const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
   const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
   // Skills are a subject-level dimension — available as soon as a subject is picked.

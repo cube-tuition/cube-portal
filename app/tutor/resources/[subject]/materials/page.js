@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter, useParams } from 'next/navigation'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
-import { MATERIAL_AREAS, subjectConfig } from '../../../../../lib/resourceSubjects'
+import { MATERIAL_AREAS, courseTabs, subjectConfig } from '../../../../../lib/resourceSubjects'
 
 /*
  * Materials — /tutor/resources/maths|english|chemistry/materials
@@ -21,6 +21,10 @@ export default function SubjectMaterialsPage() {
   const cfg = subjectConfig(slug)
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
+  // Which year/course the two areas below are scoped to. null = all years.
+  const [tabKey, setTabKey] = useState(null)
+  const tabs = courseTabs(slug)
+  const tab = tabs.find((t) => t.key === tabKey) || null
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -64,9 +68,37 @@ export default function SubjectMaterialsPage() {
           </div>
         </div>
 
+        {/* Year / course tabs — the senior years are separate courses, not just
+            separate year numbers, so each tab carries its own subject too. */}
+        {tabs.length > 0 && (
+          <div className="mb-5">
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setTabKey(null)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border transition ${!tab ? 'text-white' : 'bg-white text-[#2A2035]/60 hover:text-[#2A2035]'}`}
+                style={!tab ? { background: cfg.accent, borderColor: cfg.accent } : { borderColor: cfg.border }}>
+                All years
+              </button>
+              {tabs.map((t) => (
+                <button key={t.key}
+                  onClick={() => setTabKey(t.key)}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border transition ${tabKey === t.key ? 'text-white' : 'bg-white text-[#2A2035]/60 hover:text-[#2A2035]'}`}
+                  style={tabKey === t.key ? { background: cfg.accent, borderColor: cfg.accent } : { borderColor: cfg.border }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-[#2A2035]/45 mt-2">
+              {tab
+                ? `Workbooks and questions below open filtered to ${tab.label}.`
+                : 'Pick a year or course to open the areas below already filtered to it.'}
+            </p>
+          </div>
+        )}
+
         {/* Area cards */}
         <div className="grid sm:grid-cols-2 gap-4">
-          {MATERIAL_AREAS(cfg.value).map((a) => (
+          {MATERIAL_AREAS(cfg.value, tab).map((a) => (
             <Link key={a.label} href={a.href}
               className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">
               <div className="flex items-center gap-2.5 mb-2">

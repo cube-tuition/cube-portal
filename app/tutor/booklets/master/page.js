@@ -447,8 +447,14 @@ function MasterDatabaseInner() {
   const [creatingWb, setCreatingWb] = useState(false)
   const [loading,  setLoading]  = useState(true)
 
-  const [activeYear, setActiveYear] = useState(5)
-  const [activeSub,  setActiveSub]  = useState('Maths')
+  // A Materials tab can open this page already on a year/course
+  // (?year=11&subj=Ext+1+Maths). The clamp effect below only corrects values
+  // that are invalid for the scope, so a valid seed survives.
+  const yearParam = Number(searchParams.get('year'))
+  const subjParam = searchParams.get('subj')
+  const [activeYear, setActiveYear] = useState(
+    Number.isFinite(yearParam) && yearParam >= 5 && yearParam <= 12 ? yearParam : 5)
+  const [activeSub,  setActiveSub]  = useState(subjParam || 'Maths')
   const [search,     setSearch]     = useState('')
   const [groupFilter, setGroupFilter] = useState('')   // '' = every topic/module
   const [showAdd,    setShowAdd]    = useState(false)
