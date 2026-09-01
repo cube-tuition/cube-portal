@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../../components/TutorNav'
-import { courseTabs, subjectConfig } from '../../../../../../../lib/resourceSubjects'
+import { courseTabs, subjectConfig, statusStyle } from '../../../../../../../lib/resourceSubjects'
 
 /*
  * A topic page — /tutor/resources/maths/materials/8/<topic id>
@@ -19,12 +19,6 @@ import { courseTabs, subjectConfig } from '../../../../../../../lib/resourceSubj
  * both sides the section simply reads empty, which is the honest answer.
  */
 
-const STATUS = {
-  'Complete':          { bg: '#ECFDF5', fg: '#047857', bd: '#A7F3D0' },
-  'In Progress':       { bg: '#EFF6FF', fg: '#1D4ED8', bd: '#BFDBFE' },
-  'Needs Improvement': { bg: '#FEF3C7', fg: '#92400E', bd: '#FDE68A' },
-  'Not Started':       { bg: '#F5F5F5', fg: '#6B7280', bd: '#E5E7EB' },
-}
 
 export default function TopicPage() {
   const router = useRouter()
@@ -148,7 +142,7 @@ export default function TopicPage() {
         ) : (
           <div className="space-y-2">
             {books.map((b) => {
-              const st = STATUS[b.status] || STATUS['Not Started']
+              const st = statusStyle(b.status)
               const build = builds[b.id]
               return (
                 <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3">

@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../components/TutorNav'
-import { MATERIAL_AREAS, courseTabs, subjectConfig } from '../../../../../../lib/resourceSubjects'
+import { MATERIAL_AREAS, courseTabs, subjectConfig, statusStyle } from '../../../../../../lib/resourceSubjects'
 
 /*
  * A year/course page under Materials —
@@ -29,6 +29,8 @@ export default function MaterialsCoursePage() {
   const [profile, setProfile] = useState(null)
   const [ready, setReady] = useState(false)
   const [topics, setTopics] = useState(null)   // null = still loading
+  const [unfiled, setUnfiled] = useState(null) // workbooks whose topic matches no curriculum topic
+  const [builds, setBuilds] = useState({})     // booklet_id -> build id
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -39,11 +41,31 @@ export default function MaterialsCoursePage() {
 
   useEffect(() => {
     if (!tab) return
-    let cancelled = false
-    supabase.from('topics').select('id, name')
-      .eq('year', tab.year).eq('subject', tab.subject).order('name')
-      .then(({ data }) => { if (!cancelled) setTopics(data || []) })
-    return () => { cancelled = true }
+    let dead = false
+    ;(async () => {
+      const { data: ts } = await supabase.from('topics').select('id, name')
+        .eq('year', tab.year).eq('subject', tab.subject).order('name')
+      if (dead) return
+      setTopics(ts || [])
+
+      // Workbooks that no topic page will ever show: their topic is blank, or
+      // it does not match any curriculum topic name for this year. Surfacing
+      // them here keeps them findable and makes the mismatch visible.
+      const { data: bs } = await supabase.from('booklets')
+        .select('id, booklet_name, status, topic')
+        .eq('year', tab.year).eq('subject', tab.subject).order('booklet_name')
+      if (dead) return
+      const known = new Set((ts || []).map((t) => t.name.trim().toLowerCase()))
+      const orphans = (bs || []).filter(
+        (b) => !b.topic?.trim() || !known.has(b.topic.trim().toLowerCase()))
+      setUnfiled(orphans)
+      if (orphans.length) {
+        const { data: bd } = await supabase.from('booklet_builds')
+          .select('id, booklet_id').in('booklet_id', orphans.map((b) => b.id))
+        if (!dead) setBuilds(Object.fromEntries((bd || []).map((b) => [b.booklet_id, b.id])))
+      }
+    })()
+    return () => { dead = true }
   }, [tab])
 
   if (!cfg || !tab) {
@@ -121,6 +143,40 @@ export default function MaterialsCoursePage() {
           <p className="text-[11px] text-[#2A2035]/40 mt-2.5">
             {topics.length} topic{topics.length === 1 ? '' : 's'} assigned to {tab.label}.
           </p>
+        )}
+
+        {/* Workbooks that belong to no topic page */}
+        {unfiled?.length > 0 && (
+          <>
+            <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-9 mb-2.5">
+              Unfiled workbooks <span className="text-[#2A2035]/35">· {unfiled.length}</span>
+            </h2>
+            <div className="space-y-2">
+              {unfiled.map((b) => {
+                const st = statusStyle(b.status)
+                const build = builds[b.id]
+                return (
+                  <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3">
+                    <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{b.booklet_name}</span>
+                    <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[40%] truncate">
+                      {b.topic?.trim() ? b.topic : 'no topic'}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
+                      style={{ background: st.bg, color: st.fg, borderColor: st.bd }}>{b.status || 'Not Started'}</span>
+                    {build
+                      ? <a href={`/tutor/booklets/builder/${build}`} target="_blank" rel="noopener noreferrer"
+                          className="text-[11px] font-semibold shrink-0 hover:underline" style={{ color: cfg.accent }}>Open ↗</a>
+                      : <span className="text-[11px] text-[#2A2035]/30 shrink-0">no build</span>}
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-[#2A2035]/40 mt-2.5">
+              These sit under a topic name that is not in {tab.label}&rsquo;s topic list, or none at all,
+              so they appear on no topic page. Renaming the workbook&rsquo;s topic to match, or adding the
+              topic, will file them.
+            </p>
+          </>
         )}
 
         {/* The two Materials areas, scoped to this year/course */}
