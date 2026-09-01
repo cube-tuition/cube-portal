@@ -59,6 +59,10 @@ function AdditionalQuestionsInner() {
   // editor state
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
+  // Curriculum topic this worksheet belongs to. Tagging one makes it appear
+  // under that topic in Materials; null leaves it untagged.
+  const [wsTopicId, setWsTopicId] = useState('')
+  const [allTopics, setAllTopics] = useState([])
   const [tray, setTray] = useState([])
   const [dirty, setDirty] = useState(false)
   const [includeMarks, setIncludeMarks] = useState(true)
@@ -70,7 +74,7 @@ function AdditionalQuestionsInner() {
 
   // Autosave plumbing — refs hold the latest editable snapshot + in-flight state
   // so debounced saves never race or persist stale data.
-  const dataRef = useRef({ selectedId: null, title: '', subtitle: '', tray: [], includeMarks: true })
+  const dataRef = useRef({ selectedId: null, title: '', subtitle: '', tray: [], includeMarks: true, wsTopicId: '' })
   const savingRef = useRef(false)
   const pendingRef = useRef(false)
   const dirtyRef = useRef(false)
@@ -112,7 +116,7 @@ function AdditionalQuestionsInner() {
           .select('*').single()
           .then(({ data, error }) => {
             if (error || !data) return
-            setSelectedId(data.id); setTitle(data.title || ''); setSubtitle(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
+            setSelectedId(data.id); setTitle(data.title || ''); setSubtitle(''); setWsTopicId(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
             loadWorksheets()
             router.replace('/tutor/qbank/worksheets')   // drop ?new=1 so refresh doesn't create another
           })
@@ -122,9 +126,15 @@ function AdditionalQuestionsInner() {
   }, [router, loadWorksheets])
 
   const qById = useMemo(() => Object.fromEntries(questions.map((q) => [q.id, q])), [questions])
+  // A ?ws=<id> deep link (from a Materials topic page). Held in a ref and
+  // acted on only once the questions have loaded: openWorksheet resolves the
+  // tray through qById, so opening early would build an empty tray and let
+  // autosave write that emptiness back over the worksheet.
+  const wantWsRef = useRef(searchParams.get('ws') || null)
+  const topicById = useMemo(() => Object.fromEntries(allTopics.map((t) => [t.id, t])), [allTopics])
 
   // Keep refs in sync so the autosave loop always reads the latest values.
-  useEffect(() => { dataRef.current = { selectedId, title, subtitle, tray, includeMarks } }, [selectedId, title, subtitle, tray, includeMarks])
+  useEffect(() => { dataRef.current = { selectedId, title, subtitle, tray, includeMarks, wsTopicId } }, [selectedId, title, subtitle, tray, includeMarks, wsTopicId])
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   // Low-level write for a given snapshot.
@@ -138,6 +148,7 @@ function AdditionalQuestionsInner() {
           ? { id: q.id, lines: q._workingLines }
           : q.id)),
       include_marks: snap.includeMarks ?? true,
+      topic_id: snap.wsTopicId ? Number(snap.wsTopicId) : null,
       updated_at: new Date().toISOString(),
     }).eq('id', snap.selectedId)
     if (error) throw error
@@ -150,12 +161,23 @@ function AdditionalQuestionsInner() {
     catch (e) { console.error('Worksheet flush failed:', e) }
   }, [persist])
 
+  useEffect(() => {
+    const id = wantWsRef.current
+    if (!id || loadingQ || !worksheets.length) return
+    wantWsRef.current = null
+    const ws = worksheets.find((w) => String(w.id) === String(id))
+    if (ws) openWorksheet(ws)
+    router.replace('/tutor/qbank/worksheets')   // drop ?ws so a refresh doesn't re-open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingQ, worksheets])
+
   // open a worksheet into the editor (saving any pending edits first)
   const openWorksheet = async (ws) => {
     await flushNow()
     setSelectedId(ws.id)
     setTitle(ws.title || '')
     setSubtitle(ws.subtitle || '')
+    setWsTopicId(ws.topic_id ?? '')
     const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
     const ids = entries.map(entryId).filter(Boolean)
     const linesById = Object.fromEntries(entries.map((e) => [entryId(e), entryLines(e)]).filter(([k, v]) => k && v))
@@ -202,7 +224,7 @@ function AdditionalQuestionsInner() {
     if (!selectedId || !dirty) return
     const t = setTimeout(() => { saveWorksheet() }, 1000)
     return () => clearTimeout(t)
-  }, [dirty, title, subtitle, tray, includeMarks, selectedId, saveWorksheet])
+  }, [dirty, title, subtitle, tray, includeMarks, wsTopicId, selectedId, saveWorksheet])
 
   // Best-effort flush when the page unmounts with unsaved edits.
   useEffect(() => () => { if (dirtyRef.current) saveWorksheet() }, [saveWorksheet])
@@ -226,6 +248,18 @@ function AdditionalQuestionsInner() {
   }, [tax, scope])
   const years = useMemo(() => yearsFromSubjects(scopedSubjects), [scopedSubjects])
   const subjectsForYear = useMemo(() => (year ? scopedSubjects.filter((s) => String(s.year_level) === String(year)) : []), [scopedSubjects, year])
+  // Curriculum topics a worksheet can be filed under, limited to the hub's
+  // subject family. These come from `topics` (year, subject, name) — the same
+  // list the Materials pages read — not from the question bank's own tree.
+  useEffect(() => {
+    let dead = false
+    const fams = scope ? SUBJECT_FAMILIES[scope] : null
+    let q = supabase.from('topics').select('id, year, subject, name')
+    if (fams) q = q.in('subject', fams)
+    q.order('year').order('name').then(({ data }) => { if (!dead) setAllTopics(data || []) })
+    return () => { dead = true }
+  }, [scope])
+
   // Seed the subject filter from ?subj=<name>, once for the initial load.
   const subjSeeded = useRef(false)
   useEffect(() => {
@@ -373,6 +407,11 @@ function AdditionalQuestionsInner() {
                         {ws.subtitle && <p className="text-[11px] text-[#2A2035]/50 truncate mt-0.5">{ws.subtitle}</p>}
                         <p className="text-[10px] text-[#2A2035]/40 mt-1">
                           {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} questions · updated {new Date(ws.updated_at).toLocaleDateString()}
+                          {topicById[ws.topic_id] && (
+                            <span className="ml-1.5 text-[#325099]/70 font-semibold">
+                              · {topicById[ws.topic_id].name}
+                            </span>
+                          )}
                         </p>
                       </button>
                       <button onClick={() => openWorksheet(ws)} className="text-[11px] font-semibold text-[#325099] hover:underline shrink-0">Open →</button>
@@ -481,6 +520,15 @@ function AdditionalQuestionsInner() {
                 className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] focus:outline-none focus:border-[#325099]" />
               <input value={subtitle} onChange={(e) => { setSubtitle(e.target.value); setDirty(true) }} placeholder="Subtitle / instructions (optional)"
                 className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099]" />
+              {/* Filing this under a topic makes it appear on that topic's page
+                  in Materials, beside the workbooks for the same topic. */}
+              <select value={wsTopicId} onChange={(e) => { setWsTopicId(e.target.value); setDirty(true) }}
+                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                <option value="">No topic — won&rsquo;t show under Materials</option>
+                {allTopics.map((t) => (
+                  <option key={t.id} value={t.id}>{`Year ${t.year} ${t.subject} · ${t.name}`}</option>
+                ))}
+              </select>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] cursor-pointer">
                   <input type="checkbox" checked={includeMarks} onChange={(e) => { setIncludeMarks(e.target.checked); setDirty(true) }} /> Show marks

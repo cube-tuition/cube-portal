@@ -213,7 +213,7 @@ export default function TopicPage() {
         ) : (
           <div className="space-y-2">
             {sheets.map((w) => (
-              <a key={w.id} href="/tutor/qbank/worksheets"
+              <a key={w.id} href={`/tutor/qbank/worksheets?ws=${w.id}`}
                 className="group bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3 hover:shadow-md transition">
                 <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate group-hover:underline">{w.title}</span>
                 {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[35%] truncate">{w.subtitle}</span>}
