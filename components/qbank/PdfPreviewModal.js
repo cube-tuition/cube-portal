@@ -2,11 +2,17 @@
 import { useEffect } from 'react'
 
 /*
- * In-page PDF preview. Shows a generated PDF (blob URL) in an iframe so tutors
- * can check it without downloading. Download + Close buttons in the header.
- * The caller owns the blob URL; onClose should revoke it.
+ * In-page PDF preview. Shows a PDF in an iframe so tutors can check it without
+ * downloading — either one generated in the browser (a blob URL) or one already
+ * stored. Download + Close buttons in the header. The caller owns a blob URL;
+ * onClose should revoke it.
+ *
+ * `downloadUrl` defaults to `url`. It exists because the `download` attribute
+ * is ignored on a cross-origin link: a stored file has to be fetched from a URL
+ * that sets Content-Disposition itself, while still being previewed from the
+ * plain one.
  */
-export default function PdfPreviewModal({ url, filename, title = 'Preview', onClose }) {
+export default function PdfPreviewModal({ url, filename, title = 'Preview', downloadUrl, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
     window.addEventListener('keydown', onKey)
@@ -22,7 +28,7 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', onCl
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-sm font-bold text-white truncate flex-1">{title}</h2>
-          <a href={url} download={filename}
+          <a href={downloadUrl || url} download={filename}
             className="px-3.5 py-1.5 rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#243c75] transition">
             Download
           </a>

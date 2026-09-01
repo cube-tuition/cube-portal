@@ -9,6 +9,7 @@ import { MATERIAL_AREAS, courseTabs, subjectConfig, statusStyle, bookletPdfs, PD
 import { bookletLabel } from '../../../../../lib/format'
 import OpenInBuilderButton from '../../../../../components/booklet/OpenInBuilderButton'
 import BookletInfoModal from '../../../../../components/booklet/BookletInfoModal'
+import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 
 /*
  * Materials — /tutor/resources/maths|english|chemistry/materials
@@ -138,6 +139,7 @@ function CoursePanel({ slug, cfg, tab, profile }) {
   const [unfiled, setUnfiled] = useState(null) // workbooks whose topic matches no curriculum topic
   const [builds, setBuilds] = useState({})     // booklet_id -> build id
   const [infoFor, setInfoFor] = useState(null)
+  const [preview, setPreview] = useState(null)   // { url, downloadUrl, filename, title }
   const [nonce, setNonce] = useState(0)        // bump to re-read after an edit
   const reload = () => setNonce((n) => n + 1)
 
@@ -182,6 +184,17 @@ function CoursePanel({ slug, cfg, tab, profile }) {
   }, [tab, nonce])
 
   const pdfUrl = (path) => supabase.storage.from('booklets').getPublicUrl(path).data?.publicUrl
+
+  // Open a stored workbook PDF in the preview modal rather than a new tab. The
+  // download URL is a second one carrying ?download=, because the modal's
+  // `download` attribute is ignored on a cross-origin link.
+  const openBookletPdf = (b, p) => {
+    const label = bookletLabel({ ...b, year: tab.year, subject: tab.subject })
+    const name = p.filename || `${label}.pdf`
+    const dl = supabase.storage.from('booklets').getPublicUrl(p.path, { download: name }).data?.publicUrl
+    setPreview({ url: pdfUrl(p.path), downloadUrl: dl, filename: name,
+      title: `${label}${p.isSolutions ? ' — solutions' : ''}` })
+  }
 
   return (
     <>
@@ -242,12 +255,12 @@ function CoursePanel({ slug, cfg, tab, profile }) {
                     &#8505; Info
                   </button>
                   {bookletPdfs(b).map((p) => (
-                    <a key={p.path} href={pdfUrl(p.path)} target="_blank" rel="noopener noreferrer"
-                      title={p.isSolutions ? 'Solutions copy' : 'Student copy'}
+                    <button key={p.path} onClick={() => openBookletPdf(b, p)}
+                      title={p.isSolutions ? 'Preview the solutions copy' : 'Preview the student copy'}
                       className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
                       style={PDF_BUTTON_STYLE(p.isSolutions)}>
                       {p.label}
-                    </a>
+                    </button>
                   ))}
                   {!readOnly && (
                     <OpenInBuilderButton
@@ -288,6 +301,11 @@ function CoursePanel({ slug, cfg, tab, profile }) {
       {/* Everything about one workbook — term, week, topic, notes and the
           improvement checklists. The modal re-reads the full booklets row on
           open, so the trimmed row this page holds is enough to launch it. */}
+      {preview && (
+        <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title}
+          downloadUrl={preview.downloadUrl} onClose={() => setPreview(null)} />
+      )}
+
       <BookletInfoModal
         booklet={infoFor}
         title={infoFor ? bookletLabel({ ...infoFor, year: infoFor.year ?? tab.year, subject: infoFor.subject ?? tab.subject }) : ''}

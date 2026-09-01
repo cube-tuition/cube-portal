@@ -181,6 +181,16 @@ export default function TopicPage() {
 
   const pdfUrl = (path) => supabase.storage.from('booklets').getPublicUrl(path).data?.publicUrl
 
+  // Open a stored workbook PDF in the preview modal rather than a new tab. The
+  // download URL is a second one carrying ?download=, because the modal's
+  // `download` attribute is ignored on a cross-origin link.
+  const openBookletPdf = (b, p) => {
+    const name = p.filename || `${bookletLabel({ ...b, year: tab.year, subject: tab.subject })}.pdf`
+    const dl = supabase.storage.from('booklets').getPublicUrl(p.path, { download: name }).data?.publicUrl
+    setPreview({ url: pdfUrl(p.path), downloadUrl: dl, filename: name,
+      title: `${bookletLabel({ ...b, year: tab.year, subject: tab.subject })}${p.isSolutions ? ' — solutions' : ''}` })
+  }
+
   /*
    * Build a worksheet's PDF the same way the builder's own download does, and
    * show it in the preview modal. Nothing is stored against the worksheet, so
@@ -259,12 +269,12 @@ export default function TopicPage() {
                   &#8505; Info
                   </button>
                   {bookletPdfs(b).map((p) => (
-                  <a key={p.path} href={pdfUrl(p.path)} target="_blank" rel="noopener noreferrer"
-                  title={p.isSolutions ? 'Solutions copy' : 'Student copy'}
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
-                  style={PDF_BUTTON_STYLE(p.isSolutions)}>
-                  {p.label}
-                  </a>
+                    <button key={p.path} onClick={() => openBookletPdf(b, p)}
+                      title={p.isSolutions ? 'Preview the solutions copy' : 'Preview the student copy'}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
+                      style={PDF_BUTTON_STYLE(p.isSolutions)}>
+                      {p.label}
+                    </button>
                   ))}
                   {!readOnly && (
                     <OpenInBuilderButton
@@ -365,7 +375,11 @@ export default function TopicPage() {
           open, so the trimmed row these pages hold is enough to launch it. */}
       {preview && (
         <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title}
-          onClose={() => { URL.revokeObjectURL(preview.url); setPreview(null) }} />
+          downloadUrl={preview.downloadUrl}
+          onClose={() => {
+            if (preview.url?.startsWith('blob:')) URL.revokeObjectURL(preview.url)
+            setPreview(null)
+          }} />
       )}
 
       <BookletInfoModal
