@@ -132,7 +132,7 @@ export default function TextsStimuliPage() {
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
-      if (!profile || !['tutor', 'admin', 'director'].includes(role)) { router.replace('/tutor'); return }
+      if (!profile || !['admin', 'director'].includes(role)) { router.replace('/tutor'); return }
       setProfile(profile); setReady(true); reload()
     })
   }, [router, reload])

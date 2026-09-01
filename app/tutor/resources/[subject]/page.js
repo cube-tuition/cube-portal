@@ -26,9 +26,11 @@ export default function SubjectHubPage() {
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
       if (!profile || !['tutor', 'admin', 'director'].includes(role)) { router.replace('/tutor'); return }
+      // Tutors only get Materials — the hub's other areas are director tools.
+      if (role === 'tutor') { router.replace(`/tutor/resources/${slug}/materials`); return }
       setProfile(profile); setReady(true)
     })
-  }, [router])
+  }, [router, slug])
 
   if (!cfg) {
     return (

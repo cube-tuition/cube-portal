@@ -24,15 +24,17 @@ const BASE_LINKS = [
   { label: 'Info',    href: '/tutor/hub' },
   { label: 'Classes', href: '/tutor/classes' },
 ]
-// Resources is for every staff member — tutors get a read-only experience on
-// the pages themselves (no builder, view-only booklet info).
-const SHARED_GROUPS = [
+const SHARED_GROUPS = []
+// Tutors get Materials only — each subject goes straight to its Materials
+// page (read-only there: no builder, view-only booklet info). The rest of
+// Resources (tests, syllabus, question bank) is directors' territory.
+const TUTOR_GROUPS = [
   {
-    label: 'Resources',
+    label: 'Materials',
     links: [
-      { label: 'Mathematics',     href: '/tutor/resources/maths',     icon: '📐' },
-      { label: 'English',         href: '/tutor/resources/english',   icon: '📕' },
-      { label: 'Chemistry',       href: '/tutor/resources/chemistry', icon: '⚗️' },
+      { label: 'Mathematics',     href: '/tutor/resources/maths/materials',     icon: '📐' },
+      { label: 'English',         href: '/tutor/resources/english/materials',   icon: '📕' },
+      { label: 'Chemistry',       href: '/tutor/resources/chemistry/materials', icon: '⚗️' },
     ],
   },
 ]
@@ -45,6 +47,14 @@ const ADMIN_FLAT_LINKS = [
   { label: 'Database', href: '/tutor/database' },
 ]
 const ADMIN_GROUPS = [
+  {
+    label: 'Resources',
+    links: [
+      { label: 'Mathematics',     href: '/tutor/resources/maths',     icon: '📐' },
+      { label: 'English',         href: '/tutor/resources/english',   icon: '📕' },
+      { label: 'Chemistry',       href: '/tutor/resources/chemistry', icon: '⚗️' },
+    ],
+  },
   {
     label: 'Admin',
     links: [
@@ -225,6 +235,9 @@ export default function TutorNav({ staffName, isAdmin = false }) {
           {SHARED_GROUPS.map(group => (
             <NavDropdown key={group.label} group={group} pathname={pathname} />
           ))}
+          {!isAdmin && TUTOR_GROUPS.map(group => (
+            <NavDropdown key={group.label} group={group} pathname={pathname} />
+          ))}
           {isAdmin && ADMIN_GROUPS.map(group => (
             <NavDropdown key={group.label} group={group} pathname={pathname} />
           ))}
@@ -287,6 +300,9 @@ export default function TutorNav({ staffName, isAdmin = false }) {
           })}
           {/* Shared groups (all users) */}
           {SHARED_GROUPS.map(group => (
+            <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
+          ))}
+          {!isAdmin && TUTOR_GROUPS.map(group => (
             <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
           ))}
           {/* Admin groups */}

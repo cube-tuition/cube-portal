@@ -55,7 +55,7 @@ function SyllabusPointsInner() {
 
   useEffect(() => {
     getAuthProfile().then(async ({ profile, role }) => {
-      if (!profile || !['tutor', 'admin', 'director'].includes(role)) { router.replace('/tutor'); return }
+      if (!profile || !['admin', 'director'].includes(role)) { router.replace('/tutor'); return }
       setProfile(profile); setReady(true)
       const all = await fetchSyllabusSubjects()
       const subs = scope ? all.filter((x) => SUBJECT_FAMILIES[scope].includes(x.subject)) : all
