@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
@@ -46,6 +46,17 @@ const hoursBetween = (start, end) => {
   return mins > 0 ? mins / 60 : null
 }
 
+/* Files on the session — worksheets used, photos of working, anything worth
+   keeping with it. Private `dropin-uploads` bucket (staff-only both ways),
+   paths <session_id>/<timestamp>-<name>, listed straight from storage and
+   opened through short-lived signed URLs — the journal-uploads shape. */
+const FILES_BUCKET = 'dropin-uploads'
+const FILES_ACCEPT = 'image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt'
+const MAX_FILE_MB = 20
+const fmtSize = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+// Display name: the path is <timestamp>-<original name>.
+const displayName = (name) => name.replace(/^\d+-/, '')
+
 export default function DropinSessionPage() {
   const router = useRouter()
   const { id } = useParams()
@@ -62,6 +73,54 @@ export default function DropinSessionPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [files, setFiles] = useState([])           // [{ name, size, created, url }]
+  const [uploading, setUploading] = useState(false)
+  const [fileErr, setFileErr] = useState('')
+  const fileRef = useRef(null)
+
+  const loadFiles = useCallback(async () => {
+    if (!id) return
+    const { data: list, error: e } = await supabase.storage.from(FILES_BUCKET)
+      .list(String(id), { sortBy: { column: 'created_at', order: 'asc' } })
+    if (e) { setFileErr('Files could not be listed: ' + e.message); return }
+    const rows = (list || []).filter(f => f.name && !f.name.startsWith('.'))
+    let urlByName = {}
+    if (rows.length) {
+      const { data: signed } = await supabase.storage.from(FILES_BUCKET)
+        .createSignedUrls(rows.map(f => `${id}/${f.name}`), 3600)
+      for (const s of signed || []) if (s.signedUrl && !s.error) urlByName[s.path.split('/').pop()] = s.signedUrl
+    }
+    setFiles(rows.map(f => ({
+      name: f.name,
+      size: f.metadata?.size || 0,
+      created: f.created_at,
+      url: urlByName[f.name] || null,
+    })))
+  }, [id])
+
+  const uploadFiles = async (picked) => {
+    const list = Array.from(picked || []).filter(Boolean)
+    if (!list.length) return
+    const over = list.filter(f => f.size > MAX_FILE_MB * 1048576)
+    if (over.length) { setFileErr(`${over.map(f => f.name).join(', ')} ${over.length === 1 ? 'is' : 'are'} over ${MAX_FILE_MB} MB.`); return }
+    setUploading(true); setFileErr('')
+    for (const f of list) {
+      const safe = f.name.replace(/[^\w.\- ]+/g, '_')
+      const { error: e } = await supabase.storage.from(FILES_BUCKET)
+        .upload(`${id}/${Date.now()}-${safe}`, f)
+      if (e) { setFileErr(`${f.name}: ${e.message}`); break }
+    }
+    setUploading(false)
+    if (fileRef.current) fileRef.current.value = ''
+    await loadFiles()
+  }
+
+  const removeFile = async (name) => {
+    if (!confirm(`Delete "${displayName(name)}"?`)) return
+    const { error: e } = await supabase.storage.from(FILES_BUCKET).remove([`${id}/${name}`])
+    if (e) { setFileErr('Could not delete: ' + e.message); return }
+    setFiles(fs => fs.filter(f => f.name !== name))
+  }
 
   useEffect(() => {
     getAuthProfile().then(({ profile: p, role }) => {
@@ -110,6 +169,11 @@ export default function DropinSessionPage() {
   }, [ready, id, profile])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (!ready) return undefined
+    const raf = requestAnimationFrame(() => { loadFiles() })
+    return () => cancelAnimationFrame(raf)
+  }, [ready, loadFiles])
 
   const rostered = useMemo(() => isRosteredTutor(session, profile?.full_name), [session, profile])
   // The rostered session is the ceiling: a teacher can trim a shift, never
@@ -192,6 +256,38 @@ export default function DropinSessionPage() {
                   ))}
                 </ul>
               )}
+            </div>
+
+            {/* Files kept with this session */}
+            <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
+              <div className="px-5 py-3 border-b border-[#EEF2FF] flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-[#062E63]">Files</p>
+                <label className={`text-[11px] font-bold px-3 py-1.5 rounded-full cursor-pointer transition ${uploading ? 'bg-[#EEF0F4] text-[#868D9C]' : 'bg-[#062E63] text-white hover:bg-[#325099]'}`}>
+                  {uploading ? 'Uploading…' : '⬆ Upload'}
+                  <input ref={fileRef} type="file" multiple accept={FILES_ACCEPT} className="hidden"
+                    disabled={uploading} onChange={e => uploadFiles(e.target.files)} />
+                </label>
+              </div>
+              {files.length === 0 ? (
+                <p className="px-5 py-5 text-sm text-[#2A2035]/50">
+                  Nothing here yet — worksheets used, photos of working, anything worth keeping with this session.
+                </p>
+              ) : (
+                <ul className="divide-y divide-[#EEF2FF]">
+                  {files.map(f => (
+                    <li key={f.name} className="px-5 py-2.5 flex items-center gap-3">
+                      <a href={f.url || '#'} target="_blank" rel="noopener noreferrer"
+                        className={`flex-1 min-w-0 text-sm font-semibold truncate ${f.url ? 'text-[#325099] hover:underline' : 'text-[#2A2035]/50 cursor-default'}`}>
+                        📄 {displayName(f.name)}
+                      </a>
+                      <span className="text-[11px] text-[#2A2035]/40 tabular-nums shrink-0">{fmtSize(f.size)}</span>
+                      <button onClick={() => removeFile(f.name)} title="Delete file"
+                        className="text-[#2A2035]/30 hover:text-[#B23A3A] text-sm shrink-0">✕</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {fileErr && <p className="px-5 pb-3 text-xs text-[#991B1B]">{fileErr}</p>}
             </div>
 
             {/* The shift */}
