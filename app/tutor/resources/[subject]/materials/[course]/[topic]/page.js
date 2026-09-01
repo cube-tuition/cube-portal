@@ -6,7 +6,9 @@ import { supabase } from '../../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../../components/TutorNav'
 import { courseTabs, subjectConfig, statusStyle, bookletPdfs, PDF_BUTTON_STYLE } from '../../../../../../../lib/resourceSubjects'
-import { fetchWorksheetTagCounts, DIFFICULTY_LABELS, DIFFICULTY_COLORS, DIFFICULTY_MAX } from '../../../../../../../lib/qbank'
+import { fetchWorksheetTagCounts, loadWorksheetQuestions, DIFFICULTY_LABELS, DIFFICULTY_COLORS, DIFFICULTY_MAX } from '../../../../../../../lib/qbank'
+import { exportWorksheet } from '../../../../../../../lib/qbankWorksheet'
+import PdfPreviewModal from '../../../../../../../components/qbank/PdfPreviewModal'
 import { bookletLabel } from '../../../../../../../lib/format'
 import OpenInBuilderButton from '../../../../../../../components/booklet/OpenInBuilderButton'
 import BookletInfoModal from '../../../../../../../components/booklet/BookletInfoModal'
@@ -68,6 +70,8 @@ export default function TopicPage() {
   const [bank, setBank] = useState(null)          // { total, subtopics: [{name, n}] }
   const [sheets, setSheets] = useState(null)      // worksheets filed under this topic
   const [tags, setTags] = useState({})            // worksheet id -> subtopic/skill/difficulty breakdown
+  const [sheetPdf, setSheetPdf] = useState('')    // `${worksheetId}:${kind}` while one is building
+  const [preview, setPreview] = useState(null)    // { url, filename, title }
   const [infoFor, setInfoFor] = useState(null)
   const [topicBank, setTopicBank] = useState([])
   const [nonce, setNonce] = useState(0)              // bump to re-read after an edit
@@ -177,6 +181,34 @@ export default function TopicPage() {
 
   const pdfUrl = (path) => supabase.storage.from('booklets').getPublicUrl(path).data?.publicUrl
 
+  /*
+   * Build a worksheet's PDF the same way the builder's own download does, and
+   * show it in the preview modal. Nothing is stored against the worksheet, so
+   * there is no file to link to — it is rendered on the spot from the questions.
+   *
+   * Deliberately does NOT record question usage: the builder logs that when a
+   * tutor exports a sheet they are about to hand out, whereas this page is for
+   * browsing, and looking at a PDF should not write to shared statistics.
+   */
+  const buildSheetPdf = async (w, answers) => {
+    const key = `${w.id}:${answers ? 'solutions' : 'worksheet'}`
+    setSheetPdf(key)
+    try {
+      const questions = await loadWorksheetQuestions(w)
+      if (!questions.length) { alert('That worksheet has no questions to print.'); return }
+      const res = await exportWorksheet({
+        title: w.title || 'Worksheet', subtitle: w.subtitle || '',
+        questions, includeMarks: w.include_marks ?? true, answers, preview: true,
+      })
+      if (res?.url) setPreview({
+        url: res.url, filename: res.filename,
+        title: answers ? `${w.title} — solutions` : w.title,
+      })
+    } catch (e) {
+      alert('Could not generate the PDF: ' + (e.message || e))
+    } finally { setSheetPdf('') }
+  }
+
   const Empty = ({ children }) => (
     <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] px-6 py-7 text-center">
       <p className="text-xs text-[#2A2035]/45">{children}</p>
@@ -267,10 +299,10 @@ export default function TopicPage() {
               const avg = t?.avgDifficulty
               const rung = avg == null ? null : Math.min(DIFFICULTY_MAX, Math.max(1, Math.round(avg)))
               return (
-                <a key={w.id} href={`/tutor/qbank/worksheets?ws=${w.id}`}
-                  className="group block bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 hover:shadow-md transition">
+                <div key={w.id}
+                  className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 hover:shadow-md transition">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate group-hover:underline">{w.title}</span>
+                    <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{w.title}</span>
                     {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[30%] truncate">{w.subtitle}</span>}
                     {rung && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
@@ -283,7 +315,19 @@ export default function TopicPage() {
                       style={{ background: cfg.tint, color: cfg.accent, borderColor: cfg.border }}>
                       {n} question{n === 1 ? '' : 's'}
                     </span>
-                    <span className="text-[11px] font-semibold shrink-0" style={{ color: cfg.accent }}>Open →</span>
+                    {[false, true].map((answers) => {
+                      const key = `${w.id}:${answers ? 'solutions' : 'worksheet'}`
+                      return (
+                        <button key={key} onClick={() => buildSheetPdf(w, answers)} disabled={!!sheetPdf}
+                          title={answers ? 'Build the solutions PDF' : 'Build the worksheet PDF'}
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95 disabled:opacity-40"
+                          style={PDF_BUTTON_STYLE(answers)}>
+                          {sheetPdf === key ? 'Building…' : answers ? 'Solutions' : 'PDF'}
+                        </button>
+                      )
+                    })}
+                    <a href={`/tutor/qbank/worksheets?ws=${w.id}`}
+                      className="text-[11px] font-semibold shrink-0 hover:underline" style={{ color: cfg.accent }}>Open →</a>
                   </div>
 
                   {/* What the sheet covers. A question tagged with two subtopics
@@ -295,7 +339,7 @@ export default function TopicPage() {
                       <TagRow label="Skills" items={t.skills} untagged={t.untaggedSkills} cfg={cfg} />
                     </div>
                   )}
-                </a>
+                </div>
               )
             })}
           </div>
@@ -317,6 +361,11 @@ export default function TopicPage() {
       {/* Everything about one workbook — term, week, topic, notes and the
           improvement checklists. The modal re-reads the full booklets row on
           open, so the trimmed row these pages hold is enough to launch it. */}
+      {preview && (
+        <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title}
+          onClose={() => { URL.revokeObjectURL(preview.url); setPreview(null) }} />
+      )}
+
       <BookletInfoModal
         booklet={infoFor}
         title={infoFor ? bookletLabel({ ...infoFor, year: infoFor.year ?? tab.year, subject: infoFor.subject ?? tab.subject }) : ''}
