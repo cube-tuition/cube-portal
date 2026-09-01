@@ -273,7 +273,7 @@ export default function TopicPage() {
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
                         title={`Mean difficulty ${avg.toFixed(2)} of ${DIFFICULTY_MAX}, over the ${t.ratedQuestions} question${t.ratedQuestions === 1 ? '' : 's'} that carry one`}
                         style={{ color: DIFFICULTY_COLORS[rung], borderColor: `${DIFFICULTY_COLORS[rung]}55`, background: `${DIFFICULTY_COLORS[rung]}14` }}>
-                        {DIFFICULTY_LABELS[rung]} · {avg.toFixed(1)}
+                        {DIFFICULTY_LABELS[rung]}
                       </span>
                     )}
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
@@ -316,7 +316,7 @@ export default function TopicPage() {
           open, so the trimmed row these pages hold is enough to launch it. */}
       <BookletInfoModal
         booklet={infoFor}
-        title={infoFor ? `${infoFor.year ?? tab.year}.M. ${infoFor.booklet_name}` : ''}
+        title={infoFor ? bookletLabel({ ...infoFor, year: infoFor.year ?? tab.year, subject: infoFor.subject ?? tab.subject }) : ''}
         staff={profile}
         topicBank={topicBank}
         onClose={() => { setInfoFor(null); reload() }}
