@@ -5,7 +5,8 @@ import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../components/TutorNav'
-import { MATERIAL_AREAS, courseTabs, subjectConfig, statusStyle, bookletPdfs } from '../../../../../../lib/resourceSubjects'
+import { MATERIAL_AREAS, courseTabs, subjectConfig, statusStyle, bookletPdfs, PDF_BUTTON_STYLE } from '../../../../../../lib/resourceSubjects'
+import BookletInfoModal from '../../../../../../components/booklet/BookletInfoModal'
 
 /*
  * A year/course page under Materials —
@@ -31,6 +32,10 @@ export default function MaterialsCoursePage() {
   const [topics, setTopics] = useState(null)   // null = still loading
   const [unfiled, setUnfiled] = useState(null) // workbooks whose topic matches no curriculum topic
   const [builds, setBuilds] = useState({})     // booklet_id -> build id
+  const [infoFor, setInfoFor] = useState(null)
+  const [nonce, setNonce] = useState(0)              // bump to re-read after an edit
+  const reload = () => setNonce((n) => n + 1)
+
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -66,7 +71,7 @@ export default function MaterialsCoursePage() {
       }
     })()
     return () => { dead = true }
-  }, [tab])
+  }, [tab, nonce])
 
   if (!cfg || !tab) {
     return (
@@ -81,6 +86,7 @@ export default function MaterialsCoursePage() {
     )
   }
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
+
 
   const pdfUrl = (path) => supabase.storage.from('booklets').getPublicUrl(path).data?.publicUrl
 
@@ -165,13 +171,17 @@ export default function MaterialsCoursePage() {
                     </span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
                       style={{ background: st.bg, color: st.fg, borderColor: st.bd }}>{b.status || 'Not Started'}</span>
+                    <button
+                      onClick={() => setInfoFor(b)}
+                      title="Term, week, topic, notes and the improvement checklists"
+                      className="text-[11px] font-semibold shrink-0 text-[#325099]/70 hover:text-[#325099] hover:underline transition">
+                      &#8505; Info
+                    </button>
                     {bookletPdfs(b).map((p) => (
                       <a key={p.path} href={pdfUrl(p.path)} target="_blank" rel="noopener noreferrer"
                         title={p.isSolutions ? 'Solutions copy' : 'Student copy'}
                         className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
-                        style={p.isSolutions
-                          ? { background: '#FEF2F2', color: '#B91C1C', borderColor: '#FECACA' }
-                          : { background: '#EEF4FF', color: '#325099', borderColor: '#DEE7FF' }}>
+                        style={PDF_BUTTON_STYLE(p.isSolutions)}>
                         {p.label}
                       </a>
                     ))}
@@ -214,6 +224,18 @@ export default function MaterialsCoursePage() {
           ← Back to Materials
         </Link>
       </div>
+
+      {/* Everything about one workbook — term, week, topic, notes and the
+          improvement checklists. The modal re-reads the full booklets row on
+          open, so the trimmed row these pages hold is enough to launch it. */}
+      <BookletInfoModal
+        booklet={infoFor}
+        title={infoFor ? `${infoFor.year ?? tab.year}.M. ${infoFor.booklet_name}` : ''}
+        staff={profile}
+        topicBank={topics || []}
+        onClose={() => { setInfoFor(null); reload() }}
+        onChanged={(patch) => setUnfiled((bs) => (bs || []).map((x) => (x.id === infoFor.id ? { ...x, ...patch } : x)))}
+      />
     </div>
   )
 }

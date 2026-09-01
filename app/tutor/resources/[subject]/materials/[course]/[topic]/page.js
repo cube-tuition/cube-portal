@@ -5,7 +5,8 @@ import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../../components/TutorNav'
-import { courseTabs, subjectConfig, statusStyle, bookletPdfs } from '../../../../../../../lib/resourceSubjects'
+import { courseTabs, subjectConfig, statusStyle, bookletPdfs, PDF_BUTTON_STYLE } from '../../../../../../../lib/resourceSubjects'
+import BookletInfoModal from '../../../../../../../components/booklet/BookletInfoModal'
 
 /*
  * A topic page — /tutor/resources/maths/materials/8/<topic id>
@@ -33,6 +34,11 @@ export default function TopicPage() {
   const [books, setBooks] = useState([])
   const [builds, setBuilds] = useState({})        // booklet_id -> build id
   const [bank, setBank] = useState(null)          // { total, subtopics: [{name, n}] }
+  const [infoFor, setInfoFor] = useState(null)
+  const [topicBank, setTopicBank] = useState([])
+  const [nonce, setNonce] = useState(0)              // bump to re-read after an edit
+  const reload = () => setNonce((n) => n + 1)
+
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -65,6 +71,10 @@ export default function TopicPage() {
         if (!dead) setBuilds(Object.fromEntries((bd || []).map((b) => [b.booklet_id, b.id])))
       }
 
+      const { data: bank } = await supabase.from('topics').select('id, name')
+        .eq('year', t.year).eq('subject', t.subject).order('name')
+      if (!dead) setTopicBank(bank || [])
+
       // The question bank's matching topic, and what sits under it.
       const { data: subj } = await supabase
         .from('qbank_subjects').select('id').eq('year_level', t.year).eq('name', t.subject).maybeSingle()
@@ -91,7 +101,7 @@ export default function TopicPage() {
       if (!dead) setBank({ total: total || 0, unfiled: unfiled || 0, subtopics: counts })
     })()
     return () => { dead = true }
-  }, [tab, topicId])
+  }, [tab, topicId, nonce])
 
   if (!cfg || !tab || topic === null) {
     return (
@@ -107,6 +117,7 @@ export default function TopicPage() {
   if (!ready || topic === undefined) {
     return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   }
+
 
   const pdfUrl = (path) => supabase.storage.from('booklets').getPublicUrl(path).data?.publicUrl
 
@@ -151,13 +162,17 @@ export default function TopicPage() {
                   <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{b.booklet_name}</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
                     style={{ background: st.bg, color: st.fg, borderColor: st.bd }}>{b.status || 'Not Started'}</span>
+                  <button
+                  onClick={() => setInfoFor(b)}
+                  title="Term, week, topic, notes and the improvement checklists"
+                  className="text-[11px] font-semibold shrink-0 text-[#325099]/70 hover:text-[#325099] hover:underline transition">
+                  &#8505; Info
+                  </button>
                   {bookletPdfs(b).map((p) => (
                   <a key={p.path} href={pdfUrl(p.path)} target="_blank" rel="noopener noreferrer"
                   title={p.isSolutions ? 'Solutions copy' : 'Student copy'}
                   className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
-                  style={p.isSolutions
-                    ? { background: '#FEF2F2', color: '#B91C1C', borderColor: '#FECACA' }
-                    : { background: '#EEF4FF', color: '#325099', borderColor: '#DEE7FF' }}>
+                  style={PDF_BUTTON_STYLE(p.isSolutions)}>
                   {p.label}
                   </a>
                   ))}
@@ -209,6 +224,18 @@ export default function TopicPage() {
           ← Back to {tab.label}
         </Link>
       </div>
+
+      {/* Everything about one workbook — term, week, topic, notes and the
+          improvement checklists. The modal re-reads the full booklets row on
+          open, so the trimmed row these pages hold is enough to launch it. */}
+      <BookletInfoModal
+        booklet={infoFor}
+        title={infoFor ? `${infoFor.year ?? tab.year}.M. ${infoFor.booklet_name}` : ''}
+        staff={profile}
+        topicBank={topicBank}
+        onClose={() => { setInfoFor(null); reload() }}
+        onChanged={(patch) => setBooks((bs) => bs.map((x) => (x.id === infoFor.id ? { ...x, ...patch } : x)))}
+      />
     </div>
   )
 }
