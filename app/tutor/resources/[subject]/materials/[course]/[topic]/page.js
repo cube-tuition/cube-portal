@@ -35,6 +35,7 @@ export default function TopicPage() {
   const [books, setBooks] = useState([])
   const [builds, setBuilds] = useState({})        // booklet_id -> build id
   const [bank, setBank] = useState(null)          // { total, subtopics: [{name, n}] }
+  const [sheets, setSheets] = useState(null)      // worksheets filed under this topic
   const [infoFor, setInfoFor] = useState(null)
   const [topicBank, setTopicBank] = useState([])
   const [nonce, setNonce] = useState(0)              // bump to re-read after an edit
@@ -80,6 +81,12 @@ export default function TopicPage() {
       const { data: bank } = await supabase.from('topics').select('id, name')
         .eq('year', t.year).eq('subject', t.subject).order('name')
       if (!dead) setTopicBank(bank || [])
+
+      // Additional-questions worksheets filed under this topic.
+      const { data: ws } = await supabase.from('qbank_worksheets')
+        .select('id, title, subtitle, question_ids, include_marks, updated_at')
+        .eq('topic_id', t.id).order('title')
+      if (!dead) setSheets(ws || [])
 
       // The question bank's matching topic, and what sits under it.
       const { data: subj } = await supabase
@@ -192,37 +199,39 @@ export default function TopicPage() {
           </div>
         )}
 
-        {/* Question bank holdings for the matching topic */}
+        {/* Additional Questions — worksheets filed under this topic */}
         <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-9 mb-2.5">
-          Question bank {bank?.total > 0 && <span className="text-[#2A2035]/35">· {bank.total}</span>}
+          Additional Questions {sheets?.length > 0 && <span className="text-[#2A2035]/35">· {sheets.length}</span>}
         </h2>
-        {!bank ? (
+        {sheets === null ? (
           <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading…</p>
-        ) : bank.total === 0 ? (
+        ) : sheets.length === 0 ? (
           <Empty>
-            The question bank has no topic named “{topic.name}” for {tab.label}, or it holds no questions yet.
+            No worksheet is filed under &ldquo;{topic.name}&rdquo;. Open one in the worksheet
+            builder and pick this topic to have it appear here.
           </Empty>
         ) : (
-          <>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {bank.subtopics.filter((s) => s.n > 0).map((s) => (
-                <div key={s.name} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center justify-between gap-3">
-                  <span className="text-sm font-semibold text-[#2A2035] min-w-0 truncate">{s.name}</span>
-                  <span className="text-[11px] font-bold tabular-nums shrink-0" style={{ color: cfg.accent }}>{s.n}</span>
-                </div>
-              ))}
-              {bank.unfiled > 0 && (
-                <div className="bg-white rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 flex items-center justify-between gap-3">
-                  <span className="text-sm font-semibold text-[#2A2035]/50 min-w-0 truncate italic">No subtopic</span>
-                  <span className="text-[11px] font-bold tabular-nums shrink-0 text-[#2A2035]/45">{bank.unfiled}</span>
-                </div>
-              )}
-            </div>
-            <Link href={`/tutor/qbank?subject=${cfg.value}`}
-              className="inline-block text-[11px] font-semibold mt-3 hover:underline" style={{ color: cfg.accent }}>
-              Open the question bank →
-            </Link>
-          </>
+          <div className="space-y-2">
+            {sheets.map((w) => (
+              <a key={w.id} href="/tutor/qbank/worksheets"
+                className="group bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3 hover:shadow-md transition">
+                <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate group-hover:underline">{w.title}</span>
+                {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[35%] truncate">{w.subtitle}</span>}
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
+                  style={{ background: cfg.tint, color: cfg.accent, borderColor: cfg.border }}>
+                  {(w.question_ids || []).length} question{(w.question_ids || []).length === 1 ? '' : 's'}
+                </span>
+                <span className="text-[11px] font-semibold shrink-0" style={{ color: cfg.accent }}>Open →</span>
+              </a>
+            ))}
+          </div>
+        )}
+        {bank?.total > 0 && (
+          <p className="text-[11px] text-[#2A2035]/45 mt-2.5">
+            The question bank holds {bank.total} question{bank.total === 1 ? '' : 's'} under this topic.{' '}
+            <Link href={`/tutor/qbank?subject=${cfg.value}`} className="font-semibold hover:underline"
+              style={{ color: cfg.accent }}>Browse the bank →</Link>
+          </p>
         )}
 
         <Link href={`/tutor/resources/${slug}/materials/${tab.key}`}

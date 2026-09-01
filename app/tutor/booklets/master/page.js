@@ -12,7 +12,7 @@ import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 import { curriculumTerms } from '../../../../lib/terms'
 import { fetchModuleNames } from '../../../../lib/syllabus'
 import {
-  isChemistry, chemModuleNumber, chemLessonNumber, chemModuleLabel,
+  isChemistry, chemModuleNumber, chemLessonNumber, chemModuleLabel, bookletLabel,
 } from '../../../../lib/format'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -23,21 +23,10 @@ const SUBJECTS_BY_YEAR = {
 }
 const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
 
-const SUBJECT_CODE = {
-  'Maths': 'M', 'English': 'ET',
-  'Standard Maths': 'MS', 'Adv Maths': 'MA',
-  'Ext 1 Maths': 'M1', 'Ext 2 Maths': 'M2',
-  'Chemistry': 'C', 'Physics': 'P',
-}
 const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
 const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
 const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry' || s === 'Physics' ? '#F0FDF4' : '#F5F3FF'
 
-const bookletLabel = (b) => {
-  if (!b?.year) return b?.booklet_name ?? ''
-  const code = SUBJECT_CODE[b.subject] || (b.subject || '')[0] || ''
-  return `${b.year}.${code}. ${b.booklet_name}`
-}
 
 // Bucket for booklets with nothing to group them by — a missing topic, or a
 // Chemistry name that doesn't follow M<module>L<lesson>. Always sorts last.
@@ -606,7 +595,7 @@ function MasterDatabaseInner() {
   const openInBuilder = async (b) => {
     setOpeningBuilder(b.id)
     const { data, error } = await supabase.from('booklet_builds')
-      .insert({ title: b.booklet_name, year: b.year, subject: b.subject, topic: b.topic || null, blocks: [], status: 'draft', booklet_id: b.id })
+      .insert({ title: bookletLabel(b), year: b.year, subject: b.subject, topic: b.topic || null, blocks: [], status: 'draft', booklet_id: b.id })
       .select('id').single()
     setOpeningBuilder(null)
     if (error) { alert('Could not create the workbook in the builder: ' + error.message); return }
