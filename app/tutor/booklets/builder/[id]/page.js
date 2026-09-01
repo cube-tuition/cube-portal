@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
+import { subjectCode } from '../../../../../lib/format'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../../../../lib/tables'
@@ -38,12 +39,6 @@ const SUBJECTS = [
   { value: 'English', label: 'English' },
   { value: 'Chemistry', label: 'Chemistry' },
 ]
-// Subject codes for the standardised booklet name (mirrors the Master Database).
-const SUBJECT_CODE = {
-  Maths: 'M', English: 'ET', Chemistry: 'C',
-  'Standard Maths': 'MS', 'Adv Maths': 'MA', 'Ext 1 Maths': 'M1', 'Ext 2 Maths': 'M2', Physics: 'P',
-}
-const subjectCode = (s) => SUBJECT_CODE[s] || (s || '')[0]?.toUpperCase() || ''
 // Standardised display name: "X.Y. Name" (year . subject-code . name).
 // Chemistry booklets are stored as "M3L2"; any legacy "M3W2" is shown as "M3L2".
 const formatBookletName = (year, subject, name) => {

@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { subjectCode } from '../../lib/format'
 import { T_BOOKLET_BUILDS } from '../../lib/tables'
 import { newBlock } from '../../lib/bookletRender'
 
@@ -19,11 +20,8 @@ const YEARS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 const SUBJECT_VALUE = { Mathematics: 'Maths' }
 const SUBJECT_LABEL = { Maths: 'Mathematics' }
 
-// Subject → short code for the "X.C. Level Test" display name (mirrors the
-// booklet builder's SUBJECT_CODE map). Level tests are always titled
-// "Level Test"; the card shows it prefixed with year + subject code.
-const SUBJECT_CODE = { Maths: 'M', English: 'ET', Chemistry: 'C', Science: 'S' }
-const subjectCode = (s) => SUBJECT_CODE[s] || (s || '')[0]?.toUpperCase() || ''
+// Level tests are always titled "Level Test"; the card shows it prefixed with
+// year + subject code, using the shared map in lib/format.
 const levelTestDisplayName = (t) => {
   const code = subjectCode(t.subject)
   return (t.year && code) ? `${t.year}.${code}. Level Test` : (t.title || 'Untitled level test')

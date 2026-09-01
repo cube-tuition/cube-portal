@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { subjectCode } from '../../../lib/format'
 import { requireStudent } from '../../../lib/requireStudent'
 import PortalNav from '../../../components/PortalNav'
 import WorkbookDoc from '../../../components/booklet/WorkbookDoc'
@@ -65,7 +66,7 @@ function StudentWorkbookInner() {
 
   const title = useMemo(() => {
     if (!booklet) return ''
-    const code = { English: 'ET', Maths: 'M', Chemistry: 'C' }[booklet.subject] || (booklet.subject || '')[0] || ''
+    const code = subjectCode(booklet.subject)
     return `${booklet.year ? `${booklet.year}.${code}. ` : ''}${booklet.booklet_name}`
   }, [booklet])
 

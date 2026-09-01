@@ -6,7 +6,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { fetchAllTerms, getEnrolmentTerm, curriculumTerms, isTermOutOfCurriculum } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
-import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry, chemModuleNumber, chemModuleLabel } from '../../../lib/format'
+import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry, chemModuleNumber, chemModuleLabel, bookletLabel } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
 import BookletContentView from '../../../components/booklet/BookletContentView'
 import BookletInfoModal from '../../../components/booklet/BookletInfoModal'
@@ -51,22 +51,10 @@ function subjectFromCourseCode(code) {
     : (suffix.startsWith('M') ? 'Maths' : suffix.startsWith('E') ? 'English' : null)
 }
 
-const SUBJECT_CODE = {
-  'Maths': 'M', 'English': 'ET',
-  'Standard Maths': 'MS', 'Adv Maths': 'MA',
-  'Ext 1 Maths': 'M1', 'Ext 2 Maths': 'M2',
-  'Chemistry': 'C', 'Physics': 'P',
-}
 const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
 const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
 const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry' || s === 'Physics' ? '#F0FDF4' : '#F5F3FF'
 
-const bookletLabel = (b) => {
-  if (!b?.year) return fmtWorkbookCode(b?.booklet_name, b?.subject)
-  const code = SUBJECT_CODE[b.subject] || (b.subject || '')[0] || ''
-  // Chemistry names like "M3W2" display as "M3L2" (Chemistry counts in Lessons).
-  return `${b.year}.${code}. ${fmtWorkbookCode(b.booklet_name, b.subject)}`
-}
 
 // One Info button per card — opens the consolidated booklet modal (details,
 // content, notes, improvement checklists). Badged amber with the number of open
