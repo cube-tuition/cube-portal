@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../../components/TutorNav'
-import { courseTabs, subjectConfig, statusStyle } from '../../../../../../../lib/resourceSubjects'
+import { courseTabs, subjectConfig, statusStyle, bookletPdfs } from '../../../../../../../lib/resourceSubjects'
 
 /*
  * A topic page — /tutor/resources/maths/materials/8/<topic id>
@@ -54,7 +54,7 @@ export default function TopicPage() {
 
       // Workbooks filed under this topic name.
       const { data: bs } = await supabase
-        .from('booklets').select('id, booklet_name, status')
+        .from('booklets').select('id, booklet_name, status, file_path, file_paths, pdf_filenames')
         .eq('year', t.year).eq('subject', t.subject).ilike('topic', t.name)
         .order('booklet_name')
       if (dead) return
@@ -108,6 +108,8 @@ export default function TopicPage() {
     return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   }
 
+  const pdfUrl = (path) => supabase.storage.from('booklets').getPublicUrl(path).data?.publicUrl
+
   const Empty = ({ children }) => (
     <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] px-6 py-7 text-center">
       <p className="text-xs text-[#2A2035]/45">{children}</p>
@@ -149,6 +151,16 @@ export default function TopicPage() {
                   <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{b.booklet_name}</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
                     style={{ background: st.bg, color: st.fg, borderColor: st.bd }}>{b.status || 'Not Started'}</span>
+                  {bookletPdfs(b).map((p) => (
+                  <a key={p.path} href={pdfUrl(p.path)} target="_blank" rel="noopener noreferrer"
+                  title={p.isSolutions ? 'Solutions copy' : 'Student copy'}
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
+                  style={p.isSolutions
+                    ? { background: '#FEF2F2', color: '#B91C1C', borderColor: '#FECACA' }
+                    : { background: '#EEF4FF', color: '#325099', borderColor: '#DEE7FF' }}>
+                  {p.label}
+                  </a>
+                  ))}
                   {build
                     ? <a href={`/tutor/booklets/builder/${build}`} target="_blank" rel="noopener noreferrer"
                         className="text-[11px] font-semibold shrink-0 hover:underline" style={{ color: cfg.accent }}>Open ↗</a>
