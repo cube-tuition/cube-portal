@@ -108,11 +108,12 @@ export default function MaterialsCoursePage() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {topics.map((t) => (
-              <div key={t.id}
-                className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-2.5">
+              <Link key={t.id} href={`/tutor/resources/${slug}/materials/${tab.key}/${t.id}`}
+                className="group bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-2.5 hover:shadow-md transition">
                 <span className="w-1.5 h-6 rounded-full shrink-0" style={{ background: cfg.accent }} />
-                <span className="text-sm font-semibold text-[#2A2035] leading-snug">{t.name}</span>
-              </div>
+                <span className="text-sm font-semibold text-[#2A2035] leading-snug flex-1 min-w-0 group-hover:underline">{t.name}</span>
+                <span className="text-[#2A2035]/25 group-hover:text-[#2A2035]/50 shrink-0">›</span>
+              </Link>
             ))}
           </div>
         )}
