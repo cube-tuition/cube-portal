@@ -6,6 +6,7 @@ import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { MATERIAL_AREAS, courseTabs, subjectConfig, statusStyle, bookletPdfs, PDF_BUTTON_STYLE } from '../../../../../lib/resourceSubjects'
+import { bookletLabel } from '../../../../../lib/format'
 import OpenInBuilderButton from '../../../../../components/booklet/OpenInBuilderButton'
 import BookletInfoModal from '../../../../../components/booklet/BookletInfoModal'
 
@@ -218,7 +219,9 @@ function CoursePanel({ slug, cfg, tab, profile }) {
               const build = builds[b.id]
               return (
                 <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3">
-                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{b.booklet_name}</span>
+                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">
+                    {bookletLabel({ ...b, year: tab.year, subject: tab.subject })}
+                  </span>
                   <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[40%] truncate">
                     {b.topic?.trim() ? b.topic : 'no topic'}
                   </span>
@@ -277,7 +280,7 @@ function CoursePanel({ slug, cfg, tab, profile }) {
           open, so the trimmed row this page holds is enough to launch it. */}
       <BookletInfoModal
         booklet={infoFor}
-        title={infoFor ? `${infoFor.year ?? tab.year}.M. ${infoFor.booklet_name}` : ''}
+        title={infoFor ? bookletLabel({ ...infoFor, year: infoFor.year ?? tab.year, subject: infoFor.subject ?? tab.subject }) : ''}
         staff={profile}
         topicBank={topics || []}
         onClose={() => { setInfoFor(null); reload() }}

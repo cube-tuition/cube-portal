@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../../components/TutorNav'
 import { courseTabs, subjectConfig, statusStyle, bookletPdfs, PDF_BUTTON_STYLE } from '../../../../../../../lib/resourceSubjects'
 import { fetchWorksheetTagCounts, DIFFICULTY_LABELS, DIFFICULTY_COLORS, DIFFICULTY_MAX } from '../../../../../../../lib/qbank'
+import { bookletLabel } from '../../../../../../../lib/format'
 import OpenInBuilderButton from '../../../../../../../components/booklet/OpenInBuilderButton'
 import BookletInfoModal from '../../../../../../../components/booklet/BookletInfoModal'
 
@@ -213,7 +214,9 @@ export default function TopicPage() {
               const build = builds[b.id]
               return (
                 <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3">
-                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{b.booklet_name}</span>
+                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">
+                    {bookletLabel({ ...b, year: tab.year, subject: tab.subject })}
+                  </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
                     style={{ background: st.bg, color: st.fg, borderColor: st.bd }}>{b.status || 'Not Started'}</span>
                   <button
