@@ -121,7 +121,7 @@ export default function TopicPage() {
       <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center">
         <p className="text-sm text-[#2A2035]/50">
           Unknown topic.{' '}
-          <Link href={cfg && tab ? `/tutor/resources/${slug}/materials/${tab.key}` : '/tutor'}
+          <Link href={cfg && tab ? `/tutor/resources/${slug}/materials?course=${tab.key}` : '/tutor'}
             className="text-[#325099] underline">Back</Link>
         </p>
       </div>
@@ -149,7 +149,7 @@ export default function TopicPage() {
           <span className="mx-1.5">›</span>
           <Link href={`/tutor/resources/${slug}/materials`} className="hover:text-[#325099]">Materials</Link>
           <span className="mx-1.5">›</span>
-          <Link href={`/tutor/resources/${slug}/materials/${tab.key}`} className="hover:text-[#325099]">{tab.label}</Link>
+          <Link href={`/tutor/resources/${slug}/materials?course=${tab.key}`} className="hover:text-[#325099]">{tab.label}</Link>
           <span className="mx-1.5">›</span>
           <span className="text-[#2A2035]/70 font-semibold">{topic.name}</span>
         </nav>
@@ -234,7 +234,7 @@ export default function TopicPage() {
           </p>
         )}
 
-        <Link href={`/tutor/resources/${slug}/materials/${tab.key}`}
+        <Link href={`/tutor/resources/${slug}/materials?course=${tab.key}`}
           className="inline-block text-[11px] font-semibold mt-9 hover:underline" style={{ color: cfg.accent }}>
           ← Back to {tab.label}
         </Link>
