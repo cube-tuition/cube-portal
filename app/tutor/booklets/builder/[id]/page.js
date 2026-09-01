@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
-import { subjectCode } from '../../../../../lib/format'
+import { buildLabel } from '../../../../../lib/format'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../../../../lib/tables'
@@ -39,13 +39,10 @@ const SUBJECTS = [
   { value: 'English', label: 'English' },
   { value: 'Chemistry', label: 'Chemistry' },
 ]
-// Standardised display name: "X.Y. Name" (year . subject-code . name).
-// Chemistry booklets are stored as "M3L2"; any legacy "M3W2" is shown as "M3L2".
-const formatBookletName = (year, subject, name) => {
-  let base = (name || '').trim() || 'Untitled booklet'
-  if (/chem/i.test(String(subject || ''))) base = base.replace(/^(M\d+)W(\d+)$/i, '$1L$2')
-  return (year && subject) ? `${year}.${subjectCode(subject)}. ${base}` : base
-}
+// Standardised display name: "X.Y. Name" (year . subject-code . name). Shared
+// with the Master Database so the header and the workbook lists always agree.
+const formatBookletName = (year, subject, name) =>
+  buildLabel({ year, subject, title: name }, 'Untitled booklet')
 
 export default function BookletBuilderEditor() {
   const router = useRouter()

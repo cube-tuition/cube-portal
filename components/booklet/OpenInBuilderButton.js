@@ -1,7 +1,6 @@
 'use client'
 import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { bookletLabel } from '../../lib/format'
 
 /*
  * "Open ↗" for a workbook row on the Materials pages.
@@ -13,9 +12,9 @@ import { bookletLabel } from '../../lib/format'
  * empty linked draft on first open instead, exactly as the Master Database does
  * (see openInBuilder in app/tutor/booklets/master/page.js).
  *
- * The draft is titled with bookletLabel(), the same "9.M. …" name the Master
- * Database shows. That prefix is derived from year + subject rather than stored,
- * so copying the raw booklet_name would drop it the moment the build is made.
+ * The draft stores the BARE booklet name. Every screen that shows a workbook
+ * composes the "9.M." code from year + subject itself, so saving it into the
+ * title would render as "9.M. 9.M. …".
  */
 export default function OpenInBuilderButton({ booklet, buildId, year, subject, accent, onCreated }) {
   const [busy, setBusy] = useState(false)
@@ -31,7 +30,7 @@ export default function OpenInBuilderButton({ booklet, buildId, year, subject, a
   const start = async () => {
     setBusy(true)
     const { data, error } = await supabase.from('booklet_builds').insert({
-      title:      bookletLabel({ ...booklet, year: booklet.year ?? year, subject: booklet.subject ?? subject }),
+      title:      booklet.booklet_name,
       year:       booklet.year ?? year,
       subject:    booklet.subject ?? subject,
       topic:      booklet.topic || null,

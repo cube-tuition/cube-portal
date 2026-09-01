@@ -12,7 +12,7 @@ import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 import { curriculumTerms } from '../../../../lib/terms'
 import { fetchModuleNames } from '../../../../lib/syllabus'
 import {
-  isChemistry, chemModuleNumber, chemLessonNumber, chemModuleLabel, bookletLabel,
+  isChemistry, chemModuleNumber, chemLessonNumber, chemModuleLabel, bookletLabel, buildLabel,
 } from '../../../../lib/format'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -595,7 +595,7 @@ function MasterDatabaseInner() {
   const openInBuilder = async (b) => {
     setOpeningBuilder(b.id)
     const { data, error } = await supabase.from('booklet_builds')
-      .insert({ title: bookletLabel(b), year: b.year, subject: b.subject, topic: b.topic || null, blocks: [], status: 'draft', booklet_id: b.id })
+      .insert({ title: b.booklet_name, year: b.year, subject: b.subject, topic: b.topic || null, blocks: [], status: 'draft', booklet_id: b.id })
       .select('id').single()
     setOpeningBuilder(null)
     if (error) { alert('Could not create the workbook in the builder: ' + error.message); return }
@@ -815,7 +815,7 @@ function MasterDatabaseInner() {
               {draftBuilds.map(wb => (
                 <div key={wb.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
                   <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="text-left min-w-0 truncate">
-                    <span className="font-semibold text-sm text-[#062E63]">{wb.title || 'Untitled workbook'}</span>
+                    <span className="font-semibold text-sm text-[#062E63]">{buildLabel(wb)}</span>
                     <span className="text-xs text-[#2A2035]/50 ml-2">{[wb.subject, wb.year ? `Year ${wb.year}` : null, wb.topic].filter(Boolean).join(' · ') || 'No details yet'}</span>
                   </a>
                   <div className="flex items-center gap-3 shrink-0 text-[11px]">
