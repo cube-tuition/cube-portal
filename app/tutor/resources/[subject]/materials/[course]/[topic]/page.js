@@ -6,6 +6,7 @@ import { supabase } from '../../../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../../../lib/getProfile'
 import TutorNav from '../../../../../../../components/TutorNav'
 import { courseTabs, subjectConfig, statusStyle, bookletPdfs, PDF_BUTTON_STYLE } from '../../../../../../../lib/resourceSubjects'
+import { fetchWorksheetTagCounts, DIFFICULTY_LABELS, DIFFICULTY_COLORS, DIFFICULTY_MAX } from '../../../../../../../lib/qbank'
 import OpenInBuilderButton from '../../../../../../../components/booklet/OpenInBuilderButton'
 import BookletInfoModal from '../../../../../../../components/booklet/BookletInfoModal'
 
@@ -22,6 +23,34 @@ import BookletInfoModal from '../../../../../../../components/booklet/BookletInf
  */
 
 
+/*
+ * One line of tag chips on a worksheet row — "Subtopics · Trigonometry 10 ·
+ * Probability 5 · 4 untagged". Renders nothing when the sheet has no tags of
+ * this kind at all, so an untagged sheet doesn't gain two empty lines.
+ */
+function TagRow({ label, items, untagged, cfg }) {
+  if (!items.length && !untagged) return null
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-[#2A2035]/35 shrink-0 w-16 pt-0.5">{label}</span>
+      <div className="flex flex-wrap gap-1">
+        {items.map((it) => (
+          <span key={it.label} className="text-[10px] px-1.5 py-0.5 rounded border"
+            style={{ background: cfg.tint, color: cfg.accent, borderColor: cfg.border }}>
+            {it.label} <span className="font-bold">{it.n}</span>
+          </span>
+        ))}
+        {untagged > 0 && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-[#EDEDF2] bg-[#FAFAFC] text-[#2A2035]/40"
+            title="Questions with nothing tagged in this dimension">
+            untagged <span className="font-bold">{untagged}</span>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function TopicPage() {
   const router = useRouter()
   const { subject, course, topic: topicId } = useParams()
@@ -36,6 +65,7 @@ export default function TopicPage() {
   const [builds, setBuilds] = useState({})        // booklet_id -> build id
   const [bank, setBank] = useState(null)          // { total, subtopics: [{name, n}] }
   const [sheets, setSheets] = useState(null)      // worksheets filed under this topic
+  const [tags, setTags] = useState({})            // worksheet id -> subtopic/skill/difficulty breakdown
   const [infoFor, setInfoFor] = useState(null)
   const [topicBank, setTopicBank] = useState([])
   const [nonce, setNonce] = useState(0)              // bump to re-read after an edit
@@ -87,6 +117,17 @@ export default function TopicPage() {
         .select('id, title, subtitle, question_ids, include_marks, updated_at')
         .eq('topic_id', t.id).order('title')
       if (!dead) setSheets(ws || [])
+      // What each sheet covers. Second pass on purpose: it reads the tag joins
+      // for every question on every sheet, so the rows show as soon as they
+      // load rather than waiting on the breakdown.
+      if (ws?.length) {
+        try {
+          const counts = await fetchWorksheetTagCounts(ws)
+          if (!dead) setTags(counts)
+        } catch (e) {
+          console.error('Worksheet breakdown failed:', e)
+        }
+      }
 
       // The question bank's matching topic, and what sits under it.
       const { data: subj } = await supabase
@@ -212,18 +253,45 @@ export default function TopicPage() {
           </Empty>
         ) : (
           <div className="space-y-2">
-            {sheets.map((w) => (
-              <a key={w.id} href={`/tutor/qbank/worksheets?ws=${w.id}`}
-                className="group bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3 hover:shadow-md transition">
-                <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate group-hover:underline">{w.title}</span>
-                {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[35%] truncate">{w.subtitle}</span>}
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
-                  style={{ background: cfg.tint, color: cfg.accent, borderColor: cfg.border }}>
-                  {(w.question_ids || []).length} question{(w.question_ids || []).length === 1 ? '' : 's'}
-                </span>
-                <span className="text-[11px] font-semibold shrink-0" style={{ color: cfg.accent }}>Open →</span>
-              </a>
-            ))}
+            {sheets.map((w) => {
+              const t = tags[w.id]
+              const n = t?.total ?? (w.question_ids || []).length
+              // The word comes from the nearest rung, the number beside it is the
+              // real mean — so "Hard · 3.4" is expected, not a rounding slip.
+              const avg = t?.avgDifficulty
+              const rung = avg == null ? null : Math.min(DIFFICULTY_MAX, Math.max(1, Math.round(avg)))
+              return (
+                <a key={w.id} href={`/tutor/qbank/worksheets?ws=${w.id}`}
+                  className="group block bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 hover:shadow-md transition">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate group-hover:underline">{w.title}</span>
+                    {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[30%] truncate">{w.subtitle}</span>}
+                    {rung && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
+                        title={`Mean difficulty ${avg.toFixed(2)} of ${DIFFICULTY_MAX}, over the ${t.ratedQuestions} question${t.ratedQuestions === 1 ? '' : 's'} that carry one`}
+                        style={{ color: DIFFICULTY_COLORS[rung], borderColor: `${DIFFICULTY_COLORS[rung]}55`, background: `${DIFFICULTY_COLORS[rung]}14` }}>
+                        {DIFFICULTY_LABELS[rung]} · {avg.toFixed(1)}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
+                      style={{ background: cfg.tint, color: cfg.accent, borderColor: cfg.border }}>
+                      {n} question{n === 1 ? '' : 's'}
+                    </span>
+                    <span className="text-[11px] font-semibold shrink-0" style={{ color: cfg.accent }}>Open →</span>
+                  </div>
+
+                  {/* What the sheet covers. A question tagged with two subtopics
+                      counts under each, so a row can add up past the question
+                      count — hence "tagged", not "of". */}
+                  {t && (t.subtopics.length > 0 || t.skills.length > 0) && (
+                    <div className="mt-2.5 pt-2.5 border-t border-[#F4F7FF] space-y-1.5">
+                      <TagRow label="Subtopics" items={t.subtopics} untagged={t.untaggedSubtopics} cfg={cfg} />
+                      <TagRow label="Skills" items={t.skills} untagged={t.untaggedSkills} cfg={cfg} />
+                    </div>
+                  )}
+                </a>
+              )
+            })}
           </div>
         )}
         {bank?.total > 0 && (
