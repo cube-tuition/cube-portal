@@ -2,20 +2,19 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useParams } from 'next/navigation'
-import { getAuthProfile } from '../../../../lib/getProfile'
-import TutorNav from '../../../../components/TutorNav'
-import { SUBJECTS, AREAS, subjectConfig } from '../../../../lib/resourceSubjects'
+import { getAuthProfile } from '../../../../../lib/getProfile'
+import TutorNav from '../../../../../components/TutorNav'
+import { MATERIAL_AREAS, subjectConfig } from '../../../../../lib/resourceSubjects'
 
 /*
- * Subject resource hubs — /tutor/resources/maths | english | chemistry
+ * Materials — /tutor/resources/maths|english|chemistry/materials
  *
- * One landing page per subject, linking to the existing resource pages with a
- * ?subject= scope. The target pages keep working exactly as before (they can
- * ignore the param until they learn to pre-filter by it), so these hubs are
- * purely additive.
+ * A sub-hub of the subject page holding what a class is actually handed:
+ * the workbooks and the additional question sets. Same shape and palette as
+ * the parent hub, one level down, so the top level stays about the course
+ * (curriculum, questions, exams, syllabus) rather than the handouts.
  */
-
-export default function SubjectHubPage() {
+export default function SubjectMaterialsPage() {
   const router = useRouter()
   const { subject } = useParams()
   const slug = String(subject || '').toLowerCase()
@@ -43,36 +42,33 @@ export default function SubjectHubPage() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-5xl mx-auto px-6 pt-10 pb-16">
+        {/* Breadcrumb back to the subject hub */}
+        <nav className="text-[11px] text-[#2A2035]/45 mb-3">
+          <Link href="/tutor/resources" className="hover:text-[#325099]">Resources</Link>
+          <span className="mx-1.5">›</span>
+          <Link href={`/tutor/resources/${slug}`} className="hover:text-[#325099]">{cfg.label}</Link>
+          <span className="mx-1.5">›</span>
+          <span className="text-[#2A2035]/70 font-semibold">Materials</span>
+        </nav>
+
         {/* Header band */}
         <div className="rounded-2xl px-7 py-6 mb-8 border" style={{ background: cfg.tint, borderColor: cfg.border }}>
           <div className="flex items-center gap-3">
-            <span className="text-3xl">{cfg.icon}</span>
+            <span className="text-3xl">🗂️</span>
             <div>
-              <h1 className="text-2xl font-bold" style={{ color: cfg.accent }}>{cfg.label}</h1>
-              <p className="text-xs text-[#2A2035]/55 mt-0.5">{cfg.blurb}</p>
+              <h1 className="text-2xl font-bold" style={{ color: cfg.accent }}>{cfg.label} · Materials</h1>
+              <p className="text-xs text-[#2A2035]/55 mt-0.5">
+                Workbooks and additional questions — what a {cfg.label} class is handed.
+              </p>
             </div>
-          </div>
-          {/* Quick subject switcher */}
-          <div className="flex items-center gap-1.5 mt-4">
-            {Object.entries(SUBJECTS).map(([s2slug, s]) => (
-              <Link key={s2slug} href={`/tutor/resources/${s2slug}`}
-                className={`px-3 py-1 rounded-full text-[11px] font-semibold border transition ${s2slug === slug
-                  ? 'text-white' : 'bg-white text-[#2A2035]/60 hover:text-[#2A2035]'}`}
-                style={s2slug === slug
-                  ? { background: cfg.accent, borderColor: cfg.accent }
-                  : { borderColor: cfg.border }}>
-                {s.label}
-              </Link>
-            ))}
           </div>
         </div>
 
         {/* Area cards */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {AREAS(cfg.value, slug).map((a) => (
+        <div className="grid sm:grid-cols-2 gap-4">
+          {MATERIAL_AREAS(cfg.value).map((a) => (
             <Link key={a.label} href={a.href}
-              className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5"
-              style={{ borderColor: undefined }}>
+              className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">
               <div className="flex items-center gap-2.5 mb-2">
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center text-lg" style={{ background: cfg.tint }}>{a.icon}</span>
                 <span className="text-sm font-bold text-[#062E63] group-hover:underline">{a.label}</span>
@@ -83,9 +79,10 @@ export default function SubjectHubPage() {
           ))}
         </div>
 
-        <p className="text-[11px] text-[#2A2035]/40 mt-8">
-          These open the shared resource pages scoped to {cfg.label}. The original unscoped pages keep working as before.
-        </p>
+        <Link href={`/tutor/resources/${slug}`}
+          className="inline-block text-[11px] font-semibold mt-8 hover:underline" style={{ color: cfg.accent }}>
+          ← Back to {cfg.label}
+        </Link>
       </div>
     </div>
   )
