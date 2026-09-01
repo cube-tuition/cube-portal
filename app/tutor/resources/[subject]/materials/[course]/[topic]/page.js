@@ -286,8 +286,8 @@ export default function TopicPage() {
           <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading…</p>
         ) : sheets.length === 0 ? (
           <Empty>
-            No worksheet is filed under &ldquo;{topic.name}&rdquo;. Open one in the worksheet
-            builder and pick this topic to have it appear here.
+            No worksheet is filed under &ldquo;{topic.name}&rdquo;.
+            {!readOnly && ' Open one in the worksheet builder and pick this topic to have it appear here.'}
           </Empty>
         ) : (
           <div className="space-y-2">
@@ -326,8 +326,10 @@ export default function TopicPage() {
                         </button>
                       )
                     })}
-                    <a href={`/tutor/qbank/worksheets?ws=${w.id}`}
-                      className="text-[11px] font-semibold shrink-0 hover:underline" style={{ color: cfg.accent }}>Open →</a>
+                    {!readOnly && (
+                      <a href={`/tutor/qbank/worksheets?ws=${w.id}`}
+                        className="text-[11px] font-semibold shrink-0 hover:underline" style={{ color: cfg.accent }}>Open →</a>
+                    )}
                   </div>
 
                   {/* What the sheet covers. A question tagged with two subtopics
