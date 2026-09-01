@@ -64,12 +64,17 @@ export default function TopicPage() {
         .eq('year', t.year).eq('subject', t.subject).ilike('topic', t.name)
         .order('booklet_name')
       if (dead) return
-      setBooks(bs || [])
-      if (bs?.length) {
-        const { data: bd } = await supabase
-          .from('booklet_builds').select('id, booklet_id').in('booklet_id', bs.map((b) => b.id))
-        if (!dead) setBuilds(Object.fromEntries((bd || []).map((b) => [b.booklet_id, b.id])))
-      }
+      const { data: bd } = bs?.length
+        ? await supabase.from('booklet_builds')
+            .select('id, booklet_id, doc_type').in('booklet_id', bs.map((b) => b.id))
+        : { data: [] }
+      if (dead) return
+      // A pre-test or level test belongs to the Tests page, not here, even
+      // though publishing one creates a booklets row like any other workbook.
+      const notAWorkbook = new Set((bd || [])
+        .filter((x) => (x.doc_type ?? 'booklet') !== 'booklet').map((x) => x.booklet_id))
+      setBooks((bs || []).filter((b) => !notAWorkbook.has(b.id)))
+      setBuilds(Object.fromEntries((bd || []).map((b) => [b.booklet_id, b.id])))
 
       const { data: bank } = await supabase.from('topics').select('id, name')
         .eq('year', t.year).eq('subject', t.subject).order('name')

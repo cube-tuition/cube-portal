@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
@@ -637,7 +637,18 @@ function MasterDatabaseInner() {
     }
   }
 
+  // A pre-test or level test is a build too, but it belongs to the Tests page.
+  // Publishing one still creates a booklets row like any other workbook, so the
+  // rows are excluded here — the draft panel below already does the same for
+  // unpublished ones. Without this a published pre-test reads as a workbook
+  // someone forgot to finish, which is exactly what the note there warns about.
+  const nonWorkbookBookletIds = useMemo(
+    () => new Set(builds.filter(wb => (wb.doc_type ?? 'booklet') !== 'booklet' && wb.booklet_id)
+                        .map(wb => wb.booklet_id)),
+    [builds])
+
   const tabBooklets = booklets.filter(b => {
+    if (nonWorkbookBookletIds.has(b.id)) return false
     if (b.year !== activeYear || b.subject !== activeSub) return false
     if (search.trim()) {
       const q = search.toLowerCase()

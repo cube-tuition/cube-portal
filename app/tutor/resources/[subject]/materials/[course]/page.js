@@ -63,12 +63,17 @@ export default function MaterialsCoursePage() {
       const known = new Set((ts || []).map((t) => t.name.trim().toLowerCase()))
       const orphans = (bs || []).filter(
         (b) => !b.topic?.trim() || !known.has(b.topic.trim().toLowerCase()))
-      setUnfiled(orphans)
-      if (orphans.length) {
-        const { data: bd } = await supabase.from('booklet_builds')
-          .select('id, booklet_id').in('booklet_id', orphans.map((b) => b.id))
-        if (!dead) setBuilds(Object.fromEntries((bd || []).map((b) => [b.booklet_id, b.id])))
-      }
+      const { data: bd } = orphans.length
+        ? await supabase.from('booklet_builds')
+            .select('id, booklet_id, doc_type').in('booklet_id', orphans.map((b) => b.id))
+        : { data: [] }
+      if (dead) return
+      // A pre-test or level test belongs to the Tests page, not here, even
+      // though publishing one creates a booklets row like any other workbook.
+      const notAWorkbook = new Set((bd || [])
+        .filter((x) => (x.doc_type ?? 'booklet') !== 'booklet').map((x) => x.booklet_id))
+      setUnfiled(orphans.filter((b) => !notAWorkbook.has(b.id)))
+      setBuilds(Object.fromEntries((bd || []).map((b) => [b.booklet_id, b.id])))
     })()
     return () => { dead = true }
   }, [tab, nonce])
