@@ -99,7 +99,7 @@ const SavedNote = ({ state, children }) => (
 
 // One checklist (fixes OR suggestions): tick, staff-delete, add. Mirrors the
 // rules the lesson page and SQL enforce — lesson items tick but never delete.
-function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList, onErr }) {
+function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList, onErr, readOnly = false }) {
   const meta = LIST_META[list]
   const [draft, setDraft] = useState('')
   const open = openCount(items)
@@ -131,7 +131,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
             <button
               onClick={() => run(it.id, () => setItemDone({
                 bookletId, list, itemId: it.id, done: !it.done, by: staff?.full_name }))}
-              disabled={busy === it.id}
+              disabled={readOnly || busy === it.id}
               title={it.done ? 'Mark as not done' : 'Mark as done'}
               className={`mt-0.5 w-3.5 h-3.5 rounded shrink-0 border flex items-center justify-center text-[9px] leading-none transition disabled:opacity-40 ${
                 it.done ? 'bg-[#065F46] border-[#065F46] text-white' : 'border-[#C7D0E0] hover:border-[#325099]'}`}
@@ -145,7 +145,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
                 {it.done && it.done_by && <span className="ml-1 text-[#065F46]/70">· done by {it.done_by}</span>}
               </p>
             </div>
-            {it.source === 'staff' && (
+            {it.source === 'staff' && !readOnly && (
               <button
                 onClick={() => run(it.id, () => removeItem({ bookletId, list, itemId: it.id }))}
                 disabled={busy === it.id}
@@ -157,7 +157,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
         ))}
       </div>
 
-      <div className="px-3.5 pb-3 flex items-end gap-1.5">
+      {readOnly ? <div className="pb-1.5" /> : <div className="px-3.5 pb-3 flex items-end gap-1.5">
         <textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
@@ -174,7 +174,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
           disabled={!draft.trim() || busy === 'add:' + list}
           className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-[#325099] hover:bg-[#062E63] transition disabled:opacity-40 disabled:hover:bg-[#325099]"
         >{busy === 'add:' + list ? '…' : 'Add'}</button>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -183,7 +183,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
 // straight away (the file is already in storage by then, so staging them behind
 // a Save button would only risk orphans). file_path stays in step with
 // file_paths[0] — older screens still read the single-path column.
-function PdfList({ row, patch, onErr }) {
+function PdfList({ row, patch, onErr, readOnly = false }) {
   const fileRef = useRef()
   const [uploading, setUploading] = useState(false)
   const [confirmIdx, setConfirmIdx] = useState(null)
@@ -240,27 +240,29 @@ function PdfList({ row, patch, onErr }) {
               ) : (
                 <span className="text-[12px] font-semibold text-[#325099] truncate">📄 {name}</span>
               )}
-              <button
+              {!readOnly && <button
                 onClick={() => handleRemove(i)}
                 title={confirmIdx === i ? 'Click again to delete this PDF' : 'Remove this PDF'}
                 className={`shrink-0 text-[10px] font-semibold transition ${
                   confirmIdx === i ? 'text-red-600' : 'text-[#2A2035]/25 hover:text-red-500'}`}
-              >{confirmIdx === i ? 'Click to confirm' : 'Remove'}</button>
+              >{confirmIdx === i ? 'Click to confirm' : 'Remove'}</button>}
             </div>
           )
         })}
       </div>
-      <button
+      {!readOnly && <button
         onClick={() => fileRef.current?.click()}
         disabled={uploading}
         className="w-full mt-1.5 border-2 border-dashed border-[#DEE7FF] rounded-xl px-4 py-2.5 text-[12px] text-[#2A2035]/40 hover:border-[#325099] hover:text-[#325099] hover:bg-[#F8FAFF] transition disabled:opacity-50"
-      >{uploading ? 'Uploading…' : paths.length ? '+ Add another PDF' : 'Attach PDF(s)'}</button>
+      >{uploading ? 'Uploading…' : paths.length ? '+ Add another PDF' : 'Attach PDF(s)'}</button>}
       <input ref={fileRef} type="file" accept="application/pdf" multiple className="hidden" onChange={handleUpload} />
     </div>
   )
 }
 
-export default function BookletInfoModal({ booklet, title, staff, content, topicBank, onClose, onChanged }) {
+/* readOnly: tutors get the same modal purely to READ — every field disabled,
+   every save/upload/remove/add control gone. Nothing here writes for them. */
+export default function BookletInfoModal({ booklet, title, staff, content, topicBank, onClose, onChanged, readOnly = false }) {
   const { moduleNames } = useChemModules()      // Chemistry files by module, not topic
   const [row, setRow] = useState(null)          // full booklets row, re-read on open
   const [form, setForm] = useState(null)        // editable details
@@ -473,14 +475,19 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
               <h2 className="text-base font-bold text-[#062E63] truncate">{row.booklet_name || title}</h2>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <select
-                value={row.status || 'Not Started'}
-                onChange={e => saveStatus(e.target.value)}
-                className={`text-[10px] font-semibold rounded-full px-2 py-1 border cursor-pointer focus:outline-none transition ${
-                  STATUS_SELECT_CLS[row.status || 'Not Started']}`}
-              >
-                {WORKBOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              {readOnly ? (
+                <span className={`text-[10px] font-semibold rounded-full px-2 py-1 border ${
+                  STATUS_SELECT_CLS[row.status || 'Not Started']}`}>{row.status || 'Not Started'}</span>
+              ) : (
+                <select
+                  value={row.status || 'Not Started'}
+                  onChange={e => saveStatus(e.target.value)}
+                  className={`text-[10px] font-semibold rounded-full px-2 py-1 border cursor-pointer focus:outline-none transition ${
+                    STATUS_SELECT_CLS[row.status || 'Not Started']}`}
+                >
+                  {WORKBOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
               <button onClick={tryClose}
                 className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
             </div>
@@ -490,17 +497,17 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
           {/* Details */}
           <div>
-            <SectionLabel right={<SavedNote state={detailState}>Changes save when you press the button.</SavedNote>}>
+            <SectionLabel right={!readOnly && <SavedNote state={detailState}>Changes save when you press the button.</SavedNote>}>
               Details
             </SectionLabel>
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
               <div className="col-span-2 sm:col-span-6">
                 <label className={FIELD_LABEL}>Booklet name</label>
-                <input value={form.booklet_name} onChange={setField('booklet_name')} className={FIELD} placeholder="e.g. Linear Relationships 2" />
+                <input value={form.booklet_name} onChange={setField('booklet_name')} disabled={readOnly} className={FIELD} placeholder="e.g. Linear Relationships 2" />
               </div>
               <div className="sm:col-span-1">
                 <label className={FIELD_LABEL}>Year</label>
-                <select value={form.year} onChange={setField('year')} className={FIELD}>
+                <select value={form.year} onChange={setField('year')} disabled={readOnly} className={FIELD}>
                   {/* A booklet with no year kept one: without it the select
                       would display Year 5 while the row says nothing. */}
                   {form.year === '' && <option value="">—</option>}
@@ -509,7 +516,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
               </div>
               <div className="sm:col-span-2">
                 <label className={FIELD_LABEL}>Subject</label>
-                <select value={form.subject} onChange={setField('subject')} className={FIELD}>
+                <select value={form.subject} onChange={setField('subject')} disabled={readOnly} className={FIELD}>
                   {form.subject === '' && <option value="">—</option>}
                   {[...new Set([...getSubjects(Number(form.year)), form.subject].filter(Boolean))].map(s => (
                     <option key={s} value={s}>{s}</option>
@@ -518,14 +525,14 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
               </div>
               <div className="sm:col-span-1">
                 <label className={FIELD_LABEL}>Term</label>
-                <select value={form.term_number} onChange={setField('term_number')} className={FIELD}>
+                <select value={form.term_number} onChange={setField('term_number')} disabled={readOnly} className={FIELD}>
                   <option value="">—</option>
                   {termOptions.map(t => <option key={t} value={t}>T{t}</option>)}
                 </select>
               </div>
               <div className="sm:col-span-2">
                 <label className={FIELD_LABEL}>Week</label>
-                <input type="number" min={1} max={10} value={form.week} onChange={setField('week')} className={FIELD} placeholder="—" />
+                <input type="number" min={1} max={10} value={form.week} onChange={setField('week')} disabled={readOnly} className={FIELD} placeholder="—" />
               </div>
               <div className="col-span-2 sm:col-span-3">
                 {/* Chemistry files by module, read off the booklet name — there
@@ -544,7 +551,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                 ) : (
                   <>
                     <label className={FIELD_LABEL}>Topic</label>
-                    <input value={form.topic} onChange={setField('topic')} list="booklet-info-topics" className={FIELD} placeholder="e.g. Linear Relationships" />
+                    <input value={form.topic} onChange={setField('topic')} disabled={readOnly} list="booklet-info-topics" className={FIELD} placeholder="e.g. Linear Relationships" />
                     <datalist id="booklet-info-topics">
                       {topicOptions.map(t => <option key={t} value={t} />)}
                     </datalist>
@@ -552,9 +559,11 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                 )}
               </div>
             </div>
-            <div className="flex justify-end mt-2">
-              <SaveButton dirty={detailsDirty} state={detailState} onClick={saveDetails} label="Save details" />
-            </div>
+            {!readOnly && (
+              <div className="flex justify-end mt-2">
+                <SaveButton dirty={detailsDirty} state={detailState} onClick={saveDetails} label="Save details" />
+              </div>
+            )}
           </div>
 
           {/* Content */}
@@ -602,7 +611,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                             </button>
                             {open && ch.points.map(p => (
                               <label key={p.id} className="flex items-start gap-2 px-4 py-1 cursor-pointer hover:bg-[#F8FAFF]">
-                                <input type="checkbox" checked={selected.has(p.id)} onChange={() => togglePoint(p.id)} className="mt-0.5 accent-[#325099]" />
+                                <input type="checkbox" checked={selected.has(p.id)} onChange={() => togglePoint(p.id)} disabled={readOnly} className="mt-0.5 accent-[#325099]" />
                                 <LatexContent className="text-[11px] text-[#2A2035]/80 leading-snug" text={p.text} />
                               </label>
                             ))}
@@ -612,26 +621,31 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center justify-between gap-3 mt-1.5">
-                  <p className="text-[10px] text-[#2A2035]/40">
-                    Tick the syllabus sections this booklet covers — they become its Content, and Topic auto-fills from the chapter when blank.
-                  </p>
-                  <SaveButton dirty={syllDirty} state={contentState} onClick={saveSyllabusContent} label="Save content" />
-                </div>
+                {!readOnly && (
+                  <div className="flex items-center justify-between gap-3 mt-1.5">
+                    <p className="text-[10px] text-[#2A2035]/40">
+                      Tick the syllabus sections this booklet covers — they become its Content, and Topic auto-fills from the chapter when blank.
+                    </p>
+                    <SaveButton dirty={syllDirty} state={contentState} onClick={saveSyllabusContent} label="Save content" />
+                  </div>
+                )}
               </>
             ) : (
               <>
                 <textarea
                   value={contentText}
                   onChange={e => { setContentText(e.target.value); setContentState('idle') }}
+                  disabled={readOnly}
                   rows={5}
                   placeholder={'What\'s in this booklet? e.g.\n• Area of triangles\n• Area of composite shapes\n• 12 practice questions'}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#E8EDF8] bg-[#F8FAFF] text-[13px] text-[#2A2035] leading-relaxed placeholder:text-[#2A2035]/25 focus:outline-none focus:border-[#325099] focus:bg-white transition resize-y"
                 />
-                <div className="flex items-center justify-between gap-3 mt-1.5">
-                  <p className="text-[10px] text-[#2A2035]/40">One line per item — shown here and on the booklet’s row.</p>
-                  <SaveButton dirty={freeContentDirty} state={contentState} onClick={saveFreeContent} label="Save content" />
-                </div>
+                {!readOnly && (
+                  <div className="flex items-center justify-between gap-3 mt-1.5">
+                    <p className="text-[10px] text-[#2A2035]/40">One line per item — shown here and on the booklet’s row.</p>
+                    <SaveButton dirty={freeContentDirty} state={contentState} onClick={saveFreeContent} label="Save content" />
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -642,23 +656,26 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
             <textarea
               value={notes}
               onChange={e => { setNotes(e.target.value); setNotesStatus('idle') }}
+              disabled={readOnly}
               rows={4}
               placeholder="Notes about this booklet — what to emphasise, what to skip, how it went, anything the next tutor should know…"
               className="w-full px-3 py-2.5 rounded-xl border border-[#E8EDF8] bg-[#F8FAFF] text-[13px] text-[#2A2035] leading-relaxed placeholder:text-[#2A2035]/25 focus:outline-none focus:border-[#325099] focus:bg-white transition resize-y"
             />
             <div className="flex items-center justify-between gap-3 mt-1.5">
               <SavedNote state={notesStatus}>Staff only — never shown to students, never printed, and only visible here.</SavedNote>
-              <SaveButton dirty={notesDirty} state={notesStatus} onClick={saveNotes} label="Save notes" />
+              {!readOnly && <SaveButton dirty={notesDirty} state={notesStatus} onClick={saveNotes} label="Save notes" />}
             </div>
           </div>
 
           {/* Files */}
           <div>
             <SectionLabel>PDFs</SectionLabel>
-            <PdfList row={row} patch={patch} onErr={setErr} />
-            <p className="text-[10px] text-[#2A2035]/40 mt-2">
-              These are what the class opens from the booklet card. Uploads and removals save immediately.
-            </p>
+            <PdfList row={row} patch={patch} onErr={setErr} readOnly={readOnly} />
+            {!readOnly && (
+              <p className="text-[10px] text-[#2A2035]/40 mt-2">
+                These are what the class opens from the booklet card. Uploads and removals save immediately.
+              </p>
+            )}
           </div>
 
           {/* Improvement checklists */}
@@ -676,11 +693,14 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                   setBusy={setBusy}
                   onList={(next) => patch({ [list]: next })}
                   onErr={setErr}
+                  readOnly={readOnly}
                 />
               ))}
             </div>
             <p className="text-[10px] text-[#2A2035]/40 mt-2">
-              Tutors add items from their lesson page; tick them off here once dealt with. Ticked items stay, struck through.
+              {readOnly
+                ? 'Add items from your lesson page — the directors tick them off here once dealt with.'
+                : 'Tutors add items from their lesson page; tick them off here once dealt with. Ticked items stay, struck through.'}
             </p>
           </div>
 

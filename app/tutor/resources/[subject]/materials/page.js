@@ -99,7 +99,7 @@ function SubjectMaterialsInner() {
           <>
             {/* Area cards — the unscoped landing view */}
             <div className="grid sm:grid-cols-2 gap-4">
-              {MATERIAL_AREAS(cfg.value).map((a) => (
+              {MATERIAL_AREAS(cfg.value).filter((a) => !a.adminOnly || profile?.role !== 'tutor').map((a) => (
                 <Link key={a.label} href={a.href}
                   className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">
                   <div className="flex items-center gap-2.5 mb-2">
@@ -133,6 +133,7 @@ function SubjectMaterialsInner() {
    now swapped in under the tab bar. `key`ed on the tab so switching tabs
    resets the loading state cleanly. */
 function CoursePanel({ slug, cfg, tab, profile }) {
+  const readOnly = profile?.role === 'tutor'   // tutors read, directors edit
   const [topics, setTopics] = useState(null)   // null = still loading
   const [unfiled, setUnfiled] = useState(null) // workbooks whose topic matches no curriculum topic
   const [builds, setBuilds] = useState({})     // booklet_id -> build id
@@ -241,10 +242,12 @@ function CoursePanel({ slug, cfg, tab, profile }) {
                       {p.label}
                     </a>
                   ))}
-                  <OpenInBuilderButton
-                    booklet={b} buildId={build} year={tab.year} subject={tab.subject}
-                    accent={cfg.accent}
-                    onCreated={(bid, id) => setBuilds((m) => ({ ...m, [bid]: id }))} />
+                  {!readOnly && (
+                    <OpenInBuilderButton
+                      booklet={b} buildId={build} year={tab.year} subject={tab.subject}
+                      accent={cfg.accent}
+                      onCreated={(bid, id) => setBuilds((m) => ({ ...m, [bid]: id }))} />
+                  )}
                 </div>
               )
             })}
@@ -260,7 +263,7 @@ function CoursePanel({ slug, cfg, tab, profile }) {
       {/* The two Materials areas, scoped to this year/course */}
       <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-9 mb-2.5">Open</h2>
       <div className="grid sm:grid-cols-2 gap-4">
-        {MATERIAL_AREAS(cfg.value, tab).map((a) => (
+        {MATERIAL_AREAS(cfg.value, tab).filter((a) => !a.adminOnly || profile?.role !== 'tutor').map((a) => (
           <Link key={a.label} href={a.href}
             className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">
             <div className="flex items-center gap-2.5 mb-2">
@@ -285,6 +288,7 @@ function CoursePanel({ slug, cfg, tab, profile }) {
         topicBank={topics || []}
         onClose={() => { setInfoFor(null); reload() }}
         onChanged={(patch) => setUnfiled((bs) => (bs || []).map((x) => (x.id === infoFor.id ? { ...x, ...patch } : x)))}
+        readOnly={readOnly}
       />
     </>
   )

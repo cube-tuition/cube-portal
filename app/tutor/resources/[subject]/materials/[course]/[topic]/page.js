@@ -60,6 +60,7 @@ export default function TopicPage() {
   const tab = courseTabs(slug).find((t) => t.key === String(course)) || null
 
   const [profile, setProfile] = useState(null)
+  const readOnly = profile?.role === 'tutor'   // tutors read, directors edit
   const [ready, setReady] = useState(false)
   const [topic, setTopic] = useState(undefined)   // undefined = loading, null = not found
   const [books, setBooks] = useState([])
@@ -233,10 +234,12 @@ export default function TopicPage() {
                   {p.label}
                   </a>
                   ))}
-                  <OpenInBuilderButton
-                    booklet={b} buildId={build} year={tab.year} subject={tab.subject}
-                    accent={cfg.accent}
-                    onCreated={(bid, id) => setBuilds((m) => ({ ...m, [bid]: id }))} />
+                  {!readOnly && (
+                    <OpenInBuilderButton
+                      booklet={b} buildId={build} year={tab.year} subject={tab.subject}
+                      accent={cfg.accent}
+                      onCreated={(bid, id) => setBuilds((m) => ({ ...m, [bid]: id }))} />
+                  )}
                 </div>
               )
             })}
@@ -321,6 +324,7 @@ export default function TopicPage() {
         topicBank={topicBank}
         onClose={() => { setInfoFor(null); reload() }}
         onChanged={(patch) => setBooks((bs) => bs.map((x) => (x.id === infoFor.id ? { ...x, ...patch } : x)))}
+        readOnly={readOnly}
       />
     </div>
   )
