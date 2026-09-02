@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { autoGrow } from '../../lib/autoGrow'
 import { reportClientError } from '../../lib/reportClientError'
 import { bookletRenderItems, BOOKLET_CSS } from '../../lib/bookletRender'
 import { splitToFit } from '../../lib/paginate'
@@ -245,12 +246,7 @@ function ReviewAnswer({ minHeight, text, editText, editBase, comments, onAnchor,
     .map(c => ({ start: c.range_start, end: c.range_end, id: c.id,
       cls: `bk-hl${c.resolved ? ' bk-hl-res' : ''}${activeId === c.id ? ' bk-hl-on' : ''}` })), [comments, activeId])
 
-  const grow = () => {
-    const el = taRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`
-  }
+  const grow = () => autoGrow(taRef.current, minHeight)
   useEffect(() => { if (editing) { grow(); taRef.current?.focus({ preventScroll: true }) } })
 
   if (editing) return (
@@ -340,12 +336,9 @@ function OwnAnswer({ minHeight, value, editText, editBase, marks = [], onChange,
   // Stale teacher markup is folded away behind a chip rather than diffed
   // against text it never marked.
   const [showOld, setShowOld] = useState(false)
-  const grow = useCallback(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`
-  }, [minHeight])
+  // Scroll-pinned resize — the naive collapse-to-measure made the page jump
+  // on every keystroke for a student typing far down the booklet.
+  const grow = useCallback(() => autoGrow(ref.current, minHeight), [minHeight])
   useEffect(() => { grow() }, [grow, value, editing])
   useEffect(() => { if (editing) ref.current?.focus({ preventScroll: true }) }, [editing])
   // A teacher-marked answer opens on the marked-up view — the student's words

@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { autoGrow } from '../../lib/autoGrow'
 
 /*
  * CollabDoc — the class's shared page: a single free-flowing text everyone in
@@ -31,12 +32,9 @@ export default function CollabDoc({ classId, meId }) {
   const taRef = useRef(null)
   const storeKey = `collabdraft:${classId}`
 
-  const grow = () => {
-    const el = taRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.max(420, el.scrollHeight)}px`
-  }
+  // autoGrow keeps the scroll pinned while it measures — the naive version
+  // made the screen jump on every keystroke for anyone typing far down.
+  const grow = () => autoGrow(taRef.current, 420)
 
   useEffect(() => {
     let alive = true
