@@ -209,7 +209,6 @@ function QuestionBankInner() {
             {/* No "Additional Questions" link here — the subject hub already has
                 that card, and two doors to the same screen is one too many. */}
             <Link href={`/tutor/qbank/categories${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
-            <Link href={`/tutor/qbank/generate${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition">Generate worksheet</Link>
             <Link href={`/tutor/qbank/new${scope ? `?subject=${scope}` : ''}`} className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
           </div>
         </div>
@@ -414,11 +413,6 @@ function QuestionBankInner() {
           })}
         </div>
 
-        {questions.length > 0 && (
-          <p className="text-[11px] text-[#2A2035]/40 mt-8 text-center">
-            Ready to build a worksheet? <Link href="/tutor/qbank/generate" className="text-[#325099] font-semibold hover:underline">Generate worksheet →</Link>
-          </p>
-        )}
       </div>
 
       {/* Where-is-it-used popover */}
