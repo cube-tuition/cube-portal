@@ -5,6 +5,7 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { authedFetch } from '../../../../lib/authedFetch'
 import TutorNav from '../../../../components/TutorNav'
+import { subjectCode } from '../../../../lib/format'
 import { loadLevelTestItems, loadLevelTestMarks, saveLevelTestMark } from '../../../../lib/levelTest'
 import { computeExamAnalysis } from '../../../../lib/examMarking'
 import StudentExamAnalysisView, { studentAnalysisRows } from '../../../../components/StudentExamAnalysisView'
@@ -17,6 +18,13 @@ import { exportLevelTestReport } from '../../../../lib/levelTestReport'
  * so question ids never collide across tests. The feedback PDF gets one section
  * per test.
  */
+
+// Which test this is — every level-test build is titled just "Level Test", so
+// the year + subject prefix is what actually identifies it ("9.M. Level Test").
+const testName = (b) => {
+  const code = subjectCode(b?.subject)
+  return (b?.year && code) ? `${b.year}.${code}. Level Test` : (b?.title || 'Level Test')
+}
 
 const fmtDate = (s) => { if (!s) return ''; const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) }
 const fmtTime = (t) => { if (!t) return ''; const [h, m] = String(t).split(':').map(Number); const ap = h >= 12 ? 'pm' : 'am'; const hh = ((h + 11) % 12) + 1; return m ? `${hh}:${String(m).padStart(2, '0')}${ap}` : `${hh}${ap}` }
@@ -132,7 +140,7 @@ export default function LevelTestLessonPage() {
   const reportArgs = () => ({
     student, guardian, lesson, teacherName: profile?.full_name,
     tests: testViews.map(tv => ({
-      title: tv.build.title,
+      title: testName(tv.build),
       rows: tv.view.rows, overall: tv.view.overall, sections: tv.view.sections,
       strengths: tv.view.strengths, weaknesses: tv.view.weaknesses,
     })),
@@ -159,7 +167,7 @@ export default function LevelTestLessonPage() {
           lesson_id: id,
           email_to: to,
           student_name: student?.full_name,
-          test_title: tests.length === 1 ? tests[0].build.title : `${tests.length} level tests`,
+          test_title: tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`,
           pdf_base64: base64,
           pdf_filename: filename,
         }),
@@ -176,7 +184,7 @@ export default function LevelTestLessonPage() {
 
   if (!ready) return <div className="min-h-screen flex items-center justify-center bg-white"><div className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</div></div>
 
-  const headerTests = tests.map(t => t.build.title).join(' · ')
+  const headerTests = tests.map(t => testName(t.build)).join(' · ')
 
   return (
     <div className="min-h-screen bg-white">
@@ -240,7 +248,7 @@ export default function LevelTestLessonPage() {
                   <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
                     <div className="px-5 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF] flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-sm font-bold text-[#062E63]">{build.title}</p>
+                        <p className="text-sm font-bold text-[#062E63]">{testName(build)}</p>
                         <p className="text-[11px] text-[#2A2035]/50">{items.filter(it => { const a = marks[it.qid]; return a !== '' && a != null }).length}/{items.length} questions marked</p>
                       </div>
                       <p className="text-sm font-bold text-[#062E63]">{totalAwarded}<span className="text-[#2A2035]/45 font-medium"> / {totalMax}</span></p>
