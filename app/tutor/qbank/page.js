@@ -18,6 +18,13 @@ import {
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
+// One year/course pill in the filter strip. Selected reads as a solid chip so
+// the active scope is obvious beside the neutral rest.
+const yearPill = (on) =>
+  `px-3 py-1.5 rounded-full text-[11px] font-semibold border transition ${on
+    ? 'bg-[#325099] text-white border-[#325099]'
+    : 'bg-white text-[#2A2035]/65 border-[#DEE7FF] hover:text-[#2A2035] hover:border-[#BACBFF]'}`
+
 export default function QuestionBankPage() {
   return <Suspense><QuestionBankInner /></Suspense>
 }
@@ -108,6 +115,16 @@ function QuestionBankInner() {
       for (const tab of Object.keys(c)) {
         if ((SUBJECT_FAMILIES[tab] || [tab]).includes(n)) { c[tab] += 1; break }
       }
+    }
+    return c
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questions, labelFor])
+  // Questions per year/course pill, within the active subject family.
+  const yearCounts = useMemo(() => {
+    const c = {}
+    for (const q of questions) {
+      const id = labelFor(q)?.subject?.id
+      if (id) c[id] = (c[id] || 0) + 1
     }
     return c
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -225,15 +242,32 @@ function QuestionBankInner() {
         </div>
         )}
 
+        {/* Year / course tabs, in the shape the Materials pages use. This was a
+            dropdown: with at most a dozen options, laying them out shows the
+            whole shape of the bank at once and makes the current scope visible
+            without opening a menu. The senior years split into streams, and
+            each stream is its own subject row, so "Year 11 Ext 1" is one pill. */}
+        {yearOptions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-5">
+            <button onClick={() => { setYear(''); setTopicId(''); setSubtopicId(''); setSkillId('') }}
+              className={yearPill(!year)}>
+              All years
+            </button>
+            {yearOptions.map((s) => (
+              <button key={s.id}
+                onClick={() => { setYear(s.id); setTopicId(''); setSubtopicId(''); setSkillId('') }}
+                className={yearPill(year === s.id)}>
+                {yearOptionLabel(s)}
+                <span className={`ml-1 text-[10px] font-normal ${year === s.id ? 'text-white/70' : 'text-[#2A2035]/35'}`}>
+                  {yearCounts[s.id] || 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Filters */}
-        <div className="mt-4 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">
-          <FilterSelect
-            value={year}
-            placeholder="All years"
-            clearLabel="All years"
-            options={yearOptions.map((s) => ({ value: s.id, label: yearOptionLabel(s) }))}
-            onSelect={(v) => { setYear(v); setTopicId(''); setSubtopicId(''); setSkillId('') }}
-          />
+        <div className="mt-3 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">
           <FilterSelect
             value={topicId}
             placeholder={activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}
