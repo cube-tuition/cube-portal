@@ -8,7 +8,7 @@ import TutorNav from '../../../../components/TutorNav'
 import {
   T_QBANK_SUBJECTS, T_QBANK_TOPICS, T_QBANK_SUBTOPICS, T_QBANK_SKILLS,
 } from '../../../../lib/tables'
-import { SUBJECT_FAMILIES, SCOPE_LABEL, familyOfSubject, stageOfYear, STAGE_LABEL } from '../../../../lib/qbank'
+import { SUBJECT_FAMILIES, SCOPE_LABEL, familyOfSubject, stageOfYear, STAGE_LABEL, subjectYearLabel } from '../../../../lib/qbank'
 import { topicImpact, mirrorAdd, mirrorRename, mirrorDelete } from '../../../../lib/topicSync'
 import TopicSyncModal from '../../../../components/TopicSyncModal'
 
@@ -76,12 +76,23 @@ function CategoriesInner() {
   const skillsForSubject = skillScope
     ? skills.filter((s) => s.family === skillScope.family && s.stage === skillScope.stage)
     : []
-  const subjectsByYear = (y) => subjects.filter((s) => s.year_level === y && (!scope || SUBJECT_FAMILIES[scope].includes(s.name)))
+  // One row per (year, stream), sorted, with no year sub-headings: scoped to a
+  // family the heading and the row said the same thing, so the column read
+  // "Year 5 / Maths, Year 6 / Maths, ..." all the way down.
+  const subjectRows = subjects
+    .filter((s) => !scope || SUBJECT_FAMILIES[scope].includes(s.name))
+    .sort((a, b) => a.year_level - b.year_level || a.name.localeCompare(b.name))
 
   // ── Mutations ───────────────────────────────────────────────────────────────
   const addSubject = async () => {
-    if (!newSubName.trim()) return
-    await supabase.from(T_QBANK_SUBJECTS).insert({ year_level: Number(newSubYear), name: newSubName.trim() })
+    // Scoped to a family, the stream is almost always just the family itself, so
+    // a blank name means "the ordinary course for that year" — pick a year, press
+    // add. A name is only typed for a senior stream ("Ext 1 Maths").
+    const name = newSubName.trim() || (scope || '')
+    if (!name) return
+    const { error } = await supabase.from(T_QBANK_SUBJECTS)
+      .insert({ year_level: Number(newSubYear), name })
+    if (error) { alert(error.message); return }
     setNewSubName(''); reload()
   }
   // Topics are shared with the workbook Master Database, so every topic edit is
@@ -179,32 +190,34 @@ function CategoriesInner() {
         <div className="grid md:grid-cols-4 gap-4">
           {/* Subjects */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
-            <h2 className="text-sm font-bold text-[#062E63] mb-2">Subjects</h2>
+            <h2 className="text-sm font-bold text-[#062E63]">Years &amp; courses</h2>
+            <p className="text-[11px] text-[#2A2035]/45 mb-2">
+              {scope
+                ? <>Pick a year and press add for an ordinary {scope} course; name it only for a senior stream.</>
+                : 'One row per year and course.'}
+            </p>
             <div className="flex gap-1.5 mb-3">
               <select value={newSubYear} onChange={(e) => setNewSubYear(e.target.value)}
                 className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]">
                 {YEARS.map((y) => <option key={y} value={y}>Yr {y}</option>)}
               </select>
               <input value={newSubName} onChange={(e) => setNewSubName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addSubject()} placeholder="New subject…"
+                onKeyDown={(e) => e.key === 'Enter' && addSubject()} placeholder={scope ? `${scope} (or Ext 1 Maths…)` : 'New subject…'}
                 className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
               <button onClick={addSubject} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
             </div>
             <div className="max-h-[60vh] overflow-y-auto">
-              {YEARS.filter((y) => subjectsByYear(y).length).map((y) => (
-                <div key={y} className="mb-2">
-                  <p className="text-[10px] uppercase tracking-wide text-[#2A2035]/30 px-3 pt-1">Year {y}</p>
-                  {subjectsByYear(y).map((s) => (
-                    <Row key={s.id}>
-                      <button onClick={() => { setSubjectId(s.id); setTopicId('') }}
-                        className={`flex-1 text-left text-sm ${subjectId === s.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
-                        {s.name}
-                      </button>
-                      <button className={editBtn} onClick={() => rename(T_QBANK_SUBJECTS, s.id, prompt('Rename subject', s.name))}>edit</button>
-                      <button className={editBtn} onClick={() => remove(T_QBANK_SUBJECTS, s.id, s.name)}>✕</button>
-                    </Row>
-                  ))}
-                </div>
+              {subjectRows.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No years yet.</p>}
+              {subjectRows.map((s) => (
+                <Row key={s.id}>
+                  <button onClick={() => { setSubjectId(s.id); setTopicId('') }}
+                    className={`flex-1 text-left text-sm ${subjectId === s.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                    {subjectYearLabel(s, familyOfSubject(s.name))}
+                    {!scope && <span className="text-[11px] text-[#2A2035]/35 ml-1.5">{familyOfSubject(s.name)}</span>}
+                  </button>
+                  <button className={editBtn} onClick={() => rename(T_QBANK_SUBJECTS, s.id, prompt('Rename subject', s.name))}>edit</button>
+                  <button className={editBtn} onClick={() => remove(T_QBANK_SUBJECTS, s.id, s.name)}>✕</button>
+                </Row>
               ))}
             </div>
           </div>
