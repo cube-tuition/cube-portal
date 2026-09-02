@@ -18,6 +18,11 @@ import {
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
+// Streams CUBE does not run, so a pill for them is noise. The subject rows stay
+// in the bank — this only decides what the filter strip offers, and matches the
+// Materials course tabs, which drop Standard for the same reason.
+const NO_TAB = new Set(['Standard Maths'])
+
 // One year/course pill in the filter strip. Selected reads as a solid chip so
 // the active scope is obvious beside the neutral rest.
 const yearPill = (on) =>
@@ -101,7 +106,7 @@ function QuestionBankInner() {
     if (!tax) return []
     const fam = familyFor(activeSubject)
     return tax.subjects
-      .filter((s) => fam.includes(s.name))
+      .filter((s) => fam.includes(s.name) && !NO_TAB.has(s.name))
       .sort((a, b) => a.year_level - b.year_level || a.name.localeCompare(b.name))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tax, activeSubject])
@@ -246,13 +251,11 @@ function QuestionBankInner() {
             dropdown: with at most a dozen options, laying them out shows the
             whole shape of the bank at once and makes the current scope visible
             without opening a menu. The senior years split into streams, and
-            each stream is its own subject row, so "Year 11 Ext 1" is one pill. */}
+            each stream is its own subject row, so "Year 11 Ext 1" is one pill.
+            There is no "All years" pill: the page opens unfiltered with none
+            selected, and the Clear button below returns to that. */}
         {yearOptions.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-5">
-            <button onClick={() => { setYear(''); setTopicId(''); setSubtopicId(''); setSkillId('') }}
-              className={yearPill(!year)}>
-              All years
-            </button>
             {yearOptions.map((s) => (
               <button key={s.id}
                 onClick={() => { setYear(s.id); setTopicId(''); setSubtopicId(''); setSkillId('') }}
