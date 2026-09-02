@@ -226,6 +226,62 @@ export default function ExamBuilderPage() {
   // Shared with the curriculum exam assign + student reports (single source of truth).
   const buildSections = useCallback(() => buildExamRenderPayload({ exam, questions, rubrics }).sections, [exam, questions, rubrics])
 
+  /*
+   * Double-click to pair the slot list with the live preview, both ways — the
+   * same gesture the workbook builder uses. The link is the question id, which
+   * lib/qbankExam stamps onto every block it renders (data-qid).
+   *
+   * An empty slot has no question, so nothing is rendered for it and there is
+   * nothing to jump to; those double-clicks are simply ignored.
+   */
+  const previewScrollRef = useRef(null)
+
+  // Centre `target` inside `host` and pulse it, so the eye lands on it.
+  const revealIn = (host, target) => {
+    if (!host || !target) return
+    const hostRect = host.getBoundingClientRect()
+    const tRect = target.getBoundingClientRect()
+    host.scrollTo({
+      top: host.scrollTop + (tRect.top - hostRect.top) - Math.max(0, (host.clientHeight - tRect.height) / 2),
+      behavior: 'smooth',
+    })
+    target.animate?.(
+      [{ boxShadow: '0 0 0 3px rgba(50,80,153,.55)' }, { boxShadow: '0 0 0 3px rgba(50,80,153,0)' }],
+      { duration: 1200, easing: 'ease-out' },
+    )
+  }
+
+  // Slot row → the matching question in the preview.
+  const onSlotDblClick = (e, questionId) => {
+    // Leave double-clicks inside form controls alone (word-select while editing).
+    if (e.target.closest('textarea, input, select, button, [contenteditable="true"]')) return
+    if (!questionId) return
+    const host = previewScrollRef.current
+    const target = host?.querySelector(`[data-qid="${CSS.escape(String(questionId))}"]`)
+    revealIn(host, target)
+  }
+
+  // Preview → the slot row that produced it.
+  const onPreviewDblClick = (e) => {
+    const el = e.target?.closest?.('[data-qid]')
+    if (!el) return
+    const qid = el.getAttribute('data-qid')
+    let slotKey = null
+    for (const sec of exam?.sections || []) {
+      const hit = (sec.slots || []).find((sl) => String(sl.question_id) === qid)
+      if (hit) { slotKey = hit._key; break }
+    }
+    if (!slotKey) return
+    // The preview only exists on the Build tab, so the row is always mounted.
+    const card = document.getElementById(`slot-${slotKey}`)
+    if (!card) return
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    card.animate?.(
+      [{ boxShadow: '0 0 0 3px rgba(50,80,153,.55)' }, { boxShadow: '0 0 0 3px rgba(50,80,153,0)' }],
+      { duration: 1200, easing: 'ease-out' },
+    )
+  }
+
   const [previewSolutions, setPreviewSolutions] = useState(false)
   const renderPreview = useCallback((container) => renderExamPreview(container, { meta: buildMeta(), sections: buildSections(), solutions: previewSolutions }), [buildMeta, buildSections, previewSolutions])
   const previewSig = useMemo(() => JSON.stringify({
@@ -410,7 +466,8 @@ export default function ExamBuilderPage() {
                       dragging={dragSlot?.slotKey === slot._key}
                       onDragStart={() => setDragSlot({ secKey: s._key, slotKey: slot._key })}
                       onDragEnter={() => { if (dragSlot && dragSlot.secKey === s._key) reorderSlot(s._key, dragSlot.slotKey, slot._key) }}
-                      onDragEnd={() => setDragSlot(null)} />
+                      onDragEnd={() => setDragSlot(null)}
+                      onDblClick={(e) => onSlotDblClick(e, slot.question_id)} />
                   })}
                 </div>
                 <button onClick={() => addSlot(s._key)}
@@ -440,7 +497,8 @@ export default function ExamBuilderPage() {
                   <button onClick={() => setPreviewSolutions(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${previewSolutions ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
                 </div>
               </div>
-              <DocLivePreview render={renderPreview} signature={previewSig} scale={0.72} />
+              <DocLivePreview render={renderPreview} signature={previewSig} scale={0.72}
+                scrollRef={previewScrollRef} onDoubleClick={onPreviewDblClick} />
             </div>
           </div>
         )}
@@ -467,7 +525,7 @@ export default function ExamBuilderPage() {
 }
 
 // ── Slot row ──────────────────────────────────────────────────────────────────
-function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, paperEnglish, rubrics, onRubricsChanged, matches, onCriteria, onPick, onRemove, onNew, onRefresh, onEdit, dragging, onDragStart, onDragEnter, onDragEnd }) {
+function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, paperEnglish, rubrics, onRubricsChanged, matches, onCriteria, onPick, onRemove, onNew, onRefresh, onEdit, dragging, onDragStart, onDragEnter, onDragEnd, onDblClick }) {
   const [open, setOpen] = useState(false)
   const [savingLib, setSavingLib] = useState(false)
   const handleRubricSelect = (e) => {
@@ -519,8 +577,10 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
 
   return (
     <div
+      id={`slot-${slot._key}`}
       onDragOver={(e) => e.preventDefault()}
       onDragEnter={onDragEnter}
+      onDoubleClick={onDblClick}
       className={`rounded-xl border bg-[#FBFCFF] p-3 transition ${dragging ? 'opacity-40 border-[#325099] border-dashed' : 'border-[#F0F4FF]'}`}>
       <div className="flex items-center gap-2 flex-wrap">
         <span

@@ -10,8 +10,12 @@ import { useEffect, useRef, useState } from 'react'
  * IMPORTANT: the exporter overwrites the container element's own `style` (it sets
  * display:flex on it), so the scale must live on a PARENT wrapper, with a
  * separate child handed to render() as the drawing container.
+ *
+ * `scrollRef` hands the caller the scrolling panel, which is what a jump-to-here
+ * feature has to scroll — the page elements inside are not scrollable
+ * themselves. `onDoubleClick` fires on that panel.
  */
-export default function DocLivePreview({ render, signature, scale = 0.6 }) {
+export default function DocLivePreview({ render, signature, scale = 0.6, scrollRef, onDoubleClick }) {
   const innerRef = useRef(null)
   const renderRef = useRef(render)
   useEffect(() => { renderRef.current = render })
@@ -34,7 +38,8 @@ export default function DocLivePreview({ render, signature, scale = 0.6 }) {
       {/* Box width = the scaled A4 page width, so the whole page fits exactly and
           Paper/Solutions are the same size. `zoom` (string, or React breaks it)
           lives on the wrapper, NOT the exporter-owned container. */}
-      <div className="overflow-y-auto overflow-x-hidden bg-[#E9EDF6] rounded-xl p-3" style={{ maxHeight: 'calc(100vh - 120px)', width: Math.ceil(794 * scale) + 26 }}>
+      <div ref={scrollRef} onDoubleClick={onDoubleClick}
+        className="overflow-y-auto overflow-x-hidden bg-[#E9EDF6] rounded-xl p-3" style={{ maxHeight: 'calc(100vh - 120px)', width: Math.ceil(794 * scale) + 26 }}>
         <div style={{ zoom: String(scale) }}>
           <div ref={innerRef} />
         </div>
