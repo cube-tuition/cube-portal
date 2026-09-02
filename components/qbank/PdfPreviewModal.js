@@ -130,21 +130,22 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
 
         {/*
           * The browser's own PDF viewer has a download button, and it fetches
-          * the file straight from the URL — walking past the gate above. Two
-          * things hold it back, because either alone is not enough:
+          * the file straight from the URL — walking past the gate above.
+          * #toolbar=0 hides that toolbar, which is as far as we can go here:
+          * Chrome honours it, Firefox's pdf.js ignores it and keeps the button.
           *
-          *   #toolbar=0  hides the viewer's toolbar. Chrome honours it;
-          *               Firefox's pdf.js ignores it, so the button can remain.
-          *   sandbox     omits allow-downloads, so the browser refuses any
-          *               download the frame starts even if the button is there.
-          *               allow-same-origin + allow-scripts are what the PDF
-          *               viewer itself needs to run.
+          * This frame must NOT be sandboxed. Chrome renders PDFs through an
+          * extension-backed viewer that it refuses to load inside a sandboxed
+          * frame, whatever tokens are granted and whatever the file's origin —
+          * the frame just comes up empty ("This page has been blocked by
+          * Chrome"). A sandbox without allow-downloads would have blocked the
+          * viewer's own download, but it blocks the preview itself first, so
+          * the preview wins.
           *
-          * Neither stops devtools, Ctrl+P, or the file's public URL — this is a
-          * workflow gate, as the note at the top of this file says.
+          * Nothing here stops devtools, Ctrl+P, or the file's public URL — this
+          * is a workflow gate, as the note at the top of this file says.
           */}
         <iframe src={`${url}#toolbar=0&navpanes=0`} title={filename || 'PDF preview'}
-          sandbox="allow-same-origin allow-scripts"
           className="flex-1 w-full rounded-xl bg-white border border-white/10 min-h-0" />
       </div>
     </div>
