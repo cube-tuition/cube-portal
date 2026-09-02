@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { levelTestEmailBody, levelTestEmailSubject } from '../../../lib/levelTestEmail'
 
 /*
  * Email a level-test feedback report (PDF) to a student's parent/guardian.
@@ -11,7 +12,7 @@ export async function POST(req) {
     const auth = await requireApiRole(req, ['admin', 'director', 'tutor'])
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-    const { email_to, student_name, test_title, pdf_base64, pdf_filename, test } = await req.json()
+    const { email_to, student_name, test_title, comment, teacher_name, pdf_base64, pdf_filename, test } = await req.json()
     if (!email_to || !pdf_base64) {
       return NextResponse.json({ error: 'Missing email_to or pdf_base64' }, { status: 400 })
     }
@@ -19,10 +20,10 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Email not configured' }, { status: 500 })
     }
 
-    const who = student_name ? student_name.split(' ')[0] : 'your child'
-    const title = test_title || 'Level Test'
-    const subject = `${student_name ? student_name + ' — ' : ''}${title} Feedback Report`
-    const body = `Hi,\n\nPlease find attached ${who}'s feedback report for the ${title}. It shows the overall result and a topic-by-topic breakdown, with areas they're doing well in and areas to focus on.\n\nIf you have any questions, just reply to this email.\n\nWarm regards,\nCUBE Tuition`
+    // Body + subject come from the shared builder, so what the marking page
+    // previewed is exactly what goes out — template, teacher comment, sign-off.
+    const subject = levelTestEmailSubject({ studentName: student_name, testTitle: test_title })
+    const body = levelTestEmailBody({ studentName: student_name, testTitle: test_title, comment, teacherName: teacher_name })
 
     const emailPayload = applyEmailTestMode({
       from: 'CUBE Tuition <admin@cubetuition.com.au>',

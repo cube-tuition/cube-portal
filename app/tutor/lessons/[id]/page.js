@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
@@ -10,6 +10,7 @@ import { loadLevelTestItems, loadLevelTestMarks, saveLevelTestMark } from '../..
 import { computeExamAnalysis } from '../../../../lib/examMarking'
 import StudentExamAnalysisView, { studentAnalysisRows } from '../../../../components/StudentExamAnalysisView'
 import { exportLevelTestReport } from '../../../../lib/levelTestReport'
+import { levelTestEmailBody, levelTestEmailSubject } from '../../../../lib/levelTestEmail'
 
 /*
  * Level-test lesson page — a lesson can link to several level tests. Each test
@@ -44,6 +45,10 @@ export default function LevelTestLessonPage() {
   const [marks, setMarks] = useState({})          // { "<buildId>::<blockId>": awarded(string) }
   const [savingId, setSavingId] = useState(null)
   const [emailing, setEmailing] = useState(false)
+  const [comment, setComment] = useState('')            // teacher's note to the parents, lives in the email body
+  const [commentState, setCommentState] = useState('idle')  // idle | saving | saved
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const commentTimer = useRef(null)
   const [reporting, setReporting] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -58,11 +63,12 @@ export default function LevelTestLessonPage() {
     setLoading(true); setError(null)
     try {
       const { data: les, error: lerr } = await supabase.from('lessons')
-        .select('id, lesson_date, start_time, end_time, room, notes, lesson_type, makeup_student_id, student_name, scheduled_teacher_id, level_test_build_id, level_test_build_ids')
+        .select('id, lesson_date, start_time, end_time, room, notes, lesson_type, makeup_student_id, student_name, scheduled_teacher_id, level_test_build_id, level_test_build_ids, report_comment')
         .eq('id', id).maybeSingle()
       if (lerr) throw lerr
       if (!les) { setError('Lesson not found.'); setLoading(false); return }
       setLesson(les)
+      setComment(les.report_comment || '')
 
       if (les.makeup_student_id) {
         const { data: st } = await supabase.from('students').select('id, full_name, year').eq('id', les.makeup_student_id).maybeSingle()
@@ -137,6 +143,27 @@ export default function LevelTestLessonPage() {
   const allItems = useMemo(() => tests.flatMap(t => t.items), [tests])
   const markedCount = allItems.filter(it => { const a = marks[it.qid]; return a !== '' && a != null }).length
 
+  // The comment autosaves like a mark — typed once, kept with the lesson.
+  const saveComment = (v) => {
+    setComment(v)
+    setCommentState('saving')
+    clearTimeout(commentTimer.current)
+    commentTimer.current = setTimeout(async () => {
+      const { error: e } = await supabase.from('lessons')
+        .update({ report_comment: v.trim() || null }).eq('id', id)
+      setCommentState(e ? 'idle' : 'saved')
+      if (e) setToast('Comment not saved: ' + e.message)
+    }, 800)
+  }
+  useEffect(() => () => clearTimeout(commentTimer.current), [])
+
+  const emailTestTitle = () => (tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`)
+  const emailPreview = () => ({
+    to: guardian?.email || '(parent email — asked for when sending)',
+    subject: levelTestEmailSubject({ studentName: student?.full_name, testTitle: emailTestTitle() }),
+    body: levelTestEmailBody({ studentName: student?.full_name, testTitle: emailTestTitle(), comment, teacherName: profile?.full_name }),
+  })
+
   const reportArgs = () => ({
     student, guardian, lesson, teacherName: profile?.full_name,
     tests: testViews.map(tv => ({
@@ -167,7 +194,9 @@ export default function LevelTestLessonPage() {
           lesson_id: id,
           email_to: to,
           student_name: student?.full_name,
-          test_title: tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`,
+          test_title: emailTestTitle(),
+          comment,
+          teacher_name: profile?.full_name,
           pdf_base64: base64,
           pdf_filename: filename,
         }),
@@ -214,7 +243,8 @@ export default function LevelTestLessonPage() {
         ) : (
           <div className="space-y-8">
             {/* Report actions */}
-            <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-[#062E63]">Parent feedback report</p>
                 <p className="text-[11px] text-[#2A2035]/55 mt-0.5">
@@ -226,11 +256,52 @@ export default function LevelTestLessonPage() {
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-2 rounded-full hover:bg-[#F0F4FF] transition disabled:opacity-40">
                   {reporting ? 'Generating…' : '↓ Download PDF'}
                 </button>
+                <button onClick={() => setPreviewOpen(o => !o)}
+                  className={`text-xs font-semibold px-4 py-2 rounded-full border transition ${previewOpen
+                    ? 'bg-[#EEF4FF] text-[#062E63] border-[#9DBBF5]'
+                    : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
+                  {previewOpen ? 'Hide preview' : '👁 Preview email'}
+                </button>
                 <button onClick={emailReport} disabled={emailing || markedCount === 0}
                   className="text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2 rounded-full transition disabled:opacity-40">
                   {emailing ? 'Sending…' : '✉ Email to parent'}
                 </button>
               </div>
+            </div>
+
+              {/* Comment to the parents — lands in the email body, between the
+                  template and the sign-off. Autosaves with the lesson. */}
+              <div className="mt-4">
+                <div className="flex items-baseline justify-between gap-3 mb-1">
+                  <label className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60">Comment to parents</label>
+                  <span className="text-[10px] text-[#2A2035]/40">
+                    {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : 'Shown in the email body'}
+                  </span>
+                </div>
+                <textarea
+                  value={comment}
+                  onChange={(e) => saveComment(e.target.value)}
+                  rows={3}
+                  placeholder={`e.g. ${(student?.full_name || 'They').split(' ')[0]} worked carefully through the whole paper — with some practice on the focus areas below, they'll be very well placed…`}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] text-[13px] text-[#2A2035] leading-relaxed placeholder:text-[#2A2035]/30 focus:outline-none focus:border-[#325099] focus:bg-white transition resize-y"
+                />
+              </div>
+
+              {previewOpen && (() => {
+                const pv = emailPreview()
+                return (
+                  <div className="mt-3 rounded-xl border border-[#DEE7FF] overflow-hidden">
+                    <div className="px-4 py-2.5 bg-[#F8FAFF] border-b border-[#EEF2FF] text-[11px] text-[#2A2035]/70 space-y-0.5">
+                      <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">To</span>{pv.to}</p>
+                      <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">Subject</span><span className="font-semibold text-[#2A2035]">{pv.subject}</span></p>
+                      <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">Attached</span>Feedback report PDF</p>
+                    </div>
+                    <div className="px-4 py-3.5 text-[13px] text-[#1a1a1a] leading-relaxed whitespace-pre-wrap bg-white">
+                      {pv.body}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* One block per linked level test */}
