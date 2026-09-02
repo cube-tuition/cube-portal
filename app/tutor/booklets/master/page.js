@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, useCallback, useMemo, Suspense } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
+import { topicImpact, mirrorAdd, mirrorRename, mirrorDelete } from '../../../../lib/topicSync'
+import TopicSyncModal from '../../../../components/TopicSyncModal'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import BookletContentView from '../../../../components/booklet/BookletContentView'
@@ -46,10 +48,12 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
   const [topics,    setTopics]    = useState([])
   const [loading,   setLoading]   = useState(true)
   const [newName,   setNewName]   = useState('')
-  const [adding,    setAdding]    = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameDraft, setRenameDraft] = useState('')
-  const [deletingId,  setDeletingId]  = useState(null)
+  // { action, name, newName, impact } while a change waits on the modal.
+  const [pending, setPending] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -65,38 +69,44 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
 
   useEffect(() => { load() }, [load])
 
+  // Every edit is proposed first: topicImpact() counts what hangs off the topic
+  // on BOTH sides, and the modal reports it before anything is written.
+  const propose = async (action, name, newTopicName) => {
+    setPending({ action, name, newName: newTopicName, impact: null })
+    const impact = await topicImpact(year, subject, name)
+    setPending({ action, name, newName: newTopicName, impact })
+  }
+
   const handleAdd = async () => {
     const name = newName.trim()
     if (!name) return
-    setAdding(true)
-    const { data, error } = await supabase.from('topics').insert({ year, subject, name }).select().single()
-    if (!error && data) { setTopics(t => [...t, data].sort((a, b) => a.name.localeCompare(b.name))) }
-    setNewName(''); setAdding(false)
-    onTopicsChanged()
+    await propose('add', name)
   }
 
   const handleRename = async (id) => {
     const name = renameDraft.trim()
-    if (!name) return
     const oldName = topics.find(t => t.id === id)?.name
-    const { error } = await supabase.from('topics').update({ name }).eq('id', id)
-    if (!error) {
-      // Also update booklets that used the old topic name
-      await supabase.from('booklets').update({ topic: name }).eq('year', year).eq('subject', subject).eq('topic', oldName)
-      setTopics(t => t.map(x => x.id === id ? { ...x, name } : x).sort((a, b) => a.name.localeCompare(b.name)))
-      onTopicsChanged()
-    }
     setRenamingId(null)
+    if (!name || !oldName || name === oldName) return
+    await propose('rename', oldName, name)
   }
 
   const handleDelete = async (id) => {
-    if (deletingId !== id) { setDeletingId(id); return }
     const name = topics.find(t => t.id === id)?.name
-    await supabase.from('topics').delete().eq('id', id)
-    // Null out topic on booklets that used it
-    await supabase.from('booklets').update({ topic: null }).eq('year', year).eq('subject', subject).eq('topic', name)
-    setTopics(t => t.filter(x => x.id !== id))
-    setDeletingId(null)
+    if (name) await propose('delete', name)
+  }
+
+  const confirmPending = async () => {
+    const { action, name, newName: to } = pending
+    setBusy(true); setErr('')
+    const res = action === 'add'    ? await mirrorAdd(year, subject, name)
+              : action === 'rename' ? await mirrorRename(year, subject, name, to)
+              :                       await mirrorDelete(year, subject, name)
+    setBusy(false)
+    if (res.error) { setErr(res.error); return }
+    if (action === 'add') setNewName('')
+    setPending(null)
+    load()
     onTopicsChanged()
   }
 
@@ -145,9 +155,9 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
                       >Rename</button>
                       <button
                         onClick={() => handleDelete(t.id)}
-                        className={`text-[9px] font-semibold opacity-0 group-hover:opacity-100 transition ${deletingId === t.id ? 'text-red-500 opacity-100' : 'text-[#2A2035]/30'}`}
-                        title={deletingId === t.id ? 'Click again to confirm' : 'Delete topic'}
-                      >{deletingId === t.id ? 'Confirm?' : 'Delete'}</button>
+                        className="text-[9px] font-semibold text-[#2A2035]/30 opacity-0 group-hover:opacity-100 transition hover:text-red-500"
+                        title="Delete topic"
+                      >Delete</button>
                     </>
                   )}
                 </div>
@@ -155,6 +165,13 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
             </div>
           )}
         </div>
+
+        {pending && (
+          <TopicSyncModal from="master" year={year} subject={subject}
+            action={pending.action} name={pending.name} newName={pending.newName}
+            impact={pending.impact} busy={busy} error={err}
+            onConfirm={confirmPending} onCancel={() => { setPending(null); setErr('') }} />
+        )}
 
         <div className="px-4 py-3 border-t border-[#F0F4FF]">
           <div className="flex gap-2">
@@ -168,11 +185,11 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
             />
             <button
               onClick={handleAdd}
-              disabled={adding || !newName.trim()}
+              disabled={busy || !newName.trim()}
               className="px-3 py-2 text-xs font-bold text-white rounded-lg transition disabled:opacity-40"
               style={{ background: accentColor }}
             >
-              {adding ? '…' : 'Add'}
+              {busy ? '…' : 'Add'}
             </button>
           </div>
         </div>

@@ -9,6 +9,8 @@ import {
   T_QBANK_SUBJECTS, T_QBANK_TOPICS, T_QBANK_SUBTOPICS, T_QBANK_SKILLS,
 } from '../../../../lib/tables'
 import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
+import { topicImpact, mirrorAdd, mirrorRename, mirrorDelete } from '../../../../lib/topicSync'
+import TopicSyncModal from '../../../../components/TopicSyncModal'
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 
@@ -38,6 +40,10 @@ function CategoriesInner() {
   const [newSubYear, setNewSubYear] = useState(7)
   const [newSubName, setNewSubName] = useState('')
   const [newTopic, setNewTopic] = useState('')
+  // { action, name, newName, impact } while a topic edit waits on the modal.
+  const [pending, setPending] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
   const [newSubtopic, setNewSubtopic] = useState('')
   const [newSkill, setNewSkill] = useState('')
 
@@ -70,10 +76,33 @@ function CategoriesInner() {
     await supabase.from(T_QBANK_SUBJECTS).insert({ year_level: Number(newSubYear), name: newSubName.trim() })
     setNewSubName(''); reload()
   }
+  // Topics are shared with the workbook Master Database, so every topic edit is
+  // proposed to the user first and then written to both sides by lib/topicSync.
+  // Subjects, subtopics and skills belong to the bank alone and are unaffected.
+  const subjRow = subjects.find((x) => x.id === subjectId) || null
+  const proposeTopic = async (action, name, newName) => {
+    if (!subjRow || !name) return
+    setPending({ action, name, newName, impact: null })
+    const impact = await topicImpact(subjRow.year_level, subjRow.name, name)
+    setPending({ action, name, newName, impact })
+  }
+  const confirmTopic = async () => {
+    const { action, name, newName } = pending
+    setBusy(true); setErr('')
+    const y = subjRow.year_level, sub = subjRow.name
+    const res = action === 'add'    ? await mirrorAdd(y, sub, name)
+              : action === 'rename' ? await mirrorRename(y, sub, name, newName)
+              :                       await mirrorDelete(y, sub, name)
+    setBusy(false)
+    if (res.error) { setErr(res.error); return }
+    if (action === 'add') setNewTopic('')
+    if (action === 'delete' && pending.impact?.qbank?.id === topicId) { setTopicId(''); setSubtopicId('') }
+    setPending(null); reload()
+  }
+
   const addTopic = async () => {
     if (!newTopic.trim() || !subjectId) return
-    await supabase.from(T_QBANK_TOPICS).insert({ subject_id: subjectId, name: newTopic.trim(), sort_order: topicsForSubject.length })
-    setNewTopic(''); reload()
+    await proposeTopic('add', newTopic.trim())
   }
   const addSubtopic = async () => {
     if (!newSubtopic.trim() || !topicId) return
@@ -88,9 +117,15 @@ function CategoriesInner() {
 
   const rename = async (table, id, name) => {
     if (name == null) return
+    if (table === T_QBANK_TOPICS) {
+      const old = topics.find((t) => t.id === id)?.name
+      if (old && old !== name.trim()) await proposeTopic('rename', old, name.trim())
+      return
+    }
     await supabase.from(table).update({ name }).eq('id', id); reload()
   }
   const remove = async (table, id, label) => {
+    if (table === T_QBANK_TOPICS) { await proposeTopic('delete', label); return }
     if (!confirm(`Delete "${label}"? This also removes everything inside it. Questions tagged to a deleted skill must be re-tagged first.`)) return
     const { error } = await supabase.from(table).delete().eq('id', id)
     if (error) { alert(error.message); return }
@@ -252,6 +287,13 @@ function CategoriesInner() {
           </div>
         </div>
       </div>
+
+      {pending && subjRow && (
+        <TopicSyncModal from="qbank" year={subjRow.year_level} subject={subjRow.name}
+          action={pending.action} name={pending.name} newName={pending.newName}
+          impact={pending.impact} busy={busy} error={err}
+          onConfirm={confirmTopic} onCancel={() => { setPending(null); setErr('') }} />
+      )}
     </div>
   )
 }
