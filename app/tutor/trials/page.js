@@ -736,6 +736,13 @@ export default function TrialsPage() {
             <p className="text-sm text-[#325099]/60 mt-1">Manage free trial submissions and active trial enrolments.</p>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/tutor/trials/level-tests"
+              className="text-xs font-bold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-1.5 rounded-full transition"
+              title="Book students in for level tests and mark them"
+            >
+              🧪 Level Tests →
+            </Link>
             <a
               href="/api/trial-submission"
               target="_blank"
