@@ -1263,7 +1263,14 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                   // makeup / drop-in) keep their colours on OWN lessons only.
                   const grey = tutorMode && !s.mine
                   const isAmber  = !grey && (s.isSub || s.hasSub)
+                  // Every 1:1, makeup and level test shares the overlay pill styling.
+                  // What the badge SAYS has to follow what the session actually is,
+                  // though — labelling all three "Makeup" put level tests on the
+                  // calendar as makeups, and did the same to ad-hoc 1:1s.
                   const isMakeup = s.isMakeup
+                  const overlayLabel = s.isLevelTest ? 'Level Test'
+                    : s.lesson?.makeup_source_lesson_id ? 'Makeup'
+                    : '1:1'
                   const isDropin = s.isDropin
                   const mineBlue = tutorMode && s.mine && !isAmber && !isMakeup && !isDropin
                   const pillBg     = grey ? '#EEF0F4' : mineBlue ? '#D6E4FF' : isDropin ? '#CCFBF1CC' : isMakeup ? '#EDE9FECC' : isAmber ? '#FEF9ECCC' : col.bg + 'AA'
@@ -1301,7 +1308,7 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                             )}
                             {isMakeup && (
                               <span className={`text-[8px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap ${grey ? badgeGrey : 'bg-[#8B5CF6]/15 text-[#5B21B6]'}`}>
-                                Makeup
+                                {overlayLabel}
                               </span>
                             )}
                             {isDropin && (
