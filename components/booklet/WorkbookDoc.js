@@ -997,9 +997,12 @@ export default function WorkbookDoc({
     if (m.data) overlayModels(m.data)
   }, [solutions, isModel, mode, booklet.id, classId, ownerId, commentStudentId, canNote])
 
-  // Wake-up + heartbeat: refetch when the tab comes back to the front (that's
-  // when a dead socket is most likely) and every 30 s while visible, so a
-  // silently broken channel converges within seconds instead of never.
+  /* Wake-up + heartbeat: refetch when the tab comes back to the front (that's
+     when a dead socket is most likely) and every 10 s while visible. Realtime
+     is the live path — measured at ~0.5 s end to end for both the student's
+     own page and a staff subscriber — so the heartbeat almost never finds
+     anything; it exists so a silently dead socket costs seconds, not a
+     lesson. The queries are five small selects, cheap at this cadence. */
   useEffect(() => {
     if (solutions) return undefined
     const onWake = () => { if (document.visibilityState === 'visible') refresh() }
@@ -1010,7 +1013,7 @@ export default function WorkbookDoc({
     // necessarily visibilitychange or focus — without this an iPad returning
     // to the workbook via Back shows whatever the cache froze.
     window.addEventListener('pageshow', onWake)
-    const beat = setInterval(onWake, 30000)
+    const beat = setInterval(onWake, 10000)
     return () => {
       document.removeEventListener('visibilitychange', onWake)
       window.removeEventListener('focus', onWake)
