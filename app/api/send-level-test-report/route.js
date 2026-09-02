@@ -12,7 +12,7 @@ export async function POST(req) {
     const auth = await requireApiRole(req, ['admin', 'director', 'tutor'])
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-    const { email_to, student_name, test_title, comment, teacher_name, pdf_base64, pdf_filename, test } = await req.json()
+    const { email_to, student_name, test_title, comment, teacher_name, email_subject, email_body, pdf_base64, pdf_filename, test } = await req.json()
     if (!email_to || !pdf_base64) {
       return NextResponse.json({ error: 'Missing email_to or pdf_base64' }, { status: 400 })
     }
@@ -20,10 +20,11 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Email not configured' }, { status: 500 })
     }
 
-    // Body + subject come from the shared builder, so what the marking page
-    // previewed is exactly what goes out — template, teacher comment, sign-off.
-    const subject = levelTestEmailSubject({ studentName: student_name, testTitle: test_title })
-    const body = levelTestEmailBody({ studentName: student_name, testTitle: test_title, comment, teacherName: teacher_name })
+    // The page sends the rendered body it previewed (the stored template with
+    // everything filled in) — what was previewed is exactly what goes out.
+    // Fall back to the default template for callers that predate the editor.
+    const subject = email_subject || levelTestEmailSubject({ studentName: student_name, testTitle: test_title })
+    const body = email_body || levelTestEmailBody({ studentName: student_name, testTitle: test_title, comment, teacherName: teacher_name })
 
     const emailPayload = applyEmailTestMode({
       from: 'CUBE Tuition <admin@cubetuition.com.au>',

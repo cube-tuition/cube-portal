@@ -10,7 +10,7 @@ import { loadLevelTestItems, loadLevelTestMarks, saveLevelTestMark } from '../..
 import { computeExamAnalysis } from '../../../../lib/examMarking'
 import StudentExamAnalysisView, { studentAnalysisRows } from '../../../../components/StudentExamAnalysisView'
 import { exportLevelTestReport } from '../../../../lib/levelTestReport'
-import { levelTestEmailBody, levelTestEmailSubject } from '../../../../lib/levelTestEmail'
+import { renderLevelTestEmail, levelTestEmailSubject, DEFAULT_LEVEL_TEST_TEMPLATE, LEVEL_TEST_EMAIL_KEY } from '../../../../lib/levelTestEmail'
 
 /*
  * Level-test lesson page — a lesson can link to several level tests. Each test
@@ -49,6 +49,9 @@ export default function LevelTestLessonPage() {
   const [commentState, setCommentState] = useState('idle')  // idle | saving | saved
   const [previewOpen, setPreviewOpen] = useState(false)
   const commentTimer = useRef(null)
+  const [template, setTemplate] = useState(DEFAULT_LEVEL_TEST_TEMPLATE)
+  const [editingTemplate, setEditingTemplate] = useState(null)   // draft text while the editor is open
+  const [templateSaving, setTemplateSaving] = useState(false)
   const [reporting, setReporting] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -69,6 +72,9 @@ export default function LevelTestLessonPage() {
       if (!les) { setError('Lesson not found.'); setLoading(false); return }
       setLesson(les)
       setComment(les.report_comment || '')
+      const { data: tpl } = await supabase.from('portal_settings')
+        .select('value').eq('key', LEVEL_TEST_EMAIL_KEY).maybeSingle()
+      if (tpl?.value?.trim()) setTemplate(tpl.value)
 
       if (les.makeup_student_id) {
         const { data: st } = await supabase.from('students').select('id, full_name, year').eq('id', les.makeup_student_id).maybeSingle()
@@ -161,8 +167,20 @@ export default function LevelTestLessonPage() {
   const emailPreview = () => ({
     to: guardian?.email || '(parent email — asked for when sending)',
     subject: levelTestEmailSubject({ studentName: student?.full_name, testTitle: emailTestTitle() }),
-    body: levelTestEmailBody({ studentName: student?.full_name, testTitle: emailTestTitle(), comment, teacherName: profile?.full_name }),
+    body: renderLevelTestEmail(template, { studentName: student?.full_name, testTitle: emailTestTitle(), comment, teacherName: profile?.full_name }),
   })
+
+  const saveTemplate = async () => {
+    setTemplateSaving(true)
+    const value = editingTemplate.trim() ? editingTemplate : DEFAULT_LEVEL_TEST_TEMPLATE
+    const { error: e } = await supabase.from('portal_settings')
+      .upsert({ key: LEVEL_TEST_EMAIL_KEY, value }, { onConflict: 'key' })
+    setTemplateSaving(false)
+    if (e) { setToast('Template not saved: ' + e.message); return }
+    setTemplate(value)
+    setEditingTemplate(null)
+    setToast('Template saved — it now applies to every level-test email.')
+  }
 
   const reportArgs = () => ({
     student, guardian, lesson, teacherName: profile?.full_name,
@@ -197,6 +215,8 @@ export default function LevelTestLessonPage() {
           test_title: emailTestTitle(),
           comment,
           teacher_name: profile?.full_name,
+          email_subject: emailPreview().subject,
+          email_body: emailPreview().body,
           pdf_base64: base64,
           pdf_filename: filename,
         }),
@@ -255,6 +275,10 @@ export default function LevelTestLessonPage() {
                 <button onClick={downloadReport} disabled={reporting || markedCount === 0}
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-2 rounded-full hover:bg-[#F0F4FF] transition disabled:opacity-40">
                   {reporting ? 'Generating…' : '↓ Download PDF'}
+                </button>
+                <button onClick={() => setEditingTemplate(template)}
+                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-2 rounded-full hover:bg-[#F0F4FF] transition">
+                  ✎ Edit template
                 </button>
                 <button onClick={() => setPreviewOpen(o => !o)}
                   className={`text-xs font-semibold px-4 py-2 rounded-full border transition ${previewOpen
@@ -375,6 +399,49 @@ export default function LevelTestLessonPage() {
           </div>
         )}
       </section>
+
+      {editingTemplate !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setEditingTemplate(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-[#F0F4FF] flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-bold text-[#062E63]">Email template</p>
+                <p className="text-[11px] text-[#2A2035]/50 mt-0.5">One template for every level-test feedback email — saving applies portal-wide.</p>
+              </div>
+              <button onClick={() => setEditingTemplate(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+            </div>
+            <div className="px-6 py-4 overflow-y-auto">
+              <textarea
+                value={editingTemplate}
+                onChange={(e) => setEditingTemplate(e.target.value)}
+                rows={16}
+                className="w-full px-3 py-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] text-[13px] font-mono text-[#2A2035] leading-relaxed focus:outline-none focus:border-[#325099] focus:bg-white transition resize-y"
+              />
+              <p className="text-[11px] text-[#2A2035]/50 mt-2 leading-relaxed">
+                Placeholders fill in automatically:{' '}
+                {['{{first_name}}', '{{student_name}}', '{{test_title}}', '{{teacher_name}}', '{{comment}}'].map(ph => (
+                  <code key={ph} className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 mr-1.5 text-[10px]">{ph}</code>
+                ))}
+                — <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comment}}'}</code> is the box on the marking page, and its paragraph disappears when left empty.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-[#F0F4FF] flex items-center justify-between gap-3">
+              <button onClick={() => setEditingTemplate(DEFAULT_LEVEL_TEST_TEMPLATE)}
+                className="text-[11px] font-semibold text-[#2A2035]/45 hover:text-[#B23A3A] transition">Reset to default</button>
+              <div className="flex gap-2">
+                <button onClick={() => setEditingTemplate(null)}
+                  className="text-xs font-semibold text-[#2A2035]/50 px-4 py-2 rounded-full hover:bg-[#F8FAFF] transition">Cancel</button>
+                <button onClick={saveTemplate} disabled={templateSaving}
+                  className="text-xs font-bold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2 rounded-full transition disabled:opacity-40">
+                  {templateSaving ? 'Saving…' : 'Save template'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-[#062E63] text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg cursor-pointer" onClick={() => setToast(null)}>
