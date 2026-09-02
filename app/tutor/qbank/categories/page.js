@@ -37,6 +37,7 @@ function CategoriesInner() {
   const [subtopicId, setSubtopicId] = useState('')
 
   // new-row inputs
+  const [addingSubject, setAddingSubject] = useState(false)
   const [newSubYear, setNewSubYear] = useState(7)
   const [newSubName, setNewSubName] = useState('')
   const [newTopic, setNewTopic] = useState('')
@@ -93,7 +94,7 @@ function CategoriesInner() {
     const { error } = await supabase.from(T_QBANK_SUBJECTS)
       .insert({ year_level: Number(newSubYear), name })
     if (error) { alert(error.message); return }
-    setNewSubName(''); reload()
+    setNewSubName(''); setAddingSubject(false); reload()
   }
   // Topics are shared with the workbook Master Database, so every topic edit is
   // proposed to the user first and then written to both sides by lib/topicSync.
@@ -185,27 +186,16 @@ function CategoriesInner() {
       <div className="max-w-6xl mx-auto px-6 pt-8 pb-16">
         <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1">Categories{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
-        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic → Subtopic structure your questions are filed under. Skills sit outside that tree: one shared list per subject per stage — Years 5\u20136 share one, Years 7\u201312 share another.</p>
 
         <div className="grid md:grid-cols-4 gap-4">
           {/* Subjects */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63]">Years &amp; courses</h2>
-            <p className="text-[11px] text-[#2A2035]/45 mb-2">
-              {scope
-                ? <>Pick a year and press add for an ordinary {scope} course; name it only for a senior stream.</>
-                : 'One row per year and course.'}
-            </p>
-            <div className="flex gap-1.5 mb-3">
-              <select value={newSubYear} onChange={(e) => setNewSubYear(e.target.value)}
-                className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]">
-                {YEARS.map((y) => <option key={y} value={y}>Yr {y}</option>)}
-              </select>
-              <input value={newSubName} onChange={(e) => setNewSubName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addSubject()} placeholder={scope ? `${scope} (or Ext 1 Maths…)` : 'New subject…'}
-                className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
-              <button onClick={addSubject} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
-            </div>
+            <p className="text-[11px] text-[#2A2035]/45 mb-2">One row per year and course.</p>
+            <button onClick={() => { setNewSubName(''); setAddingSubject(true) }}
+              className="w-full mb-3 px-3 py-1.5 rounded-lg border border-dashed border-[#BACBFF] text-xs font-semibold text-[#325099] hover:bg-[#F5F8FF] transition">
+              + Add year or course
+            </button>
             <div className="max-h-[60vh] overflow-y-auto">
               {subjectRows.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No years yet.</p>}
               {subjectRows.map((s) => (
@@ -321,6 +311,42 @@ function CategoriesInner() {
           </div>
         </div>
       </div>
+
+      {addingSubject && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#0B1020]/60 backdrop-blur-sm py-24"
+          onClick={() => setAddingSubject(false)}>
+          <div className="bg-white rounded-2xl border border-[#E5ECFF] w-full max-w-sm mx-4 p-5 shadow-xl space-y-3"
+            onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-sm font-bold text-[#062E63]">Add a year or course</h2>
+            <div>
+              <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Year</label>
+              <select value={newSubYear} onChange={(e) => setNewSubYear(e.target.value)} autoFocus
+                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#325099]">
+                {YEARS.map((y) => <option key={y} value={y}>Year {y}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">
+                Course {scope && <span className="font-normal text-[#2A2035]/40">— leave blank for ordinary {scope}</span>}
+              </label>
+              <input value={newSubName} onChange={(e) => setNewSubName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addSubject(); if (e.key === 'Escape') setAddingSubject(false) }}
+                placeholder={scope ? `${scope} — or a stream like Ext 1 Maths` : 'Subject name'}
+                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={addSubject}
+                className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">
+                Add
+              </button>
+              <button onClick={() => setAddingSubject(false)}
+                className="px-4 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/60 hover:bg-[#F8FAFF] transition">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pending && subjRow && (
         <TopicSyncModal from="qbank" year={subjRow.year_level} subject={subjRow.name}
