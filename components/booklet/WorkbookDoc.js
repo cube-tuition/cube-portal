@@ -358,7 +358,7 @@ function OwnAnswer({ minHeight, value, editText, editBase, marks = [], onChange,
             onClick={() => setEditing(true)}>✏️ Edit</button>
         </div>
         <div ref={registerRef} className="bk-answer-input bk-answer-ro" style={{ minHeight }}>
-          {renderSegs(segs, marks.map(m => ({ ...m, cls: `bk-note-hl${m.stale ? ' bk-note-hl-stale' : ''}${m.active ? ' bk-note-hl-on' : ''}`, id: m.id })), m => m?.onClick?.())}
+          {renderSegs(segs, marks.map(m => ({ ...m, cls: m.cls ?? `bk-note-hl${m.stale ? ' bk-note-hl-stale' : ''}${m.active ? ' bk-note-hl-on' : ''}`, id: m.id })), m => m?.onClick?.())}
         </div>
       </div>
     )
@@ -395,7 +395,7 @@ function OwnAnswer({ minHeight, value, editText, editBase, marks = [], onChange,
       )}
       <div className="bk-answer-input bk-answer-back" aria-hidden="true" style={{ minHeight }}>
         {paintText(value, marks).map((p, i) => (p.mark
-          ? <mark key={i} className={`bk-note-hl${p.mark.stale ? ' bk-note-hl-stale' : ''}${p.mark.active ? ' bk-note-hl-on' : ''}`}>{p.text}</mark>
+          ? <mark key={i} className={p.mark.cls ?? `bk-note-hl${p.mark.stale ? ' bk-note-hl-stale' : ''}${p.mark.active ? ' bk-note-hl-on' : ''}`}>{p.text}</mark>
           : <span key={i}>{p.text}</span>))}
       </div>
       <textarea
@@ -1350,7 +1350,11 @@ export default function WorkbookDoc({
     const cards = []
     const at = (id, el) => {
       const note = noteRefs.current[id]
-      if (el && note) cards.push({ note, top: Math.max(0, el.getBoundingClientRect().top - base) })
+      if (!note) return
+      // No anchor (the block/box it points at isn't in this render)? The card
+      // still gets a position — cascading after the anchored ones — instead of
+      // the old behaviour where every orphan overlapped at the gutter's top.
+      cards.push({ note, top: el ? Math.max(0, el.getBoundingClientRect().top - base) : null })
     }
     const want = (id, key) => at(id, boxRefs.current[key])
     for (const c of comments) want(c.id, `${c.block_id}::${c.part_id}`)
@@ -1364,14 +1368,26 @@ export default function WorkbookDoc({
       ? boxRefs.current[`${noteDraft.blockId}::${noteDraft.partId}`] : markRefs.current.__draft)
     for (const n of classNotes) at(n.id, markRefs.current[n.id])
     if (classDraft) at('__classdraft', markRefs.current.__classdraft)
-    cards.sort((a, b) => a.top - b.top)
-    let floor = -Infinity
+    cards.sort((a, b) => (a.top ?? Infinity) - (b.top ?? Infinity))
+    let floor = 0
     for (const c of cards) {
-      const top = Math.max(c.top, floor)
+      const top = Math.max(c.top ?? floor, floor)
       c.note.style.top = `${top}px`
       floor = top + c.note.offsetHeight + 10   // 10px breathing room between cards
     }
   })
+
+  // Activating a card (from its highlight or the card itself) brings it into
+  // view — the margin is off-screen right on a narrow window, and before this
+  // a click there produced no visible change at all.
+  useEffect(() => {
+    const id = activeComment || activeNote || activeClassNote
+    if (!id) return undefined
+    const raf = requestAnimationFrame(() => {
+      noteRefs.current[id]?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [activeComment, activeNote, activeClassNote])
 
   /* Focus a freshly opened draft card by hand rather than with autoFocus.
      React applies autoFocus while committing, which is BEFORE the effect above
@@ -1453,6 +1469,13 @@ export default function WorkbookDoc({
             onAnchor={(sel) => { setDraft({ key, slot, ...sel, body: '' }); setActiveComment(null) }} />
         }
         const myMarks = [
+          // The teacher's comments, amber — before this the only trace of a
+          // comment on the student's copy was the margin card, which reads as
+          // "nothing there" whenever the margin is off-screen or unanchored.
+          ...comments.filter(c => `${c.block_id}::${c.part_id}` === key && Number.isFinite(c.range_start))
+            .map(c => ({ start: c.range_start, end: c.range_end, active: activeComment === c.id,
+              cls: `bk-hl${c.resolved ? ' bk-hl-res' : ''}${activeComment === c.id ? ' bk-hl-on' : ''}`,
+              onClick: () => setActiveComment(c.id) })),
           ...notes.filter(n => n.target === 'answer' && `${n.block_id}::${n.part_id}` === key)
             .map(n => ({ start: n.range_start, end: n.range_end, active: activeNote === n.id,
               onClick: () => setActiveNote(n.id),
