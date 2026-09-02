@@ -8,7 +8,7 @@ import TutorNav from '../../../../components/TutorNav'
 import {
   T_QBANK_SUBJECTS, T_QBANK_TOPICS, T_QBANK_SUBTOPICS, T_QBANK_SKILLS,
 } from '../../../../lib/tables'
-import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
+import { SUBJECT_FAMILIES, SCOPE_LABEL, familyOfSubject, stageOfYear, STAGE_LABEL } from '../../../../lib/qbank'
 import { topicImpact, mirrorAdd, mirrorRename, mirrorDelete } from '../../../../lib/topicSync'
 import TopicSyncModal from '../../../../components/TopicSyncModal'
 
@@ -66,8 +66,16 @@ function CategoriesInner() {
 
   const topicsForSubject = topics.filter((t) => t.subject_id === subjectId)
   const subtopicsForTopic = subtopics.filter((st) => st.topic_id === topicId)
-  // Skills hang off the subject directly — topics/subtopics are a separate dimension.
-  const skillsForSubject = skills.filter((s) => s.subject_id === subjectId)
+  // Skills are shared across a whole stage, not owned by one year: editing the
+  // list from Year 8 edits the same list Years 7 and 9-12 see. The heading above
+  // the column says so, because the change is invisible otherwise.
+  const activeSubject = subjects.find((s) => s.id === subjectId) || null
+  const skillScope = activeSubject
+    ? { family: familyOfSubject(activeSubject.name), stage: stageOfYear(activeSubject.year_level) }
+    : null
+  const skillsForSubject = skillScope
+    ? skills.filter((s) => s.family === skillScope.family && s.stage === skillScope.stage)
+    : []
   const subjectsByYear = (y) => subjects.filter((s) => s.year_level === y && (!scope || SUBJECT_FAMILIES[scope].includes(s.name)))
 
   // ── Mutations ───────────────────────────────────────────────────────────────
@@ -110,8 +118,16 @@ function CategoriesInner() {
     setNewSubtopic(''); reload()
   }
   const addSkill = async () => {
-    if (!newSkill.trim() || !subjectId) return
-    await supabase.from(T_QBANK_SKILLS).insert({ subject_id: subjectId, topic_id: null, subtopic_id: null, name: newSkill.trim(), sort_order: skillsForSubject.length })
+    if (!newSkill.trim() || !skillScope) return
+    // subject_id/topic_id/subtopic_id stay null — a stage's list belongs to no
+    // single year. A duplicate name in the same list is refused by the database.
+    const { error } = await supabase.from(T_QBANK_SKILLS).insert({
+      family: skillScope.family, stage: skillScope.stage,
+      subject_id: null, topic_id: null, subtopic_id: null,
+      name: newSkill.trim(), sort_order: skillsForSubject.length,
+    })
+    if (error) { alert(/duplicate|unique/i.test(error.message)
+      ? `"${newSkill.trim()}" is already in this stage's skill list.` : error.message); return }
     setNewSkill(''); reload()
   }
 
@@ -158,7 +174,7 @@ function CategoriesInner() {
       <div className="max-w-6xl mx-auto px-6 pt-8 pb-16">
         <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1">Categories{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
-        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic → Subtopic structure your questions are filed under. Skills sit directly under a subject — no topic or subtopic needed.</p>
+        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Manage the Year → Subject → Topic → Subtopic structure your questions are filed under. Skills sit outside that tree: one shared list per subject per stage — Years 5\u20136 share one, Years 7\u201312 share another.</p>
 
         <div className="grid md:grid-cols-4 gap-4">
           {/* Subjects */}
@@ -257,9 +273,14 @@ function CategoriesInner() {
             )}
           </div>
 
-          {/* Skills — a subject-level dimension, independent of topics/subtopics */}
+          {/* Skills — one shared list per stage, independent of topics/subtopics */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
-            <h2 className="text-sm font-bold text-[#062E63] mb-2">Skills</h2>
+            <h2 className="text-sm font-bold text-[#062E63]">Skills</h2>
+            <p className="text-[11px] text-[#2A2035]/45 mb-2">
+              {skillScope
+                ? <>Shared by every year in <span className="font-semibold text-[#325099]">{skillScope.family} · {STAGE_LABEL[skillScope.stage]}</span> — editing here changes it for all of them.</>
+                : 'One list per subject per stage, shared by every year in it.'}
+            </p>
             {!subjectId ? (
               <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a subject →</p>
             ) : (
