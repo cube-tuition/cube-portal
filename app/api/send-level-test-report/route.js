@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
-import { levelTestEmailBody, levelTestEmailSubject } from '../../../lib/levelTestEmail'
+import { levelTestEmailBody, levelTestEmailSubject, levelTestEmailText, levelTestEmailHtml } from '../../../lib/levelTestEmail'
 
 /*
  * Email a level-test feedback report (PDF) to a student's parent/guardian.
@@ -31,9 +31,9 @@ export async function POST(req) {
       to: [email_to],
       bcc: [PORTAL_BCC],
       subject,
-      text: body,
+      text: levelTestEmailText(body),
       html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;max-width:600px">${
-        body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+        levelTestEmailHtml(body)
       }</div>`,
       attachments: [{
         filename: pdf_filename || 'level-test-report.pdf',

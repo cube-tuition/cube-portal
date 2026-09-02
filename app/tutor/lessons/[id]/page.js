@@ -10,7 +10,7 @@ import { loadLevelTestItems, loadLevelTestMarks, saveLevelTestMark } from '../..
 import { computeExamAnalysis } from '../../../../lib/examMarking'
 import StudentExamAnalysisView, { studentAnalysisRows } from '../../../../components/StudentExamAnalysisView'
 import { exportLevelTestReport } from '../../../../lib/levelTestReport'
-import { renderLevelTestEmail, levelTestEmailSubject, DEFAULT_LEVEL_TEST_TEMPLATE, LEVEL_TEST_EMAIL_KEY } from '../../../../lib/levelTestEmail'
+import { renderLevelTestEmail, levelTestEmailSubject, levelTestEmailHtml, DEFAULT_LEVEL_TEST_TEMPLATE, LEVEL_TEST_EMAIL_KEY } from '../../../../lib/levelTestEmail'
 
 /*
  * Level-test lesson page — a lesson can link to several level tests. Each test
@@ -49,6 +49,7 @@ export default function LevelTestLessonPage() {
   const [commentState, setCommentState] = useState('idle')  // idle | saving | saved
   const [previewOpen, setPreviewOpen] = useState(false)
   const commentTimer = useRef(null)
+  const commentRef = useRef(null)
   const [template, setTemplate] = useState(DEFAULT_LEVEL_TEST_TEMPLATE)
   const [editingTemplate, setEditingTemplate] = useState(null)   // draft text while the editor is open
   const [templateSaving, setTemplateSaving] = useState(false)
@@ -150,6 +151,29 @@ export default function LevelTestLessonPage() {
   const markedCount = allItems.filter(it => { const a = marks[it.qid]; return a !== '' && a != null }).length
 
   // The comment autosaves like a mark — typed once, kept with the lesson.
+  // Cmd/Ctrl-B on the comment box wraps the selection in ** **, and unwraps it
+  // if it is already wrapped. The markers are the storage format; they never
+  // reach the parent — the email turns them into <strong> and strips them from
+  // its plain-text copy.
+  const onCommentKeyDown = (e) => {
+    if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b')) return
+    e.preventDefault()
+    const el = commentRef.current
+    if (!el) return
+    const { selectionStart: a, selectionEnd: b, value } = el
+    if (a === b) return
+    const picked = value.slice(a, b)
+    const wrapped = picked.startsWith('**') && picked.endsWith('**') && picked.length > 4
+    const next = wrapped
+      ? value.slice(0, a) + picked.slice(2, -2) + value.slice(b)
+      : value.slice(0, a) + `**${picked}**` + value.slice(b)
+    saveComment(next)
+    // Keep the same words selected so the shortcut toggles. Wrapping adds two
+    // markers before the selection and two after; unwrapping removes all four.
+    const [from, to] = wrapped ? [a, b - 4] : [a + 2, b + 2]
+    requestAnimationFrame(() => el.setSelectionRange(from, to))
+  }
+
   const saveComment = (v) => {
     setComment(v)
     setCommentState('saving')
@@ -299,12 +323,14 @@ export default function LevelTestLessonPage() {
                 <div className="flex items-baseline justify-between gap-3 mb-1">
                   <label className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60">Comment to parents</label>
                   <span className="text-[10px] text-[#2A2035]/40">
-                    {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : 'Shown in the email body'}
+                    {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : 'Shown in the email body · **bold** or ⌘B'}
                   </span>
                 </div>
                 <textarea
+                  ref={commentRef}
                   value={comment}
                   onChange={(e) => saveComment(e.target.value)}
+                  onKeyDown={onCommentKeyDown}
                   rows={3}
                   placeholder={`e.g. ${(student?.full_name || 'They').split(' ')[0]} worked carefully through the whole paper — with some practice on the focus areas below, they'll be very well placed…`}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] text-[13px] text-[#2A2035] leading-relaxed placeholder:text-[#2A2035]/30 focus:outline-none focus:border-[#325099] focus:bg-white transition resize-y"
@@ -320,9 +346,11 @@ export default function LevelTestLessonPage() {
                       <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">Subject</span><span className="font-semibold text-[#2A2035]">{pv.subject}</span></p>
                       <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">Attached</span>Feedback report PDF</p>
                     </div>
-                    <div className="px-4 py-3.5 text-[13px] text-[#1a1a1a] leading-relaxed whitespace-pre-wrap bg-white">
-                      {pv.body}
-                    </div>
+                    {/* Rendered through the same helper the send route uses, so
+                        the preview and the email cannot disagree. It escapes
+                        before formatting, so the body cannot inject markup. */}
+                    <div className="px-4 py-3.5 text-[13px] text-[#1a1a1a] leading-relaxed bg-white"
+                      dangerouslySetInnerHTML={{ __html: levelTestEmailHtml(pv.body) }} />
                   </div>
                 )
               })()}
