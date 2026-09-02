@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { reportClientError } from '../../lib/reportClientError'
 import { bookletRenderItems, BOOKLET_CSS } from '../../lib/bookletRender'
 import { splitToFit } from '../../lib/paginate'
 import { blockElements, checkQuote, paintRange, rangeToOffsets, unpaint } from './textAnchor'
@@ -959,9 +960,25 @@ export default function WorkbookDoc({
             .eq('booklet_id', booklet.id).eq('class_id', classId)
         : Promise.resolve({ data: null }),
     ])
-    if (a.data) {
+    let ans = a
+    if (ans.error) {
+      /* A silent refetch failure leaves the page stale while LOOKING healthy —
+         exactly the "I have to hard refresh every time" report. The usual
+         culprit on a long-lived tab is a broken auth session, so refresh it
+         and retry the query once; a second failure goes on the monitoring
+         page instead of being swallowed. */
+      try { await supabase.auth.getSession() } catch { /* reported below */ }
+      ans = await supabase.from('workbook_answers')
+        .select('block_id, part_id, body, base_body, is_teacher')
+        .eq('booklet_id', booklet.id).eq('class_id', classId).eq('owner_id', ownerId)
+      if (ans.error) {
+        reportClientError(new Error(`workbook refresh failed (${mode}): ${ans.error.message}`))
+        return
+      }
+    }
+    if (ans.data) {
       const map = {}, emap = {}
-      for (const r of a.data) {
+      for (const r of ans.data) {
         const k = `${r.block_id}::${r.part_id}`
         if (r.is_teacher) emap[k] = { text: r.body, base: r.base_body ?? null }
         else map[k] = r.body
@@ -989,11 +1006,16 @@ export default function WorkbookDoc({
     document.addEventListener('visibilitychange', onWake)
     window.addEventListener('focus', onWake)
     window.addEventListener('online', onWake)
+    // Safari restoring a page from the back-forward cache fires pageshow, not
+    // necessarily visibilitychange or focus — without this an iPad returning
+    // to the workbook via Back shows whatever the cache froze.
+    window.addEventListener('pageshow', onWake)
     const beat = setInterval(onWake, 30000)
     return () => {
       document.removeEventListener('visibilitychange', onWake)
       window.removeEventListener('focus', onWake)
       window.removeEventListener('online', onWake)
+      window.removeEventListener('pageshow', onWake)
       clearInterval(beat)
     }
   }, [solutions, refresh])
@@ -1027,6 +1049,11 @@ export default function WorkbookDoc({
         // channel was down — pull the gap. The first join is skipped: the
         // initial-load effect has just fetched everything.
         if (status === 'SUBSCRIBED') { if (joined) refresh(true); joined = true }
+        // Failures are otherwise invisible (the heartbeat papers over them) —
+        // put one on the monitoring page so a broken realtime pipe shows up.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          reportClientError(new Error(`workbook realtime channel ${status}`))
+        }
       })
     return () => { supabase.removeChannel(ch) }
   }, [solutions, booklet.id, classId, ownerId, commentStudentId, refresh])
