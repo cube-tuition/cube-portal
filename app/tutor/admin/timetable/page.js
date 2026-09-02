@@ -8,6 +8,7 @@ import {
   T_CLASSES, T_COURSES, T_TUTORS, T_ADMINS, T_TEACHER_AVAILABILITY, T_ENROLMENTS, T_TERMS, T_STUDENTS,
 } from '../../../../lib/tables'
 import TutorNav from '../../../../components/TutorNav'
+import { downloadTimetablePdf } from '../../../../lib/timetablePdf'
 import { listDrafts, createDraft, loadDraft, saveDraft, renameDraft, deleteDraft } from '../../../../lib/timetableDrafts'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -350,6 +351,9 @@ export default function TimetablePage() {
   const [draftId, setDraftId]       = useState('')     // the open draft
   const liveSnapshot = useRef(null)  // live entries captured on entering draft (for exit + apply diff)
   const [hiddenIds, setHiddenIds]   = useState(() => new Set())  // cards hidden in the open draft
+  const [pdfModal, setPdfModal] = useState(false)
+  const [pdfSel, setPdfSel] = useState(() => new Set())
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   // Auth
   useEffect(() => {
@@ -525,6 +529,37 @@ export default function TimetablePage() {
     evs.forEach(ev => { if (cluster.length && ev.s >= curEnd) { flush(); curEnd = -1 } cluster.push(ev); curEnd = Math.max(curEnd, ev.e) })
     flush()
     return evs
+  }
+
+  // ── Download PDF (pick the classes to include) ─────────────────────────────
+  const openPdfModal = () => {
+    setPdfSel(new Set(decorated.rows.map(r => r.id)))
+    setPdfModal(true)
+  }
+  const togglePdfRow = (id) => setPdfSel(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
+  })
+  const doPdfDownload = async () => {
+    setPdfBusy(true)
+    try {
+      const rows = decorated.rows.filter(r => pdfSel.has(r.id)).map(r => ({
+        id: r.id,
+        name: r.class_name || courseLabel(r.course_id) || 'Class',
+        day: r.day_of_week, s: r.s, e: r.e, room: r.room || '',
+        teacher: tutorFirst(r.tutor_id) || (r.teacher || '').split(' ')[0] || '',
+        color: colorForTutor(r.tutor_id),
+      }))
+      const label = selectedTerm ? formatTermLabel(selectedTerm) : ''
+      await downloadTimetablePdf({ rows, termLabel: label,
+        filename: `timetable-${(label || 'term').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf` })
+      setPdfModal(false)
+    } catch (e) {
+      alert('PDF failed: ' + (e.message || e))
+    } finally {
+      setPdfBusy(false)
+    }
   }
 
   // ── Publish to website ──────────────────────────────────────────────────────────
@@ -1036,6 +1071,15 @@ export default function TimetablePage() {
 
             {!draftMode && (
               <button
+                onClick={openPdfModal}
+                title="Download the timetable as a PDF — pick which classes are in it"
+                className="text-sm font-semibold rounded-xl px-4 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition"
+              >
+                ↓ Download PDF
+              </button>
+            )}
+            {!draftMode && (
+              <button
                 onClick={togglePublish}
                 title="Show this term's timetable on the public website"
                 className={`text-sm font-semibold rounded-xl px-4 py-2 border transition ${
@@ -1194,6 +1238,60 @@ export default function TimetablePage() {
                     </div>
                   )
                 })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pdfModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setPdfModal(false) }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
+              <div className="px-6 py-4 border-b border-[#F0F4FF] flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-bold text-[#062E63]">Download timetable PDF</p>
+                  <p className="text-[11px] text-[#2A2035]/50 mt-0.5">Untick anything that shouldn&rsquo;t be on the sheet.</p>
+                </div>
+                <button onClick={() => setPdfModal(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+              </div>
+              <div className="px-6 py-2 border-b border-[#F0F4FF] flex items-center gap-3 text-[11px]">
+                <button onClick={() => setPdfSel(new Set(decorated.rows.map(r => r.id)))}
+                  className="font-semibold text-[#325099] hover:underline">Select all</button>
+                <button onClick={() => setPdfSel(new Set())}
+                  className="font-semibold text-[#325099] hover:underline">Select none</button>
+                <span className="ml-auto text-[#2A2035]/40 tabular-nums">{pdfSel.size} of {decorated.rows.length}</span>
+              </div>
+              <div className="overflow-y-auto flex-1 px-3 py-2">
+                {DAYS.filter(d => decorated.rows.some(r => r.day_of_week === d)).map(day => (
+                  <div key={day} className="mb-1.5">
+                    <p className="px-3 pt-2 pb-1 text-[10px] font-bold tracking-widest uppercase text-[#325099]/60">{day}</p>
+                    {decorated.rows.filter(r => r.day_of_week === day).sort((a, b) => a.s - b.s).map(r => {
+                      const on = pdfSel.has(r.id)
+                      const c = colorForTutor(r.tutor_id)
+                      return (
+                        <label key={r.id} className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-[#F8FAFF] cursor-pointer">
+                          <input type="checkbox" checked={on} onChange={() => togglePdfRow(r.id)} className="accent-[#325099]" />
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.text }} />
+                          <span className="text-xs font-semibold text-[#2A2035] flex-1 min-w-0 truncate">
+                            {r.class_name || courseLabel(r.course_id) || 'Class'}
+                          </span>
+                          <span className="text-[10px] text-[#2A2035]/45 shrink-0 tabular-nums">
+                            {fmtTime(r.s)}–{fmtTime(r.e)}{tutorFirst(r.tutor_id) ? ` · ${tutorFirst(r.tutor_id)}` : ''}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+                <button onClick={() => setPdfModal(false)}
+                  className="text-xs font-semibold text-[#2A2035]/50 px-4 py-2 rounded-full hover:bg-[#F8FAFF] transition">Cancel</button>
+                <button onClick={doPdfDownload} disabled={pdfBusy || pdfSel.size === 0}
+                  className="text-xs font-bold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2 rounded-full transition disabled:opacity-40">
+                  {pdfBusy ? 'Building…' : `↓ Download (${pdfSel.size})`}
+                </button>
               </div>
             </div>
           </div>
