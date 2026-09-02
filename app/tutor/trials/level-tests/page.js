@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import SearchSelectPopover from '../../../../components/SearchSelectPopover'
 import { subjectCode } from '../../../../lib/format'
 
 /*
@@ -39,6 +40,7 @@ export default function LevelTestBookingsPage() {
   const [bookings, setBookings] = useState([])
   const [markCounts, setMarkCounts] = useState({})   // lesson_id -> marks entered
   const [form, setForm] = useState(EMPTY_FORM)
+  const [studentPop, setStudentPop] = useState(null)   // anchor rect while the picker is open
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [confirmDel, setConfirmDel] = useState(null)
@@ -86,10 +88,20 @@ export default function LevelTestBookingsPage() {
   }, [ready])
 
   const testById = useMemo(() => Object.fromEntries(tests.map(t => [t.id, t])), [tests])
-  const byStatus = useMemo(() => ({
-    active: students.filter(s => s.status === 'active'),
-    trial: students.filter(s => s.status === 'trial'),
-  }), [students])
+  const studentOptions = useMemo(() => {
+    const opt = (s) => ({
+      value: String(s.id),
+      label: s.full_name,
+      sub: [s.year ? `Year ${s.year}` : null, s.status === 'trial' ? 'Trial' : 'Active', s.school || null]
+        .filter(Boolean).join(' · '),
+    })
+    // Trial students first — they are who this page mostly books.
+    return [
+      ...students.filter(s => s.status === 'trial').map(opt),
+      ...students.filter(s => s.status === 'active').map(opt),
+    ]
+  }, [students])
+  const chosenStudent = students.find(s => String(s.id) === String(form.student_id)) || null
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
   const toggleTest = (tid) => setForm(f => ({
@@ -159,21 +171,30 @@ export default function LevelTestBookingsPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="col-span-2">
               <label className={LABEL}>Student</label>
-              <select value={form.student_id} onChange={set('student_id')} className={FIELD}>
-                <option value="">Choose a student…</option>
-                {byStatus.trial.length > 0 && (
-                  <optgroup label="Trial students">
-                    {byStatus.trial.map(s => (
-                      <option key={s.id} value={s.id}>{s.full_name}{s.year ? ` · Y${s.year}` : ''}{s.school ? ` · ${s.school}` : ''}</option>
-                    ))}
-                  </optgroup>
-                )}
-                <optgroup label="Active students">
-                  {byStatus.active.map(s => (
-                    <option key={s.id} value={s.id}>{s.full_name}{s.year ? ` · Y${s.year}` : ''}{s.school ? ` · ${s.school}` : ''}</option>
-                  ))}
-                </optgroup>
-              </select>
+              <button type="button"
+                onClick={(e) => setStudentPop(e.currentTarget.getBoundingClientRect())}
+                className={`${FIELD} flex items-center justify-between gap-2 text-left ${chosenStudent ? '' : 'text-[#2A2035]/40'}`}>
+                <span className="truncate">
+                  {chosenStudent
+                    ? <>{chosenStudent.full_name}
+                        {chosenStudent.year && <span className="text-[#325099]/60"> · Y{chosenStudent.year}</span>}
+                        {chosenStudent.status === 'trial' && <span className="ml-1.5 text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] align-middle">Trial</span>}</>
+                    : 'Choose a student…'}
+                </span>
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 opacity-50">
+                  <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {studentPop && (
+                <SearchSelectPopover
+                  anchor={studentPop}
+                  options={studentOptions}
+                  currentValue={form.student_id}
+                  placeholder="Search students…"
+                  onSelect={(v) => { setForm(f => ({ ...f, student_id: v })); setStudentPop(null) }}
+                  onClose={() => setStudentPop(null)}
+                />
+              )}
             </div>
             <div>
               <label className={LABEL}>Date</label>
