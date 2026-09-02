@@ -1211,6 +1211,22 @@ export default function WorkbookDoc({
     setEditingClassNote(null)
   }
 
+  /* Typing into a fillable table cell. Blank body cells arrive tagged
+     data-tcell from the renderer; the student's copy makes them editable (see
+     the layout effect below) and every input saves through the same pipeline
+     as any answer, under part_id "tcell:<row>-<col>". */
+  const onCellInput = useCallback((e) => {
+    const cellEl = e.target.closest?.('[data-tcell]')
+    if (!cellEl) return
+    const bid = cellEl.closest('[data-bid]')?.dataset.bid
+    if (!bid) return
+    const pid = `tcell:${cellEl.dataset.tcell}`
+    const key = `${bid}::${pid}`
+    const v = cellEl.textContent
+    setAnswers(m => ({ ...m, [key]: v }))
+    saveAnswer(key, bid, pid, v)
+  }, [saveAnswer])
+
   // A click on an MCQ option is that part's answer. Click it again to clear.
   // The options carry data-opt / data-pid straight from the renderer, so this
   // is plain event delegation — no per-option React component.
@@ -1245,6 +1261,21 @@ export default function WorkbookDoc({
         const chosen = bid ? answers[`${bid}::${el.dataset.pid}`] : ''
         el.querySelectorAll('[data-opt]').forEach(o =>
           o.classList.toggle('bk-opt-sel', !!chosen && o.dataset.opt === chosen))
+      })
+      // Fillable table cells: students type in place; the teacher's review tab
+      // just shows what they typed. The cell being typed into is skipped so a
+      // re-render can't clobber the caret mid-word.
+      const plain = (() => {
+        const d = document.createElement('div')
+        d.setAttribute('contenteditable', 'plaintext-only')
+        return d.contentEditable === 'plaintext-only' ? 'plaintext-only' : 'true'
+      })()
+      root.querySelectorAll('[data-tcell]').forEach(el => {
+        const bid = el.closest('[data-bid]')?.dataset.bid
+        if (!bid) return
+        if (mode === 'own' && el.getAttribute('contenteditable') !== plain) el.setAttribute('contenteditable', plain)
+        const val = answers[`${bid}::tcell:${el.dataset.tcell}`] ?? ''
+        if (document.activeElement !== el && el.textContent !== val) el.textContent = val
       })
     }
     // The teacher's class annotations paint in EVERY mode; the student's own
@@ -1490,6 +1521,12 @@ export default function WorkbookDoc({
         .bk-doc-pages .bk-content > .bk-chunk{ margin-bottom:32px; }
         .bk-doc-pages .bk-content > .bk-chunk:last-child{ margin-bottom:0; }
         .bk-answer-live{ margin:12px 0 6px; }
+        /* Fillable table cells — tinted so answer spaces read as answer
+           spaces, on the student copy and the review tab alike. */
+        td[data-tcell]{ background:#FCFDFF; box-shadow:inset 0 0 0 1px #C3CEE6; border-radius:4px; min-width:44px; }
+        .bk-doc-own td[data-tcell]{ cursor:text; }
+        .bk-doc-own td[data-tcell]:focus{ outline:2px solid #325099; outline-offset:-2px; background:#fff; }
+        .bk-doc-own td[data-tcell]:empty::before{ content:'Type here…'; color:#9aa4bb; font-size:11px; font-style:italic; }
         /* overflow-wrap is stated rather than left to default: a textarea
            computes break-word and a div computes normal, so leaving it out
            makes the highlight backdrop wrap differently from the text in front
@@ -1645,7 +1682,8 @@ export default function WorkbookDoc({
       <div className={`bk-root bk-doc-pages${spread ? ' bk-spread' : ''}${mode === 'own' ? ' bk-doc-own' : ''}`} ref={pagesRef}
         style={{ position: 'relative', zoom: zoom !== 1 ? zoom : undefined }}
         onMouseUp={canNote || canAnnotate ? onPageSelect : undefined}
-        onClick={mode === 'own' ? onPageClick : undefined}>
+        onClick={mode === 'own' ? onPageClick : undefined}
+        onInput={mode === 'own' ? onCellInput : undefined}>
         {(canNote || canAnnotate) && selection && !noteDraft && !classDraft && (
           <button
             className={canAnnotate ? 'bk-note-btn bk-class-btn' : 'bk-note-btn'}
