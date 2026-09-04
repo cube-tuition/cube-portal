@@ -16,6 +16,8 @@ import TutorNav from '../../../../components/TutorNav'
 const AREAS = [
   { label: 'Portal',  href: '/tutor/admin/monitoring/portal', icon: '📶',
     desc: 'Student engagement across the portal — logins, page views, quiz and homework results, and any client crashes from the last fortnight.' },
+  { label: 'Attendance', href: '/tutor/admin/monitoring/attendance', icon: '📋',
+    desc: 'Attendance across every class for a term, with the students slipping below the line surfaced first.' },
   { label: 'Trials',  href: '/tutor/trials', icon: '🧪',
     desc: 'Trial students and their outcomes, plus level tests: book a student in, mark the paper and send the report.' },
   { label: 'Flags',   href: '/tutor/flags', icon: '🚩',
