@@ -1,160 +1,70 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '../../../../lib/supabase'
+import Link from 'next/link'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import AnalyticsDashboard from '../../../../components/analytics/AnalyticsDashboard'
-import LoginsPanel from '../../../../components/analytics/LoginsPanel'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
-import { classesForTerm } from '../../../../lib/classes'
-import { T_ENROLMENTS, T_QUIZ_RESULTS, T_STUDENTS } from '../../../../lib/tables'
-import { sydneyToday, addDays } from '../../../../lib/portalAnalytics'
 
 /*
- * Portal Analytics — /tutor/admin/monitoring (admin only)
+ * Monitoring — /tutor/admin/monitoring (admin only)
  *
- * This file is auth + data. All the reading of that data — filters, KPIs,
- * scores, tables, the drawer — lives in AnalyticsDashboard, which takes raw
- * rows so it can also be rendered by a harness for visual checks.
- *
- * Fetch horizon: 140 days of activity/page views (enough for a term view plus
- * an equal previous period), 35 days of the event stream, and the current
- * term's tutor-recorded marks (homework grades + RQ scores).
+ * A hub, not a screen of its own: the three places you go to see how the
+ * portal and the people in it are tracking. Each of these existed already and
+ * still lives at its own URL — this page gathers them under one heading so the
+ * Admin menu is not a flat list of ten unrelated items.
  */
-/*
- * Client crashes from the last fortnight, grouped by route + message so one
- * broken page reads as one line with a count — not two hundred rows. Renders
- * nothing when there is nothing to report, so the page stays clean in the
- * (usual) case of zero crashes.
- */
-function CrashStrip({ crashes, students }) {
-  if (!crashes?.length) return null
-  const nameOf = Object.fromEntries((students || []).map(s => [s.id, s.full_name]))
-  const groups = {}
-  for (const c of crashes) {
-    const key = `${c.route}::${c.message}`
-    const g = (groups[key] ||= { route: c.route, message: c.message, n: 0, latest: c.at, who: new Set(), global: false })
-    g.n++
-    if (c.at > g.latest) g.latest = c.at
-    if (c.user_id) g.who.add(nameOf[c.user_id] || 'a signed-in user')
-    if (c.global) g.global = true
-  }
-  const rows = Object.values(groups).sort((a, b) => b.latest.localeCompare(a.latest))
-  const fmt = (iso) => new Date(iso).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
-  return (
-    <div className="max-w-7xl mx-auto px-6 md:px-10 pt-4">
-      <div className="bg-white rounded-2xl border border-[#FDE68A] overflow-hidden">
-        <p className="px-4 py-2.5 text-xs font-bold text-[#92400E] bg-[#FFFBEB] border-b border-[#FDE68A]">
-          ⚠ Portal crashes · last 14 days · {crashes.length} report{crashes.length === 1 ? '' : 's'}
-        </p>
-        <div className="divide-y divide-[#F4F7FF]">
-          {rows.slice(0, 8).map((g, i) => (
-            <div key={i} className="px-4 py-2.5 text-xs flex items-baseline gap-3 flex-wrap">
-              <span className="font-bold text-[#B23A3A] tabular-nums shrink-0">{g.n}×</span>
-              <code className="text-[#062E63] font-semibold">{g.route}</code>
-              <span className="text-[#2A2035]/70 flex-1 min-w-[200px]">{g.message}{g.global ? ' (root layout)' : ''}</span>
-              <span className="text-[#2A2035]/40 shrink-0">
-                {g.who.size ? `${[...g.who].slice(0, 3).join(', ')}${g.who.size > 3 ? ` +${g.who.size - 3}` : ''} · ` : ''}latest {fmt(g.latest)}
-              </span>
-            </div>
-          ))}
-          {rows.length > 8 && <p className="px-4 py-2 text-[11px] text-[#2A2035]/40">…and {rows.length - 8} more distinct errors</p>}
-        </div>
-      </div>
-    </div>
-  )
-}
+const AREAS = [
+  { label: 'Portal',  href: '/tutor/admin/monitoring/portal', icon: '📶',
+    desc: 'Student engagement across the portal — logins, page views, quiz and homework results, and any client crashes from the last fortnight.' },
+  { label: 'Trials',  href: '/tutor/trials', icon: '🧪',
+    desc: 'Trial students and their outcomes, plus level tests: book a student in, mark the paper and send the report.' },
+  { label: 'Flags',   href: '/tutor/flags', icon: '🚩',
+    desc: 'Students tutors have flagged for attention, and what has been done about each one.' },
+]
 
-export default function MonitoringPage() {
+export default function MonitoringHub() {
   const router = useRouter()
-  const [staff, setStaff] = useState(null)
-  const [data, setData] = useState(null)
-  const [error, setError] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     (async () => {
       const { profile, role } = await getAuthProfile()
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
-      setStaff(profile)
-      try {
-        const today = sydneyToday()
-        const terms = await fetchAllTerms()
-        const term = getCurrentTerm(terms)
-        const horizon = addDays(today, -140)
-
-        const { data: classes } = await classesForTerm(term?.id, 'id, class_name, teacher, day_of_week')
-        const classIds = (classes || []).map(c => c.id)
-
-        const [studentsRes, enrRes, viewsRes, actRes, evRes, quizRes, crashRes] = await Promise.all([
-          supabase.from(T_STUDENTS).select('id, full_name, year').eq('status', 'active'),
-          classIds.length
-            ? supabase.from(T_ENROLMENTS).select('student_id, class_id, status')
-                .in('class_id', classIds).in('status', ['active', 'trial'])
-            : { data: [] },
-          supabase.from('portal_page_views').select('user_id, day, path, views').gte('day', horizon),
-          supabase.from('portal_activity').select('user_id, day').eq('role', 'student').gte('day', horizon),
-          supabase.from('portal_events').select('id, user_id, ts, event, path')
-            .gte('ts', addDays(today, -35) + 'T00:00:00+10:00')
-            .order('ts', { ascending: false }).limit(20000),
-          term
-            ? supabase.from(T_QUIZ_RESULTS)
-                .select('student_id, subject, week, score, max_score, homework_grade, quiz_date')
-                .gte('quiz_date', term.start_date).lte('quiz_date', term.end_date)
-            : { data: [] },
-          // Client crashes, reported by the error boundaries. Two weeks is
-          // enough to catch "has been broken for days" — the failure mode that
-          // went unseen in August.
-          supabase.from('client_errors').select('at, route, message, user_id, global')
-            .gte('at', addDays(today, -14) + 'T00:00:00+10:00')
-            .order('at', { ascending: false }).limit(200),
-        ])
-        setData({
-          students: studentsRes.data ?? [],
-          classes: classes ?? [],
-          enrolments: enrRes.data ?? [],
-          views: viewsRes.data ?? [],
-          activity: actRes.data ?? [],
-          events: evRes.data ?? [],
-          quizzes: quizRes.data ?? [],
-          crashes: crashRes.data ?? [],
-          term, today,
-        })
-      } catch (e) { setError(e.message || 'Failed to load analytics') }
+      setProfile(profile); setReady(true)
     })()
   }, [router])
 
-  if (!staff) return <div className="min-h-screen bg-[#F8FAFF]" />
+  if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
-      <TutorNav staffName={staff.full_name} isAdmin />
-      <div className="max-w-7xl mx-auto px-6 md:px-10 pt-8 pb-2">
-        <h1 className="text-2xl font-bold font-display text-[#062E63]">Portal Analytics</h1>
-        <p className="text-sm text-[#325099]/60 mt-1 mb-1">
-          Monitor student activity, feature adoption and engagement across the CUBE Student Portal.
-          {data?.term ? ` · ${formatTermLabel(data.term)}` : ''}
-        </p>
-      </div>
-      {error ? (
-        <p className="max-w-7xl mx-auto px-6 md:px-10 py-6 text-sm text-[#B23A3A]">{error}</p>
-      ) : !data ? (
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 space-y-4 animate-pulse">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 bg-white rounded-2xl border border-[#DEE7FF]" />)}
+      <TutorNav staffName={profile?.full_name} isAdmin={true} />
+      <div className="max-w-5xl mx-auto px-6 pt-10 pb-16">
+        <div className="rounded-2xl px-7 py-6 mb-8 border bg-[#EEF3FF] border-[#DEE7FF]">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">📶</span>
+            <div>
+              <h1 className="text-2xl font-bold text-[#062E63]">Monitoring</h1>
+              <p className="text-xs text-[#2A2035]/55 mt-0.5">How the portal is being used, and which students need a closer look.</p>
+            </div>
           </div>
-          <div className="h-64 bg-white rounded-2xl border border-[#DEE7FF]" />
-          <div className="h-80 bg-white rounded-2xl border border-[#DEE7FF]" />
         </div>
-      ) : (
-        <>
-          <CrashStrip crashes={data.crashes} students={data.students} />
-          <AnalyticsDashboard {...data} />
-          <div className="max-w-7xl mx-auto px-6 md:px-10 pb-10">
-            <LoginsPanel />
-          </div>
-        </>
-      )}
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {AREAS.map((a) => (
+            <Link key={a.label} href={a.href}
+              className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">
+              <div className="flex items-center gap-2.5 mb-2">
+                <span className="w-9 h-9 rounded-xl flex items-center justify-center text-lg bg-[#EEF3FF]">{a.icon}</span>
+                <span className="text-sm font-bold text-[#062E63] group-hover:underline">{a.label}</span>
+              </div>
+              <p className="text-xs text-[#2A2035]/55 leading-relaxed">{a.desc}</p>
+              <p className="text-[11px] font-semibold mt-3 text-[#325099]">Open →</p>
+            </Link>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

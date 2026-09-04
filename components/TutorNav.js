@@ -61,12 +61,12 @@ const ADMIN_GROUPS = [
       { label: 'Availabilities', href: '/tutor/admin/availabilities', icon: '📅' },
       { label: 'Drop-ins',      href: '/tutor/dropin',               icon: '☕' },
       { label: 'Emails',        href: '/tutor/emails',               icon: '✉️'  },
-      { label: 'Flags',         href: '/tutor/flags',                icon: '🚩' },
+      // Portal analytics, Trials and Flags all live under Monitoring now — the
+      // hub links to all three, so they are not repeated here.
       { label: 'Monitoring',    href: '/tutor/admin/monitoring',     icon: '📶' },
       { label: 'Reports',       href: '/tutor/reports',              icon: '📊' },
       { label: 'Timetable',     href: '/tutor/admin/timetable',      icon: '🗓️' },
       { label: 'Transition',    href: '/tutor/transition',           icon: '🔄' },
-      { label: 'Trials',        href: '/tutor/trials',               icon: '🧪' },
     ],
   },
   {
