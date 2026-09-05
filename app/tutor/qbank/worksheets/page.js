@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
+import SearchSelectPopover from '../../../../components/SearchSelectPopover'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
@@ -62,6 +63,7 @@ function AdditionalQuestionsInner() {
   // Curriculum topic this worksheet belongs to. Tagging one makes it appear
   // under that topic in Materials; null leaves it untagged.
   const [wsTopicId, setWsTopicId] = useState('')
+  const [wsTopicPop, setWsTopicPop] = useState(null)   // anchor rect while the topic picker is open
   const [allTopics, setAllTopics] = useState([])
   const [tray, setTray] = useState([])
   const [dirty, setDirty] = useState(false)
@@ -522,13 +524,29 @@ function AdditionalQuestionsInner() {
                 className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099]" />
               {/* Filing this under a topic makes it appear on that topic's page
                   in Materials, beside the workbooks for the same topic. */}
-              <select value={wsTopicId} onChange={(e) => { setWsTopicId(e.target.value); setDirty(true) }}
-                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
-                <option value="">No topic — won&rsquo;t show under Materials</option>
-                {allTopics.map((t) => (
-                  <option key={t.id} value={t.id}>{`Year ${t.year} ${t.subject} · ${t.name}`}</option>
-                ))}
-              </select>
+              <button type="button"
+                onClick={(e) => setWsTopicPop(e.currentTarget.getBoundingClientRect())}
+                className={`w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#325099] flex items-center justify-between gap-2 text-left hover:border-[#325099] transition ${topicById[wsTopicId] ? 'text-[#2A2035]' : 'text-[#2A2035]/45'}`}>
+                <span className="truncate">
+                  {topicById[wsTopicId]
+                    ? `Year ${topicById[wsTopicId].year} ${topicById[wsTopicId].subject} · ${topicById[wsTopicId].name}`
+                    : 'No topic — won\u2019t show under Materials'}
+                </span>
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 opacity-50">
+                  <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {wsTopicPop && (
+                <SearchSelectPopover
+                  anchor={wsTopicPop}
+                  options={allTopics.map((t) => ({ value: String(t.id), label: t.name, sub: `Year ${t.year} · ${t.subject}` }))}
+                  currentValue={String(wsTopicId || '')}
+                  clearLabel="No topic — won\u2019t show under Materials"
+                  placeholder="Search topics\u2026"
+                  onSelect={(v) => { setWsTopicId(v); setDirty(true); setWsTopicPop(null) }}
+                  onClose={() => setWsTopicPop(null)}
+                />
+              )}
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] cursor-pointer">
                   <input type="checkbox" checked={includeMarks} onChange={(e) => { setIncludeMarks(e.target.checked); setDirty(true) }} /> Show marks
