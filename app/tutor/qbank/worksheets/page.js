@@ -405,14 +405,22 @@ function AdditionalQuestionsInner() {
 
   // Live preview (shares the worksheet exporter; toggle worksheet vs answer key).
   const [previewAnswers, setPreviewAnswers] = useState(false)
-  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers: previewAnswers }), [title, subtitle, tray, includeMarks, previewAnswers])
-  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, subtitle, includeMarks, previewAnswers, tray])
+  // Cover year + subject: the filing topic when set, else the first question's
+  // subject from the bank's taxonomy.
+  const coverMeta = useMemo(() => {
+    const t = topicById[wsTopicId]
+    if (t) return { year: t.year, subject: t.subject }
+    const sub = tray.length ? labelFor(tray[0])?.subject : null
+    return sub ? { year: sub.year_level, subject: sub.name } : { year: '', subject: '' }
+  }, [topicById, wsTopicId, tray, labelFor])
+  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta }), [title, subtitle, tray, includeMarks, previewAnswers, coverMeta])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, c: coverMeta, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, subtitle, includeMarks, previewAnswers, tray, coverMeta])
 
   const doExport = async (answers) => {
     if (!tray.length) return
     setBusy(answers ? 'answers' : 'worksheet')
     try {
-      const res = await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers, preview: true })
+      const res = await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers, preview: true, cover: coverMeta })
       if (res?.url) setPreview({ url: res.url, filename: res.filename, title: answers ? 'Answer key — preview' : 'Worksheet — preview' })
       if (!answers) {
         await logWorksheetUsage(tray, title || 'Worksheet', profile?.full_name)
