@@ -73,6 +73,7 @@ function AdditionalQuestionsInner() {
   // Curriculum topic this worksheet belongs to. Tagging one makes it appear
   // under that topic in Materials; null leaves it untagged.
   const [wsTopicId, setWsTopicId] = useState('')
+  const [coverYear, setCoverYear] = useState('')       // '' = derived from topic / first question
   // Section bands, e.g. a "Homework" split part-way down a combined sheet.
   // Read-only here: persist() never writes this column, so editing the question
   // list cannot silently drop the split.
@@ -95,7 +96,7 @@ function AdditionalQuestionsInner() {
 
   // Autosave plumbing — refs hold the latest editable snapshot + in-flight state
   // so debounced saves never race or persist stale data.
-  const dataRef = useRef({ selectedId: null, title: '', tray: [], includeMarks: true, wsTopicId: '' })
+  const dataRef = useRef({ selectedId: null, title: '', tray: [], includeMarks: true, wsTopicId: '', coverYear: '' })
   const savingRef = useRef(false)
   const pendingRef = useRef(false)
   const dirtyRef = useRef(false)
@@ -137,7 +138,7 @@ function AdditionalQuestionsInner() {
           .select('*').single()
           .then(({ data, error }) => {
             if (error || !data) return
-            setSelectedId(data.id); setTitle(data.title || ''); setWsTopicId(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
+            setSelectedId(data.id); setTitle(data.title || ''); setWsTopicId(''); setCoverYear(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
             loadWorksheets()
             router.replace('/tutor/qbank/worksheets')   // drop ?new=1 so refresh doesn't create another
           })
@@ -155,7 +156,7 @@ function AdditionalQuestionsInner() {
   const topicById = useMemo(() => Object.fromEntries(allTopics.map((t) => [t.id, t])), [allTopics])
 
   // Keep refs in sync so the autosave loop always reads the latest values.
-  useEffect(() => { dataRef.current = { selectedId, title, tray, includeMarks, wsTopicId } }, [selectedId, title, tray, includeMarks, wsTopicId])
+  useEffect(() => { dataRef.current = { selectedId, title, tray, includeMarks, wsTopicId, coverYear } }, [selectedId, title, tray, includeMarks, wsTopicId, coverYear])
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   // Low-level write for a given snapshot.
@@ -164,6 +165,7 @@ function AdditionalQuestionsInner() {
     const { error } = await supabase.from(T_QBANK_WORKSHEETS).update({
       title: (snap.title || '').trim() || 'Untitled worksheet',
       subtitle: null,   // retired — the cover carries the title alone
+      cover_year: snap.coverYear !== '' && snap.coverYear != null ? Number(snap.coverYear) : null,
       question_ids: (snap.tray || []).map((q) => (
         q._workingLines && Object.keys(q._workingLines).length
           ? { id: q.id, lines: q._workingLines }
@@ -198,6 +200,7 @@ function AdditionalQuestionsInner() {
     setSelectedId(ws.id)
     setTitle(ws.title || '')
     setWsTopicId(ws.topic_id ?? '')
+    setCoverYear(ws.cover_year ?? '')
     setBreaks(Array.isArray(ws.section_breaks) ? ws.section_breaks : [])
     const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
     const ids = entries.map(entryId).filter(Boolean)
@@ -245,7 +248,7 @@ function AdditionalQuestionsInner() {
     if (!selectedId || !dirty) return
     const t = setTimeout(() => { saveWorksheet() }, 1000)
     return () => clearTimeout(t)
-  }, [dirty, title, tray, includeMarks, wsTopicId, selectedId, saveWorksheet])
+  }, [dirty, title, tray, includeMarks, wsTopicId, coverYear, selectedId, saveWorksheet])
 
   // Best-effort flush when the page unmounts with unsaved edits.
   useEffect(() => () => { if (dirtyRef.current) saveWorksheet() }, [saveWorksheet])
@@ -412,10 +415,11 @@ function AdditionalQuestionsInner() {
   // subject from the bank's taxonomy.
   const coverMeta = useMemo(() => {
     const t = topicById[wsTopicId]
-    if (t) return { year: t.year, subject: t.subject }
-    const sub = tray.length ? labelFor(tray[0])?.subject : null
-    return sub ? { year: sub.year_level, subject: sub.name } : { year: '', subject: '' }
-  }, [topicById, wsTopicId, tray, labelFor])
+    const sub = !t && tray.length ? labelFor(tray[0])?.subject : null
+    const derived = t ? { year: t.year, subject: t.subject } : sub ? { year: sub.year_level, subject: sub.name } : { year: '', subject: '' }
+    // A sheet that spans years (or just wants a different label) overrides the year.
+    return coverYear !== '' && coverYear != null ? { ...derived, year: Number(coverYear) } : derived
+  }, [topicById, wsTopicId, tray, labelFor, coverYear])
   const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta, breaks }), [title, tray, includeMarks, previewAnswers, coverMeta, breaks])
   const previewSig = useMemo(() => JSON.stringify({ t: title, m: includeMarks, a: previewAnswers, c: coverMeta, b: breaks, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, includeMarks, previewAnswers, tray, coverMeta, breaks])
 
@@ -705,6 +709,16 @@ function AdditionalQuestionsInner() {
                   onClose={() => setWsTopicPop(null)}
                 />
               )}
+              {/* The year printed on the cover. Auto follows the topic (or the
+                  first question); a sheet spanning years picks its own. */}
+              <label className="flex items-center gap-2 text-xs text-[#2A2035]/60">
+                <span className="shrink-0">Cover year</span>
+                <select value={coverYear} onChange={(e) => { setCoverYear(e.target.value); setDirty(true) }}
+                  className="flex-1 border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                  <option value="">Auto{(() => { const y = topicById[wsTopicId]?.year ?? (tray.length ? labelFor(tray[0])?.subject?.year_level : ''); return y ? ` (Year ${y})` : '' })()}</option>
+                  {[5, 6, 7, 8, 9, 10, 11, 12].map((y) => <option key={y} value={y}>Year {y}</option>)}
+                </select>
+              </label>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] cursor-pointer">
                   <input type="checkbox" checked={includeMarks} onChange={(e) => { setIncludeMarks(e.target.checked); setDirty(true) }} /> Show marks
