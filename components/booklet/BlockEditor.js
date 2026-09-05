@@ -481,8 +481,18 @@ function MathObjFields({ obj, upd }) {
       )}
       {obj.objType === 'stemleaf' && (
         <>
-          <div><label className={L}>Data values (comma or space separated)</label>
+          <div><label className={L}>{obj.slBack ? 'Right-hand data values' : 'Data values'} (comma or space separated)</label>
             <LiftedTextarea className={TA} value={obj.slData ?? ''} onCommit={v => upd({ slData: v })} placeholder="23, 25, 31, 34, 34, 42, 45, 51" /></div>
+          {obj.slBack && (
+            <>
+              <div><label className={L}>Left-hand data values</label>
+                <LiftedTextarea className={TA} value={obj.slData2 ?? ''} onCommit={v => upd({ slData2: v })} placeholder="18, 21, 25, 26, 33, 37, 40" /></div>
+              <div className="flex gap-2">
+                <div className="flex-1"><label className={L}>Left label</label><LiftedInput className={I} value={obj.slLeft ?? ''} onCommit={v => upd({ slLeft: v })} placeholder="e.g. Class A" /></div>
+                <div className="flex-1"><label className={L}>Right label</label><LiftedInput className={I} value={obj.slRight ?? ''} onCommit={v => upd({ slRight: v })} placeholder="e.g. Class B" /></div>
+              </div>
+            </>
+          )}
           <div className="flex gap-2 items-end">
             <div className="flex-1"><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.slTitle ?? ''} onCommit={v => upd({ slTitle: v })} placeholder="e.g. Test scores" /></div>
             <div className="w-44"><label className={L}>Leaf digit</label>
@@ -496,6 +506,10 @@ function MathObjFields({ obj, upd }) {
           <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
             <input type="checkbox" checked={obj.slHeaders !== false} onChange={e => upd({ slHeaders: e.target.checked })} className="accent-[#325099]" />
             Show “Stem / Leaf” headers
+          </label>
+          <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none">
+            <input type="checkbox" checked={!!obj.slBack} onChange={e => upd({ slBack: e.target.checked })} className="accent-[#325099]" />
+            Back-to-back — a second data set’s leaves run left from the shared stems
           </label>
           <p className="text-[10px] text-[#2A2035]/45">Leaves are sorted automatically and empty stems in between are kept. A key is generated for you.</p>
         </>
@@ -518,7 +532,7 @@ function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true }
+const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '' }
 // A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
 const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
 
