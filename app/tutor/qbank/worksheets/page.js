@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import SearchSelectPopover from '../../../../components/SearchSelectPopover'
+import QuickEditModal from '../../../../components/qbank/QuickEditModal'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
@@ -64,6 +65,7 @@ function AdditionalQuestionsInner() {
   // under that topic in Materials; null leaves it untagged.
   const [wsTopicId, setWsTopicId] = useState('')
   const [wsTopicPop, setWsTopicPop] = useState(null)   // anchor rect while the topic picker is open
+  const [editQ, setEditQ] = useState(null)             // bank question being quick-edited
   const [allTopics, setAllTopics] = useState([])
   const [tray, setTray] = useState([])
   const [dirty, setDirty] = useState(false)
@@ -277,6 +279,17 @@ function AdditionalQuestionsInner() {
   const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
   // Skills are a subject-level dimension — available as soon as a subject is picked.
   const skillsForFilter = useMemo(() => (tax && subjectId ? (tax.skillsBySubject[subjectId] || []) : []), [tax, subjectId])
+  const onQuestionSaved = async () => {
+    const { data } = await supabase.from(T_QBANK_QUESTIONS)
+      .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
+      .eq('id', editQ.id).single()
+    if (data) {
+      setQuestions((qs) => qs.map((q) => (q.id === data.id ? data : q)))
+      setTray((ts) => ts.map((q) => (q.id === data.id ? { ...data, _workingLines: q._workingLines } : q)))
+    }
+    setEditQ(null)
+  }
+
   const trayIds = useMemo(() => new Set(tray.map((q) => q.id)), [tray])
 
   const filtered = useMemo(() => {
@@ -347,7 +360,7 @@ function AdditionalQuestionsInner() {
   // Live preview (shares the worksheet exporter; toggle worksheet vs answer key).
   const [previewAnswers, setPreviewAnswers] = useState(false)
   const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers: previewAnswers }), [title, subtitle, tray, includeMarks, previewAnswers])
-  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, q: tray.map((q) => [q.id, q._workingLines]) }), [title, subtitle, includeMarks, previewAnswers, tray])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, subtitle, includeMarks, previewAnswers, tray])
 
   const doExport = async (answers) => {
     if (!tray.length) return
@@ -502,6 +515,8 @@ function AdditionalQuestionsInner() {
                         {l?.topic && <span className="text-[10px] text-[#2A2035]/40">› {l.topic.name}</span>}
                         <div className="ml-auto flex items-center gap-2">
                           <UsageBadge usage={usageMap[q.id]} />
+                          <button onClick={() => setEditQ(q)}
+                            className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#325099]">✎ Edit</button>
                           <button onClick={() => (inTray ? removeFromTray(q.id) : add(q))}
                             className={`text-[11px] font-semibold ${inTray ? 'text-[#2A2035]/40 hover:text-[#DC2626]' : 'text-[#325099] hover:text-[#062E63]'}`}>
                             {inTray ? 'Added ✓' : '+ Add'}
@@ -623,6 +638,8 @@ function AdditionalQuestionsInner() {
                       <div className="flex flex-col items-center gap-0.5">
                         <button onClick={() => moveTray(q.id, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
                         <button onClick={() => moveTray(q.id, 1)} disabled={i === tray.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
+                        <button onClick={() => setEditQ(q)} title="Edit this question — stem, solution, marks, MCQ options"
+                          className="text-[11px] text-[#325099]/70 hover:text-[#325099] mt-1">✎</button>
                         <button onClick={() => removeFromTray(q.id)} className="text-[11px] text-[#DC2626] hover:underline mt-1">✕</button>
                       </div>
                     </div>
@@ -650,6 +667,10 @@ function AdditionalQuestionsInner() {
         )}
       </div>
       {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
+      {editQ && (
+        <QuickEditModal question={editQ} onClose={() => setEditQ(null)} onSaved={onQuestionSaved} />
+      )}
+
     </div>
   )
 }
