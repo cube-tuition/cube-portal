@@ -73,6 +73,10 @@ function AdditionalQuestionsInner() {
   // Curriculum topic this worksheet belongs to. Tagging one makes it appear
   // under that topic in Materials; null leaves it untagged.
   const [wsTopicId, setWsTopicId] = useState('')
+  // Section bands, e.g. a "Homework" split part-way down a combined sheet.
+  // Read-only here: persist() never writes this column, so editing the question
+  // list cannot silently drop the split.
+  const [breaks, setBreaks] = useState([])
   const [wsTopicPop, setWsTopicPop] = useState(null)   // anchor rect while the topic picker is open
   // Master-database tabs for the saved-worksheet list (year × subject, seeded
   // from the Materials links' ?year=&subj= scoping).
@@ -194,6 +198,7 @@ function AdditionalQuestionsInner() {
     setSelectedId(ws.id)
     setTitle(ws.title || '')
     setWsTopicId(ws.topic_id ?? '')
+    setBreaks(Array.isArray(ws.section_breaks) ? ws.section_breaks : [])
     const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
     const ids = entries.map(entryId).filter(Boolean)
     const linesById = Object.fromEntries(entries.map((e) => [entryId(e), entryLines(e)]).filter(([k, v]) => k && v))
@@ -411,14 +416,14 @@ function AdditionalQuestionsInner() {
     const sub = tray.length ? labelFor(tray[0])?.subject : null
     return sub ? { year: sub.year_level, subject: sub.name } : { year: '', subject: '' }
   }, [topicById, wsTopicId, tray, labelFor])
-  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta }), [title, tray, includeMarks, previewAnswers, coverMeta])
-  const previewSig = useMemo(() => JSON.stringify({ t: title, m: includeMarks, a: previewAnswers, c: coverMeta, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, includeMarks, previewAnswers, tray, coverMeta])
+  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta, breaks }), [title, tray, includeMarks, previewAnswers, coverMeta, breaks])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, m: includeMarks, a: previewAnswers, c: coverMeta, b: breaks, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, includeMarks, previewAnswers, tray, coverMeta, breaks])
 
   const doExport = async (answers) => {
     if (!tray.length) return
     setBusy(answers ? 'answers' : 'worksheet')
     try {
-      const res = await exportWorksheet({ title: title || 'Worksheet', questions: tray, includeMarks, answers, preview: true, cover: coverMeta })
+      const res = await exportWorksheet({ title: title || 'Worksheet', questions: tray, includeMarks, answers, preview: true, cover: coverMeta, breaks })
       if (res?.url) setPreview({ url: res.url, filename: res.filename, title: answers ? 'Answer key — preview' : 'Worksheet — preview' })
       if (!answers) {
         await logWorksheetUsage(tray, title || 'Worksheet', profile?.full_name)
