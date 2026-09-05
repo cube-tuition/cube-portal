@@ -420,6 +420,36 @@ function AdditionalQuestionsInner() {
     // A sheet that spans years (or just wants a different label) overrides the year.
     return coverYear !== '' && coverYear != null ? { ...derived, year: Number(coverYear) } : derived
   }, [topicById, wsTopicId, tray, labelFor, coverYear])
+  /*
+   * Double-click pairs the tray with the live preview, both ways — the same
+   * gesture the exam and workbook builders use. The link is the question id,
+   * which lib/qbankWorksheet stamps on every block it renders (data-qid).
+   */
+  const previewScrollRef = useRef(null)
+  const pulse = (el) => el?.animate?.(
+    [{ boxShadow: '0 0 0 3px rgba(50,80,153,.55)' }, { boxShadow: '0 0 0 3px rgba(50,80,153,0)' }],
+    { duration: 1200, easing: 'ease-out' },
+  )
+  // Tray card → its first block in the preview, centred in the scroll panel.
+  const onCardDblClick = (e, qid) => {
+    // Leave double-clicks inside form controls alone (word-select while editing).
+    if (e.target.closest('textarea, input, select, button, [contenteditable="true"]')) return
+    const host = previewScrollRef.current
+    const target = host?.querySelector(`[data-qid="${CSS.escape(String(qid))}"]`)
+    if (!host || !target) return
+    const hostRect = host.getBoundingClientRect(), tRect = target.getBoundingClientRect()
+    host.scrollTo({ top: host.scrollTop + (tRect.top - hostRect.top) - Math.max(0, (host.clientHeight - tRect.height) / 2), behavior: 'smooth' })
+    pulse(target)
+  }
+  // Preview → the tray card that produced the block under the pointer.
+  const onPreviewDblClick = (e) => {
+    const qid = e.target?.closest?.('[data-qid]')?.getAttribute('data-qid')
+    const card = qid && document.getElementById(`aq-q-${qid}`)
+    if (!card) return
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    pulse(card)
+  }
+
   const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta, breaks }), [title, tray, includeMarks, previewAnswers, coverMeta, breaks])
   const previewSig = useMemo(() => JSON.stringify({ t: title, m: includeMarks, a: previewAnswers, c: coverMeta, b: breaks, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, includeMarks, previewAnswers, tray, coverMeta, breaks])
 
@@ -736,7 +766,9 @@ function AdditionalQuestionsInner() {
               ) : tray.map((q, i) => {
                 const l = labelFor(q); const imgs = q.qbank_question_images || []
                 return (
-                  <div key={q.id}
+                  <div key={q.id} id={`aq-q-${q.id}`}
+                    onDoubleClick={(e) => onCardDblClick(e, q.id)}
+                    title="Double-click to find this question in the preview"
                     onDragOver={(e) => e.preventDefault()}
                     onDragEnter={() => { if (dragId) reorderTray(dragId, q.id) }}
                     className={`rounded-xl border bg-white p-3 transition ${dragId === q.id ? 'opacity-40 border-[#325099] border-dashed' : 'border-[#F0F4FF]'}`}>
@@ -817,7 +849,8 @@ function AdditionalQuestionsInner() {
             </div>
             {tray.length === 0
               ? <div className="bg-[#E9EDF6] rounded-xl p-6 text-center text-xs text-[#2A2035]/40">Add questions to see a preview.</div>
-              : <DocLivePreview render={renderPreview} signature={previewSig} scale={0.62} />}
+              : <DocLivePreview render={renderPreview} signature={previewSig} scale={0.62}
+                  scrollRef={previewScrollRef} onDoubleClick={onPreviewDblClick} />}
           </div>
         </div>
         </>
