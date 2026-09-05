@@ -70,7 +70,6 @@ function AdditionalQuestionsInner() {
 
   // editor state
   const [title, setTitle] = useState('')
-  const [subtitle, setSubtitle] = useState('')
   // Curriculum topic this worksheet belongs to. Tagging one makes it appear
   // under that topic in Materials; null leaves it untagged.
   const [wsTopicId, setWsTopicId] = useState('')
@@ -92,7 +91,7 @@ function AdditionalQuestionsInner() {
 
   // Autosave plumbing — refs hold the latest editable snapshot + in-flight state
   // so debounced saves never race or persist stale data.
-  const dataRef = useRef({ selectedId: null, title: '', subtitle: '', tray: [], includeMarks: true, wsTopicId: '' })
+  const dataRef = useRef({ selectedId: null, title: '', tray: [], includeMarks: true, wsTopicId: '' })
   const savingRef = useRef(false)
   const pendingRef = useRef(false)
   const dirtyRef = useRef(false)
@@ -134,7 +133,7 @@ function AdditionalQuestionsInner() {
           .select('*').single()
           .then(({ data, error }) => {
             if (error || !data) return
-            setSelectedId(data.id); setTitle(data.title || ''); setSubtitle(''); setWsTopicId(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
+            setSelectedId(data.id); setTitle(data.title || ''); setWsTopicId(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
             loadWorksheets()
             router.replace('/tutor/qbank/worksheets')   // drop ?new=1 so refresh doesn't create another
           })
@@ -152,7 +151,7 @@ function AdditionalQuestionsInner() {
   const topicById = useMemo(() => Object.fromEntries(allTopics.map((t) => [t.id, t])), [allTopics])
 
   // Keep refs in sync so the autosave loop always reads the latest values.
-  useEffect(() => { dataRef.current = { selectedId, title, subtitle, tray, includeMarks, wsTopicId } }, [selectedId, title, subtitle, tray, includeMarks, wsTopicId])
+  useEffect(() => { dataRef.current = { selectedId, title, tray, includeMarks, wsTopicId } }, [selectedId, title, tray, includeMarks, wsTopicId])
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   // Low-level write for a given snapshot.
@@ -160,7 +159,7 @@ function AdditionalQuestionsInner() {
     if (!snap?.selectedId) return
     const { error } = await supabase.from(T_QBANK_WORKSHEETS).update({
       title: (snap.title || '').trim() || 'Untitled worksheet',
-      subtitle: (snap.subtitle || '').trim() || null,
+      subtitle: null,   // retired — the cover carries the title alone
       question_ids: (snap.tray || []).map((q) => (
         q._workingLines && Object.keys(q._workingLines).length
           ? { id: q.id, lines: q._workingLines }
@@ -194,7 +193,6 @@ function AdditionalQuestionsInner() {
     await flushNow()
     setSelectedId(ws.id)
     setTitle(ws.title || '')
-    setSubtitle(ws.subtitle || '')
     setWsTopicId(ws.topic_id ?? '')
     const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
     const ids = entries.map(entryId).filter(Boolean)
@@ -242,7 +240,7 @@ function AdditionalQuestionsInner() {
     if (!selectedId || !dirty) return
     const t = setTimeout(() => { saveWorksheet() }, 1000)
     return () => clearTimeout(t)
-  }, [dirty, title, subtitle, tray, includeMarks, wsTopicId, selectedId, saveWorksheet])
+  }, [dirty, title, tray, includeMarks, wsTopicId, selectedId, saveWorksheet])
 
   // Best-effort flush when the page unmounts with unsaved edits.
   useEffect(() => () => { if (dirtyRef.current) saveWorksheet() }, [saveWorksheet])
@@ -413,14 +411,14 @@ function AdditionalQuestionsInner() {
     const sub = tray.length ? labelFor(tray[0])?.subject : null
     return sub ? { year: sub.year_level, subject: sub.name } : { year: '', subject: '' }
   }, [topicById, wsTopicId, tray, labelFor])
-  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta }), [title, subtitle, tray, includeMarks, previewAnswers, coverMeta])
-  const previewSig = useMemo(() => JSON.stringify({ t: title, s: subtitle, m: includeMarks, a: previewAnswers, c: coverMeta, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, subtitle, includeMarks, previewAnswers, tray, coverMeta])
+  const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta }), [title, tray, includeMarks, previewAnswers, coverMeta])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, m: includeMarks, a: previewAnswers, c: coverMeta, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, includeMarks, previewAnswers, tray, coverMeta])
 
   const doExport = async (answers) => {
     if (!tray.length) return
     setBusy(answers ? 'answers' : 'worksheet')
     try {
-      const res = await exportWorksheet({ title: title || 'Worksheet', subtitle, questions: tray, includeMarks, answers, preview: true, cover: coverMeta })
+      const res = await exportWorksheet({ title: title || 'Worksheet', questions: tray, includeMarks, answers, preview: true, cover: coverMeta })
       if (res?.url) setPreview({ url: res.url, filename: res.filename, title: answers ? 'Answer key — preview' : 'Worksheet — preview' })
       if (!answers) {
         await logWorksheetUsage(tray, title || 'Worksheet', profile?.full_name)
@@ -519,7 +517,7 @@ function AdditionalQuestionsInner() {
                             <p className="text-xs font-semibold text-[#2A2035] truncate">{ws.title}</p>
                             <p className="text-[10px] text-[#2A2035]/45 mt-0.5">
                               {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} question{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0) === 1 ? '' : 's'}
-                              {ws.subtitle ? ` · ${ws.subtitle}` : ''} · updated {new Date(ws.updated_at).toLocaleDateString()}
+                               · updated {new Date(ws.updated_at).toLocaleDateString()}
                             </p>
                           </button>
                           <button onClick={() => openWorksheet(ws)}
@@ -561,7 +559,7 @@ function AdditionalQuestionsInner() {
                             <p className="text-xs font-semibold text-[#2A2035] truncate">{ws.title}</p>
                             <p className="text-[10px] text-[#2A2035]/45 mt-0.5">
                               {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} question{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0) === 1 ? '' : 's'}
-                              {ws.subtitle ? ` · ${ws.subtitle}` : ''} · updated {new Date(ws.updated_at).toLocaleDateString()}
+                               · updated {new Date(ws.updated_at).toLocaleDateString()}
                             </p>
                           </button>
                           <button onClick={() => openWorksheet(ws)}
@@ -677,8 +675,6 @@ function AdditionalQuestionsInner() {
             <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 space-y-3">
               <input value={title} onChange={(e) => { setTitle(e.target.value); setDirty(true) }} placeholder="Worksheet title"
                 className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] focus:outline-none focus:border-[#325099]" />
-              <input value={subtitle} onChange={(e) => { setSubtitle(e.target.value); setDirty(true) }} placeholder="Subtitle / instructions (optional)"
-                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099]" />
               {/* Filing this under a topic makes it appear on that topic's page
                   in Materials, beside the workbooks for the same topic. */}
               <button type="button"
