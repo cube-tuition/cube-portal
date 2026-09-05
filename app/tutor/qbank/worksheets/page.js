@@ -541,8 +541,8 @@ function AdditionalQuestionsInner() {
                   anchor={wsTopicPop}
                   options={allTopics.map((t) => ({ value: String(t.id), label: t.name, sub: `Year ${t.year} · ${t.subject}` }))}
                   currentValue={String(wsTopicId || '')}
-                  clearLabel="No topic — won\u2019t show under Materials"
-                  placeholder="Search topics\u2026"
+                  clearLabel="No topic — won’t show under Materials"
+                  placeholder="Search topics…"
                   onSelect={(v) => { setWsTopicId(v); setDirty(true); setWsTopicPop(null) }}
                   onClose={() => setWsTopicPop(null)}
                 />
