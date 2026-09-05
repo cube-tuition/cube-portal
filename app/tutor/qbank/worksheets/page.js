@@ -313,6 +313,7 @@ function AdditionalQuestionsInner() {
   const aqVisibleYears = useMemo(() => AQ_YEARS.filter((y) => aqSubjectsFor(y).length > 0), [aqSubjectsFor])
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
+      if (listYear === 'misc') return   // the unfiled tab has no year or subject
       if (!aqVisibleYears.includes(listYear)) { setListYear(aqVisibleYears[0]); return }
       const subs = aqSubjectsFor(listYear)
       if (!subs.includes(listSub)) setListSub(subs[0])
@@ -464,9 +465,18 @@ function AdditionalQuestionsInner() {
                   Year {y}
                 </button>
               ))}
+              {/* Misc: worksheets with no filing topic — they have no year to
+                  live under, so they get a tab of their own. */}
+              <button onClick={() => setListYear('misc')}
+                className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ml-auto ${
+                  listYear === 'misc' ? 'border-[#325099] text-[#325099]' : 'border-transparent text-[#2A2035]/50 hover:text-[#325099]'
+                }`}>
+                Misc{wsUnfiled.length ? ` · ${wsUnfiled.length}` : ''}
+              </button>
             </div>
 
             {/* Subject tabs */}
+            {listYear !== 'misc' && (
             <div className="flex gap-2 mb-6 flex-wrap">
               {aqSubjectsFor(listYear).map((su) => (
                 <button key={su} onClick={() => setListSub(su)}
@@ -478,32 +488,46 @@ function AdditionalQuestionsInner() {
                 </button>
               ))}
             </div>
-
-            {/* Worksheets with no filing topic — visible from every tab */}
-            {wsUnfiled.length > 0 && (
-              <div className="mb-7 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden shadow-sm">
-                <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-2.5 flex items-center justify-between gap-3">
-                  <span className="text-xs font-bold text-[#325099]">📝 Unfiled worksheets · {wsUnfiled.length}</span>
-                  <span className="text-[11px] text-[#2A2035]/40">Open one and pick its topic to file it under a year below</span>
-                </div>
-                <div className="divide-y divide-[#F0F4FF]">
-                  {wsUnfiled.map((ws) => (
-                    <div key={ws.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
-                      <button onClick={() => openWorksheet(ws)} className="text-left min-w-0 truncate">
-                        <span className="font-semibold text-sm text-[#062E63]">{ws.title}</span>
-                        <span className="text-xs text-[#2A2035]/50 ml-2">{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} questions · updated {new Date(ws.updated_at).toLocaleDateString()}</span>
-                      </button>
-                      <div className="flex items-center gap-3 shrink-0 text-[11px]">
-                        <button onClick={() => openWorksheet(ws)} className="font-semibold text-[#325099] hover:underline">Open →</button>
-                        <button onClick={() => deleteWorksheet(ws)} className="text-[#2A2035]/40 hover:text-rose-500">Delete</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
             )}
 
-            {loadingWs ? (
+            {/* Misc tab: the unfiled worksheets, in the same card grid */}
+            {listYear === 'misc' && (
+              wsUnfiled.length === 0 ? (
+                <div className="text-center py-14 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
+                  <p className="text-sm text-[#2A2035]/50">Nothing unfiled — every worksheet has a topic.</p>
+                </div>
+              ) : (
+                <div className="space-y-8 pb-12">
+                  <div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#F4F4F4] text-[#9CA3AF]">No topic</span>
+                      <span className="text-[10px] text-[#2A2035]/30 font-medium">{wsUnfiled.length} worksheet{wsUnfiled.length !== 1 ? 's' : ''} · open one and pick its topic to file it under a year</span>
+                      <div className="flex-1 h-px bg-[#E8EDF8]" />
+                    </div>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
+                      {wsUnfiled.map((ws) => (
+                        <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
+                          <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
+                            <p className="text-xs font-semibold text-[#2A2035] truncate">{ws.title}</p>
+                            <p className="text-[10px] text-[#2A2035]/45 mt-0.5">
+                              {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} question{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0) === 1 ? '' : 's'}
+                              {ws.subtitle ? ` · ${ws.subtitle}` : ''} · updated {new Date(ws.updated_at).toLocaleDateString()}
+                            </p>
+                          </button>
+                          <button onClick={() => openWorksheet(ws)}
+                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0 bg-[#EEF4FF] text-[#325099]">
+                            Open →
+                          </button>
+                          <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#2A2035]/30 hover:text-rose-500 shrink-0" title="Delete worksheet">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+
+            {listYear === 'misc' ? null : loadingWs ? (
               <p className="text-center text-sm text-[#2A2035]/40 py-10 animate-pulse">Loading…</p>
             ) : wsGroups.length === 0 ? (
               <div className="text-center py-14 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
