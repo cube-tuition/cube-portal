@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { T_QBANK_QUESTIONS, T_QBANK_QUESTION_PARTS } from '../../lib/tables'
-import { MCQ_LABELS } from '../../lib/qbank'
+import { MCQ_LABELS, DIFFICULTY_LEVELS, DIFFICULTY_LABELS } from '../../lib/qbank'
 import LatexField from './LatexField'
 
 /*
@@ -23,6 +23,7 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
   const [stem, setStem] = useState(question.stem_latex || '')
   const [solution, setSolution] = useState(question.solution_latex || '')
   const [marks, setMarks] = useState(question.marks ?? '')
+  const [difficulty, setDifficulty] = useState(question.difficulty ?? '')
   const [parts, setParts] = useState(
     (question.qbank_question_parts || [])
       .slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -73,6 +74,7 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
     setSaving(true); setError('')
     try {
       const payload = { stem_latex: stem }
+      if (difficulty !== '') payload.difficulty = Number(difficulty)
       if (!multipart) {
         payload.solution_latex = solution
         if (!isMcq) payload.marks = marks === '' ? null : Number(marks)
@@ -118,6 +120,15 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
 
         <LatexField label={multipart ? 'Stem / intro' : 'Question text'} value={stem} onChange={setStem} rows={3}
           hint="Use $…$ for inline math, $$…$$ for display" />
+
+        <div>
+          <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Difficulty</label>
+          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
+            className="w-44 border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#325099]">
+            {difficulty === '' && <option value="">—</option>}
+            {DIFFICULTY_LEVELS.map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+          </select>
+        </div>
 
         {!multipart && (
           <>

@@ -33,6 +33,16 @@ import DocLivePreview from '../../../../components/qbank/DocLivePreview'
 const entryId = (e) => (typeof e === 'string' ? e : e?.id)
 const entryLines = (e) => (typeof e === 'string' ? null : (e?.lines || null))
 
+// ── AQ master database tabs — same shape as the workbook master database ─────
+const AQ_YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
+const AQ_SUBJECTS_BY_YEAR = {
+  11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
+  12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
+}
+const aqSubjects = (year) => AQ_SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
+const aqAccent = (s) => (s === 'Maths' || s?.includes('Maths')) ? '#325099' : s === 'Chemistry' ? '#0F766E' : '#7C3AED'
+const aqAccentBg = (s) => (s === 'Maths' || s?.includes('Maths')) ? '#EEF4FF' : s === 'Chemistry' ? '#F0FDF4' : '#F5F3FF'
+
 export default function AdditionalQuestionsPage() {
   return <Suspense><AdditionalQuestionsInner /></Suspense>
 }
@@ -65,6 +75,10 @@ function AdditionalQuestionsInner() {
   // under that topic in Materials; null leaves it untagged.
   const [wsTopicId, setWsTopicId] = useState('')
   const [wsTopicPop, setWsTopicPop] = useState(null)   // anchor rect while the topic picker is open
+  // Master-database tabs for the saved-worksheet list (year × subject, seeded
+  // from the Materials links' ?year=&subj= scoping).
+  const [listYear, setListYear] = useState(() => Number(searchParams.get('year')) || 5)
+  const [listSub, setListSub] = useState(() => searchParams.get('subj') || 'Maths')
   const [editQ, setEditQ] = useState(null)             // bank question being quick-edited
   const [allTopics, setAllTopics] = useState([])
   const [tray, setTray] = useState([])
@@ -290,6 +304,37 @@ function AdditionalQuestionsInner() {
     setEditQ(null)
   }
 
+  // Years/subjects narrowed to the hub scope, tab kept valid — as the
+  // workbook master database does.
+  const aqSubjectsFor = useCallback((y) => {
+    const all = aqSubjects(y)
+    return scope ? all.filter((su) => SUBJECT_FAMILIES[scope].includes(su)) : all
+  }, [scope])
+  const aqVisibleYears = useMemo(() => AQ_YEARS.filter((y) => aqSubjectsFor(y).length > 0), [aqSubjectsFor])
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      if (!aqVisibleYears.includes(listYear)) { setListYear(aqVisibleYears[0]); return }
+      const subs = aqSubjectsFor(listYear)
+      if (!subs.includes(listSub)) setListSub(subs[0])
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [listYear, listSub, aqVisibleYears, aqSubjectsFor])
+
+  // Saved worksheets under the active tab, grouped by their filing topic.
+  // A worksheet with no topic has no year/subject to live under — those sit in
+  // a strip above the groups so they stay findable from every tab.
+  const wsGroups = useMemo(() => {
+    const groups = new Map()
+    for (const ws of worksheets) {
+      const t = topicById[ws.topic_id]
+      if (!t || Number(t.year) !== Number(listYear) || t.subject !== listSub) continue
+      if (!groups.has(t.name)) groups.set(t.name, [])
+      groups.get(t.name).push(ws)
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [worksheets, topicById, listYear, listSub])
+  const wsUnfiled = useMemo(() => worksheets.filter((ws) => !topicById[ws.topic_id]), [worksheets, topicById])
+
   const trayIds = useMemo(() => new Set(tray.map((q) => q.id)), [tray])
 
   const filtered = useMemo(() => {
@@ -403,38 +448,103 @@ function AdditionalQuestionsInner() {
 
         {/* ── Worksheet list ───────────────────────────────────────────────── */}
         {!selectedId && (
-          <div className="max-w-3xl">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs text-[#2A2035]/50">Saved worksheets keep their question list so you can edit and re-export them any time.</p>
+          <div>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <p className="text-xs text-[#2A2035]/50">Saved worksheets keep their question list so you can edit and re-export them any time. File one under a topic (inside the worksheet) and it sorts itself here.</p>
               <button onClick={createWorksheet} className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition shrink-0">+ New worksheet</button>
             </div>
-            {loadingWs ? <p className="text-center text-sm text-[#2A2035]/40 py-10 animate-pulse">Loading…</p>
-              : worksheets.length === 0 ? (
-                <div className="text-center py-14 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
-                  <p className="text-sm text-[#2A2035]/50">No saved worksheets yet.</p>
+
+            {/* Year tabs */}
+            <div className="flex overflow-x-auto border-b border-[#E4EAF6] mb-5">
+              {aqVisibleYears.map((y) => (
+                <button key={y} onClick={() => setListYear(y)}
+                  className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+                    listYear === y ? 'border-[#325099] text-[#325099]' : 'border-transparent text-[#2A2035]/50 hover:text-[#325099]'
+                  }`}>
+                  Year {y}
+                </button>
+              ))}
+            </div>
+
+            {/* Subject tabs */}
+            <div className="flex gap-2 mb-6 flex-wrap">
+              {aqSubjectsFor(listYear).map((su) => (
+                <button key={su} onClick={() => setListSub(su)}
+                  className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
+                    listSub === su ? 'text-white border-transparent' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
+                  }`}
+                  style={listSub === su ? { background: aqAccent(su) } : {}}>
+                  {su}
+                </button>
+              ))}
+            </div>
+
+            {/* Worksheets with no filing topic — visible from every tab */}
+            {wsUnfiled.length > 0 && (
+              <div className="mb-7 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden shadow-sm">
+                <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-2.5 flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-[#325099]">📝 Unfiled worksheets · {wsUnfiled.length}</span>
+                  <span className="text-[11px] text-[#2A2035]/40">Open one and pick its topic to file it under a year below</span>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {worksheets.map((ws) => (
-                    <div key={ws.id} className="bg-white rounded-2xl border border-[#F0F4FF] p-4 flex items-center gap-3 hover:border-[#BACBFF] transition">
-                      <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
-                        <p className="text-sm font-bold text-[#062E63] truncate">{ws.title}</p>
-                        {ws.subtitle && <p className="text-[11px] text-[#2A2035]/50 truncate mt-0.5">{ws.subtitle}</p>}
-                        <p className="text-[10px] text-[#2A2035]/40 mt-1">
-                          {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} questions · updated {new Date(ws.updated_at).toLocaleDateString()}
-                          {topicById[ws.topic_id] && (
-                            <span className="ml-1.5 text-[#325099]/70 font-semibold">
-                              · {topicById[ws.topic_id].name}
-                            </span>
-                          )}
-                        </p>
+                <div className="divide-y divide-[#F0F4FF]">
+                  {wsUnfiled.map((ws) => (
+                    <div key={ws.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
+                      <button onClick={() => openWorksheet(ws)} className="text-left min-w-0 truncate">
+                        <span className="font-semibold text-sm text-[#062E63]">{ws.title}</span>
+                        <span className="text-xs text-[#2A2035]/50 ml-2">{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} questions · updated {new Date(ws.updated_at).toLocaleDateString()}</span>
                       </button>
-                      <button onClick={() => openWorksheet(ws)} className="text-[11px] font-semibold text-[#325099] hover:underline shrink-0">Open →</button>
-                      <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#DC2626]/60 hover:text-[#DC2626] shrink-0" title="Delete worksheet">✕</button>
+                      <div className="flex items-center gap-3 shrink-0 text-[11px]">
+                        <button onClick={() => openWorksheet(ws)} className="font-semibold text-[#325099] hover:underline">Open →</button>
+                        <button onClick={() => deleteWorksheet(ws)} className="text-[#2A2035]/40 hover:text-rose-500">Delete</button>
+                      </div>
                     </div>
                   ))}
                 </div>
-              )}
+              </div>
+            )}
+
+            {loadingWs ? (
+              <p className="text-center text-sm text-[#2A2035]/40 py-10 animate-pulse">Loading…</p>
+            ) : wsGroups.length === 0 ? (
+              <div className="text-center py-14 bg-white rounded-2xl border border-dashed border-[#DEE7FF]">
+                <p className="text-sm text-[#2A2035]/50">No worksheets filed under Year {listYear} {listSub} yet.</p>
+                <p className="text-xs text-[#2A2035]/40 mt-1">Create one and pick a Year {listYear} {listSub} topic inside it.</p>
+              </div>
+            ) : (
+              <div className="space-y-8 pb-12">
+                {wsGroups.map(([topicName, list]) => (
+                  <div key={topicName}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-xs font-bold px-3 py-1 rounded-full"
+                        style={{ background: aqAccentBg(listSub), color: aqAccent(listSub) }}>
+                        {topicName}
+                      </span>
+                      <span className="text-[10px] text-[#2A2035]/30 font-medium">{list.length} worksheet{list.length !== 1 ? 's' : ''}</span>
+                      <div className="flex-1 h-px bg-[#E8EDF8]" />
+                    </div>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
+                      {list.map((ws) => (
+                        <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
+                          <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
+                            <p className="text-xs font-semibold text-[#2A2035] truncate">{ws.title}</p>
+                            <p className="text-[10px] text-[#2A2035]/45 mt-0.5">
+                              {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} question{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0) === 1 ? '' : 's'}
+                              {ws.subtitle ? ` · ${ws.subtitle}` : ''} · updated {new Date(ws.updated_at).toLocaleDateString()}
+                            </p>
+                          </button>
+                          <button onClick={() => openWorksheet(ws)}
+                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0"
+                            style={{ background: aqAccentBg(listSub), color: aqAccent(listSub) }}>
+                            Open →
+                          </button>
+                          <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#2A2035]/30 hover:text-rose-500 shrink-0" title="Delete worksheet">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
