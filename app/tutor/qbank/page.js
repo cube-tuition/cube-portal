@@ -76,7 +76,9 @@ function QuestionBankInner() {
   const [search, setSearch] = useState('')
   const [usageTab, setUsageTab] = useState('all')   // all | used | unused
   // Sort is a view preference, not a filter — "Clear" leaves it alone.
-  const [sortBy, setSortBy] = useState('newest')    // newest | oldest | difficulty-asc | difficulty-desc
+  // Least-used first by default: the point of browsing is usually to find a
+  // question that hasn't been handed out yet, so those float to the top.
+  const [sortBy, setSortBy] = useState('least-used')    // least-used | most-used | newest | oldest | difficulty-asc | difficulty-desc
   const [audienceTab, setAudienceTab] = useState('all')   // all | exam (CUBE) | student
 
   const loadQuestions = useCallback(async () => {
@@ -195,13 +197,16 @@ function QuestionBankInner() {
   // of same-difficulty questions would come back in an arbitrary order.
   const sorted = useMemo(() => {
     const byNewest = (a, b) => new Date(b.created_at) - new Date(a.created_at)
+    const uses = (q) => usageMap[q.id]?.count || 0
     const arr = [...usageFiltered]
     if (sortBy === 'oldest') arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     else if (sortBy === 'difficulty-asc') arr.sort((a, b) => (a.difficulty - b.difficulty) || byNewest(a, b))
     else if (sortBy === 'difficulty-desc') arr.sort((a, b) => (b.difficulty - a.difficulty) || byNewest(a, b))
-    else arr.sort(byNewest)
+    else if (sortBy === 'most-used') arr.sort((a, b) => (uses(b) - uses(a)) || byNewest(a, b))
+    else if (sortBy === 'newest') arr.sort(byNewest)
+    else arr.sort((a, b) => (uses(a) - uses(b)) || byNewest(a, b))   // least-used
     return arr
-  }, [usageFiltered, sortBy])
+  }, [usageFiltered, sortBy, usageMap])
 
   const handleDelete = async (q) => {
     if (!confirm('Delete this question permanently?')) return
@@ -348,6 +353,8 @@ function QuestionBankInner() {
               onChange={(e) => setSortBy(e.target.value)}
               className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white cursor-pointer focus:outline-none focus:border-[#325099]"
             >
+              <option value="least-used">Least used first</option>
+              <option value="most-used">Most used first</option>
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
               <option value="difficulty-asc">Difficulty: easiest first</option>
