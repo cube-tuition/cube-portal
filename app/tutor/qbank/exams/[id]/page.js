@@ -10,7 +10,6 @@ import { T_QBANK_QUESTIONS } from '../../../../../lib/tables'
 import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps } from '../../../../../lib/qbank'
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
-import QuickEditModal from '../../../../../components/qbank/QuickEditModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
 import { loadExam, saveExam, blankSlot, buildExamRenderPayload, examTitle, isAutoExamTitle } from '../../../../../lib/qbankExams'
 import { exportExamPdf, renderExamPreview } from '../../../../../lib/qbankExam'
@@ -58,7 +57,8 @@ export default function ExamBuilderPage() {
 
   const loadQuestions = useCallback(() => supabase.from(T_QBANK_QUESTIONS)
     .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
-    .then(({ data }) => setQuestions(data || [])), [])
+    // returns the rows as well, so a caller can inspect what it just saved
+    .then(({ data }) => { setQuestions(data || []); return data || [] }), [])
 
   useEffect(() => {
     getAuthProfile().then(async ({ profile, role }) => {
@@ -311,6 +311,32 @@ export default function ExamBuilderPage() {
     setNewQ(null)
   }
 
+  /*
+   * After a full edit, the question's parts may have been added, removed or
+   * relabelled. Working lines are stored per part label on the slot, so any key
+   * that no longer names a part is dropped — otherwise lines set for an old
+   * part (c) would silently land on whichever part is called (c) now.
+   */
+  const onEditQuestionSaved = async () => {
+    const qs = await loadQuestions()
+    const edited = (qs || []).find((q) => q.id === editQ?.id)
+    if (edited) {
+      const labels = new Set((edited.qbank_question_parts || [])
+        .map((p, i) => p.part_label || 'abcdefgh'[i] || String(i + 1)))
+      for (const sec of exam?.sections || []) {
+        for (const sl of sec.slots) {
+          if (sl.question_id !== edited.id || !sl.working_lines) continue
+          const kept = Object.fromEntries(Object.entries(sl.working_lines)
+            .filter(([k]) => k === '_' || labels.has(k)))
+          if (Object.keys(kept).length !== Object.keys(sl.working_lines).length) {
+            updateSlot(sec._key, sl._key, { working_lines: Object.keys(kept).length ? kept : null })
+          }
+        }
+      }
+    }
+    setEditQ(null)
+  }
+
   if (!ready || loading) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   if (!exam) return (
     <div className="min-h-screen bg-[#F8FAFF]"><TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
@@ -504,7 +530,23 @@ export default function ExamBuilderPage() {
         )}
       </div>
       {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
-      {editQ && <QuickEditModal question={editQ} onClose={() => setEditQ(null)} onSaved={async () => { await loadQuestions(); setEditQ(null) }} />}
+      {editQ && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+          onClick={(e) => { if (e.target === e.currentTarget) setEditQ(null) }}>
+          <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-[#062E63]">Edit question</h2>
+              <button onClick={() => setEditQ(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg">✕</button>
+            </div>
+            <p className="text-[11px] text-[#2A2035]/50 mb-4">
+              The full editor — parts can be added, removed and relabelled. Changes are saved to the
+              question bank, so every paper using this question sees them.
+            </p>
+            <QuestionEditor questionId={editQ.id} staffName={profile?.full_name}
+              onSaved={onEditQuestionSaved} onCancel={() => setEditQ(null)} />
+          </div>
+        </div>
+      )}
       {newQ && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
           onClick={(e) => { if (e.target === e.currentTarget) setNewQ(null) }}>
