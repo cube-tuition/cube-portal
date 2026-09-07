@@ -8,10 +8,9 @@
  * hence this: it names the other side, and counts what is attached, before
  * anything is written.
  *
- * Deleting a topic KEEPS the questions filed under it — they are untagged, not
- * removed — so the modal says so plainly and lets the delete through. A delete
- * that would strand workbooks is still refused: those reference the topic by
- * name, so there would be nothing left to re-tag them from.
+ * Deleting a topic KEEPS everything filed under it — questions and workbooks are
+ * untagged, not removed — so the modal says what will be left needing a new
+ * topic and lets the delete through. Nothing is refused.
  */
 const LABEL = { master: 'Master Database', qbank: 'Question Bank' }
 
@@ -19,7 +18,6 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
   if (!action || !impact) return null
   const other = from === 'master' ? 'qbank' : 'master'
   const otherHas = other === 'master' ? !!impact.master : !!impact.qbank
-  const blocked = action === 'delete' && impact.booklets > 0
   const where = `Year ${year} ${subject}`
 
   // Removed with the topic: the taxonomy under it. Questions are kept, so they
@@ -28,6 +26,11 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
   if (impact.subtopics) bits.push(`${impact.subtopics} subtopic${impact.subtopics === 1 ? '' : 's'}`)
   if (impact.skills)    bits.push(`${impact.skills} skill${impact.skills === 1 ? '' : 's'}`)
   const nQ = impact.questions || 0
+  const nB = impact.booklets || 0
+  // What a delete leaves behind, needing a new topic.
+  const kept = []
+  if (nQ) kept.push(`${nQ} question${nQ === 1 ? '' : 's'}`)
+  if (nB) kept.push(`${nB} workbook${nB === 1 ? '' : 's'}`)
   const carried = []
   if (impact.subtopics) carried.push(`${impact.subtopics} subtopic${impact.subtopics === 1 ? '' : 's'}`)
   if (impact.skills)    carried.push(`${impact.skills} skill${impact.skills === 1 ? '' : 's'}`)
@@ -38,26 +41,13 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1020]/60 backdrop-blur-sm p-4" onClick={busy ? undefined : onCancel}>
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-base font-bold text-[#062E63]">
-          {blocked ? `“${name}” is still in use`
-            : action === 'delete' ? `Delete “${name}”?`
+          {action === 'delete' ? `Delete “${name}”?`
             : action === 'rename' ? `Rename “${name}” to “${newName}”?`
             : `Add “${name}”?`}
         </h2>
         <p className="text-xs text-[#2A2035]/55 mt-0.5">{where}</p>
 
-        {blocked ? (
-          <>
-            <p className="text-sm text-[#2A2035]/80 mt-3">
-              {impact.booklets} workbook{impact.booklets === 1 ? ' is' : 's are'} filed under it.
-              Workbooks store the topic as a name, so deleting it would leave
-              {impact.booklets === 1 ? ' that workbook' : ' those workbooks'} pointing at a topic
-              that no longer exists.
-            </p>
-            <p className="text-xs text-[#2A2035]/55 mt-2">
-              Retag {impact.booklets === 1 ? 'it' : 'them'} in the Master Database first.
-            </p>
-          </>
-        ) : (
+        {(
           <>
             <p className="text-sm text-[#2A2035]/80 mt-3">
               The Master Database and the Question Bank share one topic list, so this
@@ -76,11 +66,13 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
                   </p>
                 )}
                 <p className="text-sm text-[#2A2035]/80 mt-2">
-                  {nQ === 0
-                    ? 'No questions are filed under it.'
-                    : <>The {nQ === 1 ? 'question' : `${nQ} questions`} filed under it {nQ === 1 ? 'is' : 'are'}{' '}
-                        <strong>kept</strong> — {nQ === 1 ? 'it' : 'they'} stay in the bank with no topic
-                        allocated, ready to be re-tagged.</>}
+                  {kept.length === 0
+                    ? 'Nothing is filed under it.'
+                    : <>The {kept.join(' and ')} filed under it {kept.length === 1 && nQ === 1 ? 'is' : 'are'}{' '}
+                        <strong>kept</strong>. They stay where they are with no topic allocated —
+                        {nQ > 0 && ' questions under the Question Bank’s Untagged tab'}
+                        {nQ > 0 && nB > 0 && ','}
+                        {nB > 0 && ' workbooks under “No topic assigned” here'} — ready to be retagged.</>}
                 </p>
               </>
             )}
@@ -95,16 +87,14 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
         {error && <p className="text-[11px] text-[#B91C1C] font-semibold mt-3">{error}</p>}
 
         <div className="flex items-center gap-2 mt-5">
-          {!blocked && (
-            <button onClick={onConfirm} disabled={busy}
-              className={`px-4 py-2 rounded-xl text-white text-sm font-semibold transition disabled:opacity-40 ${
-                action === 'delete' ? 'bg-[#B91C1C] hover:bg-[#991B1B]' : 'bg-[#325099] hover:bg-[#062E63]'}`}>
-              {busy ? 'Saving…' : action === 'delete' ? 'Delete from both' : 'Save to both'}
-            </button>
-          )}
+          <button onClick={onConfirm} disabled={busy}
+            className={`px-4 py-2 rounded-xl text-white text-sm font-semibold transition disabled:opacity-40 ${
+              action === 'delete' ? 'bg-[#B91C1C] hover:bg-[#991B1B]' : 'bg-[#325099] hover:bg-[#062E63]'}`}>
+            {busy ? 'Saving…' : action === 'delete' ? 'Delete from both' : 'Save to both'}
+          </button>
           <button onClick={onCancel} disabled={busy}
             className="px-4 py-2 rounded-xl bg-[#F1F4FB] text-[#2A2035]/70 text-sm font-semibold hover:bg-[#E6EBF7] transition disabled:opacity-40">
-            {blocked ? 'Close' : 'Cancel'}
+            Cancel
           </button>
         </div>
       </div>
