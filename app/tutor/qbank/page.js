@@ -23,6 +23,15 @@ import SearchSelectPopover from '../../../components/SearchSelectPopover'
 // Materials course tabs, which drop Standard for the same reason.
 const NO_TAB = new Set(['Standard Maths'])
 
+/*
+ * The pseudo-subject tab for questions with no topic. Deleting a topic keeps the
+ * questions filed under it and clears their tags (see
+ * migrations/20260905_qbank_delete_keeps_questions.sql); every real tab filters
+ * by subject, which an untagged question no longer has, so without this tab they
+ * would still be in the bank but impossible to find.
+ */
+const UNTAGGED = 'Untagged'
+
 // One year/course pill in the filter strip. Selected reads as a solid chip so
 // the active scope is obvious beside the neutral rest.
 const yearPill = (on) =>
@@ -112,12 +121,15 @@ function QuestionBankInner() {
   }, [tax, activeSubject])
   const subjectId = year   // the dropdown stores the subject id
   // Question counts per master tab (family-aware, for the tab badges).
+  // Untagged is its own bucket: deleting a topic keeps its questions and clears
+  // their tags, and without somewhere to list them they would be invisible here.
   const subjectCounts = useMemo(() => {
-    const c = { Maths: 0, English: 0, Chemistry: 0 }
+    const c = { Maths: 0, English: 0, Chemistry: 0, Untagged: 0 }
     for (const q of questions) {
       const n = labelFor(q)?.subject?.name
-      if (!n) continue
+      if (!n) { c.Untagged += 1; continue }
       for (const tab of Object.keys(c)) {
+        if (tab === 'Untagged') continue
         if ((SUBJECT_FAMILIES[tab] || [tab]).includes(n)) { c[tab] += 1; break }
       }
     }
@@ -145,12 +157,18 @@ function QuestionBankInner() {
     if (!maps) return []
     return questions.filter((q) => {
       const l = labelFor(q)
-      // Each master tab shows its subject family; untagged questions have no subject.
-      if (!familyFor(activeSubject).includes(l.subject?.name)) return false
-      if (skillId && q.skill_id !== skillId) return false
-      if (subtopicId && l.subtopic?.id !== subtopicId) return false
-      if (topicId && l.topic?.id !== topicId) return false
-      if (year && String(l.subject?.id) !== String(year)) return false
+      // The Untagged tab is the opposite of the others: it shows exactly the
+      // questions no subject tab can, and the year/topic filters below it are
+      // meaningless, so they are skipped rather than applied.
+      if (activeSubject === UNTAGGED) {
+        if (l.subject?.name) return false
+      } else if (!familyFor(activeSubject).includes(l.subject?.name)) return false
+      if (activeSubject !== UNTAGGED) {
+        if (skillId && q.skill_id !== skillId) return false
+        if (subtopicId && l.subtopic?.id !== subtopicId) return false
+        if (topicId && l.topic?.id !== topicId) return false
+        if (year && String(l.subject?.id) !== String(year)) return false
+      }
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
       if (qtype && q.qtype !== qtype) return false
       if (search.trim()) {
@@ -238,7 +256,7 @@ function QuestionBankInner() {
         {/* Master subject tabs (hidden when a hub scope locks the family) */}
         {!scope && (
         <div className="flex gap-1 mt-6 border-b border-[#DEE7FF]">
-          {['Maths', 'English', 'Chemistry'].map((s) => (
+          {['Maths', 'English', 'Chemistry', ...(subjectCounts[UNTAGGED] ? [UNTAGGED] : [])].map((s) => (
             <button key={s} onClick={() => { setActiveSubject(s); setYear(''); setTopicId(''); setSubtopicId(''); setSkillId('') }}
               className={`px-5 py-2.5 text-sm font-bold border-b-2 -mb-px transition ${activeSubject === s ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
               {s} <span className="text-[11px] font-normal">({subjectCounts[s] || 0})</span>
@@ -254,7 +272,7 @@ function QuestionBankInner() {
             each stream is its own subject row, so "Year 11 Ext 1" is one pill.
             There is no "All years" pill: the page opens unfiltered with none
             selected, and the Clear button below returns to that. */}
-        {yearOptions.length > 0 && (
+        {activeSubject !== UNTAGGED && yearOptions.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-5">
             {yearOptions.map((s) => (
               <button key={s.id}
@@ -267,6 +285,13 @@ function QuestionBankInner() {
               </button>
             ))}
           </div>
+        )}
+
+        {activeSubject === UNTAGGED && (
+          <p className="mt-4 text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-3 py-2">
+            These questions have no topic — they were kept when their topic was deleted.
+            Open one to give it a topic and it moves back into its subject.
+          </p>
         )}
 
         {/* Filters */}

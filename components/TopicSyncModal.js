@@ -8,10 +8,10 @@
  * hence this: it names the other side, and counts what is attached, before
  * anything is written.
  *
- * A delete that would take questions or workbooks with it is refused outright
- * rather than confirmed. Renaming a topic is always safe; deleting one is not,
- * and a modal that offers "delete anyway" invites exactly the accident it is
- * supposed to prevent.
+ * Deleting a topic KEEPS the questions filed under it — they are untagged, not
+ * removed — so the modal says so plainly and lets the delete through. A delete
+ * that would strand workbooks is still refused: those reference the topic by
+ * name, so there would be nothing left to re-tag them from.
  */
 const LABEL = { master: 'Master Database', qbank: 'Question Bank' }
 
@@ -19,14 +19,20 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
   if (!action || !impact) return null
   const other = from === 'master' ? 'qbank' : 'master'
   const otherHas = other === 'master' ? !!impact.master : !!impact.qbank
-  const blocked = action === 'delete' && (impact.questions > 0 || impact.booklets > 0)
+  const blocked = action === 'delete' && impact.booklets > 0
   const where = `Year ${year} ${subject}`
 
+  // Removed with the topic: the taxonomy under it. Questions are kept, so they
+  // are reported separately rather than listed among the casualties.
   const bits = []
-  if (impact.questions) bits.push(`${impact.questions} question${impact.questions === 1 ? '' : 's'}`)
   if (impact.subtopics) bits.push(`${impact.subtopics} subtopic${impact.subtopics === 1 ? '' : 's'}`)
   if (impact.skills)    bits.push(`${impact.skills} skill${impact.skills === 1 ? '' : 's'}`)
-  if (impact.booklets)  bits.push(`${impact.booklets} workbook${impact.booklets === 1 ? '' : 's'}`)
+  const nQ = impact.questions || 0
+  const carried = []
+  if (impact.subtopics) carried.push(`${impact.subtopics} subtopic${impact.subtopics === 1 ? '' : 's'}`)
+  if (impact.skills)    carried.push(`${impact.skills} skill${impact.skills === 1 ? '' : 's'}`)
+  if (impact.questions) carried.push(`${nQ} question${nQ === 1 ? '' : 's'}`)
+  if (impact.booklets)  carried.push(`${impact.booklets} workbook${impact.booklets === 1 ? '' : 's'}`)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1020]/60 backdrop-blur-sm p-4" onClick={busy ? undefined : onCancel}>
@@ -42,11 +48,13 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
         {blocked ? (
           <>
             <p className="text-sm text-[#2A2035]/80 mt-3">
-              Deleting it would take {bits.join(' and ')} with it, so it has been left alone.
+              {impact.booklets} workbook{impact.booklets === 1 ? ' is' : 's are'} filed under it.
+              Workbooks store the topic as a name, so deleting it would leave
+              {impact.booklets === 1 ? ' that workbook' : ' those workbooks'} pointing at a topic
+              that no longer exists.
             </p>
             <p className="text-xs text-[#2A2035]/55 mt-2">
-              {impact.questions > 0 && <>Move those questions to another topic in the Question Bank first. </>}
-              {impact.booklets > 0 && <>Retag the workbooks that use it in the Master Database first.</>}
+              Retag {impact.booklets === 1 ? 'it' : 'them'} in the Master Database first.
             </p>
           </>
         ) : (
@@ -55,10 +63,26 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
               The Master Database and the Question Bank share one topic list, so this
               changes <strong>{LABEL[other]}</strong> too.
             </p>
-            {action !== 'add' && bits.length > 0 && (
+            {action === 'rename' && carried.length > 0 && (
               <p className="text-sm text-[#2A2035]/80 mt-2">
-                {action === 'rename' ? 'Carried across with it: ' : 'This also removes: '}{bits.join(', ')}.
+                Carried across with it: {carried.join(', ')}.
               </p>
+            )}
+            {action === 'delete' && (
+              <>
+                {bits.length > 0 && (
+                  <p className="text-sm text-[#2A2035]/80 mt-2">
+                    This also removes {bits.join(' and ')}.
+                  </p>
+                )}
+                <p className="text-sm text-[#2A2035]/80 mt-2">
+                  {nQ === 0
+                    ? 'No questions are filed under it.'
+                    : <>The {nQ === 1 ? 'question' : `${nQ} questions`} filed under it {nQ === 1 ? 'is' : 'are'}{' '}
+                        <strong>kept</strong> — {nQ === 1 ? 'it' : 'they'} stay in the bank with no topic
+                        allocated, ready to be re-tagged.</>}
+                </p>
+              </>
             )}
             {action !== 'add' && !otherHas && (
               <p className="text-xs text-[#B45309] mt-2">

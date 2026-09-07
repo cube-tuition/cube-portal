@@ -154,7 +154,13 @@ function CategoriesInner() {
   }
   const remove = async (table, id, label) => {
     if (table === T_QBANK_TOPICS) { await proposeTopic('delete', label); return }
-    if (!confirm(`Delete "${label}"? This also removes everything inside it. Questions tagged to a deleted skill must be re-tagged first.`)) return
+    // Questions are never deleted with their taxonomy: topic_id, subtopic_id and
+    // skill_id are all ON DELETE SET NULL, so the question stays in the bank and
+    // simply loses that tag. Only the rows below it in the list go with it.
+    const inside = table === T_QBANK_SUBJECTS ? ' This also removes its topics, subtopics and skills.'
+                 : table === T_QBANK_SUBTOPICS ? ' This also removes the skills under it.'
+                 : ''
+    if (!confirm(`Delete "${label}"?${inside} Questions are kept — they stay in the bank with no topic allocated, ready to be re-tagged.`)) return
     const { error } = await supabase.from(table).delete().eq('id', id)
     if (error) { alert(error.message); return }
     if (table === T_QBANK_SUBJECTS && id === subjectId) { setSubjectId(''); setTopicId(''); setSubtopicId('') }
