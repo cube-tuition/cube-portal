@@ -13,8 +13,7 @@ import {
   fetchTaxonomy, deleteQbankImage, qbankImageUrl, duplicateQuestion,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
   buildTaxonomyMaps, labelForQuestion,
-  SUBJECT_FAMILIES, SCOPE_LABEL,
-} from '../../../lib/qbank'
+  SUBJECT_FAMILIES, SCOPE_LABEL, partLabel } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
@@ -459,7 +458,7 @@ function QuestionBankInner() {
                 {nParts > 0 && (
                   <div className="mt-2 space-y-1.5">
                     {[...q.qbank_question_parts].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((p, i) => {
-                      const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                      const lbl = partLabel(i)
                       return (
                         <div key={p.id} className="flex items-start gap-2 text-[13px] text-[#2A2035]/80">
                           <div className="flex-1 min-w-0"><span className="font-semibold mr-1">{lbl})</span><LatexContent text={p.prompt_latex || ''} /></div>

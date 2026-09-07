@@ -9,7 +9,7 @@ import {
 import {
   fetchTaxonomy, yearsFromSubjects, uploadQbankImage, deleteQbankImage,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, MCQ_LABELS, fetchQuestionUsage,
-  defaultCriterion, TOP_CRITERION,
+  defaultCriterion, TOP_CRITERION, partLabel,
 } from '../../lib/qbank'
 import { fetchSyllabus } from '../../lib/syllabus'
 import LatexField from './LatexField'
@@ -52,7 +52,6 @@ const toggleId = (setter) => (id) => setter((arr) => (arr.includes(id) ? arr.fil
 
 const blankPart = (i) => ({
   _key: Math.random().toString(36).slice(2),
-  part_label: 'abcdefgh'[i] || String(i + 1),
   prompt_latex: '',
   solution_latex: '',
   marks: '',
@@ -181,7 +180,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             .select('*').eq('question_id', questionId).order('sort_order')
           if (pr?.length) {
             setParts(pr.map((p) => ({
-              _key: p.id, part_label: p.part_label || '',
+              _key: p.id,
               prompt_latex: p.prompt_latex || '', solution_latex: p.solution_latex || '',
               marks: p.marks ?? '',
               criteria: (p.criteria && typeof p.criteria === 'object') ? p.criteria : {},
@@ -372,7 +371,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           .filter((p) => p.prompt_latex.trim() || p.solution_latex.trim())
           .map((p, i) => ({
             question_id: qid,
-            part_label: p.part_label || 'abcdefgh'[i] || String(i + 1),
+            part_label: partLabel(i),
             prompt_latex: p.prompt_latex,
             solution_latex: p.solution_latex,
             marks: p.marks === '' ? null : Number(p.marks),
@@ -659,12 +658,15 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
               onClick={() => setParts((ps) => [...ps, blankPart(ps.length)])}
               className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">+ Add part</button>
           </div>
-          {parts.map((p) => (
+          {parts.map((p, pi) => (
             <div key={p._key} className="rounded-xl border border-[#DEE7FF] p-4 bg-[#FBFCFF] space-y-3">
               <div className="flex items-center gap-2">
-                <input value={p.part_label} onChange={(e) => updatePart(p._key, 'part_label', e.target.value)}
-                  className="w-12 border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none focus:border-[#325099]" />
-                <span className="text-[11px] text-[#2A2035]/40">part label</span>
+                {/* Labels follow the order of the list, so removing a part
+                    relabels the rest rather than leaving a gap. */}
+                <span className="w-8 h-8 grid place-items-center rounded-lg bg-[#EEF4FF] border border-[#DEE7FF] text-sm font-bold text-[#062E63]">
+                  {partLabel(pi)}
+                </span>
+                <span className="text-[11px] text-[#2A2035]/40">part label · set by order</span>
                 <input type="number" min="0" value={p.marks} placeholder="marks"
                   onChange={(e) => updatePart(p._key, 'marks', e.target.value)}
                   className="w-20 ml-auto border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#325099]" />

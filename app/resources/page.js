@@ -9,7 +9,7 @@ import SearchSelectPopover from '../../components/SearchSelectPopover'
 import LatexContent from '../../components/qbank/LatexContent'
 import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
 import { fetchAllTerms, getEnrolmentTerm } from '../../lib/terms'
-import { fetchTaxonomy, qbankImageUrl } from '../../lib/qbank'
+import { fetchTaxonomy, qbankImageUrl, partLabel } from '../../lib/qbank'
 import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS } from '../../lib/tables'
 import { enrolledClassesForTerm } from '../../lib/classes'
 
@@ -587,7 +587,7 @@ function QuestionView({ q, n, showAnswers, last }) {
           {parts.length > 0 && (
             <div className="mt-2.5 space-y-3">
               {parts.map((p, i) => {
-                const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                const lbl = partLabel(i)
                 return (
                   <div key={p.id || lbl}>
                     <div className="flex items-start gap-3 text-[14px] text-[#1f2a44]">

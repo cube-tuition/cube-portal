@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import LatexContent from '../../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS } from '../../../../../lib/tables'
-import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps } from '../../../../../lib/qbank'
+import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps, partLabel } from '../../../../../lib/qbank'
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
@@ -322,7 +322,7 @@ export default function ExamBuilderPage() {
     const edited = (qs || []).find((q) => q.id === editQ?.id)
     if (edited) {
       const labels = new Set((edited.qbank_question_parts || [])
-        .map((p, i) => p.part_label || 'abcdefgh'[i] || String(i + 1)))
+        .map((p, i) => partLabel(i)))
       for (const sec of exam?.sections || []) {
         for (const sl of sec.slots) {
           if (sl.question_id !== edited.id || !sl.working_lines) continue
@@ -666,7 +666,7 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
             <div className="mt-2 flex items-center gap-2 flex-wrap pl-1">
               <span className="text-[11px] font-semibold text-[#2A2035]/60">Working lines:</span>
               {chosenParts.length ? chosenParts.map((p, i) => {
-                const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                const lbl = partLabel(i)
                 return (
                   <label key={p.id || lbl} className="flex items-center gap-1 text-[11px] text-[#2A2035]/55">
                     <span className="font-semibold">{lbl})</span>
@@ -690,7 +690,7 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
                 <span className="font-semibold">Q{n}</span>
               </label>
               {chosenParts.map((p, i) => {
-                const lbl = p.part_label || 'abcdefgh'[i] || String(i + 1)
+                const lbl = partLabel(i)
                 return (
                   <label key={p.id || lbl} className="flex items-center gap-1 text-[11px] text-[#2A2035]/55 cursor-pointer">
                     <input type="checkbox" checked={!!slot.page_breaks?.[lbl]}

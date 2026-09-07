@@ -9,7 +9,7 @@ import QuickEditModal from '../../../../components/qbank/QuickEditModal'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
-import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel } from '../../../../lib/qbank'
 import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
@@ -805,7 +805,7 @@ function AdditionalQuestionsInner() {
                             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                               <span className="text-[10px] font-semibold text-[#2A2035]/45">Writing lines:</span>
                               {parts.length ? parts.map((p, pi) => {
-                                const lbl = p.part_label || 'abcdefgh'[pi] || String(pi + 1)
+                                const lbl = partLabel(pi)
                                 return (
                                   <label key={p.id || lbl} className="flex items-center gap-1 text-[10px] text-[#2A2035]/50">
                                     <span className="font-semibold">{lbl})</span>

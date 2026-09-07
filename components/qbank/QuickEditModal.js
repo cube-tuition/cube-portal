@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { T_QBANK_QUESTIONS, T_QBANK_QUESTION_PARTS } from '../../lib/tables'
-import { MCQ_LABELS, DIFFICULTY_LEVELS, DIFFICULTY_LABELS } from '../../lib/qbank'
+import { MCQ_LABELS, DIFFICULTY_LEVELS, DIFFICULTY_LABELS , partLabel} from '../../lib/qbank'
 import LatexField from './LatexField'
 
 /*
@@ -27,7 +27,7 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
   const [parts, setParts] = useState(
     (question.qbank_question_parts || [])
       .slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-      .map((p) => ({ id: p.id, part_label: p.part_label || '', prompt_latex: p.prompt_latex || '', solution_latex: p.solution_latex || '', marks: p.marks ?? '' })),
+      .map((p) => ({ id: p.id, prompt_latex: p.prompt_latex || '', solution_latex: p.solution_latex || '', marks: p.marks ?? '' })),
   )
   // Legacy rows stored the option text under `text`; the editor writes `latex`.
   const [options, setOptions] = useState(() =>
@@ -143,10 +143,10 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
           </>
         )}
 
-        {multipart && parts.map((p) => (
+        {multipart && parts.map((p, pi) => (
           <div key={p.id} className="rounded-xl border border-[#DEE7FF] bg-[#FBFCFF] p-3 space-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-[#062E63]">Part {p.part_label})</span>
+              <span className="text-xs font-bold text-[#062E63]">Part {partLabel(pi)})</span>
               <input type="number" min="0" value={p.marks} placeholder="marks"
                 onChange={(e) => setPart(p.id, 'marks', e.target.value)}
                 className="w-20 ml-auto border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#325099]" />
