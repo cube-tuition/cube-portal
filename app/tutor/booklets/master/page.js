@@ -606,16 +606,6 @@ function MasterDatabaseInner() {
     if (error) { alert('Could not save status: ' + error.message); load() }
   }
 
-  // Retag one workbook. `booklets.topic` is a plain string, so a workbook whose
-  // topic was deleted sits under "No topic assigned" until it is given a new
-  // one — this is how it gets one without opening the full edit form.
-  const saveTopic = async (id, topic) => {
-    const value = topic || null
-    setBooklets(bs => bs.map(b => b.id === id ? { ...b, topic: value } : b))
-    const { error } = await supabase.from('booklets').update({ topic: value }).eq('id', id)
-    if (error) { alert('Could not save topic: ' + error.message); load() }
-  }
-
   // Every workbook is editable in the builder at any time: open its linked
   // build, creating an empty draft linked to the booklet on first open.
   const [openingBuilder, setOpeningBuilder] = useState(null)
@@ -905,23 +895,10 @@ function MasterDatabaseInner() {
                           </button>
                         </div>
 
-                        {/* Topic — editable in place. Chemistry groups by the
-                            module in its name, so it has no topic bank to pick
-                            from and the control is left out there. */}
-                        {!chemTab && (
-                          <select
-                            value={b.topic || ''}
-                            onChange={e => saveTopic(b.id, e.target.value)}
-                            className={`shrink-0 max-w-[9rem] text-[10px] font-semibold rounded-full px-2 py-1 border cursor-pointer focus:outline-none transition ${
-                              b.topic
-                                ? 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
-                                : 'bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:border-[#F59E0B]'}`}
-                            title={b.topic ? 'Topic — change it here' : 'No topic assigned — pick one'}
-                          >
-                            <option value="">— No topic —</option>
-                            {topicBank.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                          </select>
-                        )}
+                        {/* No topic control here: the rows are already grouped
+                            under their topic, so the only thing a per-row picker
+                            said was what the heading above it said. Retagging
+                            lives in the Info modal with the rest of the details. */}
 
                         <select
                           value={b.status || 'Not Started'}

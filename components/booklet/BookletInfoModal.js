@@ -448,6 +448,10 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
     return Number.isFinite(cur) && cur > 0 && !base.includes(cur) ? [...base, cur].sort() : base
   })()
   const topicOptions = (topicBank?.length ? topicBank.map(t => t.name || t) : COMMON_TOPICS)
+  // Only meaningful against a real topic bank — COMMON_TOPICS is a suggestion
+  // list, not the set of topics this year/subject actually files under.
+  const offBank = !!topicBank?.length && !!form.topic.trim()
+    && !topicOptions.some(t => t === form.topic.trim())
 
   const blockClose = busy || notesStatus === 'saving' || detailState === 'saving' || contentState === 'saving'
 
@@ -555,6 +559,15 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                     <datalist id="booklet-info-topics">
                       {topicOptions.map(t => <option key={t} value={t} />)}
                     </datalist>
+                    {/* Booklets group by this exact string, so a near-miss —
+                        "Algebra " or "Algrebra" — quietly starts a group of one
+                        instead of joining the one meant. Say so while it can
+                        still be fixed; a genuinely new topic is still allowed. */}
+                    {offBank && (
+                      <p className="text-[10px] text-[#B45309] mt-1">
+                        Not one of this year&rsquo;s topics — it will get a group of its own.
+                      </p>
+                    )}
                   </>
                 )}
               </div>
