@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import LatexContent from '../../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS } from '../../../../../lib/tables'
-import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps, partLabel } from '../../../../../lib/qbank'
+import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps, partLabel, fetchAllRows } from '../../../../../lib/qbank'
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
@@ -55,10 +55,13 @@ export default function ExamBuilderPage() {
   const pendingRef = useRef(false)
   const dirtyRef = useRef(false)
 
-  const loadQuestions = useCallback(() => supabase.from(T_QBANK_QUESTIONS)
-    .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
-    // returns the rows as well, so a caller can inspect what it just saved
-    .then(({ data }) => { setQuestions(data || []); return data || [] }), [])
+  // The builder needs the whole bank to pick from, and PostgREST caps a select
+  // at 1000 rows without saying so — unpaged, the newest questions were both
+  // unpickable and missing from the preview of any exam already using them.
+  // Returns the rows as well, so a caller can inspect what it just saved.
+  const loadQuestions = useCallback(() => fetchAllRows(() => supabase.from(T_QBANK_QUESTIONS)
+    .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)'))
+    .then((data) => { setQuestions(data); return data }), [])
 
   useEffect(() => {
     getAuthProfile().then(async ({ profile, role }) => {
