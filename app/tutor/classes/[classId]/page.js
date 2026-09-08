@@ -15,6 +15,7 @@ import ExamSection    from '../../../../components/ExamSection'
 import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS, T_SUB_ASSIGNMENTS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TUTORS } from '../../../../lib/tables'
 import { effectiveTeacher, lessonAccess } from '../../../../lib/lessonAccess'
 import { kindByKey } from '../../../../lib/reportKind'
+import { isCurrentMember } from '../../../../lib/enrolments'
 
 // Which week's tab collects which report. Week 5 is the mid-term point of a
 // 10-week term (matching the mid-term report's weeks 1-5 window); week 9 is
@@ -143,12 +144,16 @@ export default function ClassOverviewPage() {
       const activeTerm = (row.term_id && terms.find(t => t.id === row.term_id)) || getCurrentTerm(terms)
       setTerm(activeTerm)
 
-      // Roster
+      // Roster — CURRENT members. A student who has left keeps every mark they
+      // earned (the week tabs read their roll as at each session date), but is
+      // not part of the class now, so they are off the head-count, the term
+      // reports and the pre/post grid.
       const { data: links } = await supabase
         .from(T_ENROLMENTS)
-        .select('students (id, full_name, school, year)')
+        .select('status, students (id, full_name, school, year)')
         .eq('class_id', classId)
       const students = (links || [])
+        .filter(isCurrentMember)
         .map(l => l.students).filter(Boolean)
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
       setRoster(students)

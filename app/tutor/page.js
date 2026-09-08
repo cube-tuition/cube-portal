@@ -9,6 +9,7 @@ import { normalizeDays, fmtTime, isoDate } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS } from '../../lib/tables'
 import { buildClassLabelMap } from '../../lib/classLabels'
+import { isCurrentMember } from '../../lib/enrolments'
 import ActionCentre from '../../components/ActionCentre'
 import TrialFunnel from '../../components/home/TrialFunnel'
 import CapacityBoard from '../../components/home/CapacityBoard'
@@ -119,15 +120,20 @@ export default function TutorHome() {
       primaryClasses = primaryClasses.filter(c => (c.status || 'active') === 'active')
       setClasses(primaryClasses)
 
-      // Enrollment counts — single round trip via `enrolments`.
+      // Enrollment counts — single round trip via `enrolments`. Students who
+      // have left keep their row (that is what holds their history on the weeks
+      // they attended), so the head-count has to skip them.
       const ids = primaryClasses.map(c => c.id)
       if (ids.length > 0) {
         const { data: links } = await supabase
           .from(T_ENROLMENTS)
-          .select('class_id')
+          .select('class_id, status')
           .in('class_id', ids)
         const counts = {}
-        for (const l of links || []) counts[l.class_id] = (counts[l.class_id] || 0) + 1
+        for (const l of links || []) {
+          if (!isCurrentMember(l)) continue
+          counts[l.class_id] = (counts[l.class_id] || 0) + 1
+        }
         setEnrollmentCounts(counts)
       }
 

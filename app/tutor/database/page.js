@@ -12,6 +12,7 @@ import { buildClassLabelMap } from '../../../lib/classLabels'
 import { invoiceTotalsPatch } from '../../../lib/cashDiscount'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
+import { isCurrentMember } from '../../../lib/enrolments'
 import { TABLE_META, dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue, normalizeValue, fieldType, fieldEditorKind, linkedRef, formatDisplay } from '../../../lib/tableMeta'
 import { setUndoHandler, announceUndo } from '../../../lib/undo'
 import { useReferenceData } from '../../../lib/dbReference'
@@ -1689,6 +1690,7 @@ export default function DatabasePage() {
   const [classStatusTab, setClassStatusTab]     = useState('active') // classes view: 'active' | 'inactive' | 'all'
   const [enrolStatusTab, setEnrolStatusTab]     = useState('active') // enrolments view: 'active' | 'trial' | 'disenrol' | 'all'
   const [disenrolModal, setDisenrolModal]       = useState(null)     // { rowId } — reason prompt when flipping an enrolment to disenrol
+  const [unenrolModal, setUnenrolModal]         = useState(null)     // { classId, studentId, name } — taking a student off a class card
 
   // Search
   const [search, setSearch] = useState('')
@@ -2136,11 +2138,15 @@ export default function DatabasePage() {
     setEnrolmentMap({}); setAllStudentsList([])
     ;(async () => {
       const [{ data: sc }, { data: studs }] = await Promise.all([
-        supabase.from(T_ENROLMENTS).select('class_id, student_id, students(id, full_name)'),
+        supabase.from(T_ENROLMENTS).select('class_id, student_id, status, students(id, full_name)'),
         supabase.from(T_STUDENTS).select('id, full_name').order('full_name'),
       ])
       const map = {}
       for (const row of sc || []) {
+        // A student who has left keeps their enrolment row — that row is what
+        // holds them on the rolls for the weeks they attended — so the chips
+        // here, which mean "in this class", must skip them.
+        if (!isCurrentMember(row)) continue
         if (!map[row.class_id]) map[row.class_id] = []
         if (row.students) map[row.class_id].push({ id: row.student_id, full_name: row.students.full_name })
       }
@@ -2907,9 +2913,18 @@ export default function DatabasePage() {
     // trialling student to a class must not silently enrol (and bill) them.
     const { data: stub } = await supabase.from(T_ENROLMENTS)
       .select('id').eq('student_id', studentId).is('class_id', null).eq('status', 'trial').limit(1)
+    // Joining part-way through a term is recorded, so the weeks before they
+    // arrived do not list them. Adding a student before the term starts is the
+    // ordinary case and leaves started_at null — "here since the class began".
+    const today = new Date().toISOString().slice(0, 10)
+    const { data: cls } = await supabase.from(T_CLASSES)
+      .select('terms(start_date)').eq('id', classId).maybeSingle()
+    const termStart = cls?.terms?.start_date || null
+    const startedAt = termStart && today > termStart ? today : null
+
     const { error } = stub?.length
-      ? await supabase.from(T_ENROLMENTS).update({ class_id: classId }).eq('id', stub[0].id)
-      : await supabase.from(T_ENROLMENTS).insert({ class_id: classId, student_id: studentId })
+      ? await supabase.from(T_ENROLMENTS).update({ class_id: classId, started_at: startedAt }).eq('id', stub[0].id)
+      : await supabase.from(T_ENROLMENTS).insert({ class_id: classId, student_id: studentId, started_at: startedAt })
     if (!error) {
       const student = allStudentsList.find(s => s.id === studentId)
       if (student) {
@@ -2927,14 +2942,30 @@ export default function DatabasePage() {
   }
 
   // ── Enrolment: remove student from class ─────────────────────────────────────
-  const handleUnenrol = async (classId, studentId) => {
-    const { error } = await supabase.from(T_ENROLMENTS).delete().eq('class_id', classId).eq('student_id', studentId)
-    if (!error) {
-      setEnrolmentMap(prev => ({ ...prev, [classId]: (prev[classId] || []).filter(s => s.id !== studentId) }))
-      setRowCounts(prev => ({ ...prev, enrolments: Math.max(0, (prev.enrolments ?? 1) - 1) }))
-    } else {
-      alert('Unenrolment failed: ' + error.message)
-    }
+  // Taking a student off a class ENDS their enrolment (status + ended_at); it
+  // does not delete the row. The row is what keeps them on the rolls for the
+  // weeks they actually attended — deleting it rewrote history, and the class
+  // they had left then read their real attendance as a make-up guest's.
+  //
+  // Deleting is still right for a student added by mistake, who has no history
+  // to protect; that is the second button in the prompt.
+  const handleUnenrol = (classId, studentId) => {
+    const name = (enrolmentMap[classId] || []).find(s => s.id === studentId)?.full_name || 'this student'
+    setUnenrolModal({ classId, studentId, name })
+  }
+
+  const removeFromClass = async (classId, studentId, { reason }) => {
+    const today = new Date().toISOString().slice(0, 10)
+    const { error } = reason
+      ? await supabase.from(T_ENROLMENTS)
+          .update({ status: 'disenrol', end_reason: reason, ended_at: today })
+          .eq('class_id', classId).eq('student_id', studentId)
+      : await supabase.from(T_ENROLMENTS)
+          .delete().eq('class_id', classId).eq('student_id', studentId)
+    if (error) { alert('Could not remove from class: ' + error.message); return }
+    setEnrolmentMap(prev => ({ ...prev, [classId]: (prev[classId] || []).filter(s => s.id !== studentId) }))
+    if (!reason) setRowCounts(prev => ({ ...prev, enrolments: Math.max(0, (prev.enrolments ?? 1) - 1) }))
+    setUnenrolModal(null)
   }
 
   // ── Invoice card data ────────────────────────────────────────────────────────
@@ -4036,6 +4067,15 @@ export default function DatabasePage() {
               : r))
             setDisenrolModal(null)
           }}
+        />
+      )}
+
+      {unenrolModal && (
+        <RemoveFromClassModal
+          name={unenrolModal.name}
+          onClose={() => setUnenrolModal(null)}
+          onLeft={(reason) => removeFromClass(unenrolModal.classId, unenrolModal.studentId, { reason })}
+          onMistake={() => removeFromClass(unenrolModal.classId, unenrolModal.studentId, { reason: null })}
         />
       )}
 
@@ -7058,6 +7098,84 @@ function AddEnrolmentModal({ onClose, onCreated }) {
 // singleSelect columns): type to filter, ↑/↓ + Enter to choose, Esc or
 // click-away to close. Anchored to the clicked cell, flipping up when there's
 // no room below. options: [{ value, label, sub? }].
+// ── Remove-from-class modal ───────────────────────────────────────────────────
+// The × on a class card has two very different meanings and only the person
+// clicking it knows which: a student who has LEFT (their marks for the weeks
+// they attended must survive, so the enrolment is ended, not erased) or one
+// ADDED BY MISTAKE (nothing to keep, so the row goes). Guessing wrong in the
+// first direction loses real history, so the prompt asks.
+function RemoveFromClassModal({ name, onClose, onLeft, onMistake }) {
+  const [mode, setMode]     = useState(null)          // null | 'left' | 'mistake'
+  const [reason, setReason] = useState(END_REASONS[0])
+  const [custom, setCustom] = useState('')
+  const [saving, setSaving] = useState(false)
+  const finalReason = reason === 'Other' ? custom.trim() : reason
+  const run = async (fn) => { setSaving(true); await fn(); setSaving(false) }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+        <div>
+          <h3 className="font-bold text-[#2A2035] text-sm">Remove {name} from this class</h3>
+          <p className="text-xs text-[#2A2035]/60 mt-1">Which is it?</p>
+        </div>
+
+        {mode !== 'mistake' && (
+          <div className="rounded-xl border border-[#DEE7FF] p-3.5">
+            <p className="text-xs font-semibold text-[#2A2035]">They have left the class</p>
+            <p className="text-[11px] text-[#2A2035]/55 mt-0.5 mb-2.5">
+              Ends the enrolment today. Weeks already taught keep them on the roll with the
+              marks they were given; later weeks drop them.
+            </p>
+            {mode === 'left' ? (
+              <>
+                <label className="block text-[10px] tracking-[0.2em] uppercase font-semibold text-[#325099]/70 mb-1.5">Reason</label>
+                <select value={reason} onChange={e => setReason(e.target.value)}
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                  {END_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                {reason === 'Other' && (
+                  <input type="text" autoFocus value={custom} onChange={e => setCustom(e.target.value)}
+                    placeholder="e.g. Moved to Y8 English"
+                    onKeyDown={e => { if (e.key === 'Enter' && finalReason) run(() => onLeft(finalReason)) }}
+                    className="mt-2 w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+                )}
+                <button onClick={() => run(() => onLeft(finalReason))} disabled={saving || !finalReason}
+                  className="mt-2.5 w-full px-4 py-2 bg-[#DC2626] text-white text-xs font-semibold rounded-lg hover:bg-[#B91C1C] transition disabled:opacity-40">
+                  {saving ? 'Saving…' : 'End enrolment'}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setMode('left')}
+                className="w-full px-4 py-2 bg-[#F1F4FB] text-[#2A2035] text-xs font-semibold rounded-lg hover:bg-[#E6EBF7] transition">
+                They have left
+              </button>
+            )}
+          </div>
+        )}
+
+        {mode !== 'left' && (
+          <div className="rounded-xl border border-[#DEE7FF] p-3.5">
+            <p className="text-xs font-semibold text-[#2A2035]">Added by mistake</p>
+            <p className="text-[11px] text-[#2A2035]/55 mt-0.5 mb-2.5">
+              Deletes the enrolment outright. Only right when they were never in this class —
+              any marks already recorded against it stop being theirs.
+            </p>
+            <button onClick={() => run(onMistake)} disabled={saving}
+              className="w-full px-4 py-2 bg-[#F1F4FB] text-[#2A2035] text-xs font-semibold rounded-lg hover:bg-[#E6EBF7] transition disabled:opacity-40">
+              {saving ? 'Deleting…' : 'Delete the enrolment'}
+            </button>
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Disenrol reason modal ──────────────────────────────────────────────────────
 // Flipping an enrolment's status to "disenrol" prompts for the reason, which
 // lands in the End Reason column (visible on the Disenrolled tab).

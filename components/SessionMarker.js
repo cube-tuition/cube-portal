@@ -7,20 +7,8 @@ import { T_ATTENDANCE, T_BOOKLETS, T_ENROLMENTS, T_QUIZ_RESULTS } from '../lib/t
 import { showsHomeworkGrade } from '../lib/homeworkGrades'
 import { authedFetch } from '../lib/authedFetch'
 import { firstName } from '../lib/lessonAccess'
+import { hasLeftBy, hasNotJoinedBy } from '../lib/enrolments'
 import FlagStudentModal from './FlagStudentModal'
-
-/*
- * Has this enrolment already ended as at `dateISO`?
- *
- * The roll is a per-session list, so membership has to be read AS AT that
- * session's date rather than as a flat "are they in this class". A student who
- * left mid-term still belongs on the sessions they attended, and belongs on
- * none of the ones after. An enrolment marked `disenrol` with no end date has
- * ended with nothing to bound it, so it is off the roll entirely — the marks
- * already recorded stay visible in the class's attendance grid and reports.
- */
-const hasLeftBy = (status, endedAt, dateISO) =>
-  status === 'disenrol' && (!endedAt || dateISO > endedAt)
 
 /*
  * SessionMarker — the per-session marking UI (workbook + roll + notes).
@@ -96,6 +84,14 @@ function quizWeekLabel(bookletWeek, dateISO) {
   if (bookletWeek != null) return `Week ${bookletWeek}`
   return dateISO ? `Holiday ${dateISO}` : null
 }
+// A start date read back as a plain calendar day — no timezone shift, because
+// enrolments.started_at is a DATE and 'YYYY-MM-DD' alone parses as UTC.
+function fmtDayMonth(dateISO) {
+  if (!dateISO) return ''
+  const d = new Date(`${dateISO}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+}
 function fmtSavedAt(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -132,6 +128,8 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
   const [roster, setRoster] = useState([])
+  // Enrolled here, but not until a later week — listed, never marked.
+  const [notYetJoined, setNotYetJoined] = useState([])
   // Year 11/12 classes carry no homework grade — see lib/homeworkGrades.
   const hwEnabled = showsHomeworkGrade(cls, roster)
   const [flagOpen, setFlagOpen] = useState(false)
@@ -230,12 +228,12 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       // Roster — enrolled students (include enrolment-level trial status)
       const { data: links } = await supabase
         .from(T_ENROLMENTS)
-        .select('status, trial_start_date, ended_at, students (id, full_name, school, year)')
+        .select('status, trial_start_date, started_at, ended_at, students (id, full_name, school, year)')
         .eq('class_id', classId)
       if (cancelled) return
       const students = (links || [])
         .map(l => l.students
-          ? { ...l.students, enrolmentStatus: l.status, trialStartDate: l.trial_start_date, endedAt: l.ended_at }
+          ? { ...l.students, enrolmentStatus: l.status, trialStartDate: l.trial_start_date, startedAt: l.started_at, endedAt: l.ended_at }
           : null)
         .filter(Boolean)
         // Trial students only appear from their trial_start_date onwards
@@ -251,11 +249,20 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
         // marked absent week after week for a class they had left.
         .filter(s => !hasLeftBy(s.enrolmentStatus, s.endedAt, dateISO))
 
+      // A student who joined part-way through the term was not in the room for
+      // the weeks before they arrived. They stay listed on those sessions —
+      // silence would just raise the same question every time — but as a
+      // read-only row, so nothing about a lesson they missed can be marked.
+      // Held apart from the roll so every save and validation loop below sees
+      // only students who were actually there.
+      const notJoined = students.filter(s => hasNotJoinedBy(s.startedAt, dateISO))
+      const onRoll    = students.filter(s => !hasNotJoinedBy(s.startedAt, dateISO))
+
       // Also include makeup guests: students who have an attendance record for
       // this session (moved from another class) but are not enrolled here.
       // A departed student is NOT a guest — an absent mark left behind from
       // after they left would otherwise put them straight back on the roll.
-      const enrolledIds = new Set(students.map(s => s.id))
+      const enrolledIds = new Set(students.map(s => s.id))   // incl. not-yet-joined: they are not guests
       const departedIds = new Set((links || [])
         .filter(l => hasLeftBy(l.status, l.ended_at, dateISO))
         .map(l => l.students?.id).filter(Boolean))
@@ -268,12 +275,15 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       for (const row of guestAttRows || []) {
         if (!row.students) continue
         if (!enrolledIds.has(row.students.id) && !departedIds.has(row.students.id)) {
-          students.push({ ...row.students, isMakeupGuest: true, enrolmentStatus: 'active' })
+          onRoll.push({ ...row.students, isMakeupGuest: true, enrolmentStatus: 'active' })
         }
       }
 
-      students.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
-      setRoster(students)
+      const byName = (a, b) => (a.full_name || '').localeCompare(b.full_name || '')
+      onRoll.sort(byName)
+      notJoined.sort(byName)
+      setRoster(onRoll)
+      setNotYetJoined(notJoined)
 
       // Term + week
       const terms = await fetchAllTerms()
@@ -290,9 +300,9 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       const weekLabel = quizWeekLabel(week, dateISO)
 
       // Prefill marks
-      const studentIds = students.map(s => s.id)
+      const studentIds = onRoll.map(s => s.id)
       const seed = {}
-      for (const s of students) seed[s.id] = {}
+      for (const s of onRoll) seed[s.id] = {}
       let anyPriorData = false
       let latestSavedAt = null
       let latestSavedBy = null
@@ -347,7 +357,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
 
       // History (term-wide)
       const hist = {}
-      for (const s of students) hist[s.id] = { quizzes: [], attendance: [] }
+      for (const s of onRoll) hist[s.id] = { quizzes: [], attendance: [] }
       if (containing && studentIds.length > 0) {
         const { data: qzAll } = await supabase
           .from(T_QUIZ_RESULTS)
@@ -653,6 +663,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
           )}
           <MarkTable
             roster={roster}
+            notYetJoined={notYetJoined}
             hwEnabled={hwEnabled}
             marks={marks}
             history={history}
@@ -872,13 +883,32 @@ const UNDERSTANDING_OPTIONS = [
 ]
 
 function MarkTable({
-  roster, marks, history, term, currentWeek, rqEnabled = true, hwEnabled = true,
+  roster, notYetJoined = [], marks, history, term, currentWeek, rqEnabled = true, hwEnabled = true,
   expanded, onToggleExpand,
   onChange,
   isLocked, savedAt, savedBy, onEdit,
   isOneToOne,
   showValidation,
 }) {
+
+  // A student who joins the class later in the term. Shown so the roll explains
+  // itself rather than quietly omitting a name the tutor knows is in the class,
+  // greyed and with no fields, because there is nothing about a lesson they were
+  // not enrolled for that anyone should be marking.
+  const notYetRow = (st) => (
+    <tr key={`nyj-${st.id}`} className="border-b last:border-0 border-[#DEE7FF]"
+        style={{ background: '#F3F4F6', opacity: 0.85 }}>
+      <td className="pl-5 pr-3 py-3">
+        <span className="font-semibold text-gray-400 text-sm">{st.full_name}</span>
+        <p className="text-[11px] text-gray-400 mt-0.5">{st.school}{st.year ? ` · Yr ${st.year}` : ''}</p>
+      </td>
+      <td colSpan={99} className="px-5 py-3">
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-gray-200 text-gray-600 border border-gray-300 px-3 py-1 rounded-full">
+          Not enrolled yet{st.startedAt ? ` — joins ${fmtDayMonth(st.startedAt)}` : ''}
+        </span>
+      </td>
+    </tr>
+  )
 
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
@@ -1049,6 +1079,7 @@ function MarkTable({
                 </Fragment>
               )
             })}
+            {notYetJoined.map(notYetRow)}
           </tbody>
         </table>
       </div>
