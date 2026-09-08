@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import SessionMarker from '../../../../components/SessionMarker'
 import WeekBooklet from '../../../../components/WeekBooklet'
+import LessonWorksheets from '../../../../components/LessonWorksheets'
 import { normalizeDays, fmtTime, isoDate } from '../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm, isHolidayTerm } from '../../../../lib/terms'
 import { inferSubject, subjectColor, subjectsMatch } from '../../../../components/CourseDetail'
@@ -668,6 +669,20 @@ export default function ClassOverviewPage() {
                           dateISO={d} staff={staff}
                           readOnly={viewOnly}
                         />
+                      </div>
+                    )}
+                    {/* Additional-questions worksheets assigned to THIS date (PDF snapshots). */}
+                    {!isCancelled && !isMoved && (
+                      <div>
+                        <div className="flex items-baseline justify-between mb-3">
+                          <div>
+                            <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+                              Additional Questions
+                            </p>
+                            <h3 className="text-lg font-semibold text-[#2A2035] font-display">Worksheets for this lesson</h3>
+                          </div>
+                        </div>
+                        <LessonWorksheets cls={cls} dateISO={d} staff={staff} isAdmin={isAdmin} readOnly={viewOnly} />
                       </div>
                     )}
                     {!isCancelled && !isMoved && (
