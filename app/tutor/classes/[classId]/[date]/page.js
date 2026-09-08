@@ -7,6 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import SessionMarker from '../../../../../components/SessionMarker'
 import WeekBooklet from '../../../../../components/WeekBooklet'
+import LessonWorksheets from '../../../../../components/LessonWorksheets'
 import { normalizeDays, fmtTime, isoDate } from '../../../../../lib/format'
 import { fetchAllTerms, getCurrentTerm } from '../../../../../lib/terms'
 import { T_CLASSES, T_SUB_ASSIGNMENTS, T_TUTORS } from '../../../../../lib/tables'
@@ -277,6 +278,21 @@ export default function SessionDetailPage() {
           <WeekBooklet
             cls={cls} term={term} week={bookletWeek} isAdmin={isAdmin}
             dateISO={dateISO} staff={staff}
+            readOnly={!isAdmin && !!subAssignment && staff?.id !== subAssignment?.sub_tutor_id}
+          />
+        </div>
+        {/* Additional-questions worksheets assigned to this lesson (PDF snapshots). */}
+        <div>
+          <div className="flex items-baseline justify-between mb-3">
+            <div>
+              <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
+                Additional Questions
+              </p>
+              <h2 className="text-lg font-semibold text-[#2A2035] font-display">Worksheets for this lesson</h2>
+            </div>
+          </div>
+          <LessonWorksheets
+            cls={cls} dateISO={dateISO} staff={staff} isAdmin={isAdmin}
             readOnly={!isAdmin && !!subAssignment && staff?.id !== subAssignment?.sub_tutor_id}
           />
         </div>
