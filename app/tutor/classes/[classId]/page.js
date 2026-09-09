@@ -17,6 +17,7 @@ import { T_ADMINS, T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS, T_QUIZ_RESU
 import { effectiveTeacher, lessonAccess } from '../../../../lib/lessonAccess'
 import { kindByKey } from '../../../../lib/reportKind'
 import { isCurrentMember } from '../../../../lib/enrolments'
+import { isOneToOneByName } from '../../../../lib/classFormat'
 
 // Which week's tab collects which report. Week 5 is the mid-term point of a
 // 10-week term (matching the mid-term report's weeks 1-5 window); week 9 is
@@ -460,7 +461,7 @@ export default function ClassOverviewPage() {
                 <span className="whitespace-nowrap max-w-full truncate">📊 Pre/Post</span>
               </button>
               {/* Exams tab — group classes only */}
-              {!/1.?:?.?1/i.test(cls?.class_name || '') && (
+              {!isOneToOneByName(cls?.class_name) && (
                 <button
                   onClick={() => setTab('exams')}
                   className={`flex-none px-3 py-1.5 rounded-full text-sm font-semibold border transition flex items-center justify-center ${

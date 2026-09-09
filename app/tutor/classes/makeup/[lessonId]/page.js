@@ -9,6 +9,7 @@ import TutorNav from '../../../../../components/TutorNav'
 import { T_ATTENDANCE, T_CURRENT_TUTOR_RATES, T_LESSONS, T_QUIZ_RESULTS, T_SHIFTS } from '../../../../../lib/tables'
 import { inferSubject, subjectsMatch } from '../../../../../components/CourseDetail'
 import { fmtTime, fmtTimeRange } from '../../../../../lib/format'
+import { isOneToOneByName } from '../../../../../lib/classFormat'
 
 /*
  * Makeup lesson session page — /tutor/classes/makeup/[lessonId]
@@ -177,7 +178,7 @@ export default function MakeupLessonPage() {
       }
       if (qzRow) {
         if (qzRow.score != null) {
-          const isOneToOne = /1.?:?.?1/i.test(row.classes?.class_name || '')
+          const isOneToOne = isOneToOneByName(row.classes?.class_name)
           if (isOneToOne) setUnderstanding(String(qzRow.score))
           else setRq(String(qzRow.score))
         }
@@ -192,7 +193,7 @@ export default function MakeupLessonPage() {
   }, [lessonId])
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const isOneToOne = /1.?:?.?1/i.test(lesson?.classes?.class_name || '')
+  const isOneToOne = isOneToOneByName(lesson?.classes?.class_name)
   // Year 11/12 classes carry no homework grade — see lib/homeworkGrades.
   const hwEnabled = showsHomeworkGrade(lesson?.classes)
   const isAbsent   = attendance === 'absent'

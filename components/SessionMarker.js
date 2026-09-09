@@ -9,6 +9,7 @@ import { authedFetch } from '../lib/authedFetch'
 import { firstName } from '../lib/lessonAccess'
 import { hasLeftBy, hasNotJoinedBy } from '../lib/enrolments'
 import FlagStudentModal from './FlagStudentModal'
+import { isOneToOneByName } from '../lib/classFormat'
 
 /*
  * SessionMarker — the per-session marking UI (workbook + roll + notes).
@@ -687,7 +688,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             savedBy={savedBy}
             onEdit={readOnly ? undefined : () => { setIsLocked(false); setShowValidation(false); setSaveError(null); setSaveStatus('idle') }}
             showValidation={showValidation}
-            isOneToOne={/1.?:?.?1/i.test(cls?.class_name || '')}
+            isOneToOne={isOneToOneByName(cls?.class_name)}
           />
           </>
         )}

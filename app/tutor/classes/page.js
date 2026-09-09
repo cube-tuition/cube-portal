@@ -14,6 +14,7 @@ import { isRosteredTutor } from '../../../lib/dropin'
 import { inferSubject } from '../../../components/CourseDetail'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
 import { buildClassLabelMap } from '../../../lib/classLabels'
+import { isOneToOneByName } from '../../../lib/classFormat'
 
 // Parse "Y8 Maths" → 8 ; returns null if no Y-prefix.
 const parseYearFromClass = (name) => {
@@ -830,7 +831,7 @@ function AdminClassesView({ classes, rosters, classLabelMap, selectedYear, selec
       const yearNum  = parseYearFromClass(c.class_name) ?? 9999
       const yearLabel = yearNum !== 9999 ? `Year ${yearNum}` : 'Other'
       const subject   = inferSubject({ class_name: c.class_name }) || 'Other'
-      const isOneToOne = /1.?:?.?1/i.test(c.class_name || '')
+      const isOneToOne = isOneToOneByName(c.class_name)
       const classType  = isOneToOne ? '1:1 Classes' : 'Group Classes'
 
       if (!yearMap.has(yearNum)) yearMap.set(yearNum, { yearNum, yearLabel, subjects: new Map() })
