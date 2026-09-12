@@ -9,7 +9,7 @@ import QuickEditModal from '../../../../components/qbank/QuickEditModal'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
-import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel } from '../../../../lib/qbank'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks } from '../../../../lib/qbank'
 import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
@@ -400,14 +400,7 @@ function AdditionalQuestionsInner() {
     setDirty(true)
   }
 
-  const totalMarks = useMemo(
-    () => tray.reduce((sum, q) => {
-      const parts = q.qbank_question_parts || []
-      if (parts.length) return sum + parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
-      return sum + (Number(q.marks) || 0)
-    }, 0),
-    [tray],
-  )
+  const totalMarks = useMemo(() => tray.reduce((sum, q) => sum + questionTotalMarks(q), 0), [tray])
 
   // Live preview (shares the worksheet exporter; toggle worksheet vs answer key).
   const [previewAnswers, setPreviewAnswers] = useState(false)
@@ -793,7 +786,7 @@ function AdditionalQuestionsInner() {
                         <div className="flex items-center gap-2 mt-1">
                           {l?.skill && <span className="text-[10px] text-[#2A2035]/40">{l.skill.name}</span>}
                           <span className="text-[10px] text-[#2A2035]/40">· difficulty {q.difficulty}</span>
-                          {q.marks != null && <span className="text-[10px] text-[#2A2035]/40">· {q.marks} mark{q.marks === 1 ? '' : 's'}</span>}
+                          {(() => { const m = questionTotalMarks(q); return m ? <span className="text-[10px] text-[#2A2035]/40">· {m} mark{m === 1 ? '' : 's'}</span> : null })()}
                         </div>
                         {/* Writing space for THIS placement. Blank = derived from
                             marks; MCQs never get lines, so they get no control. */}

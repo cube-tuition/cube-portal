@@ -9,7 +9,7 @@ import {
 import {
   fetchTaxonomy, yearsFromSubjects, uploadQbankImage, deleteQbankImage,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, MCQ_LABELS, fetchQuestionUsage,
-  defaultCriterion, TOP_CRITERION, partLabel,
+  defaultCriterion, TOP_CRITERION, partLabel, sumPartMarks,
 } from '../../lib/qbank'
 import { fetchSyllabus } from '../../lib/syllabus'
 import LatexField from './LatexField'
@@ -113,6 +113,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
   const [solution, setSolution] = useState('')
   const [difficulty, setDifficulty] = useState(2)
   const [marks, setMarks] = useState('')
+  // A multi-part question's total is the sum of its parts, never typed.
   const [audience, setAudience] = useState('exam')   // 'exam' (CUBE) | 'student'
   const [isMulti, setIsMulti] = useState(false)
   const [parts, setParts] = useState([blankPart(0)])
@@ -345,7 +346,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         stem_latex: stem,
         solution_latex: (isMulti && !isMcq) ? '' : solution,   // mcq: explanation; extended single: worked solution
         difficulty: Number(difficulty),
-        marks: marks === '' ? (isMcq ? 1 : null) : Number(marks),
+        marks: isMulti && !isMcq ? partsTotal : (marks === '' ? (isMcq ? 1 : null) : Number(marks)),
         audience,
         is_multipart: isMcq ? false : isMulti,
         options: isMcq ? options.filter((o) => o.latex.trim()).map((o) => ({ label: o.label, latex: o.latex })) : [],
@@ -438,6 +439,9 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     if (newlyRemoved.length) setRemovedSolutionImageIds((r) => [...r, ...newlyRemoved])
     setSolutionImages(next)
   }
+
+  // The total shown in the header and saved on the question row.
+  const partsTotal = sumPartMarks(parts)
 
   const updatePart = (key, field, val) =>
     setParts((ps) => ps.map((p) => (p._key === key ? { ...p, [field]: val } : p)))
@@ -567,14 +571,19 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
               ))}
             </div>
           </div>
-          {(!isMulti || isMcq) && (
-            <div>
-              <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Marks</label>
+          <div>
+            <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Marks</label>
+            {(!isMulti || isMcq) ? (
               <input type="number" min="0" value={marks} onChange={(e) => setMarks(e.target.value)}
                 placeholder={isMcq ? '1' : ''}
                 className="w-24 border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
-            </div>
-          )}
+            ) : (
+              <div title="Added up from the parts below"
+                className="w-24 border border-dashed border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#2A2035]/60 bg-[#F8FAFF]">
+                {partsTotal} <span className="text-[10px]">from parts</span>
+              </div>
+            )}
+          </div>
           {!isMcq && (
             <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] ml-auto cursor-pointer">
               <input type="checkbox" checked={isMulti} onChange={(e) => setIsMulti(e.target.checked)} />

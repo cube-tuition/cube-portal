@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { T_QBANK_QUESTIONS, T_QBANK_QUESTION_PARTS } from '../../lib/tables'
-import { MCQ_LABELS, DIFFICULTY_LEVELS, DIFFICULTY_LABELS , partLabel} from '../../lib/qbank'
+import { MCQ_LABELS, DIFFICULTY_LEVELS, DIFFICULTY_LABELS , partLabel, sumPartMarks } from '../../lib/qbank'
 import LatexField from './LatexField'
 
 /*
@@ -78,6 +78,10 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
       if (!multipart) {
         payload.solution_latex = solution
         if (!isMcq) payload.marks = marks === '' ? null : Number(marks)
+      } else {
+        // Parts are the source of truth for a multi-part total, so editing a
+        // part's marks here moves the question's total with it.
+        payload.marks = sumPartMarks(parts)
       }
       if (isMcq) {
         // A blank option is dropped, as the full editor does. Labels come from

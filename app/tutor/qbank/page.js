@@ -13,7 +13,7 @@ import {
   fetchTaxonomy, deleteQbankImage, qbankImageUrl, duplicateQuestion,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
   buildTaxonomyMaps, labelForQuestion,
-  SUBJECT_FAMILIES, SCOPE_LABEL, partLabel } from '../../../lib/qbank'
+  SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
@@ -426,7 +426,7 @@ function QuestionBankInner() {
                   {l?.skill && <span className="text-[11px] text-[#2A2035]/40">› {l.skill.name}</span>}
                   {!l?.topic && <span className="text-[11px] text-[#EA580C]">⚠ untagged</span>}
                   <div className="ml-auto flex items-center gap-3">
-                    {q.marks != null && <span className="text-[11px] text-[#2A2035]/40">{q.marks} mark{q.marks === 1 ? '' : 's'}</span>}
+                    {(() => { const m = questionTotalMarks(q); return m ? <span className="text-[11px] text-[#2A2035]/40">{m} mark{m === 1 ? '' : 's'}</span> : null })()}
                     {nParts > 0 && <span className="text-[11px] text-[#2A2035]/40">{nParts} part{nParts === 1 ? '' : 's'}</span>}
                     {imgs.length > 0 && <span className="text-[11px] text-[#2A2035]/40">🖼 {imgs.length}</span>}
                     <Link href={`/tutor/qbank/${q.id}/edit?subject=${scope}`} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</Link>

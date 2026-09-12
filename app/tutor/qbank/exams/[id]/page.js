@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import LatexContent from '../../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS } from '../../../../../lib/tables'
-import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps, partLabel, fetchAllRows } from '../../../../../lib/qbank'
+import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, buildTaxonomyMaps, partLabel, fetchAllRows, questionTotalMarks as qMarks } from '../../../../../lib/qbank'
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
@@ -18,13 +18,6 @@ import { listRubrics, blankBands, blankCriterion, normaliseRubric, createRubricF
 import RubricGridEditor from '../../../../../components/qbank/RubricGridEditor'
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII']
-const qMarks = (q) => {
-  if (!q) return 0
-  if (q.qtype === 'mcq') return q.marks ?? 1
-  const parts = q.qbank_question_parts || []
-  if (parts.length) return parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
-  return Number(q.marks) || 0
-}
 
 export default function ExamBuilderPage() {
   const router = useRouter()

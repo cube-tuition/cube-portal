@@ -9,7 +9,7 @@ import SearchSelectPopover from '../../components/SearchSelectPopover'
 import LatexContent from '../../components/qbank/LatexContent'
 import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
 import { fetchAllTerms, getEnrolmentTerm } from '../../lib/terms'
-import { fetchTaxonomy, qbankImageUrl, partLabel } from '../../lib/qbank'
+import { fetchTaxonomy, qbankImageUrl, partLabel, questionTotalMarks as questionMarks } from '../../lib/qbank'
 import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS } from '../../lib/tables'
 import { enrolledClassesForTerm } from '../../lib/classes'
 
@@ -459,12 +459,6 @@ export default function Resources() {
 }
 
 // ── On-screen worksheet view (styled like a paper worksheet) ───────────────────
-const questionMarks = (q) => {
-  const parts = q.qbank_question_parts || []
-  if (q.qtype === 'mcq') return q.marks ?? 1
-  if (parts.length) return parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
-  return q.marks || 0
-}
 
 function Solution({ children }) {
   return (
