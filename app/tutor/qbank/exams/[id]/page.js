@@ -280,11 +280,24 @@ export default function ExamBuilderPage() {
 
   const [previewSolutions, setPreviewSolutions] = useState(false)
   const renderPreview = useCallback((container) => renderExamPreview(container, { meta: buildMeta(), sections: buildSections(), solutions: previewSolutions }), [buildMeta, buildSections, previewSolutions])
+  /*
+   * What the preview is a picture of. The paper is drawn from the slots AND the
+   * questions they point at, so both have to be in here: keying on the slots
+   * alone (plus a question COUNT) left the preview showing the old wording after
+   * a question was edited, because editing changes no slot and adds no row.
+   * Each used question and rubric contributes its id + updated_at, which the
+   * save bumps — cheaper than fingerprinting the whole payload on every keystroke.
+   */
   const previewSig = useMemo(() => JSON.stringify({
     m: buildMeta(),
     s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.page_breaks, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
-    sol: previewSolutions, ql: questions.length,
-  }), [exam, buildMeta, previewSolutions, questions.length])
+    q: (exam?.sections || []).flatMap((s) => s.slots.map((sl) => {
+      const q = qById[sl.question_id]
+      return q ? [q.id, q.updated_at] : sl.question_id || 0
+    })),
+    r: rubrics.map((rb) => [rb.id, rb.updated_at]),
+    sol: previewSolutions,
+  }), [exam, buildMeta, previewSolutions, qById, rubrics])
 
   const doExport = async (solutions) => {
     await save()
