@@ -40,6 +40,8 @@ function MessagesInner() {
   const [contacts, setContacts] = useState({})      // E.164 → { label, sub }
   const [people, setPeople] = useState([])          // picker options for a new conversation
   const [selected, setSelected] = useState(() => normalisePhone(searchParams.get('phone') || '') || null)
+  const [tab, setTab] = useState(() => (searchParams.get('tab') === 'calls' ? 'calls' : 'texts'))
+  const [calls, setCalls] = useState([])
   const [filter, setFilter] = useState('all')       // all | unanswered
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -53,8 +55,9 @@ function MessagesInner() {
       const { profile, role } = await getAuthProfile()
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
       setProfile(profile)
-      const [{ data: msgs }, { data: students }, { data: guardians }] = await Promise.all([
+      const [{ data: msgs }, { data: students }, { data: guardians }, { data: callRows }] = await Promise.all([
         supabase.from('sms_messages').select('*').order('created_at', { ascending: true }).limit(5000),
+        supabase.from('phone_calls').select('*').order('created_at', { ascending: false }).limit(1000),
         supabase.from(T_STUDENTS).select('id, full_name, phone, status').not('phone', 'is', null),
         supabase.from(T_PARENTS).select('id, full_name, phone, relationship, student_id').not('phone', 'is', null),
       ])
@@ -74,6 +77,7 @@ function MessagesInner() {
       })
       setContacts(map); setPeople(opts.sort((a, b) => a.label.localeCompare(b.label)))
       setMessages(msgs || [])
+      setCalls(callRows || [])
       setReady(true)
     })()
   }, [router])
@@ -86,6 +90,11 @@ function MessagesInner() {
         const row = payload.new
         if (!row?.id) return
         setMessages((prev) => prev.some((m) => m.id === row.id) ? prev.map((m) => (m.id === row.id ? { ...m, ...row } : m)) : [...prev, row])
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'phone_calls' }, (payload) => {
+        const row = payload.new
+        if (!row?.id) return
+        setCalls((prev) => prev.some((c) => c.id === row.id) ? prev.map((c) => (c.id === row.id ? { ...c, ...row } : c)) : [row, ...prev])
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -130,7 +139,7 @@ function MessagesInner() {
     finally { setSending(false) }
   }
 
-  const startNew = (phone) => { const e = normalisePhone(phone); if (!e) return; setSelected(e); setNewPop(null); setNewNumber(''); setFilter('all') }
+  const startNew = (phone) => { const e = normalisePhone(phone); if (!e) return; setSelected(e); setNewPop(null); setNewNumber(''); setFilter('all'); setTab('texts') }
 
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   const totalUnread = threads.reduce((s, t) => s + t.unread, 0)
@@ -143,21 +152,30 @@ function MessagesInner() {
         <div className="flex items-end justify-between gap-4 flex-wrap mb-5">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Messages</h1>
-            <p className="text-sm text-[#325099]/60 mt-1">Texts to and from the office number.{totalUnread ? ` ${totalUnread} unread.` : ''}</p>
+            <p className="text-sm text-[#325099]/60 mt-1">Texts and calls on the office number.{totalUnread ? ` ${totalUnread} unread text${totalUnread === 1 ? '' : 's'}.` : ''}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
+              <button onClick={() => setTab('texts')} className={`px-3 py-1.5 font-semibold ${tab === 'texts' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Texts</button>
+              <button onClick={() => setTab('calls')} className={`px-3 py-1.5 font-semibold border-l border-[#DEE7FF] ${tab === 'calls' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>
+                Calls{calls.filter((c) => c.status === 'missed' || c.status === 'voicemail').length ? ` (${calls.filter((c) => c.status === 'missed' || c.status === 'voicemail').length} missed)` : ''}
+              </button>
+            </div>
+            {tab === 'texts' && <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
               <button onClick={() => setFilter('all')} className={`px-3 py-1.5 font-semibold ${filter === 'all' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>All</button>
               <button onClick={() => setFilter('unanswered')} className={`px-3 py-1.5 font-semibold border-l border-[#DEE7FF] ${filter === 'unanswered' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
                 Unanswered{threads.filter((t) => t.unanswered).length ? ` (${threads.filter((t) => t.unanswered).length})` : ''}
               </button>
-            </div>
+            </div>}
             <button onClick={(e) => setNewPop(e.currentTarget.getBoundingClientRect())}
               className="px-3.5 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New text</button>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
+        {tab === 'calls' && (
+          <CallsPanel calls={calls} who={who} onText={(phone) => { setSelected(phone); setTab('texts') }} />
+        )}
+        {tab === 'texts' && <div className="grid md:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
           {/* Threads */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
             {shown.length === 0 ? (
@@ -219,7 +237,7 @@ function MessagesInner() {
               </>
             )}
           </div>
-        </div>
+        </div>}
       </div>
 
       {newPop && (
@@ -249,5 +267,71 @@ function PeoplePicker({ people, onPick }) {
         className="w-full text-left border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-sm text-[#2A2035]/60 hover:border-[#325099]">Search students and parents…</button>
       {pop && <SearchSelectPopover anchor={pop} options={people} currentValue={null} placeholder="Name…" onSelect={(v) => { setPop(null); onPick(v) }} onClose={() => setPop(null)} />}
     </>
+  )
+}
+
+const fmtDur = (secs) => `${Math.floor((secs || 0) / 60)}:${String((secs || 0) % 60).padStart(2, '0')}`
+const CALL_STYLE = {
+  answered:  { label: 'Answered',  bg: '#DCFCE7', fg: '#166534' },
+  missed:    { label: 'Missed',    bg: '#FEE2E2', fg: '#991B1B' },
+  voicemail: { label: 'Voicemail', bg: '#FEF3C7', fg: '#92400E' },
+  ringing:   { label: 'Ringing…',  bg: '#EEF2FF', fg: '#4338CA' },
+}
+
+function CallsPanel({ calls, who, onText }) {
+  if (!calls.length) return (
+    <div className="bg-white rounded-2xl border border-[#F0F4FF] px-6 py-14 text-center text-sm text-[#2A2035]/45">
+      No calls yet. Calls to the office number are forwarded to the office mobile and logged here, with voicemails when nobody answers.
+    </div>
+  )
+  return (
+    <div className="bg-white rounded-2xl border border-[#F0F4FF] divide-y divide-[#F0F4FF]">
+      {calls.map((c) => {
+        const st = CALL_STYLE[c.status] || CALL_STYLE.ringing
+        const contact = who(c.phone)
+        return (
+          <div key={c.id} className="px-5 py-3.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: st.bg, color: st.fg }}>{st.label}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#062E63] truncate">{contact?.label || formatPhone(c.phone)}</p>
+                <p className="text-[11px] text-[#2A2035]/45 truncate">{contact?.sub ? `${contact.sub} · ` : ''}{formatPhone(c.phone)}</p>
+              </div>
+              <span className="text-[11px] text-[#2A2035]/45">
+                {fmtTime(c.created_at)}
+                {c.status === 'answered' && c.duration_s != null ? ` · ${fmtDur(c.duration_s)} talk` : ''}
+                {c.status === 'voicemail' && c.recording_s != null ? ` · ${fmtDur(c.recording_s)} message` : ''}
+              </span>
+              {c.recording_sid && <VoicemailPlayer sid={c.recording_sid} />}
+              <button onClick={() => onText(c.phone)} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1 hover:border-[#325099]">Text back</button>
+            </div>
+            {c.transcript && <p className="mt-2 text-sm text-[#2A2035]/80 bg-[#F8FAFF] rounded-xl px-3.5 py-2 italic">“{c.transcript}”</p>}
+            {c.status === 'voicemail' && !c.transcript && <p className="mt-1.5 text-[11px] text-[#2A2035]/40">Transcript on its way — usually a minute or two.</p>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Twilio recordings need the account's credentials, so the audio comes through
+// /api/voice/audio with the staff token — an <audio src> can't carry that header.
+function VoicemailPlayer({ sid }) {
+  const [url, setUrl] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const load = async () => {
+    setBusy(true); setErr('')
+    try {
+      const res = await authedFetch(`/api/voice/audio?sid=${encodeURIComponent(sid)}`)
+      if (!res.ok) throw new Error(`could not load (${res.status})`)
+      setUrl(URL.createObjectURL(await res.blob()))
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  if (url) return <audio controls autoPlay src={url} className="h-8" />
+  return (
+    <button onClick={load} disabled={busy} className="text-[11px] font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1 hover:bg-[#062E63] disabled:opacity-50">
+      {busy ? 'Loading…' : err ? `▶ ${err}` : '▶ Play'}
+    </button>
   )
 }
