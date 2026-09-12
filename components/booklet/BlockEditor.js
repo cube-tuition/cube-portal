@@ -6,7 +6,7 @@ import { useState, useRef, useEffect, memo } from 'react'
 import { supabase } from '../../lib/supabase'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
 import { selectedToSyllabusText, countSelected, filterModulesToPool } from '../../lib/syllabus'
-import { partUid } from '../../lib/bookletRender'
+import { partUid, blockMarks } from '../../lib/bookletRender'
 
 // Option letters are positional everywhere: the letter shown is the index, and
 // `answer` stores that letter. Anything that reorders options must re-letter
@@ -717,6 +717,11 @@ function TwoColField({ block, set }) {
 // keystroke in any field re-renders every block's editor form on the page.
 // The parent hands each block a stable onChange, so this only re-renders when
 // its own block object actually changes.
+// A question whose parts carry marks totals them itself, so the Marks box shows
+// the sum rather than a typed number that can drift out of step with the parts.
+const partsCarryMarks = (b) =>
+  Array.isArray(b?.parts) && b.parts.some((p) => p.marks != null && p.marks !== '')
+
 function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null }) {
   const set = (patch) => onChange({ ...block, ...patch })
   // Maths workbook/homework don't print marks (only the revision quiz does), so
@@ -850,7 +855,16 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
                 </button>
               )}
             </div>
-            {showMarks && <div><label className={L}>Marks</label><LiftedInput className={I} value={block.marks} onCommit={v => set({ marks: v })} placeholder="" /></div>}
+            {showMarks && (
+              <div>
+                <label className={L}>Marks</label>
+                {partsCarryMarks(block)
+                  ? <div className={`${I} text-[#2A2035]/60 bg-[#F8FAFF] border-dashed`} title="Added up from the parts below">
+                      {blockMarks(block)} from parts
+                    </div>
+                  : <LiftedInput className={I} value={block.marks} onCommit={v => set({ marks: v })} placeholder="" />}
+              </div>
+            )}
           </div>
           <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
