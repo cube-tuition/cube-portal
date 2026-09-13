@@ -180,8 +180,13 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           const { data: pr } = await supabase.from(T_QBANK_QUESTION_PARTS)
             .select('*').eq('question_id', questionId).order('sort_order')
           if (pr?.length) {
-            setParts(pr.map((p) => ({
+            setParts(pr.map((p, i) => ({
               _key: p.id,
+              // The label this part had when the modal opened. Parts are labelled
+              // by position, so reordering them renames them, and the builder
+              // needs the before/after pairs to carry each part's working lines
+              // and page break along with it. See `relabelMap` below.
+              _origLabel: partLabel(i),
               prompt_latex: p.prompt_latex || '', solution_latex: p.solution_latex || '',
               marks: p.marks ?? '',
               criteria: (p.criteria && typeof p.criteria === 'object') ? p.criteria : {},
@@ -418,7 +423,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
       await uploadNew(images, 'stem')
       await uploadNew(solutionImages, 'solution')
 
-      if (onSaved) { onSaved(qid); return }   // modal mode — hand control back to the builder
+      if (onSaved) { onSaved(qid, relabelMap()); return }   // modal mode — hand control back to the builder
       router.push('/tutor/qbank')
     } catch (e) {
       setError(e.message || 'Could not save the question.')
@@ -445,6 +450,32 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
 
   const updatePart = (key, field, val) =>
     setParts((ps) => ps.map((p) => (p._key === key ? { ...p, [field]: val } : p)))
+  // Parts are labelled by position, so swapping two of them renames both.
+  const movePart = (key, dir) => setParts((ps) => {
+    const i = ps.findIndex((p) => p._key === key)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= ps.length) return ps
+    const next = [...ps]; [next[i], next[j]] = [next[j], next[i]]; return next
+  })
+
+  /*
+   * Which label each surviving part ended up with, for the parts that moved:
+   * { "b": "a", "a": "b" } after swapping the first two.
+   *
+   * The builder stores a slot's working lines and forced page breaks per part
+   * label, so without this a reorder would leave the lines set for the old part
+   * (c) sitting on whichever part is called (c) now. Parts added in this session
+   * have no original label and contribute nothing.
+   */
+  const relabelMap = () => {
+    const kept = parts.filter((p) => p.prompt_latex.trim() || p.solution_latex.trim())
+    const map = {}
+    kept.forEach((p, i) => {
+      const to = partLabel(i)
+      if (p._origLabel && p._origLabel !== to) map[p._origLabel] = to
+    })
+    return map
+  }
 
   if (loading) return (
     <div className="py-20 text-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
@@ -675,6 +706,16 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
                 <span className="w-8 h-8 grid place-items-center rounded-lg bg-[#EEF4FF] border border-[#DEE7FF] text-sm font-bold text-[#062E63]">
                   {partLabel(pi)}
                 </span>
+                {parts.length > 1 && (
+                  <span className="flex flex-col leading-none">
+                    <button type="button" onClick={() => movePart(p._key, -1)} disabled={pi === 0}
+                      title="Move this part up" aria-label="Move this part up"
+                      className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▲</button>
+                    <button type="button" onClick={() => movePart(p._key, 1)} disabled={pi === parts.length - 1}
+                      title="Move this part down" aria-label="Move this part down"
+                      className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▼</button>
+                  </span>
+                )}
                 <span className="text-[11px] text-[#2A2035]/40">part label · set by order</span>
                 <input type="number" min="0" value={p.marks} placeholder="marks"
                   onChange={(e) => updatePart(p._key, 'marks', e.target.value)}

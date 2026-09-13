@@ -326,11 +326,25 @@ export default function ExamBuilderPage() {
 
   /*
    * After a full edit, the question's parts may have been added, removed or
-   * relabelled. Working lines are stored per part label on the slot, so any key
-   * that no longer names a part is dropped — otherwise lines set for an old
-   * part (c) would silently land on whichever part is called (c) now.
+   * reordered. Working lines and forced page breaks are stored per part label on
+   * the slot, so both have to be brought back into line with the parts.
+   *
+   * A part that MOVED keeps its settings, carried to its new label by `relabel`
+   * ({ "b": "a", … }, from the editor, which is the only place that knows which
+   * part became which). A label that no longer names a part is then dropped —
+   * otherwise lines set for an old part (c) would silently land on whichever
+   * part is called (c) now. Remapping first and dropping second matters: a
+   * swap of (a) and (b) renames both, and neither should be discarded.
    */
-  const onEditQuestionSaved = async () => {
+  const remapByLabel = (obj, relabel, labels) => {
+    if (!obj) return null
+    const moved = Object.fromEntries(Object.entries(obj)
+      .map(([k, v]) => [k === '_' ? k : (relabel?.[k] ?? k), v]))
+    const kept = Object.fromEntries(Object.entries(moved)
+      .filter(([k]) => k === '_' || labels.has(k)))
+    return Object.keys(kept).length ? kept : null
+  }
+  const onEditQuestionSaved = async (_qid, relabel = null) => {
     const qs = await loadQuestions()
     const edited = (qs || []).find((q) => q.id === editQ?.id)
     if (edited) {
@@ -338,12 +352,14 @@ export default function ExamBuilderPage() {
         .map((p, i) => partLabel(i)))
       for (const sec of exam?.sections || []) {
         for (const sl of sec.slots) {
-          if (sl.question_id !== edited.id || !sl.working_lines) continue
-          const kept = Object.fromEntries(Object.entries(sl.working_lines)
-            .filter(([k]) => k === '_' || labels.has(k)))
-          if (Object.keys(kept).length !== Object.keys(sl.working_lines).length) {
-            updateSlot(sec._key, sl._key, { working_lines: Object.keys(kept).length ? kept : null })
+          if (sl.question_id !== edited.id) continue
+          const fields = {}
+          for (const key of ['working_lines', 'page_breaks']) {
+            if (!sl[key]) continue
+            const next = remapByLabel(sl[key], relabel, labels)
+            if (JSON.stringify(next) !== JSON.stringify(sl[key])) fields[key] = next
           }
+          if (Object.keys(fields).length) updateSlot(sec._key, sl._key, fields)
         }
       }
     }
