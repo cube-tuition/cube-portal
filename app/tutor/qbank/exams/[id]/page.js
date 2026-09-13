@@ -11,7 +11,7 @@ import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
-import { loadExam, saveExam, blankSlot, buildExamRenderPayload, examTitle, isAutoExamTitle } from '../../../../../lib/qbankExams'
+import { loadExam, saveExam, blankSlot, buildExamRenderPayload, examTitle, isAutoExamTitle, slotMoveTarget, moveSlotInSections } from '../../../../../lib/qbankExams'
 import { exportExamPdf, renderExamPreview } from '../../../../../lib/qbankExam'
 import DocLivePreview from '../../../../../components/qbank/DocLivePreview'
 import { listRubrics, blankBands, blankCriterion, normaliseRubric, createRubricFrom } from '../../../../../lib/rubrics'
@@ -123,6 +123,10 @@ export default function ExamBuilderPage() {
       return { ...s, slots }
     }))
   }
+  // Step a question one place through the paper, across a section boundary if
+  // that is where it is headed. See lib/qbankExams `moveSlotInSections`.
+  const slotNeighbour = (secKey, slotKey, dir) => slotMoveTarget(exam?.sections || [], secKey, slotKey, dir)
+  const moveSlot = (secKey, slotKey, dir) => setSections((ss) => moveSlotInSections(ss, secKey, slotKey, dir))
   const addSection = (type) => setSections((ss) => [...ss, { _key: Math.random().toString(36).slice(2, 9), type, marks_limit: type === 'mcq' ? 10 : 20, allow_time: type === 'mcq' ? '15 minutes' : '45 minutes', slots: [] }])
   const removeSection = (key) => setSections((ss) => ss.filter((s) => s._key !== key))
   const moveSection = (key, dir) => setSections((ss) => {
@@ -502,6 +506,9 @@ export default function ExamBuilderPage() {
                       onDragStart={() => setDragSlot({ secKey: s._key, slotKey: slot._key })}
                       onDragEnter={() => { if (dragSlot && dragSlot.secKey === s._key) reorderSlot(s._key, dragSlot.slotKey, slot._key) }}
                       onDragEnd={() => setDragSlot(null)}
+                      canMoveUp={!!slotNeighbour(s._key, slot._key, -1)}
+                      canMoveDown={!!slotNeighbour(s._key, slot._key, 1)}
+                      onMove={(dir) => moveSlot(s._key, slot._key, dir)}
                       onDblClick={(e) => onSlotDblClick(e, slot.question_id)} />
                   })}
                 </div>
@@ -576,7 +583,7 @@ export default function ExamBuilderPage() {
 }
 
 // ── Slot row ──────────────────────────────────────────────────────────────────
-function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, paperEnglish, rubrics, onRubricsChanged, matches, onCriteria, onPick, onRemove, onNew, onRefresh, onEdit, dragging, onDragStart, onDragEnter, onDragEnd, onDblClick }) {
+function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, paperEnglish, rubrics, onRubricsChanged, matches, onCriteria, onPick, onRemove, onNew, onRefresh, onEdit, dragging, onDragStart, onDragEnter, onDragEnd, canMoveUp, canMoveDown, onMove, onDblClick }) {
   const [open, setOpen] = useState(false)
   const [savingLib, setSavingLib] = useState(false)
   const handleRubricSelect = (e) => {
@@ -636,10 +643,24 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
       <div className="flex items-center gap-2 flex-wrap">
         <span
           draggable
-          onDragStart={onDragStart}
+          onDragStart={(e) => {
+            // Firefox and Safari refuse to start a drag unless the event carries
+            // data, so the handle looked draggable but did nothing there.
+            e.dataTransfer.setData('text/plain', slot._key)
+            e.dataTransfer.effectAllowed = 'move'
+            onDragStart(e)
+          }}
           onDragEnd={onDragEnd}
           title="Drag to reorder"
           className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none -ml-0.5">⠿</span>
+        {/* Dragging is fiddly on a trackpad and cannot cross a section boundary;
+            these step the question one place either way, sections included. */}
+        <span className="flex flex-col leading-none -my-1">
+          <button onClick={() => onMove(-1)} disabled={!canMoveUp} title="Move up"
+            className="text-[9px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▲</button>
+          <button onClick={() => onMove(1)} disabled={!canMoveDown} title="Move down"
+            className="text-[9px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▼</button>
+        </span>
         <span className="text-sm font-bold text-[#062E63]">Q{n}</span>
         <select value={slot.topic_id || ''} onChange={(e) => onCriteria({ topic_id: e.target.value || null, subtopic_id: null, skill_id: null })} className={selCls}>
           <option value="">Any topic (in scope)</option>
