@@ -5,7 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, Cell,
 } from 'recharts'
-import { T_PREPOST_SCORES, T_PREPOST_TESTS } from '../lib/tables'
+import { T_PREPOST_SCORES, T_PREPOST_TESTS, T_BOOKLET_BUILDS, T_QBANK_QUESTIONS } from '../lib/tables'
+import { topicsFromPaper, marksForQuestionRange, paperTotalMarks } from '../lib/preTestTopics'
 
 /*
  * PrePostSection — Pre/Post test management for a class+term.
@@ -43,6 +44,15 @@ const AVG_COLOR  = '#F59E0B'   // amber
 const EXP_COLOR  = '#9CA3AF'   // grey — expected/target mark
 const SCORE_GREEN = '#10B981'  // green — student's own total score (vs-average chart)
 
+// What the pre-test paper was able to tell us about its own structure — shown
+// so the tutor knows whether to trust the names or replace them.
+const PAPER_SOURCE_NOTE = {
+  headings: 'Topics read from the section headings on the pre-test paper.',
+  qbank: 'Topics read from the question bank, for the questions the paper uses.',
+  questions: 'The paper doesn\u2019t record what each question covers, so every question is its own row. Rename a row and type its question numbers (e.g. 1\u20133) to merge a run together \u2014 the marks follow.',
+  empty: '',
+}
+
 // ─── Custom tooltip ───────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
@@ -76,6 +86,7 @@ function FixedLegend({ items }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PrePostSection({ classId, termId, roster, canEdit }) {
   const [test, setTest]         = useState(null)     // prepost_tests row (or null)
+  const [paper, setPaper]       = useState(null)     // the class's pre-test paper (booklet_builds row)
   const [scoresMap, setScoresMap] = useState({})     // { [studentId]: { pre: [...], post: [...] } }
   const [loading, setLoading]   = useState(true)
   const [scoreMode, setScoreMode] = useState('pre')  // 'pre' | 'post'
@@ -122,18 +133,63 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
         }
         setScoresMap(map)
       }
+
+      // The class's pre-test paper, if one has been built. Its questions already
+      // carry the marks — and, where the paper says so, the topics — that this
+      // panel would otherwise be typed out by hand a second time. Only whoever
+      // sets the topics up needs it; a student reading their own scores doesn't.
+      if (!canEdit) { setPaper(null); setLoading(false); return }
+      const { data: buildRows } = await supabase
+        .from(T_BOOKLET_BUILDS)
+        .select('id, blocks, updated_at')
+        .eq('doc_type', 'pre_test')
+        .eq('class_id', classId)
+        .eq('term_id', termId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+      if (cancelled) return
+      const build = buildRows?.[0] || null
+      const topicNameByQuestion = {}
+      if (build) {
+        // Questions inserted from the question bank name their own topic.
+        const ids = [...new Set((build.blocks || []).map((b) => b?.qbank_question_id).filter(Boolean))]
+        if (ids.length) {
+          const { data: qRows } = await supabase
+            .from(T_QBANK_QUESTIONS).select('id, qbank_topics(name)').in('id', ids)
+          if (cancelled) return
+          for (const q of qRows || []) {
+            if (q?.qbank_topics?.name) topicNameByQuestion[q.id] = q.qbank_topics.name
+          }
+        }
+      }
+      setPaper(build ? { ...build, topicNameByQuestion } : null)
+
       setLoading(false)
     }
     load()
     return () => { cancelled = true }
-  }, [classId, termId])
+  }, [classId, termId, canEdit])
 
   // ── Topic helpers ─────────────────────────────────────────────────────────
   const topics = test?.topics || []
   const totalMarks = topics.reduce((s, t) => s + (Number(t.marks) || 0), 0)
 
+  // ── The paper's own structure ─────────────────────────────────────────────
+  const fromPaper = useMemo(
+    () => (paper ? topicsFromPaper(paper.blocks, { topicNameByQuestion: paper.topicNameByQuestion })
+                 : { source: 'empty', topics: [] }),
+    [paper])
+  const paperMarks = useMemo(() => (paper ? paperTotalMarks(paper.blocks) : 0), [paper])
+  const hasPaperTopics = fromPaper.topics.length > 0
+  const paperDrafts = () => fromPaper.topics.map(t => ({ ...t, marks: String(t.marks) }))
+
   const startEditSetup = () => {
-    setTopicDrafts(topics.length > 0 ? topics.map(t => ({ ...t })) : [{ name: '', marks: '' }])
+    // Nothing set up yet but a paper exists: start from the paper. The tutor
+    // described the test once when they built it — they shouldn't describe it
+    // again to mark it.
+    setTopicDrafts(topics.length > 0 ? topics.map(t => ({ ...t }))
+      : hasPaperTopics ? paperDrafts()
+      : [{ name: '', marks: '' }])
     setExpectedDraft({
       pre:  test?.expected_pre  != null ? String(test.expected_pre)  : '',
       post: test?.expected_post != null ? String(test.expected_post) : '',
@@ -142,7 +198,18 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
   }
 
   const handleTopicChange = (idx, field, val) => {
-    setTopicDrafts(prev => prev.map((t, i) => i === idx ? { ...t, [field]: val } : t))
+    setTopicDrafts(prev => prev.map((t, i) => {
+      if (i !== idx) return t
+      const next = { ...t, [field]: val }
+      // Question numbers fill their own marks off the paper, so merging rows
+      // (or splitting them again) never means adding marks up by hand. A range
+      // that doesn't parse yet leaves the marks alone.
+      if (field === 'questions' && paper) {
+        const m = marksForQuestionRange(paper.blocks, val)
+        if (m != null) next.marks = String(m)
+      }
+      return next
+    }))
   }
   const handleAddTopic    = () => setTopicDrafts(prev => [...prev, { name: '', marks: '' }])
   const handleRemoveTopic = (idx) => setTopicDrafts(prev => prev.filter((_, i) => i !== idx))
@@ -341,11 +408,27 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
                 </div>
               ))}
             </div>
-            <button onClick={handleAddTopic}
-              className="text-xs font-semibold text-[#325099] hover:text-[#062E63] flex items-center gap-1.5 transition">
-              <span className="w-5 h-5 rounded-full bg-[#DEE7FF] flex items-center justify-center text-[13px] font-bold leading-none">+</span>
-              Add topic
-            </button>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <button onClick={handleAddTopic}
+                className="text-xs font-semibold text-[#325099] hover:text-[#062E63] flex items-center gap-1.5 transition">
+                <span className="w-5 h-5 rounded-full bg-[#DEE7FF] flex items-center justify-center text-[13px] font-bold leading-none">+</span>
+                Add topic
+              </button>
+              {hasPaperTopics && (
+                <button onClick={() => setTopicDrafts(paperDrafts())}
+                  title="Read the topics, question numbers and marks back off the pre-test paper"
+                  className="text-xs font-semibold text-[#325099] hover:text-[#062E63] flex items-center gap-1.5 transition">
+                  <span className="w-5 h-5 rounded-full bg-[#DEE7FF] flex items-center justify-center text-[12px] font-bold leading-none">⤓</span>
+                  Fill from the pre-test paper
+                </button>
+              )}
+            </div>
+            {hasPaperTopics && (
+              <p className="text-xs text-[#2A2035]/55 leading-relaxed">
+                {PAPER_SOURCE_NOTE[fromPaper.source]}
+                {paperMarks > 0 && <span className="text-[#2A2035]/40"> Paper total: {paperMarks} marks.</span>}
+              </p>
+            )}
 
             {/* Expected overall marks — a manual target for the test as a whole */}
             <div className="border-t border-[#DEE7FF] pt-4">
@@ -386,7 +469,9 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
             <div className="text-3xl mb-2">📝</div>
             <p className="text-sm font-semibold text-[#2A2035] mb-1">No topics set up yet.</p>
             <p className="text-xs text-[#2A2035]/50">
-              {canEdit ? 'Click "Set up topics" to define the test structure.' : 'Your teacher will set up the topics for this test.'}
+              {!canEdit ? 'Your teacher will set up the topics for this test.'
+                : hasPaperTopics ? `Click "Set up topics" — the ${fromPaper.topics.length} ${fromPaper.topics.length === 1 ? 'row' : 'rows'} and ${paperMarks} marks on the pre-test paper are filled in for you.`
+                : 'Click "Set up topics" to define the test structure.'}
             </p>
           </div>
         ) : (
