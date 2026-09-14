@@ -577,6 +577,13 @@ export default function BookletBuilderEditor() {
     () => new Set(Array.isArray(bk?.syllabus_points) ? bk.syllabus_points : []),
     [bk?.syllabus_points],
   )
+  // Topics already typed on this paper's questions, offered in each Topic field
+  // so a run of questions ends up under one spelling rather than three.
+  const paperTopicOptions = useMemo(() => {
+    const bs = bk?.blocks || []
+    return [...new Set(bs.map(b => String(b?.topic || '').trim()).filter(Boolean))].sort()
+  }, [bk])
+
   const isLevelTest = bk?.doc_type === 'level_test'
   const isPreTest = bk?.doc_type === 'pre_test'
   // Exam-style docs (level tests + pre-tests) use a two-column layout: one big
@@ -913,7 +920,8 @@ export default function BookletBuilderEditor() {
           <button onClick={e => { e.stopPropagation(); requestRemoveBlock(b) }} title="Delete this block" className="hover:text-rose-500 text-sm ml-1">🗑</button>
         </div>
       </div>
-      <BlockEditor block={b} onChange={onChangeFor(b.id)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null} />
+      <BlockEditor block={b} onChange={onChangeFor(b.id)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null}
+        showTopic={isExamStyle} topicOptions={paperTopicOptions} />
     </div>
     )
   }

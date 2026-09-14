@@ -269,6 +269,29 @@ function LiftedInput({ value, onCommit, inlineKey = false, ...rest }) {
   )
 }
 
+/*
+ * Which topic a test question belongs to. Only on exam-style docs (pre-tests and
+ * level tests), which are question-only and so have no headings to group them.
+ * It never prints: it is what the pre/post score table groups the marks by, so
+ * the paper describes its own structure instead of the tutor typing it out
+ * again on the class page. The list offers the topics already used on the paper,
+ * so a run of questions shares one spelling.
+ */
+function TopicField({ block, set, options = [] }) {
+  const listId = `topics_${block.id}`
+  return (
+    <div>
+      <label className={L}>
+        Topic
+        <span className="ml-1.5 font-normal text-[#2A2035]/40">— groups the pre/post scores, never printed</span>
+      </label>
+      <LiftedInput className={I} value={block.topic || ''} onCommit={v => set({ topic: v })}
+        list={listId} placeholder="e.g. Indices" />
+      <datalist id={listId}>{options.map(t => <option key={t} value={t} />)}</datalist>
+    </div>
+  )
+}
+
 const L = 'block text-[11px] font-semibold text-[#325099] mb-1'
 const I = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]'
 const TA = I + ' resize-y min-h-[64px] font-mono text-[13px]'
@@ -722,7 +745,8 @@ function TwoColField({ block, set }) {
 const partsCarryMarks = (b) =>
   Array.isArray(b?.parts) && b.parts.some((p) => p.marks != null && p.marks !== '')
 
-function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null }) {
+function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null,
+                      showTopic = false, topicOptions = [] }) {
   const set = (patch) => onChange({ ...block, ...patch })
   // Maths workbook/homework don't print marks (only the revision quiz does), so
   // hide the Marks input there — but always show it in the revision quiz.
@@ -844,6 +868,7 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
     case 'question':
       return (
         <div className="space-y-2.5">
+          {showTopic && <TopicField block={block} set={set} options={topicOptions} />}
           <div><label className={L}>Question prompt</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey placeholder="Find the area of the following:" /></div>
           <div className={showMarks ? 'grid grid-cols-[1fr_90px] gap-2 items-end' : ''}>
             <div className="flex items-end gap-3">
@@ -899,6 +924,7 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
       }
       return (
         <div className="space-y-2.5">
+          {showTopic && <TopicField block={block} set={set} options={topicOptions} />}
           <div><label className={L}>Question</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey /></div>
           <div className="flex items-end gap-3">
             <ImageField value={block.image} onChange={v => set({ image: v })} />

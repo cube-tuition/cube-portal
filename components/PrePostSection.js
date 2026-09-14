@@ -47,6 +47,7 @@ const SCORE_GREEN = '#10B981'  // green — student's own total score (vs-averag
 // What the pre-test paper was able to tell us about its own structure — shown
 // so the tutor knows whether to trust the names or replace them.
 const PAPER_SOURCE_NOTE = {
+  tagged: 'Topics read from the pre-test paper, where each question names its topic.',
   headings: 'Topics read from the section headings on the pre-test paper.',
   qbank: 'Topics read from the question bank, for the questions the paper uses.',
   questions: 'The paper doesn\u2019t record what each question covers, so every question is its own row. Rename a row and type its question numbers (e.g. 1\u20133) to merge a run together \u2014 the marks follow.',
