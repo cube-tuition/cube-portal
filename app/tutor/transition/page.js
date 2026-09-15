@@ -439,6 +439,8 @@ export default function TransitionPage() {
     }
   })()
 
+  const selectedCount = Object.values(selectedClasses).filter(Boolean).length
+
   // Students who move up a year with their promoted classes.
   const promotingStudentIds = (() => {
     const ids = new Set(promotion.promote.map(p => p.cls.id))
@@ -761,7 +763,7 @@ export default function TransitionPage() {
             <div className="border border-[#DEE7FF] rounded-xl overflow-hidden mb-6">
               <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-2.5 flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#325099]/60">
-                  {Object.values(selectedClasses).filter(Boolean).length} / {classes.length} classes selected
+                  {selectedCount} / {classes.length} classes selected
                 </span>
                 <button
                   onClick={() => setSelectedClasses(Object.fromEntries(classes.map(c => [c.id, !allSelected])))}
@@ -844,31 +846,82 @@ export default function TransitionPage() {
               <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>
             )}
 
+            {/*
+              * Exactly one primary action at a time. Executing is the only step
+              * here that creates anything, so before it runs it is the only
+              * button that can look like the way forward — "Finish" sitting
+              * beside it in the same weight read as the next step and took
+              * people to a "complete" screen having created nothing.
+              */}
             <div className="flex justify-between items-center">
               <button onClick={() => setStep(2)} className="text-sm text-[#325099]/60 hover:text-[#062E63] px-4 py-2 rounded-full transition">← Back</button>
-              <div className="flex gap-3">
-                {!rolloverDone && (
+              <div className="flex items-center gap-3">
+                {!rolloverDone ? (
+                  <>
+                    {/* Still reachable for a term rolled over in an earlier
+                        session, but it creates nothing and now says so. */}
+                    <button
+                      onClick={() => goTo(4)}
+                      className="text-sm font-semibold text-[#325099]/50 hover:text-[#062E63] px-3 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
+                    >
+                      Skip without rolling over
+                    </button>
+                    <button
+                      onClick={executeRollover}
+                      disabled={saving || !Object.values(selectedClasses).some(Boolean)}
+                      className="bg-[#325099] text-white text-sm font-semibold px-6 py-2.5 rounded-full disabled:opacity-40 hover:bg-[#062E63] transition"
+                    >
+                      {saving
+                        ? 'Rolling over…'
+                        : `⚡ Roll over ${selectedCount} class${selectedCount === 1 ? '' : 'es'}${toTerm?.name ? ` → ${toTerm.name}` : ''}`}
+                    </button>
+                  </>
+                ) : (
                   <button
-                    onClick={executeRollover}
-                    disabled={saving || !Object.values(selectedClasses).some(Boolean)}
-                    className="bg-[#325099] text-white text-sm font-semibold px-6 py-2.5 rounded-full disabled:opacity-40 hover:bg-[#062E63] transition"
+                    onClick={() => goTo(4)}
+                    className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full hover:bg-[#325099] transition"
                   >
-                    {saving ? 'Rolling over…' : '⚡ Execute rollover'}
+                    Finish →
                   </button>
                 )}
-                <button
-                  onClick={() => goTo(4)}
-                  className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full hover:bg-[#325099] transition"
-                >
-                  Finish →
-                </button>
               </div>
             </div>
           </div>
         )}
 
         {/* ═══ STEP 4: Done ════════════════════════════════════════════════ */}
-        {step === 4 && (
+        {/*
+          * Reaching this step is not the same as having rolled anything over.
+          * Skipping used to land on "Transition complete" with em-dashes where
+          * the counts go, which reads as success and hides that the term is
+          * still empty.
+          */}
+        {step === 4 && !rolloverResult && (
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
+            <div className="text-5xl mb-5">⏭</div>
+            <h2 className="text-xl font-bold text-[#062E63] mb-1">Nothing was rolled over</h2>
+            <p className="text-sm text-[#325099]/60 mb-8 max-w-md mx-auto">
+              You skipped the rollover, so no classes or enrolments were created in {toTerm?.name || 'the new term'}.
+              If you ran it in an earlier session, they are already there — check the classes list.
+            </p>
+            <div className="flex justify-center gap-3 flex-wrap">
+              <button
+                onClick={() => goTo(3)}
+                className="bg-[#062E63] text-white text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#325099] transition"
+              >
+                ← Back to classes
+              </button>
+              <Link
+                href="/tutor/classes"
+                className="border border-[#DEE7FF] text-[#325099] text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
+              >
+                View {toTerm?.name} classes
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && rolloverResult && (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
             <div className="text-5xl mb-5">✅</div>
             <h2 className="text-xl font-bold text-[#062E63] mb-1">Transition complete</h2>
