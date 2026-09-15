@@ -294,7 +294,7 @@ export default function ExamBuilderPage() {
    */
   const previewSig = useMemo(() => JSON.stringify({
     m: buildMeta(),
-    s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.page_breaks, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
+    s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.page_breaks, sl.image_width, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
     q: (exam?.sections || []).flatMap((s) => s.slots.map((sl) => {
       const q = qById[sl.question_id]
       return q ? [q.id, q.updated_at] : sl.question_id || 0
@@ -648,6 +648,13 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
     else delete next[key]
     onCriteria({ page_breaks: Object.keys(next).length ? next : null })
   }
+  // Figure size for this paper only: % of the text column, blank = automatic.
+  // Stored as typed; lib/qbankExams clamps to 10–100 on save and render.
+  const setImageWidth = (val) => {
+    const n = parseInt(val, 10)
+    onCriteria({ image_width: val === '' || !Number.isFinite(n) ? null : n })
+  }
+  const chosenImages = chosen?.qbank_question_images || []
 
   return (
     <div
@@ -746,6 +753,17 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
                 )
               })}
               <span className="text-[10px] text-[#2A2035]/35">unticked = flow normally</span>
+            </div>
+          )}
+          {chosenImages.length > 0 && (
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap pl-1">
+              <span className="text-[11px] font-semibold text-[#2A2035]/60">Image width:</span>
+              <label className="flex items-center gap-1 text-[11px] text-[#2A2035]/55">
+                <input type="number" min="10" max="100" step="5" placeholder="auto" value={slot.image_width ?? ''}
+                  onChange={(e) => setImageWidth(e.target.value)} className={lineInputCls} />
+                <span>%</span>
+              </label>
+              <span className="text-[10px] text-[#2A2035]/35">of the text width · blank = auto</span>
             </div>
           )}
           {section.type !== 'mcq' && paperEnglish && (
