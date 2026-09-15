@@ -12,7 +12,7 @@ import { buildClassLabelMap } from '../../../lib/classLabels'
 import { invoiceTotalsPatch } from '../../../lib/cashDiscount'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
-import { isCurrentMember } from '../../../lib/enrolments'
+import { hasLeftBy, isCurrentMember } from '../../../lib/enrolments'
 import { TABLE_META, dropdownOptions, columnLabel, columnTooltip, isRequired, defaultHiddenCols, validateValue, normalizeValue, fieldType, fieldEditorKind, linkedRef, formatDisplay } from '../../../lib/tableMeta'
 import { setUndoHandler, announceUndo } from '../../../lib/undo'
 import { useReferenceData } from '../../../lib/dbReference'
@@ -3139,6 +3139,28 @@ export default function DatabasePage() {
   }
 
   // ── Lesson sidebar ────────────────────────────────────────────────────────────
+  /*
+   * One lesson's roster, read AS AT that lesson's date. A student who left
+   * mid-term belongs on the sessions up to their last day and on none after —
+   * this sidebar was listing them for the rest of the term, weeks after they
+   * had gone. Mirrors the roll marker's rule.
+   *
+   * `known` is every student with an enrolment row in this class, the departed
+   * included: a stray attendance mark from after someone left must not smuggle
+   * them back in through the make-up guest path below.
+   */
+  const rollAsAt = (enrolRows, dateISO) => {
+    const roster = []
+    const known = new Set()
+    for (const e of enrolRows || []) {
+      const s = e.students
+      if (!s) continue
+      known.add(s.id)
+      if (!hasLeftBy(e.status, e.ended_at, dateISO)) roster.push(s)
+    }
+    return { roster, known }
+  }
+
   const openLessonSidebar = useCallback(async (lesson) => {
     setLessonSidebar(lesson)
     setMakeupStudent(null); setMakeupMode(null); setMoveOptions([]); setMoveTargetId(null)
@@ -3147,19 +3169,18 @@ export default function DatabasePage() {
 
     // Fetch enrolments, attendance, and tutors in parallel
     const [{ data: enrolRows }, { data: attRows }, { data: tutorRows }, { data: directorRows }] = await Promise.all([
-      supabase.from(T_ENROLMENTS).select('student_id, students(id, full_name, year, school)').eq('class_id', lesson.class_id),
+      supabase.from(T_ENROLMENTS).select('student_id, status, started_at, ended_at, students(id, full_name, year, school)').eq('class_id', lesson.class_id),
       supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lesson.class_id).eq('session_date', lesson.lesson_date),
       supabase.from(T_TUTORS).select('id, full_name').order('full_name'),
       supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
     ])
-    const roster = (enrolRows || []).map(e => e.students).filter(Boolean)
+    const { roster, known } = rollAsAt(enrolRows, lesson.lesson_date)
     const attMap = {}
     for (const a of attRows || []) attMap[a.student_id] = a
 
     // Also surface makeup-moved guests: students with an attendance record here
-    // but not enrolled in this class (e.g. moved from a sibling section).
-    const enrolledIds = new Set(roster.map(s => s.id))
-    const guestIds = Object.keys(attMap).filter(id => !enrolledIds.has(id))
+    // but no enrolment in this class (e.g. moved from a sibling section).
+    const guestIds = Object.keys(attMap).filter(id => !known.has(id))
     if (guestIds.length > 0) {
       const { data: guestStudents } = await supabase
         .from(T_STUDENTS)
@@ -3338,11 +3359,10 @@ export default function DatabasePage() {
     for (const a of attRows || []) attMap[a.student_id] = a
     // Rebuild roster with guest detection (unchanged enrolled students + any guests)
     const { data: enrolRows } = await supabase
-      .from(T_ENROLMENTS).select('student_id, students(id, full_name, year, school)')
+      .from(T_ENROLMENTS).select('student_id, status, started_at, ended_at, students(id, full_name, year, school)')
       .eq('class_id', lessonSidebar.class_id)
-    const roster = (enrolRows || []).map(e => e.students).filter(Boolean)
-    const enrolledIds = new Set(roster.map(s => s.id))
-    const guestIds = Object.keys(attMap).filter(id => !enrolledIds.has(id))
+    const { roster, known } = rollAsAt(enrolRows, lessonSidebar.lesson_date)
+    const guestIds = Object.keys(attMap).filter(id => !known.has(id))
     if (guestIds.length > 0) {
       const { data: guestStudents } = await supabase
         .from(T_STUDENTS).select('id, full_name, year, school').in('id', guestIds)
