@@ -61,7 +61,24 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
 
       if (cancelled) return
 
-      setAssignedBooklet(assignment?.booklets || null)
+      /*
+       * A holiday course files its workbook against the lesson rather than a
+       * term/week slot (holiday_booklets), so a holiday day would otherwise
+       * show nothing here while the Holiday Courses page says what it runs.
+       * Look there when the curriculum has no assignment for this slot.
+       */
+      let assigned = assignment?.booklets || null
+      if (!assigned && dateISO) {
+        const { data: holiday } = await supabase
+          .from('holiday_booklets')
+          .select('booklets(id, booklet_name, year, subject, file_paths, file_path, pdf_filenames, is_exam, exam_id, delivery), lessons!inner(class_id, lesson_date)')
+          .eq('lessons.class_id', cls.id)
+          .eq('lessons.lesson_date', dateISO)
+          .maybeSingle()
+        if (cancelled) return
+        assigned = holiday?.booklets || null
+      }
+      setAssignedBooklet(assigned)
 
       // Always also load any class-specific booklet. When a curriculum booklet is
       // assigned, tutors/admins can still add extra PDFs "on top" — those belong to
@@ -80,7 +97,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
     }
     load()
     return () => { cancelled = true }
-  }, [eligible, cls?.id, term?.term_number, week])
+  }, [eligible, cls?.id, term?.term_number, week, dateISO])
 
   // Derive the list of all PDF paths for a booklet
   const getPaths = (b) => {

@@ -98,7 +98,15 @@ export default function ClassOverviewPage() {
   const [lessons, setLessons] = useState([])               // rows from lessons table (source of truth)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [tab, setTab] = useState(initialTab)           // 1..10
+  const [rawTab, setTab] = useState(initialTab)        // 1..10 | 'prepost' | 'exams'
+  /*
+   * Pre/post testing belongs to a teaching term: a holiday course runs a few
+   * days and is not tested against itself. The tab is hidden below, and a
+   * ?tab=prepost link to one lands on its first session rather than on a panel
+   * that can never hold anything.
+   */
+  const holidayCourse = isHolidayTerm(term)
+  const tab = holidayCourse && rawTab === 'prepost' ? 1 : rawTab
   const [examKind, setExamKind] = useState('term')     // exams tab: which paper is being marked
 
   useEffect(() => {
@@ -449,7 +457,8 @@ export default function ClassOverviewPage() {
                   </button>
                 )
               })}
-              {/* Pre/Post test tab */}
+              {/* Pre/Post test tab — teaching terms only */}
+              {!holidayCourse && (
               <button
                 onClick={() => setTab('prepost')}
                 className={`flex-none px-3 py-1.5 rounded-full text-sm font-semibold border transition ml-2 flex items-center justify-center ${
@@ -460,6 +469,7 @@ export default function ClassOverviewPage() {
               >
                 <span className="whitespace-nowrap max-w-full truncate">📊 Pre/Post</span>
               </button>
+              )}
               {/* Exams tab — group classes only */}
               {!isOneToOneByName(cls?.class_name) && (
                 <button
