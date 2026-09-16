@@ -18,6 +18,20 @@ import { useCourseCurriculum, subjectFromCourseCode } from '../../../lib/courses
 // so the curriculum offers exactly what the database explorer lists — including
 // the subject a class's course code names, for the class tabs.
 
+// Subject-hub scoping (?subject=Maths|English|Chemistry): each scope covers a
+// family of curriculum subjects — Maths spans the junior + senior variants.
+const SUBJECT_FAMILY = {
+  Maths: ['Maths', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
+  English: ['English'],
+  Chemistry: ['Chemistry'],
+}
+const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
+
+// A class still being taught. Inactive classes (e.g. a 1:1 whose student left)
+// keep their row for history but are hidden from the curriculum, calendar and
+// dashboards. Legacy rows with no status count as active.
+const isLiveClass = (c) => (c?.status || 'active') === 'active'
+
 const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
 const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
 const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry' || s === 'Physics' ? '#F0FDF4' : '#F5F3FF'
