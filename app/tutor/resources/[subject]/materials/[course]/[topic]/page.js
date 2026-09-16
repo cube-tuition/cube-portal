@@ -69,6 +69,7 @@ export default function TopicPage() {
   const [builds, setBuilds] = useState({})        // booklet_id -> build id
   const [bank, setBank] = useState(null)          // { total, subtopics: [{name, n}] }
   const [sheets, setSheets] = useState(null)      // worksheets filed under this topic
+  const [sheetSubtopics, setSheetSubtopics] = useState({})   // subtopic id → name, for those sheets
   const [tags, setTags] = useState({})            // worksheet id -> subtopic/skill/difficulty breakdown
   const [sheetPdf, setSheetPdf] = useState('')    // `${worksheetId}:${kind}` while one is building
   const [preview, setPreview] = useState(null)    // { url, filename, title }
@@ -120,9 +121,16 @@ export default function TopicPage() {
 
       // Additional-questions worksheets filed under this topic.
       const { data: ws } = await supabase.from('qbank_worksheets')
-        .select('id, title, subtitle, question_ids, include_marks, updated_at')
+        .select('id, title, subtitle, question_ids, include_marks, updated_at, subtopic_id')
         .eq('topic_id', t.id).order('title')
       if (!dead) setSheets(ws || [])
+      // A sheet may name one subtopic of this topic; look those names up so the
+      // row can say what it covers.
+      const stIds = [...new Set((ws || []).map((w) => w.subtopic_id).filter(Boolean))]
+      if (stIds.length) {
+        const { data: sts } = await supabase.from('qbank_subtopics').select('id, name').in('id', stIds)
+        if (!dead) setSheetSubtopics(Object.fromEntries((sts || []).map((x) => [x.id, x.name])))
+      }
       // What each sheet covers. Second pass on purpose: it reads the tag joins
       // for every question on every sheet, so the rows show as soon as they
       // load rather than waiting on the breakdown.
@@ -303,6 +311,7 @@ export default function TopicPage() {
           <div className="space-y-2">
             {sheets.map((w) => {
               const t = tags[w.id]
+              const stName = sheetSubtopics[w.subtopic_id]
               const n = t?.total ?? (w.question_ids || []).length
               // The word comes from the nearest rung, the number beside it is the
               // real mean — so "Hard · 3.4" is expected, not a rounding slip.
@@ -313,6 +322,11 @@ export default function TopicPage() {
                   className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 hover:shadow-md transition">
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{w.title}</span>
+                    {stName && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF4FF] text-[#325099] shrink-0 whitespace-nowrap">
+                        {stName}
+                      </span>
+                    )}
                     {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[30%] truncate">{w.subtitle}</span>}
                     {rung && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"

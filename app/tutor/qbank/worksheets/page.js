@@ -9,7 +9,7 @@ import QuickEditModal from '../../../../components/qbank/QuickEditModal'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
-import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks } from '../../../../lib/qbank'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, qbankSubtopicsForCurriculumTopic } from '../../../../lib/qbank'
 import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
@@ -73,6 +73,7 @@ function AdditionalQuestionsInner() {
   // Curriculum topic this worksheet belongs to. Tagging one makes it appear
   // under that topic in Materials; null leaves it untagged.
   const [wsTopicId, setWsTopicId] = useState('')
+  const [wsSubtopicId, setWsSubtopicId] = useState('')   // '' = the whole topic
   const [coverYear, setCoverYear] = useState('')       // '' = derived from topic / first question
   // Section bands, e.g. a "Homework" split part-way down a combined sheet.
   // Read-only here: persist() never writes this column, so editing the question
@@ -96,7 +97,7 @@ function AdditionalQuestionsInner() {
 
   // Autosave plumbing — refs hold the latest editable snapshot + in-flight state
   // so debounced saves never race or persist stale data.
-  const dataRef = useRef({ selectedId: null, title: '', tray: [], includeMarks: true, wsTopicId: '', coverYear: '' })
+  const dataRef = useRef({ selectedId: null, title: '', tray: [], includeMarks: true, wsTopicId: '', wsSubtopicId: '', coverYear: '' })
   const savingRef = useRef(false)
   const pendingRef = useRef(false)
   const dirtyRef = useRef(false)
@@ -138,7 +139,7 @@ function AdditionalQuestionsInner() {
           .select('*').single()
           .then(({ data, error }) => {
             if (error || !data) return
-            setSelectedId(data.id); setTitle(data.title || ''); setWsTopicId(''); setCoverYear(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
+            setSelectedId(data.id); setTitle(data.title || ''); setWsTopicId(''); setWsSubtopicId(''); setCoverYear(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
             loadWorksheets()
             router.replace('/tutor/qbank/worksheets')   // drop ?new=1 so refresh doesn't create another
           })
@@ -154,9 +155,24 @@ function AdditionalQuestionsInner() {
   // autosave write that emptiness back over the worksheet.
   const wantWsRef = useRef(searchParams.get('ws') || null)
   const topicById = useMemo(() => Object.fromEntries(allTopics.map((t) => [t.id, t])), [allTopics])
+  /*
+   * Subtopics a worksheet can name, read off the bank's tree for the topic it
+   * is filed under. A sheet that covers the whole topic simply leaves it blank,
+   * so the picker only appears once a topic with subtopics is chosen.
+   */
+  const wsSubtopics = useMemo(
+    () => qbankSubtopicsForCurriculumTopic(tax, topicById[wsTopicId]),
+    [tax, topicById, wsTopicId])
+  // Subtopic names for the list rows, keyed by id across every topic.
+  const subtopicNameById = useMemo(
+    () => Object.fromEntries((tax?.subtopics || []).map((st) => [String(st.id), st.name])), [tax])
+  const wsSubtopicName = useMemo(
+    () => wsSubtopics.find((st) => String(st.id) === String(wsSubtopicId))?.name || '',
+    [wsSubtopics, wsSubtopicId])
 
   // Keep refs in sync so the autosave loop always reads the latest values.
-  useEffect(() => { dataRef.current = { selectedId, title, tray, includeMarks, wsTopicId, coverYear } }, [selectedId, title, tray, includeMarks, wsTopicId, coverYear])
+  useEffect(() => { dataRef.current = { selectedId, title, tray, includeMarks, wsTopicId, wsSubtopicId, coverYear } },
+    [selectedId, title, tray, includeMarks, wsTopicId, wsSubtopicId, coverYear])
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
 
   // Low-level write for a given snapshot.
@@ -172,6 +188,8 @@ function AdditionalQuestionsInner() {
           : q.id)),
       include_marks: snap.includeMarks ?? true,
       topic_id: snap.wsTopicId ? Number(snap.wsTopicId) : null,
+      // Only meaningful under a topic, so it travels with it.
+      subtopic_id: snap.wsTopicId ? (snap.wsSubtopicId || null) : null,
       updated_at: new Date().toISOString(),
     }).eq('id', snap.selectedId)
     if (error) throw error
@@ -200,6 +218,7 @@ function AdditionalQuestionsInner() {
     setSelectedId(ws.id)
     setTitle(ws.title || '')
     setWsTopicId(ws.topic_id ?? '')
+    setWsSubtopicId(ws.subtopic_id ?? '')
     setCoverYear(ws.cover_year ?? '')
     setBreaks(Array.isArray(ws.section_breaks) ? ws.section_breaks : [])
     const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
@@ -248,7 +267,7 @@ function AdditionalQuestionsInner() {
     if (!selectedId || !dirty) return
     const t = setTimeout(() => { saveWorksheet() }, 1000)
     return () => clearTimeout(t)
-  }, [dirty, title, tray, includeMarks, wsTopicId, coverYear, selectedId, saveWorksheet])
+  }, [dirty, title, tray, includeMarks, wsTopicId, wsSubtopicId, coverYear, selectedId, saveWorksheet])
 
   // Best-effort flush when the page unmounts with unsaved edits.
   useEffect(() => () => { if (dirtyRef.current) saveWorksheet() }, [saveWorksheet])
@@ -590,6 +609,7 @@ function AdditionalQuestionsInner() {
                           <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
                             <p className="text-xs font-semibold text-[#2A2035] truncate">{ws.title}</p>
                             <p className="text-[10px] text-[#2A2035]/45 mt-0.5">
+                              {subtopicNameById[String(ws.subtopic_id)] ? `${subtopicNameById[String(ws.subtopic_id)]} · ` : ''}
                               {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} question{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0) === 1 ? '' : 's'}
                                · updated {new Date(ws.updated_at).toLocaleDateString()}
                             </p>
@@ -728,9 +748,21 @@ function AdditionalQuestionsInner() {
                   currentValue={String(wsTopicId || '')}
                   clearLabel="No topic — won’t show under Materials"
                   placeholder="Search topics…"
-                  onSelect={(v) => { setWsTopicId(v); setDirty(true); setWsTopicPop(null) }}
+                  onSelect={(v) => { setWsTopicId(v); setWsSubtopicId(''); setDirty(true); setWsTopicPop(null) }}
                   onClose={() => setWsTopicPop(null)}
                 />
+              )}
+              {/* Optional: narrow the filing to one subtopic of that topic.
+                  Blank keeps the sheet against the whole topic. */}
+              {wsSubtopics.length > 0 && (
+                <label className="flex items-center gap-2 text-xs text-[#2A2035]/60">
+                  <span className="shrink-0">Subtopic</span>
+                  <select value={wsSubtopicId} onChange={(e) => { setWsSubtopicId(e.target.value); setDirty(true) }}
+                    className="flex-1 border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                    <option value="">Whole topic</option>
+                    {wsSubtopics.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+                  </select>
+                </label>
               )}
               {/* The year printed on the cover. Auto follows the topic (or the
                   first question); a sheet spanning years picks its own. */}
