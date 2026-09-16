@@ -149,7 +149,11 @@ export default function ExamBuilderPage() {
     const scope = exam.topic_ids || []
     return questions.filter((q) => {
       if (q.audience === 'student') return false   // student-only questions never go into exams
-      if (q.qtype !== section.type) return false
+      // The section's kind is the default, but a slot holding the other kind —
+      // a question moved in from another section — offers replacements of that
+      // kind, so a swap does not first have to be moved back.
+      const want = qById[slot.question_id]?.qtype || section.type
+      if (q.qtype !== want) return false
       const usedBy = usedIds.get(q.id)
       if (usedBy && usedBy !== slot._key) return false
       const tId = qTopicId(q)
@@ -160,7 +164,7 @@ export default function ExamBuilderPage() {
       if (slot.difficulty && q.difficulty !== Number(slot.difficulty)) return false
       return true
     })
-  }, [questions, maps, exam, usedIds, qTopicId, qSubtopicId])
+  }, [questions, maps, exam, usedIds, qTopicId, qSubtopicId, qById])
 
   // ── persistence ─────────────────────────────────────────────────────────────
   // Keep refs current so the autosave loop always reads the latest values.
@@ -738,6 +742,14 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
         <>
           <div className="mt-2 flex items-start gap-2 bg-white rounded-lg border border-[#BACBFF] p-2.5">
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white mt-0.5" style={{ background: DIFFICULTY_COLORS[chosen.difficulty] }}>{chosen.difficulty}</span>
+            {/* A question may sit in a section of the other kind — it prints as
+                what it is, but the mismatch should be visible, not silent. */}
+            {chosen.qtype && chosen.qtype !== section.type && (
+              <span title={`This is a ${chosen.qtype === 'mcq' ? 'multiple-choice' : 'extended-response'} question in a ${section.type === 'mcq' ? 'multiple-choice' : 'extended'} section. It prints as ${chosen.qtype === 'mcq' ? 'multiple choice, with its options' : 'extended, with working lines'}.`}
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] mt-0.5 whitespace-nowrap">
+                {chosen.qtype === 'mcq' ? 'MCQ' : 'Extended'}
+              </span>
+            )}
             <div className="flex-1 min-w-0 text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={chosen.stem_latex || '(no stem)'} /></div>
             <UsageBadge usage={usageMap[chosen.id]} />
             <span className="text-[10px] text-[#2A2035]/40 whitespace-nowrap">{qMarks(chosen)}m</span>
