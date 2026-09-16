@@ -59,6 +59,46 @@ export default function CollabDoc({ classId, meId }) {
     return () => { alive = false }
   }, [classId, storeKey])
 
+  /* Pull the current server copy — the safety net around realtime, the same one
+     the workbook has. A postgres_changes channel can die without saying so: the
+     socket drops while the tab is in the background, or the JWT it was opened
+     with expires mid-lesson, and the page then sits there looking healthy and
+     receiving nothing. CHANNEL_ERROR is logged against this app most weeks, so
+     this is not hypothetical — without a refetch the only cure is a hard
+     refresh, which is exactly what staff were doing to see a student's typing.
+     Skipped while this copy has unsaved words of its own: they were written
+     later and must not be overwritten by what the server still holds. */
+  const refresh = useRef(null)
+  const pullServerCopy = async () => {
+    if (pending.current !== null) return
+    const { data, error } = await supabase.from('workbook_collab_docs')
+      .select('body, updated_at').eq('class_id', classId).maybeSingle()
+    if (error || !data) return
+    if (pending.current !== null) return          // typing started mid-flight
+    setBody((b) => (b === (data.body ?? '') ? b : (data.body ?? '')))
+    setSavedAt((t) => (t === data.updated_at ? t : data.updated_at))
+  }
+  // Held in a ref the way `flush` is, so the listeners below always call the
+  // current closure without re-subscribing on every render.
+  useEffect(() => { refresh.current = pullServerCopy })
+
+  useEffect(() => {
+    const onWake = () => { if (document.visibilityState === 'visible') refresh.current?.() }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    window.addEventListener('online', onWake)
+    // Safari restoring from the back-forward cache fires pageshow and nothing else.
+    window.addEventListener('pageshow', onWake)
+    const beat = setInterval(onWake, 10000)
+    return () => {
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+      window.removeEventListener('online', onWake)
+      window.removeEventListener('pageshow', onWake)
+      clearInterval(beat)
+    }
+  }, [classId])
+
   // Live sync — another writer's save lands here. Skipped while this copy has
   // unsaved typing of its own.
   useEffect(() => {
@@ -70,7 +110,11 @@ export default function CollabDoc({ classId, meId }) {
         setBody(b => (b === r.body ? b : r.body))
         setSavedAt(r.updated_at)
       })
-      .subscribe()
+      .subscribe((status) => {
+        // A (re)join is the moment to reconcile: anything missed while the
+        // socket was down is fetched now rather than waiting for the heartbeat.
+        if (status === 'SUBSCRIBED') refresh.current?.()
+      })
     return () => { supabase.removeChannel(ch) }
   }, [classId])
 
