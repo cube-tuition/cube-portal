@@ -465,17 +465,24 @@ export default function ExamBuilderPage() {
                       <select value={s.type} onChange={(e) => updateSection(s._key, { type: e.target.value })} className={selCls}>
                         <option value="mcq">Multiple choice</option><option value="extended">Extended response</option>
                       </select>
-                      <span className="text-[11px] text-[#2A2035]/40 ml-auto">{sectionMarks(s)}/{s.marks_limit ?? '—'} marks</span>
+                      <span className="text-[11px] text-[#2A2035]/40 ml-auto">{sectionMarks(s)} marks from {s.slots.length} question{s.slots.length === 1 ? '' : 's'}</span>
                       <button onClick={() => moveSection(s._key, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
                       <button onClick={() => moveSection(s._key, 1)} disabled={i === exam.sections.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
                       {exam.sections.length > 1 && <button onClick={() => removeSection(s._key)} className="text-[11px] text-[#DC2626] hover:underline">✕</button>}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Marks limit</label>
-                        <input type="number" min="0" value={s.marks_limit ?? ''} onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" /></div>
+                      <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Marks target (optional)</label>
+                        <input type="number" min="0" value={s.marks_limit ?? ''} placeholder="—" onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" />
+                        <p className="text-[10px] text-[#2A2035]/40 mt-0.5">What the section should come to. The marks it <em>is</em> worth are added up from its questions, and that is what prints.</p></div>
                       <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Allow time</label>
                         <input value={s.allow_time || ''} placeholder="e.g. 45 minutes" onChange={(e) => updateSection(s._key, { allow_time: e.target.value })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" />
                         <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Prints as “Allow about … for this section”.</p></div>
+                    </div>
+                    <div className="mt-3">
+                      <label className="text-[10px] font-semibold text-[#2A2035]/50">Section note (optional)</label>
+                      <textarea value={s.note || ''} onChange={(e) => updateSection(s._key, { note: e.target.value })}
+                        placeholder={'Printed under the heading, one line each.\ne.g. Answer in the writing booklet provided.'}
+                        className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:border-[#325099] resize-y min-h-[52px]" />
                     </div>
                   </div>
                 ))}
@@ -510,20 +517,31 @@ export default function ExamBuilderPage() {
                     <option value="mcq">Multiple choice</option><option value="extended">Extended</option>
                   </select>
                   <label className="flex items-center gap-1 text-[10px] font-semibold text-[#2A2035]/45">
-                    Marks limit
-                    <input type="number" min="0" value={s.marks_limit ?? ''} placeholder="—"
-                      onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
-                      className="w-14 border border-[#DEE7FF] rounded-lg px-1.5 py-0.5 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
-                  </label>
-                  <label className="flex items-center gap-1 text-[10px] font-semibold text-[#2A2035]/45">
                     Allow
                     <input value={s.allow_time || ''} placeholder="e.g. 45 minutes"
                       onChange={(e) => updateSection(s._key, { allow_time: e.target.value })}
                       title="Prints as “Allow about … for this section”"
                       className="w-28 border border-[#DEE7FF] rounded-lg px-1.5 py-0.5 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
                   </label>
-                  <span className={`text-[11px] ml-auto ${s.marks_limit != null && sectionMarks(s) > s.marks_limit ? 'text-[#DC2626] font-semibold' : 'text-[#2A2035]/40'}`}>{sectionMarks(s)}{s.marks_limit != null ? ` / ${s.marks_limit}` : ''} marks · {s.slots.length} Q</span>
+                  {/* The marks a section is worth are its questions' marks added
+                      up — the only number that can be true of the paper, and the
+                      one that prints. The target beside it is a plan to fill, and
+                      says how far off it is rather than pretending to be the
+                      total. */}
+                  <span className="text-[11px] ml-auto text-[#2A2035]/45">
+                    <span className="font-semibold text-[#062E63]">{sectionMarks(s)} marks</span>
+                    <span className="text-[#2A2035]/35"> · {s.slots.length} Q</span>
+                    {s.marks_limit != null && sectionMarks(s) !== s.marks_limit && (
+                      <span className={sectionMarks(s) > s.marks_limit ? 'text-[#DC2626] font-semibold' : 'text-[#EA580C] font-semibold'}>
+                        {' '}· {Math.abs(sectionMarks(s) - s.marks_limit)} {sectionMarks(s) > s.marks_limit ? 'over' : 'short of'} target {s.marks_limit}
+                      </span>
+                    )}
+                  </span>
                 </div>
+                {/* Whatever else this section needs to tell the student. */}
+                <input value={s.note || ''} onChange={(e) => updateSection(s._key, { note: e.target.value })}
+                  placeholder="Section note — printed under the heading (e.g. “Answer in the writing booklet”)"
+                  className="w-full mb-3 border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-[12px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
                 {sectionTopicMarks(s).length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     <span className="text-[10px] font-semibold text-[#2A2035]/40 self-center">By topic:</span>
