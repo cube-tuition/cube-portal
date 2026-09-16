@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { fetchAllTerms, formatTermRange } from '../../../../lib/terms'
-import { T_HOLIDAY_BOOKLETS, T_CLASSES } from '../../../../lib/tables'
+import { T_HOLIDAY_BOOKLETS, T_CLASSES, T_LESSONS } from '../../../../lib/tables'
 import { subjectFromCourseCode } from '../../../../lib/courses'
 import { statusStyle, BOOKLET_STATUS } from '../../../../lib/resourceSubjects'
 import TutorNav from '../../../../components/TutorNav'
@@ -23,6 +23,11 @@ import TutorNav from '../../../../components/TutorNav'
  * every year and subject asked which of a hundred empty courses to plan; the
  * classes table already knows which ones CUBE is running, who teaches them and
  * when, so this page plans those and nothing else.
+ *
+ * Its days are the sessions scheduled for that class, dates and all. A course
+ * that runs three mornings shows three days, on the mornings it runs — not a
+ * default five — and a workbook is filed against the lesson, so moving a
+ * session takes its workbook with it.
  */
 
 const SUBJECT_FAMILY = {
@@ -40,8 +45,22 @@ const periodName = (t) => String(t?.name || '').replace(/\s*\d{4}\s*$/, '').trim
 // A class still being run; a cancelled one keeps its row but not its plan.
 const isLiveClass = (c) => (c?.status || 'active') === 'active'
 
-const DEFAULT_DAYS = 5
-const MAX_DAYS = 12
+// "2026-09-17" → "Thu 17 Sep". Parsed as a local calendar date: these are date
+// columns, and treating them as UTC slides them a day in Sydney.
+function sessionDate(iso) {
+  const [y, m, d] = String(iso || '').split('-').map(Number)
+  if (!y || !m || !d) return ''
+  return new Date(y, m - 1, d).toLocaleDateString('en-AU',
+    { weekday: 'short', day: 'numeric', month: 'short' })
+}
+// "09:00:00" → "9:00am"
+function sessionTime(t) {
+  const [h, min] = String(t || '').split(':').map(Number)
+  if (!Number.isFinite(h)) return ''
+  const suffix = h < 12 ? 'am' : 'pm'
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${String(min || 0).padStart(2, '0')}${suffix}`
+}
 
 export default function HolidayCoursesPage() {
   return <Suspense><HolidayCoursesInner /></Suspense>
@@ -56,9 +75,9 @@ function HolidayCoursesInner() {
   const [staff, setStaff] = useState(null)
   const [periods, setPeriods] = useState([])     // holiday terms that have classes
   const [rows, setRows] = useState([])           // holiday_booklets
+  const [sessions, setSessions] = useState([])   // lessons of those classes
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(null)   // { cls, day, row|null }
-  const [extraDays, setExtraDays] = useState({}) // class id → days added by hand
+  const [editing, setEditing] = useState(null)   // { cls, lesson, n, row|null }
 
   const canEdit = staff && ['admin', 'director'].includes(staff.role)
 
@@ -69,13 +88,20 @@ function HolidayCoursesInner() {
       .sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))
     if (!holidayTerms.length) { setPeriods([]); setLoading(false); return }
 
-    const [{ data: classes }, { data: booklets }] = await Promise.all([
-      supabase.from(T_CLASSES)
-        .select('id, class_name, teacher, day_of_week, start_time, end_time, status, term_id, courses(course_code, course_name)')
-        .in('term_id', holidayTerms.map((t) => t.id)),
-      supabase.from(T_HOLIDAY_BOOKLETS).select('*').order('day'),
-    ])
+    const { data: classes } = await supabase.from(T_CLASSES)
+      .select('id, class_name, teacher, start_time, end_time, status, term_id, courses(course_code, course_name)')
+      .in('term_id', holidayTerms.map((t) => t.id))
     const live = (classes || []).filter(isLiveClass)
+
+    // The days of each course, straight off its schedule.
+    const [{ data: lessons }, { data: booklets }] = await Promise.all([
+      live.length
+        ? supabase.from(T_LESSONS).select('id, class_id, lesson_date, start_time, end_time, status')
+            .in('class_id', live.map((c) => c.id)).order('lesson_date')
+        : Promise.resolve({ data: [] }),
+      supabase.from(T_HOLIDAY_BOOKLETS).select('*'),
+    ])
+    setSessions(lessons || [])
     setPeriods(holidayTerms
       .map((t) => ({ ...t, classes: live.filter((c) => c.term_id === t.id) }))
       .filter((t) => t.classes.length))
@@ -99,18 +125,14 @@ function HolidayCoursesInner() {
     .map((p) => ({ ...p, classes: p.classes.filter(inScope) }))
     .filter((p) => p.classes.length)
 
-  const daysFor = (cls) => {
-    const planned = rows.filter((r) => r.class_id === cls.id)
-    const longest = Math.max(0, ...planned.map((r) => Number(r.day) || 0))
-    const n = Math.min(MAX_DAYS, Math.max(DEFAULT_DAYS, longest) + (extraDays[cls.id] || 0))
-    return Array.from({ length: n }, (_, i) => i + 1)
-  }
-  const bookletFor = (cls, day) => rows.find((r) => r.class_id === cls.id && Number(r.day) === day)
+  const daysFor = (cls) => sessions
+    .filter((l) => l.class_id === cls.id)
+    .sort((a, b) => String(a.lesson_date).localeCompare(String(b.lesson_date)))
+  const bookletFor = (lesson) => rows.find((r) => r.lesson_id === lesson.id)
 
   const save = async (form) => {
     const payload = {
-      class_id: editing.cls.id,
-      day: Number(editing.day),
+      lesson_id: editing.lesson.id,
       booklet_name: (form.booklet_name || '').trim() || 'Untitled',
       topic: (form.topic || '').trim() || null,
       status: form.status || 'Not Started',
@@ -178,7 +200,7 @@ function HolidayCoursesInner() {
             <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
               {period.classes.map((cls) => {
                 const days = daysFor(cls)
-                const filled = days.filter((d) => bookletFor(cls, d)).length
+                const filled = days.filter((l) => bookletFor(l)).length
                 return (
                   <div key={cls.id} className="flex flex-col min-w-0">
                     <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl mb-3 bg-white border border-[#E8EDF8]">
@@ -187,7 +209,6 @@ function HolidayCoursesInner() {
                         <p className="text-[10px] text-[#2A2035]/45 truncate">
                           {cls.courses?.course_code || '—'}
                           {cls.teacher ? ` · ${cls.teacher}` : ''}
-                          {cls.start_time ? ` · ${String(cls.start_time).slice(0, 5)}` : ''}
                         </p>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white bg-[#325099] shrink-0">
@@ -195,51 +216,56 @@ function HolidayCoursesInner() {
                       </span>
                     </div>
 
-                    <div className="flex flex-col gap-2">
-                      {days.map((d) => {
-                        const row = bookletFor(cls, d)
-                        if (row) {
-                          const st = statusStyle(row.status)
-                          return (
-                            <div key={d} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm overflow-hidden">
-                              <div className="px-3 pt-2.5 pb-2">
-                                <div className="flex items-center gap-1.5 mb-0.5">
-                                  <span className="text-[9px] font-bold uppercase tracking-widest text-[#325099]">Day {d}</span>
-                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                                    style={{ background: st.bg, color: st.fg }}>{row.status}</span>
+                    {days.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-[#DEE7FF] px-3 py-5 text-center">
+                        <p className="text-[11px] text-[#2A2035]/45">No sessions scheduled yet.</p>
+                        <p className="text-[10px] text-[#2A2035]/35 mt-0.5">Add them to the class in the database explorer.</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {days.map((lesson, i) => {
+                          const row = bookletFor(lesson)
+                          // The day's label is its real date, so the plan reads
+                          // the same as the timetable it is planned against.
+                          const when = `${sessionDate(lesson.lesson_date)}${lesson.start_time ? ` · ${sessionTime(lesson.start_time)}` : ''}`
+                          if (row) {
+                            const st = statusStyle(row.status)
+                            return (
+                              <div key={lesson.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm overflow-hidden">
+                                <div className="px-3 pt-2.5 pb-2">
+                                  <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                                    <span className="text-[9px] font-bold uppercase tracking-widest text-[#325099]">Day {i + 1}</span>
+                                    <span className="text-[9px] text-[#2A2035]/45">{when}</span>
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                                      style={{ background: st.bg, color: st.fg }}>{row.status}</span>
+                                  </div>
+                                  <p className="text-[12px] font-bold text-[#062E63] leading-snug">{row.booklet_name}</p>
+                                  {row.topic && <p className="text-[10px] text-[#2A2035]/50 mt-0.5">{row.topic}</p>}
+                                  {row.notes && <p className="text-[10px] text-[#2A2035]/40 mt-1 line-clamp-2">{row.notes}</p>}
                                 </div>
-                                <p className="text-[12px] font-bold text-[#062E63] leading-snug">{row.booklet_name}</p>
-                                {row.topic && <p className="text-[10px] text-[#2A2035]/50 mt-0.5">{row.topic}</p>}
-                                {row.notes && <p className="text-[10px] text-[#2A2035]/40 mt-1 line-clamp-2">{row.notes}</p>}
+                                {canEdit && (
+                                  <div className="px-3 pb-2.5 flex gap-2.5">
+                                    <button onClick={() => setEditing({ cls, lesson, n: i + 1, row })}
+                                      className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                                    <button onClick={() => remove(row)}
+                                      className="text-[10px] font-semibold text-[#2A2035]/30 hover:text-rose-500">Remove</button>
+                                  </div>
+                                )}
                               </div>
-                              {canEdit && (
-                                <div className="px-3 pb-2.5 flex gap-2.5">
-                                  <button onClick={() => setEditing({ cls, day: d, row })}
-                                    className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
-                                  <button onClick={() => remove(row)}
-                                    className="text-[10px] font-semibold text-[#2A2035]/30 hover:text-rose-500">Remove</button>
-                                </div>
-                              )}
-                            </div>
+                            )
+                          }
+                          return (
+                            <button key={lesson.id} disabled={!canEdit}
+                              onClick={() => setEditing({ cls, lesson, n: i + 1, row: null })}
+                              className={`rounded-xl border border-dashed border-[#DEE7FF] px-3 py-3 text-left transition ${
+                                canEdit ? 'hover:border-[#325099] hover:bg-white' : 'cursor-default'}`}>
+                              <span className="text-[9px] font-bold uppercase tracking-widest text-[#2A2035]/25">Day {i + 1}</span>
+                              <span className="text-[9px] text-[#2A2035]/35 ml-1.5">{when}</span>
+                              {canEdit && <span className="block text-[11px] text-[#2A2035]/35 mt-0.5">+ Add workbook</span>}
+                            </button>
                           )
-                        }
-                        return (
-                          <button key={d} disabled={!canEdit}
-                            onClick={() => setEditing({ cls, day: d, row: null })}
-                            className={`rounded-xl border border-dashed border-[#DEE7FF] px-3 py-3 text-left transition ${
-                              canEdit ? 'hover:border-[#325099] hover:bg-white' : 'cursor-default'}`}>
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-[#2A2035]/25">Day {d}</span>
-                            {canEdit && <span className="block text-[11px] text-[#2A2035]/35 mt-0.5">+ Add workbook</span>}
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {canEdit && days.length < MAX_DAYS && (
-                      <button onClick={() => setExtraDays((m) => ({ ...m, [cls.id]: (m[cls.id] || 0) + 1 }))}
-                        className="mt-2 text-[11px] font-semibold text-[#325099] hover:underline self-start">
-                        + Add a day
-                      </button>
+                        })}
+                      </div>
                     )}
                   </div>
                 )
@@ -251,7 +277,8 @@ function HolidayCoursesInner() {
 
       {editing && (
         <DayModal
-          day={editing.day}
+          day={editing.n}
+          when={`${sessionDate(editing.lesson.lesson_date)}${editing.lesson.start_time ? ` · ${sessionTime(editing.lesson.start_time)}` : ''}`}
           courseName={editing.cls.class_name}
           row={editing.row}
           onSave={save}
@@ -263,7 +290,7 @@ function HolidayCoursesInner() {
 }
 
 /* The one editor: a day's workbook, created or edited in place. */
-function DayModal({ day, courseName, row, onSave, onClose }) {
+function DayModal({ day, when, courseName, row, onSave, onClose }) {
   const [form, setForm] = useState({
     booklet_name: row?.booklet_name || '',
     topic: row?.topic || '',
@@ -281,7 +308,7 @@ function DayModal({ day, courseName, row, onSave, onClose }) {
       <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
         <div>
           <h2 className="text-lg font-bold text-[#062E63]">{row ? 'Edit' : 'Add'} Day {day}</h2>
-          <p className="text-xs text-[#2A2035]/50">{courseName}</p>
+          <p className="text-xs text-[#2A2035]/50">{courseName}{when ? ` · ${when}` : ''}</p>
         </div>
         <div>
           <label className={LBL}>Workbook name</label>
