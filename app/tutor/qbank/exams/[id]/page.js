@@ -11,7 +11,7 @@ import { fetchTaxonomy, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage
 import UsageBadge from '../../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
-import { loadExam, saveExam, blankSlot, buildExamRenderPayload, examTitle, isAutoExamTitle, slotMoveTarget, moveSlotInSections } from '../../../../../lib/qbankExams'
+import { loadExam, saveExam, blankSlot, buildExamRenderPayload, examTitle, isAutoExamTitle, slotMoveTarget, moveSlotInSections, moveSlotToSection } from '../../../../../lib/qbankExams'
 import { exportExamPdf, renderExamPreview } from '../../../../../lib/qbankExam'
 import DocLivePreview from '../../../../../components/qbank/DocLivePreview'
 import { listRubrics, blankBands, blankCriterion, normaliseRubric, createRubricFrom } from '../../../../../lib/rubrics'
@@ -87,6 +87,11 @@ export default function ExamBuilderPage() {
     return (subs.find((s) => re.test(s.name)) || subs[0])?.id || null
   }, [tax])
   const scopeTopics = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
+  // The qbank subject this paper is filed under — its name and year prefill a
+  // new question, so one written from a slot lands where the slot can find it.
+  const examSubject = useMemo(
+    () => (tax?.subjects || []).find((s) => s.id === subjectId) || null,
+    [tax, subjectId])
 
   // ── mutators ──────────────────────────────────────────────────────────────
   const patch = (fields) => { setExam((e) => ({ ...e, ...fields })); setDirty(true) }
@@ -109,22 +114,11 @@ export default function ExamBuilderPage() {
   const updateSection = (key, fields) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, ...fields } : s)))
   const addSlot = (key) => setSections((ss) => ss.map((s) => (s._key === key ? { ...s, slots: [...s.slots, blankSlot()] } : s)))
   const removeSlot = (secKey, slotKey) => setSections((ss) => ss.map((s) => (s._key !== secKey ? s : { ...s, slots: s.slots.filter((sl) => sl._key !== slotKey) })))
-  // Move slot `fromKey` to the position of `toKey` within the same section (drag-reorder).
-  const reorderSlot = (secKey, fromKey, toKey) => {
-    if (fromKey === toKey) return
-    setSections((ss) => ss.map((s) => {
-      if (s._key !== secKey) return s
-      const slots = [...s.slots]
-      const from = slots.findIndex((sl) => sl._key === fromKey)
-      const to = slots.findIndex((sl) => sl._key === toKey)
-      if (from < 0 || to < 0) return s
-      const [moved] = slots.splice(from, 1)
-      slots.splice(to, 0, moved)
-      return { ...s, slots }
-    }))
-  }
   // Step a question one place through the paper, across a section boundary if
   // that is where it is headed. See lib/qbankExams `moveSlotInSections`.
+  // Drag a question into another section (same type only — see moveSlotToSection).
+  const dragSlotTo = (toSecKey, beforeSlotKey) => setSections((ss) =>
+    (dragSlot ? moveSlotToSection(ss, dragSlot.secKey, dragSlot.slotKey, toSecKey, beforeSlotKey) : ss))
   const slotNeighbour = (secKey, slotKey, dir) => slotMoveTarget(exam?.sections || [], secKey, slotKey, dir)
   const moveSlot = (secKey, slotKey, dir) => setSections((ss) => moveSlotInSections(ss, secKey, slotKey, dir))
   const addSection = (type) => setSections((ss) => [...ss, { _key: Math.random().toString(36).slice(2, 9), type, marks_limit: type === 'mcq' ? 10 : 20, allow_time: type === 'mcq' ? '15 minutes' : '45 minutes', slots: [] }])
@@ -475,6 +469,9 @@ export default function ExamBuilderPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Marks limit</label>
                         <input type="number" min="0" value={s.marks_limit ?? ''} onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" /></div>
+                      <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Allow time</label>
+                        <input value={s.allow_time || ''} placeholder="e.g. 45 minutes" onChange={(e) => updateSection(s._key, { allow_time: e.target.value })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" />
+                        <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Prints as “Allow about … for this section”.</p></div>
                     </div>
                   </div>
                 ))}
@@ -492,10 +489,35 @@ export default function ExamBuilderPage() {
               </p>
             )}
             {exam.sections.map((s, si) => (
-              <section key={s._key} className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
-                <div className="flex items-center gap-2 mb-3">
+              <section key={s._key}
+                onDragOver={(e) => e.preventDefault()}
+                /* Dropping on the section itself parks the question at the end —
+                   the only way into a section that has no slots to aim at. */
+                onDrop={() => { if (dragSlot && dragSlot.secKey !== s._key) dragSlotTo(s._key, null) }}
+                className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+                {/* The section's own details, editable here rather than only in
+                    the Plan tab: marks and timing get settled while the
+                    questions are in front of you, not on another screen. */}
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <h2 className="text-sm font-bold text-[#062E63]">Section {ROMAN[si]}</h2>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">{s.type === 'mcq' ? 'Multiple choice' : 'Extended'}</span>
+                  <select value={s.type} onChange={(e) => updateSection(s._key, { type: e.target.value })}
+                    title="Multiple choice sections print options; extended sections print working lines"
+                    className="text-[10px] font-semibold rounded-full bg-[#EEF2FF] text-[#4338CA] border border-[#DEE7FF] px-2 py-0.5 focus:outline-none focus:border-[#325099]">
+                    <option value="mcq">Multiple choice</option><option value="extended">Extended</option>
+                  </select>
+                  <label className="flex items-center gap-1 text-[10px] font-semibold text-[#2A2035]/45">
+                    Marks limit
+                    <input type="number" min="0" value={s.marks_limit ?? ''} placeholder="—"
+                      onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                      className="w-14 border border-[#DEE7FF] rounded-lg px-1.5 py-0.5 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+                  </label>
+                  <label className="flex items-center gap-1 text-[10px] font-semibold text-[#2A2035]/45">
+                    Allow
+                    <input value={s.allow_time || ''} placeholder="e.g. 45 minutes"
+                      onChange={(e) => updateSection(s._key, { allow_time: e.target.value })}
+                      title="Prints as “Allow about … for this section”"
+                      className="w-28 border border-[#DEE7FF] rounded-lg px-1.5 py-0.5 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+                  </label>
                   <span className={`text-[11px] ml-auto ${s.marks_limit != null && sectionMarks(s) > s.marks_limit ? 'text-[#DC2626] font-semibold' : 'text-[#2A2035]/40'}`}>{sectionMarks(s)}{s.marks_limit != null ? ` / ${s.marks_limit}` : ''} marks · {s.slots.length} Q</span>
                 </div>
                 {sectionTopicMarks(s).length > 0 && (
@@ -520,7 +542,7 @@ export default function ExamBuilderPage() {
                       onRefresh={loadQuestions} onEdit={setEditQ}
                       dragging={dragSlot?.slotKey === slot._key}
                       onDragStart={() => setDragSlot({ secKey: s._key, slotKey: slot._key })}
-                      onDragEnter={() => { if (dragSlot && dragSlot.secKey === s._key) reorderSlot(s._key, dragSlot.slotKey, slot._key) }}
+                      onDragEnter={() => { if (dragSlot && dragSlot.slotKey !== slot._key) dragSlotTo(s._key, slot._key) }}
                       onDragEnd={() => setDragSlot(null)}
                       canMoveUp={!!slotNeighbour(s._key, slot._key, -1)}
                       canMoveDown={!!slotNeighbour(s._key, slot._key, 1)}
@@ -562,9 +584,13 @@ export default function ExamBuilderPage() {
         )}
       </div>
       {preview && <PdfPreviewModal url={preview.url} filename={preview.filename} title={preview.title} onClose={closePreview} />}
+      {/*
+        * No click-outside close on either editor. A question takes minutes to
+        * type and a stray click on the backdrop threw all of it away; ✕ and
+        * Cancel are the ways out.
+        */}
       {editQ && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
-          onClick={(e) => { if (e.target === e.currentTarget) setEditQ(null) }}>
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-bold text-[#062E63]">Edit question</h2>
@@ -580,16 +606,19 @@ export default function ExamBuilderPage() {
         </div>
       )}
       {newQ && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
-          onClick={(e) => { if (e.target === e.currentTarget) setNewQ(null) }}>
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
           <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-bold text-[#062E63]">New question → bank</h2>
               <button onClick={() => setNewQ(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg">✕</button>
             </div>
             <p className="text-[11px] text-[#2A2035]/50 mb-4">Saved to the question bank and placed straight into this slot.</p>
+            {/* Year and subject come from the paper being built — they were blank
+                every time, and a question filed under the wrong year is invisible
+                to the slot that asked for it. Both stay editable in the form. */}
             <QuestionEditor staffName={profile?.full_name}
-              defaults={{ topicId: newQ.topic_id, subtopicId: newQ.subtopic_id, skillId: newQ.skill_id, audience: 'exam' }}
+              defaults={{ topicId: newQ.topic_id, subtopicId: newQ.subtopic_id, skillId: newQ.skill_id, audience: 'exam',
+                          year: examSubject?.year_level, subjectName: examSubject?.name }}
               onSaved={onNewQuestionSaved} onCancel={() => setNewQ(null)} />
           </div>
         </div>
@@ -713,7 +742,9 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
             <UsageBadge usage={usageMap[chosen.id]} />
             <span className="text-[10px] text-[#2A2035]/40 whitespace-nowrap">{qMarks(chosen)}m</span>
             <button onClick={() => onEdit(chosen)} className="text-[11px] text-[#325099] hover:underline">Edit</button>
-            <button onClick={() => onPick(null)} className="text-[11px] text-[#DC2626] hover:underline">Clear</button>
+            <button
+              onClick={() => { if (confirm(`Clear Q${n}?\n\n"${(chosen.stem_latex || 'This question').slice(0, 70)}"\n\nThe question stays in the bank — only this slot is emptied.`)) onPick(null) }}
+              className="text-[11px] text-[#DC2626] hover:underline">Clear</button>
           </div>
           {section.type !== 'mcq' && (
             <div className="mt-2 flex items-center gap-2 flex-wrap pl-1">
