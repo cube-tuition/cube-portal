@@ -1118,7 +1118,7 @@ function BookletsPageInner() {
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Curriculum{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">
-              {booklets.filter(b => SUBJECT_FAMILY[scope].includes(b.subject)).length} {SCOPE_LABEL[scope]} booklets · <a href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">back to hub</a>
+              {booklets.filter(b => SUBJECT_FAMILY[scope].includes(b.subject)).length} {SCOPE_LABEL[scope]} booklets · <a href={`/tutor/booklets/holiday?subject=${scope}`} className="text-[#325099] hover:underline">holiday courses</a> · <a href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">back to hub</a>
             </p>
           </div>
           <button
