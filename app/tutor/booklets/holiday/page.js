@@ -6,22 +6,23 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { fetchAllTerms, formatTermRange } from '../../../../lib/terms'
-import { T_HOLIDAY_BOOKLETS } from '../../../../lib/tables'
+import { T_HOLIDAY_BOOKLETS, T_CLASSES } from '../../../../lib/tables'
+import { subjectFromCourseCode } from '../../../../lib/courses'
 import { statusStyle, BOOKLET_STATUS } from '../../../../lib/resourceSubjects'
-import { useCourseCurriculum } from '../../../../lib/courses'
 import TutorNav from '../../../../components/TutorNav'
 
 /*
  * Holiday Courses — /tutor/booklets/holiday?subject=Maths
  *
  * A holiday course is not a term: it runs for a handful of consecutive days in
- * one school-holiday period, with a workbook planned for each day. That does
- * not fit the term curriculum's term/week grid, so the material lives in its
- * own table (holiday_booklets) and is planned here instead.
+ * one school-holiday period, with a workbook planned for each day, so it never
+ * fitted the term curriculum's term/week grid.
  *
- * The grid reads holiday period across the top and day down the side, so a
- * year's whole holiday programme — this January's, last spring's — is visible
- * side by side while you plan the next one.
+ * A course here is a CLASS created in a holiday period, exactly as the database
+ * explorer lists it — not a (year, subject) pair. Offering a blank grid for
+ * every year and subject asked which of a hundred empty courses to plan; the
+ * classes table already knows which ones CUBE is running, who teaches them and
+ * when, so this page plans those and nothing else.
  */
 
 const SUBJECT_FAMILY = {
@@ -30,20 +31,18 @@ const SUBJECT_FAMILY = {
   Chemistry: ['Chemistry'],
 }
 const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
-// Years and subjects come from the courses table, same as the term curriculum,
-// so both pages offer exactly the courses the database explorer lists.
 
 // A holiday period is a term row numbered above the four teaching terms — the
 // same marker the calendar uses to tell holidays from terms.
 const isHolidayTerm = (t) => Number(t?.term_number) > 10
-// "Term 3–4 Holidays 2026" → "Term 3–4 Holidays"; the year sits underneath.
+// "Term 3–4 Holidays 2026" → "Term 3–4 Holidays"; the dates sit underneath.
 const periodName = (t) => String(t?.name || '').replace(/\s*\d{4}\s*$/, '').trim() || 'Holidays'
+// A class still being run; a cancelled one keeps its row but not its plan.
+const isLiveClass = (c) => (c?.status || 'active') === 'active'
 
 const DEFAULT_DAYS = 5
 const MAX_DAYS = 12
 
-// useSearchParams needs a boundary for the static build, exactly as the term
-// curriculum page does.
 export default function HolidayCoursesPage() {
   return <Suspense><HolidayCoursesInner /></Suspense>
 }
@@ -55,24 +54,32 @@ function HolidayCoursesInner() {
   const scope = SUBJECT_FAMILY[scopeParam] ? scopeParam : null
 
   const [staff, setStaff] = useState(null)
-  const [terms, setTerms] = useState([])
-  const [rows, setRows] = useState([])
+  const [periods, setPeriods] = useState([])     // holiday terms that have classes
+  const [rows, setRows] = useState([])           // holiday_booklets
   const [loading, setLoading] = useState(true)
-  const [activeYear, setActiveYear] = useState(8)
-  const [activeSub, setActiveSub] = useState('Maths')
-  const [editing, setEditing] = useState(null)   // { termId, day, row|null }
+  const [editing, setEditing] = useState(null)   // { cls, day, row|null }
+  const [extraDays, setExtraDays] = useState({}) // class id → days added by hand
 
   const canEdit = staff && ['admin', 'director'].includes(staff.role)
 
   const load = useCallback(async () => {
-    const [{ data }, allTerms] = await Promise.all([
+    const allTerms = await fetchAllTerms()
+    const holidayTerms = (allTerms || []).filter(isHolidayTerm)
+      // Newest first: planning is nearly always for the period coming up.
+      .sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))
+    if (!holidayTerms.length) { setPeriods([]); setLoading(false); return }
+
+    const [{ data: classes }, { data: booklets }] = await Promise.all([
+      supabase.from(T_CLASSES)
+        .select('id, class_name, teacher, day_of_week, start_time, end_time, status, term_id, courses(course_code, course_name)')
+        .in('term_id', holidayTerms.map((t) => t.id)),
       supabase.from(T_HOLIDAY_BOOKLETS).select('*').order('day'),
-      fetchAllTerms(),
     ])
-    setRows(data || [])
-    // Newest period first: planning is nearly always for the one coming up.
-    setTerms((allTerms || []).filter(isHolidayTerm)
-      .sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))))
+    const live = (classes || []).filter(isLiveClass)
+    setPeriods(holidayTerms
+      .map((t) => ({ ...t, classes: live.filter((c) => c.term_id === t.id) }))
+      .filter((t) => t.classes.length))
+    setRows(booklets || [])
     setLoading(false)
   }, [])
 
@@ -84,46 +91,34 @@ function HolidayCoursesInner() {
     })
   }, [router, load])
 
-  const { years: courseYears, subjectsFor: courseSubjectsFor } = useCourseCurriculum()
-  const subjectsForYear = (year) => {
-    const all = courseSubjectsFor(year)
-    return scope ? all.filter((s) => SUBJECT_FAMILY[scope].includes(s)) : all
+  // A hub link scopes the page to its subject family; the class's course code
+  // names the subject, the same rule the term curriculum's class tabs use.
+  const inScope = (cls) => !scope
+    || SUBJECT_FAMILY[scope].includes(subjectFromCourseCode(cls.courses?.course_code))
+  const visible = periods
+    .map((p) => ({ ...p, classes: p.classes.filter(inScope) }))
+    .filter((p) => p.classes.length)
+
+  const daysFor = (cls) => {
+    const planned = rows.filter((r) => r.class_id === cls.id)
+    const longest = Math.max(0, ...planned.map((r) => Number(r.day) || 0))
+    const n = Math.min(MAX_DAYS, Math.max(DEFAULT_DAYS, longest) + (extraDays[cls.id] || 0))
+    return Array.from({ length: n }, (_, i) => i + 1)
   }
-  const visibleYears = courseYears.filter((y) => subjectsForYear(y).length > 0)
-  const subjects = subjectsForYear(activeYear)
-  /*
-   * The subject actually shown. Derived rather than corrected in an effect:
-   * switching to a year (or a hub) that doesn't carry the chosen subject would
-   * otherwise render one frame against a subject that has no tab.
-   */
-  const subject = subjects.includes(activeSub) ? activeSub : (subjects[0] || '')
-
-  // The rows on screen: this year + subject, keyed by period and day.
-  const cell = {}
-  rows.filter((r) => Number(r.year) === Number(activeYear) && r.subject === subject)
-    .forEach((r) => { cell[`${r.term_id}-${r.day}`] = r })
-
-  // Days shown: the default course length, stretched to fit anything already
-  // planned past it, so a longer course doesn't hide its own last days.
-  const longestPlanned = Math.max(0, ...Object.values(cell).map((r) => Number(r.day) || 0))
-  const dayCount = Math.min(MAX_DAYS, Math.max(DEFAULT_DAYS, longestPlanned))
-  const [extraDays, setExtraDays] = useState(0)
-  const days = Array.from({ length: Math.min(MAX_DAYS, dayCount + extraDays) }, (_, i) => i + 1)
+  const bookletFor = (cls, day) => rows.find((r) => r.class_id === cls.id && Number(r.day) === day)
 
   const save = async (form) => {
     const payload = {
-      term_id: editing.termId, year: Number(activeYear), subject, day: Number(editing.day),
+      class_id: editing.cls.id,
+      day: Number(editing.day),
       booklet_name: (form.booklet_name || '').trim() || 'Untitled',
       topic: (form.topic || '').trim() || null,
       status: form.status || 'Not Started',
       notes: (form.notes || '').trim() || null,
       updated_at: new Date().toISOString(),
     }
-    if (editing.row) {
-      await supabase.from(T_HOLIDAY_BOOKLETS).update(payload).eq('id', editing.row.id)
-    } else {
-      await supabase.from(T_HOLIDAY_BOOKLETS).insert({ ...payload, created_by: staff?.full_name || null })
-    }
+    if (editing.row) await supabase.from(T_HOLIDAY_BOOKLETS).update(payload).eq('id', editing.row.id)
+    else await supabase.from(T_HOLIDAY_BOOKLETS).insert({ ...payload, created_by: staff?.full_name || null })
     setEditing(null); load()
   }
 
@@ -145,59 +140,55 @@ function HolidayCoursesInner() {
             Holiday Courses{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}
           </h1>
           <p className="text-sm text-[#2A2035]/50 mt-0.5">
-            One workbook per day of a holiday course ·{' '}
+            One workbook per day of each holiday class ·{' '}
             <Link href={`/tutor/booklets${scope ? `?subject=${scope}` : ''}`} className="text-[#325099] hover:underline">
               back to the term curriculum
             </Link>
           </p>
         </div>
-
-        {/* Year tabs */}
-        <div className="max-w-7xl mx-auto px-6 md:px-10 flex gap-1 overflow-x-auto">
-          {visibleYears.map((y) => (
-            <button key={y} onClick={() => { setActiveYear(y); setExtraDays(0) }}
-              className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition whitespace-nowrap ${
-                y === activeYear ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/45 hover:text-[#325099]'}`}>
-              Year {y}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-6 md:px-10 py-6">
-        {/* Subject tabs */}
-        {subjects.length > 1 && (
-          <div className="flex gap-1.5 mb-5 flex-wrap">
-            {subjects.map((s) => (
-              <button key={s} onClick={() => { setActiveSub(s); setExtraDays(0) }}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-                  s === subject ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/60 border-[#DEE7FF] hover:border-[#325099]'}`}>
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-
         {loading ? (
           <p className="text-sm text-[#2A2035]/40 animate-pulse py-20 text-center">Loading…</p>
-        ) : terms.length === 0 ? (
+        ) : visible.length === 0 ? (
           <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] py-16 text-center">
-            <p className="text-sm font-semibold text-[#2A2035]">No holiday periods yet.</p>
-            <p className="text-xs text-[#2A2035]/50 mt-1">
-              Holiday courses are planned against a holiday period. Add one in Settings → Terms, then it appears here.
+            <p className="text-sm font-semibold text-[#2A2035]">
+              No holiday courses{scope ? ` for ${SCOPE_LABEL[scope]}` : ''} yet.
+            </p>
+            <p className="text-xs text-[#2A2035]/50 mt-1 max-w-md mx-auto">
+              A holiday course is a class created in a holiday period. Add one in the{' '}
+              <Link href="/tutor/database" className="text-[#325099] hover:underline">database explorer</Link>
+              {' '}and it appears here, ready to plan day by day.
             </p>
           </div>
-        ) : (
-          <>
-            <div className={`grid gap-4 ${terms.length === 1 ? '' : terms.length === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
-              {terms.map((t) => {
-                const filled = days.filter((d) => cell[`${t.id}-${d}`]).length
+        ) : visible.map((period) => (
+          <div key={period.id} className="mb-9">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#EEF4FF] text-[#325099]">
+                {periodName(period)}
+              </span>
+              <span className="text-[11px] text-[#2A2035]/40">{formatTermRange(period)}</span>
+              <span className="text-[10px] text-[#2A2035]/30 font-medium">
+                {period.classes.length} course{period.classes.length === 1 ? '' : 's'}
+              </span>
+              <div className="flex-1 h-px bg-[#E8EDF8]" />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              {period.classes.map((cls) => {
+                const days = daysFor(cls)
+                const filled = days.filter((d) => bookletFor(cls, d)).length
                 return (
-                  <div key={t.id} className="flex flex-col min-w-0">
-                    <div className="flex items-center justify-between px-3 py-2 rounded-xl mb-3 bg-[#EEF4FF]">
+                  <div key={cls.id} className="flex flex-col min-w-0">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl mb-3 bg-white border border-[#E8EDF8]">
                       <div className="min-w-0">
-                        <p className="text-xs font-bold text-[#325099] truncate">{periodName(t)}</p>
-                        <p className="text-[10px] text-[#2A2035]/45">{formatTermRange(t)}</p>
+                        <p className="text-xs font-bold text-[#062E63] truncate">{cls.class_name}</p>
+                        <p className="text-[10px] text-[#2A2035]/45 truncate">
+                          {cls.courses?.course_code || '—'}
+                          {cls.teacher ? ` · ${cls.teacher}` : ''}
+                          {cls.start_time ? ` · ${String(cls.start_time).slice(0, 5)}` : ''}
+                        </p>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white bg-[#325099] shrink-0">
                         {filled}/{days.length}
@@ -206,7 +197,7 @@ function HolidayCoursesInner() {
 
                     <div className="flex flex-col gap-2">
                       {days.map((d) => {
-                        const row = cell[`${t.id}-${d}`]
+                        const row = bookletFor(cls, d)
                         if (row) {
                           const st = statusStyle(row.status)
                           return (
@@ -223,7 +214,7 @@ function HolidayCoursesInner() {
                               </div>
                               {canEdit && (
                                 <div className="px-3 pb-2.5 flex gap-2.5">
-                                  <button onClick={() => setEditing({ termId: t.id, day: d, row })}
+                                  <button onClick={() => setEditing({ cls, day: d, row })}
                                     className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
                                   <button onClick={() => remove(row)}
                                     className="text-[10px] font-semibold text-[#2A2035]/30 hover:text-rose-500">Remove</button>
@@ -234,7 +225,7 @@ function HolidayCoursesInner() {
                         }
                         return (
                           <button key={d} disabled={!canEdit}
-                            onClick={() => setEditing({ termId: t.id, day: d, row: null })}
+                            onClick={() => setEditing({ cls, day: d, row: null })}
                             className={`rounded-xl border border-dashed border-[#DEE7FF] px-3 py-3 text-left transition ${
                               canEdit ? 'hover:border-[#325099] hover:bg-white' : 'cursor-default'}`}>
                             <span className="text-[9px] font-bold uppercase tracking-widest text-[#2A2035]/25">Day {d}</span>
@@ -243,25 +234,25 @@ function HolidayCoursesInner() {
                         )
                       })}
                     </div>
+
+                    {canEdit && days.length < MAX_DAYS && (
+                      <button onClick={() => setExtraDays((m) => ({ ...m, [cls.id]: (m[cls.id] || 0) + 1 }))}
+                        className="mt-2 text-[11px] font-semibold text-[#325099] hover:underline self-start">
+                        + Add a day
+                      </button>
+                    )}
                   </div>
                 )
               })}
             </div>
-
-            {canEdit && days.length < MAX_DAYS && (
-              <button onClick={() => setExtraDays((n) => n + 1)}
-                className="mt-4 text-xs font-semibold text-[#325099] hover:underline">
-                + Add a day to every period
-              </button>
-            )}
-          </>
-        )}
+          </div>
+        ))}
       </div>
 
       {editing && (
         <DayModal
           day={editing.day}
-          period={periodName(terms.find((t) => t.id === editing.termId))}
+          courseName={editing.cls.class_name}
           row={editing.row}
           onSave={save}
           onClose={() => setEditing(null)}
@@ -272,7 +263,7 @@ function HolidayCoursesInner() {
 }
 
 /* The one editor: a day's workbook, created or edited in place. */
-function DayModal({ day, period, row, onSave, onClose }) {
+function DayModal({ day, courseName, row, onSave, onClose }) {
   const [form, setForm] = useState({
     booklet_name: row?.booklet_name || '',
     topic: row?.topic || '',
@@ -290,7 +281,7 @@ function DayModal({ day, period, row, onSave, onClose }) {
       <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
         <div>
           <h2 className="text-lg font-bold text-[#062E63]">{row ? 'Edit' : 'Add'} Day {day}</h2>
-          <p className="text-xs text-[#2A2035]/50">{period}</p>
+          <p className="text-xs text-[#2A2035]/50">{courseName}</p>
         </div>
         <div>
           <label className={LBL}>Workbook name</label>
