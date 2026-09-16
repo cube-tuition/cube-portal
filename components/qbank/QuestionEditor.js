@@ -13,6 +13,7 @@ import {
 } from '../../lib/qbank'
 import { fetchSyllabus } from '../../lib/syllabus'
 import LatexField from './LatexField'
+import { MathObjFields, EMPTY_MATHOBJ } from '../booklet/BlockEditor'
 import ImageManager from './ImageManager'
 import UsageBadge from './UsageBadge'
 
@@ -105,6 +106,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
   const [skillIds, setSkillIds] = useState([])         // many skills (independent dimension)
   const [dotpointIds, setDotpointIds] = useState([])   // many syllabus dotpoints (Chemistry)
   const [chemSyllabus, setChemSyllabus] = useState([]) // modules→topics→dotpoints for the year
+  const [mathObj, setMathObj] = useState(null)         // code-drawn figure (question.math_obj)
+  const [stimulus, setStimulus] = useState('')         // passage printed above the stem
   const [dpModuleTab, setDpModuleTab] = useState(null) // active module tab in the dotpoint picker
 
   // Question fields
@@ -140,6 +143,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         if (q) {
           setQtype(q.qtype || 'extended')
           setStem(q.stem_latex || '')
+          setMathObj(q.math_obj || null)
+          setStimulus(q.stimulus_latex || '')
           setSolution(q.solution_latex || '')
           setDifficulty(q.difficulty || 2)
           setMarks(q.marks ?? '')
@@ -349,6 +354,10 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         topic_id: topicId,
         qtype,
         stem_latex: stem,
+        math_obj: mathObj,
+        // Empty stays null rather than '': a blank string would print an empty
+        // ruled box above the question.
+        stimulus_latex: stimulus.trim() || null,
         solution_latex: (isMulti && !isMcq) ? '' : solution,   // mcq: explanation; extended single: worked solution
         difficulty: Number(difficulty),
         marks: isMulti && !isMcq ? partsTotal : (marks === '' ? (isMcq ? 1 : null) : Number(marks)),
@@ -645,12 +654,43 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         <h2 className="text-sm font-bold text-[#062E63]">
           {isMcq ? 'Multiple-choice question' : isMulti ? 'Stem / intro (shown above the parts)' : 'Question'}
         </h2>
+        {/* The passage the question is asked about. Printed in a ruled box above
+            the stem on both the paper and the solutions, so a marker reads the
+            source the student read. */}
+        {stimulus === '' ? (
+          <button type="button" onClick={() => setStimulus(' ')}
+            className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add stimulus text</button>
+        ) : (
+          <div className="border border-[#DEE7FF] rounded-xl p-3 bg-[#F8FAFF] space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-[#325099]">Stimulus — printed above the question</span>
+              <button type="button" onClick={() => setStimulus('')} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+            </div>
+            <LatexField value={stimulus} onChange={setStimulus} rows={5}
+              hint="**bold**, $…$ maths and “- ” bullets. There is no italic marker — *text* prints its asterisks."
+              placeholder={'The passage, extract or source the question is about…'} />
+          </div>
+        )}
         <LatexField
           label={isMulti && !isMcq ? 'Stem (optional)' : 'Question text'}
           value={stem} onChange={setStem} rows={4}
           hint="Use $…$ for inline math, $$…$$ for display"
           placeholder={'e.g. Solve for $x$:  $$x^2 - 5x + 6 = 0$$'}
         />
+        {/* A code-drawn figure — the same object, editor and renderer the
+            booklet builder uses, so a plane drawn there looks the same here. */}
+        {!mathObj ? (
+          <button type="button" onClick={() => setMathObj({ ...EMPTY_MATHOBJ })}
+            className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add maths object</button>
+        ) : (
+          <div className="border border-[#DEE7FF] rounded-xl p-3 bg-[#F8FAFF] space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-[#325099]">Maths object</span>
+              <button type="button" onClick={() => setMathObj(null)} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+            </div>
+            <MathObjFields obj={mathObj} upd={(patch) => setMathObj((o) => ({ ...o, ...patch }))} />
+          </div>
+        )}
         <ImageManager images={images} onChange={onImagesChange} />
 
         {/* MCQ options */}

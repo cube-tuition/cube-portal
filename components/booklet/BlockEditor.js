@@ -356,7 +356,9 @@ function LineRows({ rows, onChange }) {
 }
 
 // ── Maths-object fields (shared by the standalone block and box embeds) ─────
-function MathObjFields({ obj, upd }) {
+// Exported for the qbank question editor: a question and a booklet block carry
+// the same object, so they are edited by the same fields.
+export function MathObjFields({ obj, upd }) {
   return (
     <>
       <div className="flex gap-2 items-end">
@@ -555,7 +557,7 @@ function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '' }
+export const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '' }
 // A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
 const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
 
