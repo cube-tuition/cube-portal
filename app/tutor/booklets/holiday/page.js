@@ -6,8 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { fetchAllTerms, formatTermRange } from '../../../../lib/terms'
-import { T_HOLIDAY_BOOKLETS, T_CLASSES, T_LESSONS } from '../../../../lib/tables'
-import { subjectFromCourseCode } from '../../../../lib/courses'
+import { T_HOLIDAY_BOOKLETS, T_CLASSES, T_LESSONS, T_BOOKLETS } from '../../../../lib/tables'
+import { subjectFromCourseCode, yearFromCourseCode } from '../../../../lib/courses'
 import { statusStyle, BOOKLET_STATUS } from '../../../../lib/resourceSubjects'
 import TutorNav from '../../../../components/TutorNav'
 
@@ -76,6 +76,7 @@ function HolidayCoursesInner() {
   const [periods, setPeriods] = useState([])     // holiday terms that have classes
   const [rows, setRows] = useState([])           // holiday_booklets
   const [sessions, setSessions] = useState([])   // lessons of those classes
+  const [master, setMaster] = useState([])       // the master workbook database
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null)   // { cls, lesson, n, row|null }
 
@@ -101,6 +102,12 @@ function HolidayCoursesInner() {
         : Promise.resolve({ data: [] }),
       supabase.from(T_HOLIDAY_BOOKLETS).select('*'),
     ])
+    // The master workbook database, for the picker and for showing a linked
+    // workbook's live name and status rather than a copy taken at the time.
+    const { data: master } = await supabase.from(T_BOOKLETS)
+      .select('id, booklet_name, year, subject, topic, status, is_exam')
+      .order('year').order('subject').order('booklet_name')
+    setMaster(master || [])
     setSessions(lessons || [])
     setPeriods(holidayTerms
       .map((t) => ({ ...t, classes: live.filter((c) => c.term_id === t.id) }))
@@ -129,16 +136,34 @@ function HolidayCoursesInner() {
     .filter((l) => l.class_id === cls.id)
     .sort((a, b) => String(a.lesson_date).localeCompare(String(b.lesson_date)))
   const bookletFor = (lesson) => rows.find((r) => r.lesson_id === lesson.id)
+  /*
+   * What a planned day displays. A linked workbook answers with the master
+   * database's own row, so renaming or finishing a workbook shows here without
+   * anything being copied across; a typed plan answers with what was typed.
+   */
+  const planned = (row) => {
+    const wb = row?.booklet_id ? master.find((b) => b.id === row.booklet_id) : null
+    return {
+      name: wb?.booklet_name || row?.booklet_name || 'Untitled',
+      topic: wb?.topic || row?.topic || '',
+      status: wb?.status || row?.status || 'Not Started',
+      linked: !!wb,
+      missing: !!row?.booklet_id && !wb,   // linked to a workbook since deleted
+    }
+  }
 
   const save = async (form) => {
-    const payload = {
-      lesson_id: editing.lesson.id,
-      booklet_name: (form.booklet_name || '').trim() || 'Untitled',
-      topic: (form.topic || '').trim() || null,
-      status: form.status || 'Not Started',
-      notes: (form.notes || '').trim() || null,
-      updated_at: new Date().toISOString(),
-    }
+    // Linked and typed are the two shapes a day can take; saving one clears
+    // the other so a stale name can never shadow the workbook it points at.
+    const payload = form.booklet_id
+      ? { lesson_id: editing.lesson.id, booklet_id: form.booklet_id,
+          booklet_name: null, topic: null, status: 'Not Started',
+          notes: (form.notes || '').trim() || null, updated_at: new Date().toISOString() }
+      : { lesson_id: editing.lesson.id, booklet_id: null,
+          booklet_name: (form.booklet_name || '').trim() || 'Untitled',
+          topic: (form.topic || '').trim() || null,
+          status: form.status || 'Not Started',
+          notes: (form.notes || '').trim() || null, updated_at: new Date().toISOString() }
     if (editing.row) await supabase.from(T_HOLIDAY_BOOKLETS).update(payload).eq('id', editing.row.id)
     else await supabase.from(T_HOLIDAY_BOOKLETS).insert({ ...payload, created_by: staff?.full_name || null })
     setEditing(null); load()
@@ -229,7 +254,8 @@ function HolidayCoursesInner() {
                           // the same as the timetable it is planned against.
                           const when = `${sessionDate(lesson.lesson_date)}${lesson.start_time ? ` · ${sessionTime(lesson.start_time)}` : ''}`
                           if (row) {
-                            const st = statusStyle(row.status)
+                            const p = planned(row)
+                            const st = statusStyle(p.status)
                             return (
                               <div key={lesson.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm overflow-hidden">
                                 <div className="px-3 pt-2.5 pb-2">
@@ -237,10 +263,19 @@ function HolidayCoursesInner() {
                                     <span className="text-[9px] font-bold uppercase tracking-widest text-[#325099]">Day {i + 1}</span>
                                     <span className="text-[9px] text-[#2A2035]/45">{when}</span>
                                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                                      style={{ background: st.bg, color: st.fg }}>{row.status}</span>
+                                      style={{ background: st.bg, color: st.fg }}>{p.status}</span>
+                                    {p.linked && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#EEF4FF] text-[#325099]"
+                                        title="From the master workbook database">Master DB</span>
+                                    )}
                                   </div>
-                                  <p className="text-[12px] font-bold text-[#062E63] leading-snug">{row.booklet_name}</p>
-                                  {row.topic && <p className="text-[10px] text-[#2A2035]/50 mt-0.5">{row.topic}</p>}
+                                  <p className="text-[12px] font-bold text-[#062E63] leading-snug">{p.name}</p>
+                                  {p.topic && <p className="text-[10px] text-[#2A2035]/50 mt-0.5">{p.topic}</p>}
+                                  {p.missing && (
+                                    <p className="text-[10px] text-[#B45309] mt-0.5">
+                                      The workbook this day pointed at is no longer in the master database.
+                                    </p>
+                                  )}
                                   {row.notes && <p className="text-[10px] text-[#2A2035]/40 mt-1 line-clamp-2">{row.notes}</p>}
                                 </div>
                                 {canEdit && (
@@ -277,6 +312,9 @@ function HolidayCoursesInner() {
 
       {editing && (
         <DayModal
+          master={master}
+          defaultYear={yearFromCourseCode(editing.cls.courses?.course_code)}
+          defaultSubject={subjectFromCourseCode(editing.cls.courses?.course_code)}
           day={editing.n}
           when={`${sessionDate(editing.lesson.lesson_date)}${editing.lesson.start_time ? ` · ${sessionTime(editing.lesson.start_time)}` : ''}`}
           courseName={editing.cls.class_name}
@@ -289,47 +327,122 @@ function HolidayCoursesInner() {
   )
 }
 
-/* The one editor: a day's workbook, created or edited in place. */
-function DayModal({ day, when, courseName, row, onSave, onClose }) {
+/*
+ * The one editor: what a day of the course is running.
+ *
+ * Two ways to answer. Pick the workbook from the master database — the usual
+ * case, and the one that keeps the day's name and status true as the workbook
+ * is written — or, when it does not exist yet, type the name it will have.
+ */
+function DayModal({ day, when, courseName, row, master = [], defaultYear, defaultSubject, onSave, onClose }) {
+  const [mode, setMode] = useState(row?.booklet_id || !row ? 'link' : 'name')
   const [form, setForm] = useState({
+    booklet_id: row?.booklet_id || '',
     booklet_name: row?.booklet_name || '',
     topic: row?.topic || '',
     status: row?.status || 'Not Started',
     notes: row?.notes || '',
   })
+  const [search, setSearch] = useState('')
+  // The class's own year and subject to begin with, since that is nearly always
+  // what a holiday course runs; searching looks across the whole database.
+  const [scoped, setScoped] = useState(true)
   const [saving, setSaving] = useState(false)
+
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const submit = async () => { setSaving(true); try { await onSave(form) } finally { setSaving(false) } }
+  const q = search.trim().toLowerCase()
+  const options = master
+    .filter((b) => !b.is_exam)
+    .filter((b) => !scoped || !defaultYear
+      || (Number(b.year) === Number(defaultYear) && (!defaultSubject || b.subject === defaultSubject)))
+    .filter((b) => !q
+      || `${b.booklet_name} ${b.topic || ''}`.toLowerCase().includes(q))
+    .slice(0, 60)
+  const chosen = master.find((b) => b.id === form.booklet_id)
+
+  const submit = async () => {
+    setSaving(true)
+    try { await onSave(mode === 'link' ? { booklet_id: form.booklet_id, notes: form.notes } : { ...form, booklet_id: '' }) }
+    finally { setSaving(false) }
+  }
+  const canSave = mode === 'link' ? !!form.booklet_id : !!form.booklet_name.trim()
+
   const INP = 'w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]'
   const LBL = 'text-[11px] font-semibold text-[#2A2035]/50 block mb-1'
+  const TAB = (on) => `px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+    on ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/60 border-[#DEE7FF] hover:border-[#325099]'}`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div>
           <h2 className="text-lg font-bold text-[#062E63]">{row ? 'Edit' : 'Add'} Day {day}</h2>
           <p className="text-xs text-[#2A2035]/50">{courseName}{when ? ` · ${when}` : ''}</p>
         </div>
-        <div>
-          <label className={LBL}>Workbook name</label>
-          <input autoFocus className={INP} value={form.booklet_name} onChange={set('booklet_name')} placeholder="e.g. Algebra Intensive — Day 1" />
+
+        <div className="flex gap-1.5">
+          <button type="button" className={TAB(mode === 'link')} onClick={() => setMode('link')}>From master database</button>
+          <button type="button" className={TAB(mode === 'name')} onClick={() => setMode('name')}>Name a new one</button>
         </div>
-        <div>
-          <label className={LBL}>Topic</label>
-          <input className={INP} value={form.topic} onChange={set('topic')} placeholder="e.g. Linear Relationships" />
-        </div>
-        <div>
-          <label className={LBL}>Status</label>
-          <select className={INP} value={form.status} onChange={set('status')}>
-            {Object.keys(BOOKLET_STATUS).map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+
+        {mode === 'link' ? (
+          <>
+            <div>
+              <label className={LBL}>Workbook</label>
+              <input autoFocus className={INP} value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search the master database…" />
+            </div>
+            {defaultYear != null && (
+              <label className="flex items-center gap-2 text-[11px] text-[#2A2035]/55 cursor-pointer">
+                <input type="checkbox" checked={scoped} onChange={(e) => setScoped(e.target.checked)} />
+                Only Year {defaultYear}{defaultSubject ? ` ${defaultSubject}` : ''}
+              </label>
+            )}
+            <div className="border border-[#E8EDF8] rounded-xl divide-y divide-[#F0F4FF] max-h-64 overflow-y-auto">
+              {options.length === 0 ? (
+                <p className="text-xs text-[#2A2035]/40 px-3 py-6 text-center">
+                  No workbooks match{scoped ? ' — try unticking the year filter' : ''}.
+                </p>
+              ) : options.map((b) => (
+                <button key={b.id} type="button"
+                  onClick={() => setForm((f) => ({ ...f, booklet_id: b.id }))}
+                  className={`w-full text-left px-3 py-2 transition ${
+                    form.booklet_id === b.id ? 'bg-[#EEF4FF]' : 'hover:bg-[#F8FAFF]'}`}>
+                  <p className="text-xs font-semibold text-[#062E63] truncate">{b.booklet_name}</p>
+                  <p className="text-[10px] text-[#2A2035]/45 truncate">
+                    Year {b.year} {b.subject}{b.topic ? ` · ${b.topic}` : ''} · {b.status}
+                  </p>
+                </button>
+              ))}
+            </div>
+            {chosen && <p className="text-[11px] text-[#325099] font-semibold">Selected: {chosen.booklet_name}</p>}
+          </>
+        ) : (
+          <>
+            <div>
+              <label className={LBL}>Workbook name</label>
+              <input autoFocus className={INP} value={form.booklet_name} onChange={set('booklet_name')} placeholder="e.g. Algebra Intensive — Day 1" />
+            </div>
+            <div>
+              <label className={LBL}>Topic</label>
+              <input className={INP} value={form.topic} onChange={set('topic')} placeholder="e.g. Linear Relationships" />
+            </div>
+            <div>
+              <label className={LBL}>Status</label>
+              <select className={INP} value={form.status} onChange={set('status')}>
+                {Object.keys(BOOKLET_STATUS).map((st) => <option key={st} value={st}>{st}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+
         <div>
           <label className={LBL}>Notes</label>
-          <textarea className={`${INP} h-20 resize-none`} value={form.notes} onChange={set('notes')} placeholder="Anything the author needs to know." />
+          <textarea className={`${INP} h-20 resize-none`} value={form.notes} onChange={set('notes')} placeholder="Anything the teacher needs to know about this day." />
         </div>
+
         <div className="flex items-center gap-3 pt-1">
-          <button onClick={submit} disabled={saving || !form.booklet_name.trim()}
+          <button onClick={submit} disabled={saving || !canSave}
             className="px-5 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Saving…' : 'Save'}
           </button>
