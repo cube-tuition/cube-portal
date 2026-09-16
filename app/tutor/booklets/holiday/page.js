@@ -8,6 +8,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import { fetchAllTerms, formatTermRange } from '../../../../lib/terms'
 import { T_HOLIDAY_BOOKLETS } from '../../../../lib/tables'
 import { statusStyle, BOOKLET_STATUS } from '../../../../lib/resourceSubjects'
+import { useCourseCurriculum } from '../../../../lib/courses'
 import TutorNav from '../../../../components/TutorNav'
 
 /*
@@ -29,15 +30,8 @@ const SUBJECT_FAMILY = {
   Chemistry: ['Chemistry'],
 }
 const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
-const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
-// Senior years split into streams; juniors are one subject per year. Same rule
-// the term curriculum uses, so the tabs match between the two pages.
-const subjectsForYear = (year, scope) => {
-  const all = year >= 11
-    ? ['Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'English', 'Chemistry']
-    : ['Maths', 'English']
-  return scope ? all.filter((s) => SUBJECT_FAMILY[scope].includes(s)) : all
-}
+// Years and subjects come from the courses table, same as the term curriculum,
+// so both pages offer exactly the courses the database explorer lists.
 
 // A holiday period is a term row numbered above the four teaching terms — the
 // same marker the calendar uses to tell holidays from terms.
@@ -90,8 +84,13 @@ function HolidayCoursesInner() {
     })
   }, [router, load])
 
-  const visibleYears = YEARS.filter((y) => subjectsForYear(y, scope).length > 0)
-  const subjects = subjectsForYear(activeYear, scope)
+  const { years: courseYears, subjectsFor: courseSubjectsFor } = useCourseCurriculum()
+  const subjectsForYear = (year) => {
+    const all = courseSubjectsFor(year)
+    return scope ? all.filter((s) => SUBJECT_FAMILY[scope].includes(s)) : all
+  }
+  const visibleYears = courseYears.filter((y) => subjectsForYear(y).length > 0)
+  const subjects = subjectsForYear(activeYear)
   /*
    * The subject actually shown. Derived rather than corrected in an effect:
    * switching to a year (or a hub) that doesn't carry the chosen subject would

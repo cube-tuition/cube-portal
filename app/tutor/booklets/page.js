@@ -12,44 +12,11 @@ import BookletContentView from '../../../components/booklet/BookletContentView'
 import BookletInfoModal from '../../../components/booklet/BookletInfoModal'
 import useChemModules from '../../../components/booklet/useChemModules'
 import { openTotal } from '../../../lib/bookletChecklist'
+import { useCourseCurriculum, subjectFromCourseCode } from '../../../lib/courses'
 
-const SUBJECTS_BY_YEAR = {
-  11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
-  12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
-}
-const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
-
-// Subject-hub scoping (?subject=Maths|English|Chemistry): each scope covers a
-// family of curriculum subjects — Maths spans the junior + senior variants.
-const SUBJECT_FAMILY = {
-  Maths: ['Maths', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
-  English: ['English'],
-  Chemistry: ['Chemistry'],
-}
-const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
-
-// A class still being taught. Inactive classes (e.g. a 1:1 whose student left)
-// keep their row for history but are hidden from the curriculum, calendar and
-// dashboards. Legacy rows with no status count as active.
-const isLiveClass = (c) => (c?.status || 'active') === 'active'
-
-// Subject inferred from a course code like "9.M1" / "7.E" / "11.C" — the same
-// rule the class-tab filter uses.
-function subjectFromCourseCode(code) {
-  const parts = String(code || '').split('.')
-  const yr = parseInt(parts[0])
-  const suffix = parts[1] || ''
-  if (!suffix) return null
-  return yr >= 11
-    ? (suffix.startsWith('M1') ? 'Standard Maths'
-      : suffix.startsWith('M2') ? 'Adv Maths'
-      : suffix.startsWith('M3') ? 'Ext 1 Maths'
-      : suffix.startsWith('M4') ? 'Ext 2 Maths'
-      : suffix.startsWith('E') ? 'English'
-      : suffix.startsWith('C') ? 'Chemistry'
-      : null)
-    : (suffix.startsWith('M') ? 'Maths' : suffix.startsWith('E') ? 'English' : null)
-}
+// Which years and subjects exist is read off the courses table (lib/courses),
+// so the curriculum offers exactly what the database explorer lists — including
+// the subject a class's course code names, for the class tabs.
 
 const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
 const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
@@ -449,12 +416,13 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   )
 }
 
-const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 const INP      ='w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
 // ── Booklet Modal (add + edit) ────────────────────────────────────────────────
 function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defaultWeek, onClose, onSaved }) {
   const isEdit = !!booklet
+  // Year and subject options come from the courses table, same as the tabs.
+  const { years: courseYears, subjectsFor: courseSubjectsFor } = useCourseCurriculum()
   const { moduleNames } = useChemModules()   // Chemistry files by module, not topic
   const [form, setForm] = useState({
     booklet_name: booklet?.booklet_name ?? '',
@@ -632,13 +600,13 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
             <div>
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Year</label>
               <select value={form.year} onChange={set('year')} className={INP}>
-                {YEARS.map(y => <option key={y} value={y}>Year {y}</option>)}
+                {courseYears.map(y => <option key={y} value={y}>Year {y}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</label>
               <select value={form.subject} onChange={set('subject')} className={INP}>
-                {getSubjects(Number(form.year)).map(s => <option key={s} value={s}>{s}</option>)}
+                {courseSubjectsFor(Number(form.year)).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
@@ -1049,12 +1017,13 @@ function BookletsPageInner() {
   useEffect(() => { if (staff) loadClasses() }, [staff, loadClasses])
 
   // Subjects for a year, narrowed to the hub scope when one is active.
+  const { years: courseYears, subjectsFor: courseSubjectsFor } = useCourseCurriculum()
   const subjectsFor = useCallback((year) => {
-    const all = getSubjects(year)
+    const all = courseSubjectsFor(year)
     return scope ? all.filter(s => SUBJECT_FAMILY[scope].includes(s)) : all
-  }, [scope])
+  }, [scope, courseSubjectsFor])
   // Years that have at least one subject in scope (Chemistry → 11–12 only).
-  const visibleYears = YEARS.filter(y => subjectsFor(y).length > 0)
+  const visibleYears = courseYears.filter(y => subjectsFor(y).length > 0)
 
   // Keep year + subject valid for the scope (and when the year changes).
   useEffect(() => {
