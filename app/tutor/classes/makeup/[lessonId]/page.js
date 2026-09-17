@@ -390,7 +390,7 @@ export default function MakeupLessonPage() {
             )}
 
             <FieldCard label="RQ mark %" required>
-              <div className="flex items-center gap-3">
+              <div>
                 <input
                   type="number" min="0" max="100"
                   value={rq}
@@ -399,11 +399,6 @@ export default function MakeupLessonPage() {
                   placeholder="0–100"
                   className="w-28 text-sm font-semibold text-[#2A2035] bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/20 focus:border-[#7C3AED] transition disabled:opacity-50 disabled:cursor-not-allowed"
                 />
-                {rq !== '' && !isNaN(Number(rq)) && (
-                  <span className="text-sm font-bold" style={{ color: Number(rq) >= 80 ? '#065F46' : Number(rq) >= 60 ? '#92400E' : '#991B1B' }}>
-                    {Number(rq) >= 80 ? '✓ Strong' : Number(rq) >= 60 ? '~ Okay' : '✗ Needs work'}
-                  </span>
-                )}
               </div>
               {rqMissing && <p className="text-[11px] text-[#DC2626] mt-2">RQ mark is required.</p>}
             </FieldCard>
