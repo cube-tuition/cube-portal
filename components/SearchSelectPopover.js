@@ -8,7 +8,9 @@ import { useState, useEffect, useMemo } from 'react'
  * as you type, and supports ↑/↓/Enter/Esc. Options: [{ value, label, sub? }].
  * Pass clearLabel to pin a "clear" entry at the top (selects value '').
  */
-export default function SearchSelectPopover({ anchor, options, currentValue, onSelect, onClose, placeholder = 'Search…', clearLabel = null }) {
+// `maxHeight` lets a long list (every family, say) show more rows before it scrolls.
+// An option with `disabled: true` is listed greyed out and cannot be chosen.
+export default function SearchSelectPopover({ anchor, options, currentValue, onSelect, onClose, placeholder = 'Search…', clearLabel = null, maxHeight = 336 }) {
   const [q, setQ]   = useState('')
   const [hi, setHi] = useState(0)
 
@@ -22,7 +24,7 @@ export default function SearchSelectPopover({ anchor, options, currentValue, onS
   }, [q, options, clearLabel])
   useEffect(() => { setHi(0) }, [q])
 
-  const WIDTH = 340, MAX_H = 336
+  const WIDTH = 340, MAX_H = maxHeight
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
   const left = Math.max(8, Math.min(anchor.left, winW - WIDTH - 12))
@@ -46,7 +48,7 @@ export default function SearchSelectPopover({ anchor, options, currentValue, onS
           onKeyDown={e => {
             if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, list.length - 1)) }
             if (e.key === 'ArrowUp')   { e.preventDefault(); setHi(h => Math.max(h - 1, 0)) }
-            if (e.key === 'Enter')     { e.preventDefault(); if (list[hi]) onSelect(list[hi].value) }
+            if (e.key === 'Enter')     { e.preventDefault(); if (list[hi] && !list[hi].disabled) onSelect(list[hi].value) }
             if (e.key === 'Escape')    { e.preventDefault(); onClose() }
           }}
           className="w-full px-3.5 py-2.5 text-xs text-[#2A2035] border-b border-[#DEE7FF] focus:outline-none placeholder-[#2A2035]/30"
@@ -60,9 +62,10 @@ export default function SearchSelectPopover({ anchor, options, currentValue, onS
               <button
                 key={`${o.value}_${i}`}
                 ref={i === hi ? (el => el?.scrollIntoView({ block: 'nearest' })) : undefined}
-                onClick={() => onSelect(o.value)}
+                onClick={() => { if (!o.disabled) onSelect(o.value) }}
                 onMouseEnter={() => setHi(i)}
-                className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between gap-2 transition-colors ${i === hi ? 'bg-[#EEF4FF]' : 'bg-white'} ${o._clear ? 'border-b border-[#F0F4FF]' : ''}`}
+                disabled={!!o.disabled}
+                className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between gap-2 transition-colors ${i === hi ? 'bg-[#EEF4FF]' : 'bg-white'} ${o.disabled ? 'opacity-45 cursor-not-allowed' : ''} ${o._clear ? 'border-b border-[#F0F4FF]' : ''}`}
               >
                 <span className="min-w-0">
                   <span className={`block truncate ${o._clear ? 'italic text-[#2A2035]/50' : isCurrent ? 'font-bold text-[#062E63]' : 'font-semibold text-[#2A2035]'}`}>{o.label}</span>

@@ -62,20 +62,36 @@ function MessagesInner() {
         supabase.from(T_PARENTS).select('id, full_name, phone, relationship, student_id').not('phone', 'is', null),
       ])
       const byStudent = Object.fromEntries((students || []).map((s) => [s.id, s]))
-      const map = {}, opts = []
+      // contacts: number → who it belongs to (names threads and alert emails)
+      const map = {}
       ;(guardians || []).forEach((g) => {
         const e = normalisePhone(g.phone); if (!e) return
         const st = byStudent[g.student_id]
         const sub = st ? `${g.relationship || 'Guardian'} of ${st.full_name}` : (g.relationship || 'Guardian')
         map[e] = map[e] ? { ...map[e], sub: map[e].sub + ' · ' + sub } : { label: g.full_name, sub }
-        opts.push({ value: e, label: g.full_name, sub: `${sub} · ${formatPhone(e)}` })
       })
       ;(students || []).forEach((s) => {
         const e = normalisePhone(s.phone); if (!e) return
         if (!map[e]) map[e] = { label: s.full_name, sub: `Student${s.status && s.status !== 'active' ? ` · ${s.status}` : ''}` }
-        opts.push({ value: e, label: s.full_name, sub: `Student · ${formatPhone(e)}` })
       })
-      setContacts(map); setPeople(opts.sort((a, b) => a.label.localeCompare(b.label)))
+      // picker: one row per current student per number on file. A student with
+      // no number at all is still listed, greyed, so the gap is visible rather
+      // than the family quietly missing from the list.
+      const opts = []
+      const current = (students || []).filter((s) => ['active', 'trial', 'pending'].includes(s.status || 'active'))
+      current.forEach((s) => {
+        const tag = s.status && s.status !== 'active' ? ` · ${s.status}` : ''
+        const rows = []
+        ;(guardians || []).filter((g) => g.student_id === s.id).forEach((g) => {
+          const e = normalisePhone(g.phone); if (!e) return
+          rows.push({ value: e, label: `${s.full_name}${tag}`, sub: `${g.full_name} (${g.relationship || 'guardian'}) · ${formatPhone(e)}` })
+        })
+        const own = normalisePhone(s.phone)
+        if (own) rows.push({ value: own, label: `${s.full_name}${tag}`, sub: `Student's own phone · ${formatPhone(own)}` })
+        if (!rows.length) rows.push({ value: `none:${s.id}`, label: `${s.full_name}${tag}`, sub: 'No phone number on file — add one to the student or a guardian', disabled: true })
+        opts.push(...rows)
+      })
+      setContacts(map); setPeople(opts.sort((a, b) => a.label.localeCompare(b.label) || (a.disabled ? 1 : 0) - (b.disabled ? 1 : 0)))
       setMessages(msgs || [])
       setCalls(callRows || [])
       setReady(true)
@@ -265,7 +281,7 @@ function PeoplePicker({ people, onPick }) {
     <>
       <button onClick={(e) => setPop(e.currentTarget.getBoundingClientRect())}
         className="w-full text-left border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-sm text-[#2A2035]/60 hover:border-[#325099]">Search students and parents…</button>
-      {pop && <SearchSelectPopover anchor={pop} options={people} currentValue={null} placeholder="Name…" onSelect={(v) => { setPop(null); onPick(v) }} onClose={() => setPop(null)} />}
+      {pop && <SearchSelectPopover anchor={pop} options={people} currentValue={null} placeholder="Student or parent name…" maxHeight={560} onSelect={(v) => { setPop(null); onPick(v) }} onClose={() => setPop(null)} />}
     </>
   )
 }
