@@ -53,6 +53,13 @@ const CAMPAIGNS = [
     description: 'Promote a course to a targeted cohort — e.g. Maths to English-only students, or Chemistry to Year 10. Save reusable offers with an audience filter and editable pitch, then preview, test, and send.',
     badge:       'Marketing',
   },
+  {
+    href:        '/tutor/emails/holiday-courses',
+    icon:        '🏖️',
+    title:       'Holiday Courses',
+    description: 'Advertise a holiday intensive — link each subject to its holiday class for dates and times, set the fees and the sign-up form link, pick the families, then preview, test, and send.',
+    badge:       'Marketing',
+  },
 ]
 
 export default function EmailsHub() {
