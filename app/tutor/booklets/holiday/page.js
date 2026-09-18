@@ -9,6 +9,7 @@ import { fetchAllTerms, formatTermRange } from '../../../../lib/terms'
 import { T_HOLIDAY_BOOKLETS, T_CLASSES, T_LESSONS, T_BOOKLETS } from '../../../../lib/tables'
 import { subjectFromCourseCode, yearFromCourseCode } from '../../../../lib/courses'
 import { statusStyle } from '../../../../lib/resourceSubjects'
+import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../../lib/qbank'
 import TutorNav from '../../../../components/TutorNav'
 
 /*
@@ -30,12 +31,9 @@ import TutorNav from '../../../../components/TutorNav'
  * session takes its workbook with it.
  */
 
-const SUBJECT_FAMILY = {
-  Maths: ['Maths', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
-  English: ['English'],
-  Chemistry: ['Chemistry'],
-}
-const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
+// Subject-hub scoping comes from lib/qbank, the same list the term curriculum
+// and the question bank read.
+const SUBJECT_FAMILY = SUBJECT_FAMILIES
 
 // A holiday period is a term row numbered above the four teaching terms — the
 // same marker the calendar uses to tell holidays from terms.

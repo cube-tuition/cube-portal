@@ -13,19 +13,15 @@ import BookletInfoModal from '../../../components/booklet/BookletInfoModal'
 import useChemModules from '../../../components/booklet/useChemModules'
 import { openTotal } from '../../../lib/bookletChecklist'
 import { useCourseCurriculum, subjectFromCourseCode } from '../../../lib/courses'
+import { SUBJECT_FAMILIES, SCOPE_LABEL } from '../../../lib/qbank'
 
 // Which years and subjects exist is read off the courses table (lib/courses),
 // so the curriculum offers exactly what the database explorer lists — including
 // the subject a class's course code names, for the class tabs.
 
-// Subject-hub scoping (?subject=Maths|English|Chemistry): each scope covers a
-// family of curriculum subjects — Maths spans the junior + senior variants.
-const SUBJECT_FAMILY = {
-  Maths: ['Maths', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths'],
-  English: ['English'],
-  Chemistry: ['Chemistry'],
-}
-const SCOPE_LABEL = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
+// Subject-hub scoping (?subject=Maths|English|…) comes from lib/qbank, so a
+// subject added there reaches the curriculum without a second list to update.
+const SUBJECT_FAMILY = SUBJECT_FAMILIES
 
 // A class still being taught. Inactive classes (e.g. a 1:1 whose student left)
 // keep their row for history but are hidden from the curriculum, calendar and

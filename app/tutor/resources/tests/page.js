@@ -6,6 +6,7 @@ import TutorNav from '../../../../components/TutorNav'
 import ExamsPanel from '../../../../components/resources/ExamsPanel'
 import LevelTestsPanel from '../../../../components/resources/LevelTestsPanel'
 import PreTestsPanel from '../../../../components/resources/PreTestsPanel'
+import { SCOPE_LABEL } from '../../../../lib/qbank'
 
 /*
  * Tests — a single Resources page that holds Exams and Level Tests, each under
@@ -22,9 +23,8 @@ function TestsInner() {
   const [tab, setTab] = useState(initialTab)
   // Subject-hub scope (?subject=Maths|English|Chemistry): each panel narrows to
   // that subject. Absent → unchanged behaviour.
-  const SCOPES = { Maths: 'Mathematics', English: 'English', Chemistry: 'Chemistry' }
   const scopeParam = searchParams.get('subject')
-  const scope = SCOPES[scopeParam] ? scopeParam : null
+  const scope = SCOPE_LABEL[scopeParam] ? scopeParam : null
 
   // The unscoped Exams page was retired in favour of the subject hubs —
   // old bookmarks land on the Mathematics hub.
@@ -57,7 +57,7 @@ function TestsInner() {
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
       <div className="max-w-4xl mx-auto px-6 pt-8 pb-16">
         <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold mb-1">Resources</p>
-        <h1 className="text-2xl font-bold text-[#062E63] mb-1">Exams{scope ? ` — ${SCOPES[scope]}` : ''}</h1>
+        <h1 className="text-2xl font-bold text-[#062E63] mb-1">Exams{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
         {scope
           ? <p className="text-xs text-[#2A2035]/50 mb-5"><a href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">← Back to hub</a></p>
           : <div className="mb-5" />}
