@@ -1,6 +1,7 @@
 import { webhookUrl, validTwilioSignature, twiml, escXml, portalUrl } from '../../../../lib/twilio'
 import { normalisePhone } from '../../../../lib/phone'
 import { adminClient, whoIs, alertEmail } from '../../../../lib/callAlerts'
+import { sendPushToAll } from '../../../../lib/push'
 
 /*
  * POST /api/voice/after — runs when the forwarded <Dial> ends.
@@ -28,6 +29,7 @@ export async function POST(req) {
 
   await admin.from('phone_calls').upsert({ twilio_sid: sid, direction: 'in', phone: from, status: 'missed', updated_at: new Date().toISOString() }, { onConflict: 'twilio_sid' })
   const who = await whoIs(admin, from)
+  sendPushToAll({ title: `Missed call · ${who}`, body: 'The office number rang out. Tap to see the call.', url: '/messages', tag: `call-${sid}` }).catch(() => {})
   await alertEmail({ subject: `Missed call from ${who}`, who, phone: from, linkPath: '/tutor/admin/messages?tab=calls',
     bodyHtml: `<p style="margin:0">The office number rang${process.env.VOICE_FORWARD_TO ? ' and was not answered' : ''}. If they leave a voicemail you'll get a second email with it.</p>` })
 

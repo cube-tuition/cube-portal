@@ -1,5 +1,6 @@
 import { webhookUrl, validTwilioSignature } from '../../../../lib/twilio'
 import { adminClient, whoIs, alertEmail } from '../../../../lib/callAlerts'
+import { sendPushToAll } from '../../../../lib/push'
 
 /* POST /api/voice/recording — a voicemail recording is ready. */
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,7 @@ export async function POST(req) {
     }).eq('twilio_sid', sid).select('phone').maybeSingle()
     if (row?.phone) {
       const who = await whoIs(admin, row.phone)
+      sendPushToAll({ title: `Voicemail · ${who}`, body: `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} message — open the portal to listen.`, url: '/messages', tag: `call-${sid}` }).catch(() => {})
       await alertEmail({ subject: `Voicemail from ${who}`, who, phone: row.phone, linkPath: '/tutor/admin/messages?tab=calls',
         bodyHtml: `<p style="margin:0">A ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} voicemail is waiting. The transcript appears in the portal a minute or two later.</p>` })
     }

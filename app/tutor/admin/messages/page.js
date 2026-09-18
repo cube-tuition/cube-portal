@@ -1,31 +1,25 @@
 'use client'
-import { useEffect, useMemo, useRef, useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '../../../../lib/supabase'
+import Link from 'next/link'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { authedFetch } from '../../../../lib/authedFetch'
+import { useSmsInbox, fmtTime } from '../../../../lib/useSmsInbox'
 import { normalisePhone, formatPhone } from '../../../../lib/phone'
-import { T_STUDENTS, T_PARENTS } from '../../../../lib/tables'
 import TutorNav from '../../../../components/TutorNav'
 import SearchSelectPopover from '../../../../components/SearchSelectPopover'
+import PushEnable from '../../../../components/PushEnable'
 
 /*
  * Messages — /tutor/admin/messages (admin + director)
  *
  * Every text to and from the office number, grouped into a thread per phone
- * number. Names come from students.phone and guardians.phone, so a parent's
- * text shows as "Yeong A Lee · Mother of Jiwoo" rather than a bare number.
- * Opening a thread marks its incoming texts read; the "Unanswered" filter lists
- * threads whose last message came from the family. Live: new texts appear
- * without a refresh.
+ * number, plus the Calls tab. Names come from students.phone and
+ * guardians.phone. Opening a thread marks its incoming texts read; the
+ * "Unanswered" filter lists threads whose last message came from the family.
+ * Live: new texts appear without a refresh. The data and logic live in
+ * lib/useSmsInbox, shared with the standalone phone app at /messages.
  */
-
-const fmtTime = (iso) => {
-  const d = new Date(iso), now = new Date()
-  const sameDay = d.toDateString() === now.toDateString()
-  return sameDay ? d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })
-}
 
 export default function MessagesPage() {
   return <Suspense><MessagesInner /></Suspense>
@@ -35,13 +29,9 @@ function MessagesInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [profile, setProfile] = useState(null)
-  const [ready, setReady] = useState(false)
-  const [messages, setMessages] = useState([])
-  const [contacts, setContacts] = useState({})      // E.164 → { label, sub }
-  const [people, setPeople] = useState([])          // picker options for a new conversation
+  const [allowed, setAllowed] = useState(false)
   const [selected, setSelected] = useState(() => normalisePhone(searchParams.get('phone') || '') || null)
   const [tab, setTab] = useState(() => (searchParams.get('tab') === 'calls' ? 'calls' : 'texts'))
-  const [calls, setCalls] = useState([])
   const [filter, setFilter] = useState('all')       // all | unanswered
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -49,117 +39,37 @@ function MessagesInner() {
   const [newPop, setNewPop] = useState(null)
   const [newNumber, setNewNumber] = useState('')
   const endRef = useRef(null)
+  const inbox = useSmsInbox({ enabled: allowed })
 
   useEffect(() => {
     (async () => {
       const { profile, role } = await getAuthProfile()
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
-      setProfile(profile)
-      const [{ data: msgs }, { data: callRows }, { data: students }, { data: guardians }] = await Promise.all([
-        supabase.from('sms_messages').select('*').order('created_at', { ascending: true }).limit(5000),
-        supabase.from('phone_calls').select('*').order('created_at', { ascending: false }).limit(1000),
-        supabase.from(T_STUDENTS).select('id, full_name, phone, status').not('phone', 'is', null),
-        supabase.from(T_PARENTS).select('id, full_name, phone, relationship, student_id').not('phone', 'is', null),
-      ])
-      const byStudent = Object.fromEntries((students || []).map((s) => [s.id, s]))
-      // contacts: number → who it belongs to (names threads and alert emails)
-      const map = {}
-      ;(guardians || []).forEach((g) => {
-        const e = normalisePhone(g.phone); if (!e) return
-        const st = byStudent[g.student_id]
-        const sub = st ? `${g.relationship || 'Guardian'} of ${st.full_name}` : (g.relationship || 'Guardian')
-        map[e] = map[e] ? { ...map[e], sub: map[e].sub + ' · ' + sub } : { label: g.full_name, sub }
-      })
-      ;(students || []).forEach((s) => {
-        const e = normalisePhone(s.phone); if (!e) return
-        if (!map[e]) map[e] = { label: s.full_name, sub: `Student${s.status && s.status !== 'active' ? ` · ${s.status}` : ''}` }
-      })
-      // picker: one row per current student per number on file. A student with
-      // no number at all is still listed, greyed, so the gap is visible rather
-      // than the family quietly missing from the list.
-      const opts = []
-      const current = (students || []).filter((s) => ['active', 'trial', 'pending'].includes(s.status || 'active'))
-      current.forEach((s) => {
-        const tag = s.status && s.status !== 'active' ? ` · ${s.status}` : ''
-        const rows = []
-        ;(guardians || []).filter((g) => g.student_id === s.id).forEach((g) => {
-          const e = normalisePhone(g.phone); if (!e) return
-          rows.push({ value: e, label: `${s.full_name}${tag}`, sub: `${g.full_name} (${g.relationship || 'guardian'}) · ${formatPhone(e)}` })
-        })
-        const own = normalisePhone(s.phone)
-        if (own) rows.push({ value: own, label: `${s.full_name}${tag}`, sub: `Student's own phone · ${formatPhone(own)}` })
-        if (!rows.length) rows.push({ value: `none:${s.id}`, label: `${s.full_name}${tag}`, sub: 'No phone number on file — add one to the student or a guardian', disabled: true })
-        opts.push(...rows)
-      })
-      setContacts(map); setPeople(opts.sort((a, b) => a.label.localeCompare(b.label) || (a.disabled ? 1 : 0) - (b.disabled ? 1 : 0)))
-      setMessages(msgs || [])
-      setCalls(callRows || [])
-      setReady(true)
+      setProfile(profile); setAllowed(true)
     })()
   }, [router])
 
-  // Live: texts arriving while the page is open.
-  useEffect(() => {
-    if (!ready) return
-    const ch = supabase.channel('sms-messages')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sms_messages' }, (payload) => {
-        const row = payload.new
-        if (!row?.id) return
-        setMessages((prev) => prev.some((m) => m.id === row.id) ? prev.map((m) => (m.id === row.id ? { ...m, ...row } : m)) : [...prev, row])
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'phone_calls' }, (payload) => {
-        const row = payload.new
-        if (!row?.id) return
-        setCalls((prev) => prev.some((c) => c.id === row.id) ? prev.map((c) => (c.id === row.id ? { ...c, ...row } : c)) : [row, ...prev])
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(ch) }
-  }, [ready])
-
-  const threads = useMemo(() => {
-    const by = {}
-    messages.forEach((m) => { (by[m.phone] ||= []).push(m) })
-    if (selected && !by[selected]) by[selected] = []
-    return Object.entries(by).map(([phone, list]) => {
-      const last = list[list.length - 1]
-      return { phone, list, last, unread: list.filter((m) => m.direction === 'in' && !m.read_at).length, unanswered: last?.direction === 'in' }
-    }).sort((a, b) => new Date(b.last?.created_at || 0) - new Date(a.last?.created_at || 0))
-  }, [messages, selected])
+  const threads = selected && !inbox.threads.some((t) => t.phone === selected)
+    ? [{ phone: selected, list: [], last: null, unread: 0, unanswered: false }, ...inbox.threads]
+    : inbox.threads
   const shown = filter === 'unanswered' ? threads.filter((t) => t.unanswered) : threads
   const thread = threads.find((t) => t.phone === selected)
 
-  // Opening a thread marks what the family sent as read.
-  useEffect(() => {
-    if (!thread) return
-    const ids = thread.list.filter((m) => m.direction === 'in' && !m.read_at).map((m) => m.id)
-    if (!ids.length) return
-    const now = new Date().toISOString()
-    supabase.from('sms_messages').update({ read_at: now }).in('id', ids).then(() => {
-      setMessages((prev) => prev.map((m) => (ids.includes(m.id) ? { ...m, read_at: now } : m)))
-    })
-  }, [thread])
-
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [selected, messages.length])
+  useEffect(() => { if (selected && inbox.loaded) inbox.markRead(selected) }, [selected, inbox.loaded, inbox.messages.length])   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [selected, inbox.messages.length])
 
   const send = async () => {
     const body = draft.trim()
     if (!body || !selected || sending) return
     setSending(true); setError('')
-    try {
-      const res = await authedFetch('/api/sms/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: selected, body }) })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`)
-      setMessages((prev) => prev.some((m) => m.id === json.message.id) ? prev : [...prev, json.message])
-      setDraft('')
-    } catch (e) { setError(e.message) }
-    finally { setSending(false) }
+    try { await inbox.send(selected, body); setDraft('') } catch (e) { setError(e.message) } finally { setSending(false) }
   }
+  const startNew = (phone) => { if (String(phone).startsWith('none:')) return; const e = normalisePhone(phone); if (!e) return; setSelected(e); setNewPop(null); setNewNumber(''); setFilter('all'); setTab('texts') }
 
-  const startNew = (phone) => { const e = normalisePhone(phone); if (!e) return; setSelected(e); setNewPop(null); setNewNumber(''); setFilter('all'); setTab('texts') }
-
-  if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
+  if (!allowed || !inbox.loaded) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   const totalUnread = threads.reduce((s, t) => s + t.unread, 0)
-  const who = (phone) => contacts[phone]
+  const who = inbox.who
+  const missedCount = inbox.calls.filter((c) => c.status === 'missed' || c.status === 'voicemail').length
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
@@ -168,14 +78,13 @@ function MessagesInner() {
         <div className="flex items-end justify-between gap-4 flex-wrap mb-5">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Messages</h1>
-            <p className="text-sm text-[#325099]/60 mt-1">Texts and calls on the office number.{totalUnread ? ` ${totalUnread} unread text${totalUnread === 1 ? '' : 's'}.` : ''}</p>
+            <p className="text-sm text-[#325099]/60 mt-1">Texts and calls on the office number.{totalUnread ? ` ${totalUnread} unread text${totalUnread === 1 ? '' : 's'}.` : ''} <Link href="/messages" className="text-[#325099] hover:underline">Open the phone app →</Link></p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <PushEnable />
             <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
               <button onClick={() => setTab('texts')} className={`px-3 py-1.5 font-semibold ${tab === 'texts' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Texts</button>
-              <button onClick={() => setTab('calls')} className={`px-3 py-1.5 font-semibold border-l border-[#DEE7FF] ${tab === 'calls' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>
-                Calls{calls.filter((c) => c.status === 'missed' || c.status === 'voicemail').length ? ` (${calls.filter((c) => c.status === 'missed' || c.status === 'voicemail').length} missed)` : ''}
-              </button>
+              <button onClick={() => setTab('calls')} className={`px-3 py-1.5 font-semibold border-l border-[#DEE7FF] ${tab === 'calls' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Calls{missedCount ? ` (${missedCount} missed)` : ''}</button>
             </div>
             {tab === 'texts' && <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
               <button onClick={() => setFilter('all')} className={`px-3 py-1.5 font-semibold ${filter === 'all' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>All</button>
@@ -189,7 +98,7 @@ function MessagesInner() {
         </div>
 
         {tab === 'calls' && (
-          <CallsPanel calls={calls} who={who} onText={(phone) => { setSelected(phone); setTab('texts') }} />
+          <CallsPanel calls={inbox.calls} who={who} onText={(phone) => { setSelected(phone); setTab('texts') }} />
         )}
         {tab === 'texts' && <div className="grid md:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
           {/* Threads */}
@@ -267,7 +176,7 @@ function MessagesInner() {
               <button onClick={() => startNew(newNumber)} className="px-3 rounded-lg bg-[#325099] text-white text-xs font-semibold">Open</button>
             </div>
             <p className="text-[11px] font-semibold text-[#2A2035]/50 mt-3 mb-1.5">or pick a family</p>
-            <PeoplePicker people={people} onPick={startNew} />
+            <PeoplePicker people={inbox.people} onPick={startNew} />
           </div>
         </div>
       )}

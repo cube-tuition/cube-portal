@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { webhookUrl, validTwilioSignature, sendSms, portalUrl } from '../../../../lib/twilio'
 import { formatPhone, normalisePhone } from '../../../../lib/phone'
 import { PORTAL_BCC } from '../../../../lib/emailConfig'
+import { sendPushToAll } from '../../../../lib/push'
 
 /*
  * POST /api/sms/inbound — Twilio's "A message comes in" webhook.
@@ -64,6 +65,7 @@ export async function POST(req) {
   if (process.env.SMS_FORWARD_TO) {
     alerts.push(sendSms({ to: normalisePhone(process.env.SMS_FORWARD_TO), body: `Text from ${who}: ${body}`, statusCallback: null }).catch(() => {}))
   }
+  alerts.push(sendPushToAll({ title: who, body, url: `/messages?phone=${encodeURIComponent(from)}`, tag: `sms-${from}` }).catch(() => {}))
   await Promise.all(alerts)
   return TWIML_EMPTY
 }
