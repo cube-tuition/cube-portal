@@ -6,13 +6,18 @@
  * Falls back to legacy `info_pages` markdown if a slug hasn't been migrated yet,
  * so the old pages keep working until an admin runs the one-time import.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { supabase } from '../../../../lib/supabase'
 import { useHub } from '../context'
 import InfoBlocks from '../../../../components/infohub/InfoBlocks'
-import { loadPageBySlug, getAck, acknowledgePage, listSubpages, loadPageCrumb } from '../../../../lib/infohub/data'
+import { loadPageBySlug, getAck, acknowledgePage, listSubpages, loadPageCrumb, saveInline } from '../../../../lib/infohub/data'
+
+// Only pulled in when an editor turns editing on, so a reader still loads the
+// light read-only renderer and nothing else.
+const InlineBlocks = dynamic(() => import('../../../../components/infohub/InlineBlocks'), { ssr: false })
 import { mdToBlocks } from '../../../../lib/infohub/convert'
 
 function fmtDate(d) {
@@ -29,6 +34,15 @@ export default function InfoViewPage() {
   const [acking, setAcking] = useState(false)
   const [subpages, setSubpages] = useState([])
   const [parent, setParent] = useState(null)
+  // Inline editing: `edit` is the toggle, `draft` the working blocks, `saveState`
+  // what the status line says. Saves are debounced so typing does not write on
+  // every keystroke, and flushed when editing is turned off.
+  const [edit, setEdit] = useState(false)
+  const [draft, setDraft] = useState(null)
+  const [saveState, setSaveState] = useState('idle')   // idle | saving | saved | error
+  const saveTimer = useRef(null)
+  const pending = useRef(null)
+  const flushRef = useRef(null)
 
   useEffect(() => {
     let active = true
@@ -55,6 +69,47 @@ export default function InfoViewPage() {
     return () => { active = false }
   }, [slug, staff?.id, canEdit])
 
+  // Write whatever is queued, now. Called on a debounce, when editing is turned
+  // off, and when the tab goes away — an edit must not be lost to a closed tab.
+  // Held in a ref the way the shared class page holds its save, so the listeners
+  // below always reach the current closure without re-subscribing.
+  const doFlush = async () => {
+    const blocks = pending.current
+    if (!blocks || !page?.id) return
+    pending.current = null
+    setSaveState('saving')
+    try {
+      const patch = await saveInline(page, blocks, { editorName: staff?.full_name || '' })
+      setPage((p) => (p && p.id ? { ...p, ...patch } : p))
+      setSaveState('saved')
+    } catch {
+      // Keep the text so the next attempt still has it; the status line says so.
+      pending.current = blocks
+      setSaveState('error')
+    }
+  }
+  useEffect(() => { flushRef.current = doFlush })
+
+  const onInlineChange = (blocks) => {
+    setDraft(blocks)
+    pending.current = blocks
+    setSaveState('saving')
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => flushRef.current?.(), 900)
+  }
+
+  useEffect(() => {
+    const warn = (e) => { if (pending.current) { e.preventDefault(); e.returnValue = '' } }
+    const onHide = () => { if (document.visibilityState === 'hidden') flushRef.current?.() }
+    window.addEventListener('beforeunload', warn)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      window.removeEventListener('beforeunload', warn)
+      document.removeEventListener('visibilitychange', onHide)
+      clearTimeout(saveTimer.current)
+    }
+  }, [])
+
   if (page === undefined) return <div className="max-w-3xl mx-auto px-6 py-12 text-sm text-[#2A2035]/45">Loading…</div>
   if (page === null) return (
     <div className="max-w-3xl mx-auto px-6 py-16 text-center">
@@ -75,7 +130,8 @@ export default function InfoViewPage() {
     </div>
   )
 
-  const blocks = (page.published && page.published.length ? page.published : page.draft) || []
+  const liveBlocks = (page.published && page.published.length ? page.published : page.draft) || []
+  const blocks = edit && draft ? draft : liveBlocks
   const isDraftOnly = page.status !== 'published'
   const doAck = async () => {
     setAcking(true)
@@ -96,7 +152,31 @@ export default function InfoViewPage() {
           {page.icon && <span className="text-2xl" aria-hidden="true">{page.icon}</span>}
           <h1 className="text-2xl md:text-3xl font-bold text-[#062E63] font-display">{page.title}</h1>
         </div>
-        {canEdit && <Link href={`/tutor/hub/manage/${page.id}`} className="shrink-0 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3.5 py-1.5 hover:bg-[#F0F4FF]">✎ Edit page</Link>}
+        {canEdit && (
+          <div className="shrink-0 flex items-center gap-2">
+            {edit && (
+              <span className={`text-[11px] font-semibold ${
+                saveState === 'error' ? 'text-[#B91C1C]' : saveState === 'saving' ? 'text-[#92400E]' : 'text-[#166534]'}`}>
+                {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Not saved — retrying' : saveState === 'saved' ? 'Saved ✓' : ''}
+              </span>
+            )}
+            <button
+              onClick={async () => {
+                if (edit) { clearTimeout(saveTimer.current); await flushRef.current?.(); setEdit(false); setDraft(null) }
+                else { setDraft(liveBlocks); setSaveState('idle'); setEdit(true) }
+              }}
+              className={`text-xs font-semibold rounded-full px-3.5 py-1.5 border transition ${
+                edit ? 'bg-[#062E63] text-white border-[#062E63] hover:bg-[#325099]'
+                     : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
+              {edit ? 'Done' : '✎ Edit here'}
+            </button>
+            <Link href={`/tutor/hub/manage/${page.id}`}
+              title="Add, reorder or remove blocks, and change the page’s settings"
+              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3.5 py-1.5 hover:bg-[#F0F4FF]">
+              Full editor
+            </Link>
+          </div>
+        )}
       </div>
       <p className="text-[11px] text-[#2A2035]/45 mb-6">
         Updated {fmtDate(page.published_at || page.updated_at)}
@@ -114,9 +194,17 @@ export default function InfoViewPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-8">
-        {blocks.length ? <InfoBlocks blocks={blocks} /> : <p className="text-sm text-[#2A2035]/40 text-center py-6">This page is empty.</p>}
+      <div className={`bg-white rounded-2xl border p-6 md:p-8 ${edit ? 'border-[#325099]/40 ring-2 ring-[#325099]/10' : 'border-[#DEE7FF]'}`}>
+        {!blocks.length ? <p className="text-sm text-[#2A2035]/40 text-center py-6">This page is empty.</p>
+          : edit ? <InlineBlocks blocks={blocks} onChange={onInlineChange} />
+          : <InfoBlocks blocks={blocks} />}
       </div>
+      {edit && (
+        <p className="text-[11px] text-[#2A2035]/50 mt-2">
+          Editing on the page — changes save as you type{page.status === 'published' ? ' and are live straight away' : ' to the draft'}.
+          Adding or reordering blocks is in the <Link href={`/tutor/hub/manage/${page.id}`} className="text-[#325099] underline">full editor</Link>.
+        </p>
+      )}
 
       {subpages.length > 0 && (
         <section className="mt-6">
