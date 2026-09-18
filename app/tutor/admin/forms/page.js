@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import SearchSelectPopover from '../../../../components/SearchSelectPopover'
 import { T_FORMS, T_FORM_SUBMISSIONS } from '../../../../lib/tables'
 import { FIELD_TYPES, OPTION_TYPES, WEBSITE_FORMS, slugify, keyify, publicFormUrl, blankField, formatValue } from '../../../../lib/forms'
 
@@ -34,6 +35,7 @@ export default function FormsAdminPage() {
   const [subs, setSubs] = useState([])
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState('')
+  const [typePicker, setTypePicker] = useState(null)   // { index, rect } while a field's Type dropdown is open
 
   const current = forms.find(f => f.id === currentId) || null
 
@@ -257,9 +259,13 @@ export default function FormsAdminPage() {
                               </div>
                               <div>
                                 <label className={label}>Type</label>
-                                <select value={f.type} onChange={e => setF(i, { type: e.target.value })} className={input}>
-                                  {FIELD_TYPES.map(t => <option key={t.type} value={t.type}>{t.label}</option>)}
-                                </select>
+                                <button type="button" onClick={e => setTypePicker({ index: i, rect: e.currentTarget.getBoundingClientRect() })}
+                                  className={`${input} flex items-center justify-between gap-2 text-left`}>
+                                  <span className="truncate">{(FIELD_TYPES.find(t => t.type === f.type) || FIELD_TYPES[0]).label}</span>
+                                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[#2A2035]/40">
+                                    <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                </button>
                               </div>
                               <div className="flex items-center gap-2 pb-2">
                                 <label className="flex items-center gap-1 text-[11px] font-semibold text-[#325099] cursor-pointer"><input type="checkbox" checked={!!f.required} onChange={e => setF(i, { required: e.target.checked })} className="accent-[#325099]" />Required</label>
@@ -333,6 +339,17 @@ export default function FormsAdminPage() {
           </div>
         )}
       </div>
+
+      {typePicker && (
+        <SearchSelectPopover
+          anchor={typePicker.rect}
+          options={FIELD_TYPES.map(t => ({ value: t.type, label: t.label }))}
+          currentValue={draft?.fields?.[typePicker.index]?.type || 'text'}
+          placeholder="Search field types…"
+          onSelect={v => { setF(typePicker.index, { type: v }); setTypePicker(null) }}
+          onClose={() => setTypePicker(null)}
+        />
+      )}
     </div>
   )
 }
