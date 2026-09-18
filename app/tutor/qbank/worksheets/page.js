@@ -14,6 +14,7 @@ import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWo
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
 import DocLivePreview from '../../../../components/qbank/DocLivePreview'
+import { useCourseCurriculum } from '../../../../lib/courses'
 
 /*
  * Additional Questions — /tutor/qbank/worksheets
@@ -35,11 +36,6 @@ const entryLines = (e) => (typeof e === 'string' ? null : (e?.lines || null))
 
 // ── AQ master database tabs — same shape as the workbook master database ─────
 const AQ_YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
-const AQ_SUBJECTS_BY_YEAR = {
-  11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
-  12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
-}
-const aqSubjects = (year) => AQ_SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
 const aqAccent = (s) => (s === 'Maths' || s?.includes('Maths')) ? '#325099' : s === 'Chemistry' ? '#0F766E' : '#7C3AED'
 const aqAccentBg = (s) => (s === 'Maths' || s?.includes('Maths')) ? '#EEF4FF' : s === 'Chemistry' ? '#F0FDF4' : '#F5F3FF'
 
@@ -331,10 +327,11 @@ function AdditionalQuestionsInner() {
 
   // Years/subjects narrowed to the hub scope, tab kept valid — as the
   // workbook master database does.
+  const { subjectsFor: courseSubjectsFor } = useCourseCurriculum()
   const aqSubjectsFor = useCallback((y) => {
-    const all = aqSubjects(y)
+    const all = courseSubjectsFor(y)
     return scope ? all.filter((su) => SUBJECT_FAMILIES[scope].includes(su)) : all
-  }, [scope])
+  }, [scope, courseSubjectsFor])
   const aqVisibleYears = useMemo(() => AQ_YEARS.filter((y) => aqSubjectsFor(y).length > 0), [aqSubjectsFor])
   useEffect(() => {
     const raf = requestAnimationFrame(() => {

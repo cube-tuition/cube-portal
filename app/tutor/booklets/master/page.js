@@ -16,14 +16,9 @@ import { fetchModuleNames } from '../../../../lib/syllabus'
 import {
   isChemistry, chemModuleNumber, chemLessonNumber, chemModuleLabel, bookletLabel, buildLabel,
 } from '../../../../lib/format'
+import { useCourseCurriculum } from '../../../../lib/courses'
 
-const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
 
-const SUBJECTS_BY_YEAR = {
-  11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
-  12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
-}
-const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
 
 const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
 const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
@@ -203,6 +198,8 @@ const INP   = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-
 
 // ── Booklet Form Modal (add + edit) ──────────────────────────────────────────
 function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = [], moduleNames = {}, onClose, onSaved }) {
+  // Year and subject options follow the courses table, as the curriculum does.
+  const { years: courseYears, subjectsFor: courseSubjectsFor } = useCourseCurriculum()
   const isEdit = !!booklet
   const [form, setForm] = useState({
     booklet_name: booklet?.booklet_name ?? '',
@@ -313,13 +310,13 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
             <div>
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Year</label>
               <select value={form.year} onChange={set('year')} className={INP}>
-                {YEARS.map(y => <option key={y} value={y}>Year {y}</option>)}
+                {courseYears.map(y => <option key={y} value={y}>Year {y}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</label>
               <select value={form.subject} onChange={set('subject')} className={INP}>
-                {getSubjects(Number(form.year)).map(s => <option key={s} value={s}>{s}</option>)}
+                {courseSubjectsFor(Number(form.year)).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
@@ -562,12 +559,13 @@ function MasterDatabaseInner() {
   useEffect(() => { if (staff) load() }, [staff, load])
 
   // Subjects for a year, narrowed to the hub scope when one is active.
+  const { years: courseYears, subjectsFor: courseSubjectsFor } = useCourseCurriculum()
   const subjectsFor = useCallback((year) => {
-    const all = getSubjects(year)
+    const all = courseSubjectsFor(year)
     return scope ? all.filter(su => SUBJECT_FAMILIES[scope].includes(su)) : all
-  }, [scope])
+  }, [scope, courseSubjectsFor])
   // Years with at least one subject in scope (Chemistry → 11–12 only).
-  const visibleYears = YEARS.filter(y => subjectsFor(y).length > 0)
+  const visibleYears = courseYears.filter(y => subjectsFor(y).length > 0)
 
   // Keep year + subject valid for the scope (and when the year changes).
   useEffect(() => {

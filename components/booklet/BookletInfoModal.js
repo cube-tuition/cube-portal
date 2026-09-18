@@ -11,6 +11,7 @@ import {
   fmtItemDate, sortItems, openCount,
   addStaffItem, setItemDone, removeItem,
 } from '../../lib/bookletChecklist'
+import { useCourseCurriculum } from '../../lib/courses'
 
 /*
  * BookletInfoModal — everything about one booklet in a single large modal,
@@ -42,11 +43,6 @@ const STATUS_SELECT_CLS = {
 }
 
 const YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
-const SUBJECTS_BY_YEAR = {
-  11: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Chemistry'],
-  12: ['English', 'Standard Maths', 'Adv Maths', 'Ext 1 Maths', 'Ext 2 Maths', 'Chemistry'],
-}
-const getSubjects = (year) => SUBJECTS_BY_YEAR[year] || ['Maths', 'English']
 
 // Fallback topic suggestions for years/subjects with no topic bank of their own.
 const COMMON_TOPICS = [
@@ -263,6 +259,8 @@ function PdfList({ row, patch, onErr, readOnly = false }) {
 /* readOnly: tutors get the same modal purely to READ — every field disabled,
    every save/upload/remove/add control gone. Nothing here writes for them. */
 export default function BookletInfoModal({ booklet, title, staff, content, topicBank, onClose, onChanged, readOnly = false }) {
+  // Subject options follow the courses table, as the curriculum does.
+  const { subjectsFor: courseSubjectsFor } = useCourseCurriculum()
   const { moduleNames } = useChemModules()      // Chemistry files by module, not topic
   const [row, setRow] = useState(null)          // full booklets row, re-read on open
   const [form, setForm] = useState(null)        // editable details
@@ -522,7 +520,7 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                 <label className={FIELD_LABEL}>Subject</label>
                 <select value={form.subject} onChange={setField('subject')} disabled={readOnly} className={FIELD}>
                   {form.subject === '' && <option value="">—</option>}
-                  {[...new Set([...getSubjects(Number(form.year)), form.subject].filter(Boolean))].map(s => (
+                  {[...new Set([...courseSubjectsFor(Number(form.year)), form.subject].filter(Boolean))].map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
