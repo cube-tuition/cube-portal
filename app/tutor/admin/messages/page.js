@@ -55,7 +55,7 @@ function MessagesInner() {
       const { profile, role } = await getAuthProfile()
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
       setProfile(profile)
-      const [{ data: msgs }, { data: students }, { data: guardians }, { data: callRows }] = await Promise.all([
+      const [{ data: msgs }, { data: callRows }, { data: students }, { data: guardians }] = await Promise.all([
         supabase.from('sms_messages').select('*').order('created_at', { ascending: true }).limit(5000),
         supabase.from('phone_calls').select('*').order('created_at', { ascending: false }).limit(1000),
         supabase.from(T_STUDENTS).select('id, full_name, phone, status').not('phone', 'is', null),
