@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import GlobalUndo from './GlobalUndo'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
+import { SUBJECTS } from '../lib/resourceSubjects'
 
 /*
  * Nav for the tutor / admin portal.
@@ -25,18 +26,19 @@ const BASE_LINKS = [
   { label: 'Classes', href: '/tutor/classes' },
 ]
 const SHARED_GROUPS = []
+/*
+ * One row per subject hub, built from the hub config rather than typed out
+ * twice here: a subject added to lib/resourceSubjects reaches both dropdowns
+ * (and its own pages) without a nav list to remember.
+ */
+const subjectLinks = (suffix = '') => Object.entries(SUBJECTS).map(([slug, s]) => ({
+  label: s.label, href: `/tutor/resources/${slug}${suffix}`, icon: s.icon,
+}))
 // Tutors get Materials only — each subject goes straight to its Materials
 // page (read-only there: no builder, view-only booklet info). The rest of
 // Resources (tests, syllabus, question bank) is directors' territory.
 const TUTOR_GROUPS = [
-  {
-    label: 'Materials',
-    links: [
-      { label: 'Mathematics',     href: '/tutor/resources/maths/materials',     icon: '📐' },
-      { label: 'English',         href: '/tutor/resources/english/materials',   icon: '📕' },
-      { label: 'Chemistry',       href: '/tutor/resources/chemistry/materials', icon: '⚗️' },
-    ],
-  },
+  { label: 'Materials', links: subjectLinks('/materials') },
 ]
 const TUTOR_LINKS = [
   { label: 'Curriculum',  href: '/tutor/booklets' },
@@ -47,14 +49,7 @@ const ADMIN_FLAT_LINKS = [
   { label: 'Database', href: '/tutor/database' },
 ]
 const ADMIN_GROUPS = [
-  {
-    label: 'Resources',
-    links: [
-      { label: 'Mathematics',     href: '/tutor/resources/maths',     icon: '📐' },
-      { label: 'English',         href: '/tutor/resources/english',   icon: '📕' },
-      { label: 'Chemistry',       href: '/tutor/resources/chemistry', icon: '⚗️' },
-    ],
-  },
+  { label: 'Resources', links: subjectLinks() },
   {
     label: 'Admin',
     links: [
