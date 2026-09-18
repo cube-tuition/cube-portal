@@ -145,8 +145,7 @@ export default function FormsAdminPage() {
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
       <div className="max-w-[1400px] mx-auto px-6 py-8">
-        <h1 className="text-2xl font-bold text-[#062E63]">Forms</h1>
-        <p className="text-sm text-[#325099]/60 mt-1 mb-6">Every form families fill in, with a link to copy into an email or the website. Portal forms are edited here and served at <code className="font-mono">/forms/…</code>; their submissions land below and in the admin inbox.</p>
+        <h1 className="text-2xl font-bold text-[#062E63] mb-6">Forms</h1>
         {error && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl px-4 py-2">{error}</div>}
 
         {loading ? <p className="text-sm text-[#2A2035]/40 py-12 text-center animate-pulse">Loading…</p> : (
