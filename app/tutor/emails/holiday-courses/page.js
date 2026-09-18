@@ -12,6 +12,7 @@ import { inferSubject } from '../../../../components/CourseDetail'
 import {
   HOLIDAY_SUBJECTS, HOLIDAY_YEARS, STUDENT_STATUSES, DEFAULT_HOLIDAY_TEMPLATE, buildHolidayCourseEmailHtml,
 } from '../../../../lib/holidayCourseEmail'
+import { publicFormUrl } from '../../../../lib/forms'
 
 /*
  * Holiday Courses — /tutor/emails/holiday-courses
@@ -169,7 +170,7 @@ export default function HolidayCoursesEmailPage() {
   }
   const newTemplate = async () => {
     const { data, error: err } = await supabase.from(T_HOLIDAY_COURSE_EMAILS)
-      .insert({ ...DEFAULT_HOLIDAY_TEMPLATE(), created_by: profile?.full_name }).select('*').single()
+      .insert({ ...DEFAULT_HOLIDAY_TEMPLATE(), enrol_url: publicFormUrl('holiday-course-signup'), created_by: profile?.full_name }).select('*').single()
     if (err) { setError(err.message); return }
     setTemplates(prev => [data, ...prev]); loadIntoDraft(data)
   }
