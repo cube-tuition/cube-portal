@@ -9,7 +9,7 @@ import SearchSelectPopover from '../../components/SearchSelectPopover'
 import PushEnable from '../../components/PushEnable'
 
 /*
- * CUBE Messages — /messages (directors only)
+ * CUBE Messages — /messages (directors only — the 'admin' and 'director' roles; not tutors)
  *
  * The office number's texts as a phone app: a thread list, a full-screen
  * conversation with a reply box, and a picker to start a new text with a
@@ -45,7 +45,7 @@ function MessagesAppInner() {
     (async () => {
       const { user, profile, role } = await getAuthProfile()
       if (!user) { router.replace('/?next=/messages'); return }
-      if (role !== 'director') { setDenied(true); return }
+      if (role !== 'admin' && role !== 'director') { setDenied(true); return }   // directors sign in as 'admin'; tutors are kept out
       setProfile(profile); setAllowed(true)
     })()
   }, [router])
@@ -65,7 +65,7 @@ function MessagesAppInner() {
 
   if (denied) return (
     <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center px-6 text-center">
-      <div><p className="text-lg font-bold text-[#062E63]">CUBE Messages</p><p className="text-sm text-[#2A2035]/55 mt-2">This app is for directors. <Link href="/tutor" className="text-[#325099] font-semibold">Back to the portal →</Link></p></div>
+      <div><p className="text-lg font-bold text-[#062E63]">CUBE Messages</p><p className="text-sm text-[#2A2035]/55 mt-2">This app is for the directors, not tutors. <Link href="/tutor" className="text-[#325099] font-semibold">Back to the portal →</Link></p></div>
     </div>
   )
   if (!allowed || !inbox.loaded) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
