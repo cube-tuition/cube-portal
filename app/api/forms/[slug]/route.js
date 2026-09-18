@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { PORTAL_BCC } from '../../../../lib/emailConfig'
 import { T_FORMS, T_FORM_SUBMISSIONS } from '../../../../lib/tables'
-import { validateSubmission, formatValue } from '../../../../lib/forms'
+import { validateSubmission, formatValue, buildFormSubmissionEmailHtml } from '../../../../lib/forms'
 
 /*
  * /api/forms/[slug]
@@ -69,6 +69,7 @@ export async function POST(req, { params }) {
             from: 'CUBE Portal <noreply@cubetuition.com.au>',
             to: [to], bcc: [PORTAL_BCC],
             subject: `New form submission: ${form.title}`,
+            html: buildFormSubmissionEmailHtml(form, data, { submittedAt: row.submitted_at, site }),
             text: [`${form.title} — new submission`, '', ...lines, '', `View all: ${site}/tutor/admin/forms`].join('\n'),
           }),
         })
