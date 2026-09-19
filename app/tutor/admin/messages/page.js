@@ -6,7 +6,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import { authedFetch } from '../../../../lib/authedFetch'
 import { useSmsInbox, fmtTime } from '../../../../lib/useSmsInbox'
 import { normalisePhone, formatPhone } from '../../../../lib/phone'
-import TutorNav from '../../../../components/TutorNav'
+import { recordPortalActivity, recordPageView } from '../../../../lib/activity'
 import SearchSelectPopover from '../../../../components/SearchSelectPopover'
 import PushEnable from '../../../../components/PushEnable'
 
@@ -19,6 +19,11 @@ import PushEnable from '../../../../components/PushEnable'
  * "Unanswered" filter lists threads whose last message came from the family.
  * Live: new texts appear without a refresh. The data and logic live in
  * lib/useSmsInbox, shared with the standalone phone app at /messages.
+ *
+ * No portal nav: the ✉ button in the nav opens this in its own tab, and it is
+ * meant to sit there like a mail client while you work elsewhere. It carries
+ * its own way back for anyone who arrives from an alert email instead, and
+ * records its own activity/page view, which the nav used to do for it.
  */
 
 export default function MessagesPage() {
@@ -40,6 +45,10 @@ function MessagesInner() {
   const [newNumber, setNewNumber] = useState('')
   const endRef = useRef(null)
   const inbox = useSmsInbox({ enabled: allowed })
+
+  // The portal nav normally does this for every page; this one has no nav.
+  useEffect(() => { recordPortalActivity() }, [])
+  useEffect(() => { recordPageView('/tutor/admin/messages') }, [])
 
   useEffect(() => {
     (async () => {
@@ -73,10 +82,12 @@ function MessagesInner() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
-      <TutorNav staffName={profile?.full_name} isAdmin={true} />
       <div className="max-w-6xl mx-auto px-6 pt-8 pb-12">
         <div className="flex items-end justify-between gap-4 flex-wrap mb-5">
           <div>
+            <Link href="/tutor" className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#325099]/70 hover:text-[#062E63] mb-1.5">
+              <span aria-hidden="true">←</span>CUBE portal
+            </Link>
             <h1 className="text-2xl font-bold text-[#062E63]">Messages</h1>
             <p className="text-sm text-[#325099]/60 mt-1">Texts and calls on the office number.{totalUnread ? ` ${totalUnread} unread text${totalUnread === 1 ? '' : 's'}.` : ''} <Link href="/messages" className="text-[#325099] hover:underline">Open the phone app →</Link></p>
           </div>
