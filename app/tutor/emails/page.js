@@ -130,7 +130,7 @@ export default function EmailsHub() {
                 rows={Math.max(6, draft.split('\n').length + 1)}
                 className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2.5 text-xs font-mono text-[#2A2035] leading-relaxed focus:outline-none focus:border-[#325099] resize-y"
               />
-              <p className="text-[10px] text-[#2A2035]/40 mt-1.5">One row per line: <code className="font-mono">When | Email | Notes</code></p>
+              <p className="text-[10px] text-[#2A2035]/40 mt-1.5">One row per line: <code className="font-mono">When | Email | Notes</code> — optionally <code className="font-mono">| Stage | Channel</code> for the Marketing page.</p>
             </>
           ) : (
             <div className="divide-y divide-[#F0F4FF]">
