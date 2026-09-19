@@ -9,6 +9,7 @@ import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import { formatTermLabel, isHolidayTerm } from '../../../lib/terms'
 import { T_ADMINS, T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
 import { fortnightlyRetainerFor } from '../../../lib/cashRetainers'
+import { loadDirectorBalances, balancesByStaff, recordOffset } from '../../../lib/directorBalances'
 
 // tutors.pay_method → payment group. Anything unrecognised lands in 'unset'.
 function payMethodGroup(pm) {
@@ -140,6 +141,7 @@ export default function PayrollPage() {
   const [previewPdfUrl, setPreviewPdfUrl] = useState(null)
   const [previewBusy, setPreviewBusy] = useState(false)
   const [cashPaid, setCashPaid] = useState({})       // tutor_id → cash_pay_status row (this run)
+  const [balances, setBalances] = useState({})       // staff_id → what they owe CUBE (director_balances)
   const [payTab, setPayTab] = useState('bank')       // active pay-method tab
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -191,6 +193,7 @@ export default function PayrollPage() {
         .select('*')
         .eq('pay_run_id', pr.id)
       setCashPaid(Object.fromEntries((cps || []).map(r => [r.tutor_id, r])))
+      setBalances(balancesByStaff(await loadDirectorBalances()))
     } catch (e) {
       setError(e.message || String(e))
     } finally {
@@ -381,7 +384,11 @@ export default function PayrollPage() {
   // for the current fortnight.
   const markCashPaid = async (tutor, amount) => {
     if (!run || !activeTerm) return
-    const owed = Math.abs(Number(amount) || 0)
+    const existing = cashPaid[tutor.id] || null
+    // Part of this run may already be settled by an offset against the
+    // director's balance: cash covers only the remainder.
+    const owed = Math.max(0, Math.round((Math.abs(Number(amount) || 0) - (Number(existing?.amount) || 0)) * 100) / 100)
+    if (!owed) return
     const firstName = (tutor.full_name || '').split(' ')[0] || (tutor.full_name || 'Tutor')
     const termLabel = activeTerm.name || formatTermLabel(activeTerm)
     // A holiday-period row already says "Holidays" in its name.
@@ -403,11 +410,14 @@ export default function PayrollPage() {
         .single()
       if (e1) throw e1
       // 2) Record the paid status, linked to the log row for clean reversal
-      const { data: st, error: e2 } = await supabase
-        .from(T_CASH_PAY_STATUS)
-        .insert({ pay_run_id: run.id, tutor_id: tutor.id, amount: owed, cash_log_id: logRow.id })
-        .select('*')
-        .single()
+      //    (or top up the row an offset already started).
+      const { data: st, error: e2 } = existing
+        ? await supabase.from(T_CASH_PAY_STATUS)
+            .update({ amount: (Number(existing.amount) || 0) + owed, cash_log_id: logRow.id }).eq('id', existing.id)
+            .select('*').single()
+        : await supabase.from(T_CASH_PAY_STATUS)
+            .insert({ pay_run_id: run.id, tutor_id: tutor.id, amount: owed, cash_log_id: logRow.id })
+            .select('*').single()
       if (e2) {
         await supabase.from(T_CASH_LOG).delete().eq('id', logRow.id) // roll back orphaned log row
         throw e2
@@ -418,11 +428,37 @@ export default function PayrollPage() {
     }
   }
 
+  // Settle (part of) a director's pay for this run against what they owe CUBE.
+  const offsetCashPay = async (tutor, owedTotal) => {
+    if (!run || !activeTerm) return
+    const existing = cashPaid[tutor.id] || null
+    const remaining = Math.max(0, Math.round((owedTotal - (Number(existing?.amount) || 0)) * 100) / 100)
+    const balance = balances[tutor.id] || 0
+    const max = Math.min(remaining, balance)
+    if (max <= 0) return
+    const raw = prompt(`Offset how much of ${tutor.full_name}'s ${fmtMoney(remaining)} for this run against the ${fmtMoney(balance)} they owe CUBE?`, String(max))
+    if (raw == null) return
+    const amount = Math.round((Number(String(raw).replace(/[^0-9.]/g, '')) || 0) * 100) / 100
+    if (!amount) return
+    if (amount > max + 0.001) { alert(`That is more than can be offset here (${fmtMoney(max)}).`); return }
+    const termLabel = activeTerm.name || formatTermLabel(activeTerm)
+    const label = `${termLabel}${isHolidayTerm(activeTerm) ? '' : ' ' + fortnightLabel(fortnight)}`.trim()
+    try {
+      const { status } = await recordOffset({ staff: tutor, run, termId: activeTerm.id, label, amount, existingStatus: existing, createdBy: staff?.full_name })
+      setCashPaid(prev => ({ ...prev, [tutor.id]: status }))
+      setBalances(balancesByStaff(await loadDirectorBalances()))
+    } catch (e) {
+      alert('Could not record the offset: ' + (e.message || String(e)))
+    }
+  }
+
   // Undo a cash payment → delete the auto-created cash log row and the status.
   const markCashUnpaid = async (tutor) => {
     const st = cashPaid[tutor.id]
     if (!st) return
     try {
+      const { count } = await supabase.from('director_balances').select('id', { count: 'exact', head: true }).eq('cash_pay_status_id', st.id)
+      if (count) { alert('Part of this run was settled by an offset against the balance. Undo that offset from the Director balances panel on the Accounting page first.'); return }
       if (st.cash_log_id != null) {
         const { error: e1 } = await supabase.from(T_CASH_LOG).delete().eq('id', st.cash_log_id)
         if (e1) throw e1
@@ -812,7 +848,7 @@ export default function PayrollPage() {
           </div>
         )}
 
-        {payTab === 'cash' && <CashSchedulePanel tutors={cashTutors} shifts={shifts} onChange={setCashTutors} paid={cashPaid} onMarkPaid={markCashPaid} onMarkUnpaid={markCashUnpaid} canPay={!!run} />}
+        {payTab === 'cash' && <CashSchedulePanel tutors={cashTutors} shifts={shifts} onChange={setCashTutors} paid={cashPaid} balances={balances} onMarkPaid={markCashPaid} onMarkUnpaid={markCashUnpaid} onOffset={offsetCashPay} canPay={!!run} />}
 
         {[payGroups.find(g => g.id === payTab) ?? payGroups[0]].filter(Boolean).map(group => (
           <div key={group.id} className="mb-8">
@@ -1200,7 +1236,7 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
 // on that weekday with the amount owed (computed from their approved shifts).
 const WEEKDAYS = [{ v: 1, l: 'Monday' }, { v: 2, l: 'Tuesday' }, { v: 3, l: 'Wednesday' }, { v: 4, l: 'Thursday' }, { v: 5, l: 'Friday' }, { v: 6, l: 'Saturday' }, { v: 7, l: 'Sunday' }]
 
-function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, onMarkUnpaid, canPay = true }) {
+function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, balances = {}, onMarkPaid, onMarkUnpaid, onOffset, canPay = true }) {
   const [busyId, setBusyId] = useState(null)
   // Owed this run = approved shift pay + any fortnightly director retainer, so
   // the recorded cash payment covers both and the accounting board clears.
@@ -1227,22 +1263,39 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, on
     <div className="mb-6 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
       <div className="px-5 py-3 bg-[#F8FAFF] border-b border-[#DEE7FF]">
         <p className="text-sm font-bold text-[#062E63]">🗓 Cash pay schedule</p>
-        <p className="text-[11px] text-[#325099]/60">Pick the weekday each cash teacher is paid. When you hand over the cash, hit <span className="font-semibold">Mark paid</span> — it records the outflow in the Cash Log automatically. Marking unpaid removes that log row.</p>
+        <p className="text-[11px] text-[#325099]/60">Pick the weekday each cash teacher is paid. When you hand over the cash, hit <span className="font-semibold">Mark paid</span> — it records the outflow in the Cash Log automatically. Marking unpaid removes that log row. A director who owes CUBE can instead <span className="font-semibold">Offset</span> some or all of a run against that balance — no cash changes hands, and the balance comes down.</p>
       </div>
       {tutors.length === 0 ? (
         <p className="px-5 py-6 text-xs text-[#2A2035]/45">No cash teachers yet. Set a tutor’s or director’s pay method to “cash” in the database explorer to schedule them here.</p>
       ) : (
         <div className="divide-y divide-[#F0F4FF]">
           {tutors.map(t => {
-            const isPaid = !!paid[t.id]
-            const owed   = (amt[t.id] || 0) + (retainerOf[t.id] || 0)
-            const busy   = busyId === t.id
+            const owed    = (amt[t.id] || 0) + (retainerOf[t.id] || 0)
+            const settled = Number(paid[t.id]?.amount) || 0
+            const isPaid  = !!paid[t.id] && settled + 0.001 >= owed
+            const partial = !!paid[t.id] && !isPaid
+            const balance = balances[t.id] || 0
+            const busy    = busyId === t.id
             return (
             <div key={t.id} className="flex items-center gap-3 px-5 py-2.5">
-              <span className="flex-1 text-sm font-medium text-[#2A2035] truncate">{t.full_name}</span>
-              <span className="text-[11px] text-[#2A2035]/45 w-40 text-right tabular-nums" title={retainerOf[t.id] ? `${fmtMoney(amt[t.id] || 0)} shifts + ${fmtMoney(retainerOf[t.id])} retainer` : undefined}>
-                {owed ? `${fmtMoney(owed)} this run${retainerOf[t.id] ? ' *' : ''}` : '—'}
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-[#2A2035] truncate">{t.full_name}</span>
+                {balance > 0 && <span className="block text-[10px] text-[#92400E]">owes CUBE {fmtMoney(balance)}</span>}
               </span>
+              <span className="text-[11px] text-[#2A2035]/45 w-44 text-right tabular-nums" title={retainerOf[t.id] ? `${fmtMoney(amt[t.id] || 0)} shifts + ${fmtMoney(retainerOf[t.id])} retainer` : undefined}>
+                {owed ? `${fmtMoney(owed)} this run${retainerOf[t.id] ? ' *' : ''}` : '—'}
+                {partial && <span className="block text-[10px] text-[#065F46]">{fmtMoney(settled)} settled · {fmtMoney(owed - settled)} to go</span>}
+              </span>
+              {balance > 0 && !isPaid && owed > 0 && (
+                <button
+                  onClick={async () => { setBusyId(t.id); try { await onOffset?.(t, owed) } finally { setBusyId(null) } }}
+                  disabled={busy || !canPay}
+                  title="Settle some or all of this run against what they owe CUBE — no cash changes hands"
+                  className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:bg-[#FEF3C7] transition disabled:opacity-40"
+                >
+                  ⚖ Offset
+                </button>
+              )}
               <select value={t.cash_pay_weekday ?? ''} onChange={e => setDay(t.id, e.target.value)}
                 className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#325099]">
                 <option value="">No pay day set</option>
@@ -1258,7 +1311,7 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, onMarkPaid, on
                     : 'bg-[#062E63] text-white border-[#062E63] hover:bg-[#325099]'
                 }`}
               >
-                {busy ? '…' : isPaid ? '✓ Paid · undo' : '💵 Mark paid'}
+                {busy ? '…' : isPaid ? '✓ Paid · undo' : partial ? `💵 Pay ${fmtMoney(owed - settled)}` : '💵 Mark paid'}
               </button>
             </div>
             )

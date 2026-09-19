@@ -9,6 +9,7 @@ import { fetchAllTerms, getEnrolmentTerm, formatTermLabel } from '../../../lib/t
 import { DUE_DATES, daysUntil } from '../../../lib/complianceDates'
 import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
 import { CASH_RETAINERS, RETAINERS_FROM, fortnightlyRetainerFor } from '../../../lib/cashRetainers'
+import { loadDirectorBalances, balancesByStaff, ledgerFor, addLedgerEntry, deleteLedgerEntry } from '../../../lib/directorBalances'
 
 /*
  * Accounting Dashboard — /tutor/accounting
@@ -138,6 +139,9 @@ export default function AccountingDashboard() {
   // Unpaid teacher pay, accumulated per teacher per pay run. Anything not yet
   // marked paid is money still owed — being on the board at all means overdue.
   const [unpaidPay, setUnpaidPay] = useState({ rows: [], allSquare: [], owed: 0, draft: 0 })
+  // What each director owes CUBE (director_balances ledger) — shown against their overdue pay.
+  const [ledger, setLedger] = useState([])
+  const [directors, setDirectors] = useState([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -146,7 +150,7 @@ export default function AccountingDashboard() {
     const cur = getEnrolmentTerm(allTerms)
     setTerm(cur)
 
-    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes, unpaidRes, allRunsRes, cashPaidRes] = await Promise.all([
+    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes, unpaidRes, allRunsRes, cashPaidRes, ledgerRows] = await Promise.all([
       supabase.from('invoices')
         .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status, payment_method')
         .neq('status', 'voided'),
@@ -169,7 +173,11 @@ export default function AccountingDashboard() {
       // recorded per (run, tutor) here. Without it the board shows cash staff
       // as owed forever.
       supabase.from('cash_pay_status').select('pay_run_id, tutor_id, amount'),
+      loadDirectorBalances(),
     ])
+    setLedger(ledgerRows || [])
+    setDirectors(dirRes.data || [])
+    const balanceByStaff = balancesByStaff(ledgerRows || [])
 
     setInvoices(invRes.data || [])
     setShiftsSubmitted(shiftsRes.count || 0)
@@ -313,8 +321,10 @@ export default function AccountingDashboard() {
           .sort((a, b) => (a.start || '9999').localeCompare(b.start || '9999'))
         const owed  = runs.reduce((s2, p) => s2 + p.owed, 0)
         const draft = runs.reduce((s2, p) => s2 + p.draft, 0)
+        const balance = balanceByStaff[r.id] || 0
         return {
-          ...r, runs, owed, draft, total: owed + draft,
+          ...r, runs, owed, draft, total: owed + draft, balance,
+          net: Math.round((owed - balance) * 100) / 100,
           ageDays: r.oldest ? Math.floor((now - r.oldest) / 86400000) : null,
         }
       })
@@ -498,6 +508,11 @@ export default function AccountingDashboard() {
                   {r.draft > 0 && (
                     <p className="text-[10px] text-[#92400E]">{fmtMoney(r.draft)} not approved</p>
                   )}
+                  {r.balance > 0 && (
+                    <p className="text-[10px] text-[#2A2035]/60 mt-1" title="Their overdue pay less what they owe CUBE — the amount to actually hand over">
+                      owes CUBE {fmtMoney(r.balance)} · net {r.net >= 0 ? `${fmtMoney(r.net)} to them` : `${fmtMoney(-r.net)} to CUBE`}
+                    </p>
+                  )}
                 </div>
                 {/* One card per pay run the money comes from, oldest first */}
                 <div className="p-2 space-y-2">
@@ -533,6 +548,8 @@ export default function AccountingDashboard() {
           )}
         </div>
         )}
+
+        <DirectorBalancesPanel directors={directors} ledger={ledger} staffName={profile?.full_name} onChanged={load} />
 
         {/* Termly cash snapshot — cash income vs projected cash teacher pay */}
         {(() => {
@@ -634,6 +651,87 @@ export default function AccountingDashboard() {
           </div>
         </Panel>
 
+      </div>
+    </div>
+  )
+}
+
+
+// ── Director balances ─────────────────────────────────────────────────────────
+// What each director owes CUBE and how it is being paid down: debts entered
+// here, offsets recorded from the payroll cash schedule, cash repayments.
+function DirectorBalancesPanel({ directors, ledger, staffName, onChanged }) {
+  const [form, setForm] = useState(null)   // { staff, kind, amount, description, date }
+  const [busy, setBusy] = useState(false)
+  const balances = balancesByStaff(ledger)
+  const kindLabel = { debt: 'Debt', offset: 'Pay offset', repayment: 'Repayment' }
+  const kindCls = { debt: 'bg-[#FEE2E2] text-[#991B1B]', offset: 'bg-[#D1FAE5] text-[#065F46]', repayment: 'bg-[#DEE7FF] text-[#062E63]' }
+  const save = async () => {
+    setBusy(true)
+    try {
+      await addLedgerEntry({ ...form, createdBy: staffName })
+      setForm(null); await onChanged?.()
+    } catch (e) { alert('Could not save: ' + (e.message || String(e))) }
+    finally { setBusy(false) }
+  }
+  const remove = async (row) => {
+    const what = row.kind === 'offset' ? 'undo this pay offset (its cash-log rows and the settled pay go with it)' : 'delete this entry'
+    if (!confirm(`Really ${what}?`)) return
+    setBusy(true)
+    try { await deleteLedgerEntry(row); await onChanged?.() }
+    catch (e) { alert('Could not remove: ' + (e.message || String(e))) }
+    finally { setBusy(false) }
+  }
+  if (!directors.length) return null
+  return (
+    <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs font-bold text-[#062E63]">⚖ Director balances</p>
+        <Link href="/tutor/payroll" className="text-[11px] font-semibold text-[#325099] hover:underline">Offset pay on the cash schedule →</Link>
+      </div>
+      <p className="text-[11px] text-[#2A2035]/45 mb-4">What each director owes CUBE. Settle it by offsetting a fortnight&apos;s pay from the payroll cash schedule, or record cash handed back here.</p>
+      <div className="grid gap-4 md:grid-cols-2">
+        {directors.map(d => {
+          const rows = ledgerFor(ledger, d.id)
+          const bal = balances[d.id] || 0
+          return (
+            <div key={d.id} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] overflow-hidden">
+              <div className="px-4 pt-3 pb-2.5 border-b border-[#E4EAFB] flex items-end justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold text-[#2A2035]">{d.full_name}</p>
+                  <p className="text-xl font-bold tabular-nums" style={{ color: bal > 0 ? '#B23A3A' : '#047857' }}>{bal > 0 ? `owes ${fmtMoney(bal)}` : 'nothing owing'}</p>
+                </div>
+                <div className="flex gap-1.5 pb-1">
+                  <button onClick={() => setForm({ staff: d, kind: 'debt', amount: '', description: '', date: new Date().toISOString().slice(0, 10) })} className="text-[10px] font-semibold px-2 py-1 rounded-full border border-[#FCA5A5] bg-white text-[#991B1B] hover:bg-[#FEF2F2]">+ Debt</button>
+                  <button onClick={() => setForm({ staff: d, kind: 'repayment', amount: '', description: '', date: new Date().toISOString().slice(0, 10) })} className="text-[10px] font-semibold px-2 py-1 rounded-full border border-[#BACBFF] bg-white text-[#062E63] hover:bg-[#EEF4FF]">+ Cash repaid</button>
+                </div>
+              </div>
+              {form && form.staff.id === d.id && (
+                <div className="px-4 py-3 border-b border-[#E4EAFB] bg-white flex flex-wrap items-end gap-2">
+                  <label className="text-[10px] font-semibold text-[#325099]">Amount<input type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="block w-28 border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs mt-0.5" autoFocus /></label>
+                  <label className="text-[10px] font-semibold text-[#325099]">Date<input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="block border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs mt-0.5" /></label>
+                  <label className="text-[10px] font-semibold text-[#325099] flex-1 min-w-[140px]">{form.kind === 'debt' ? 'What for' : 'Note'}<input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="block w-full border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs mt-0.5" placeholder={form.kind === 'debt' ? 'e.g. Personal expenses' : 'e.g. Cash returned to the box'} /></label>
+                  <button onClick={save} disabled={busy || !Number(form.amount)} className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-[#062E63] text-white disabled:opacity-40">{busy ? '…' : form.kind === 'debt' ? 'Add debt' : 'Record repayment'}</button>
+                  <button onClick={() => setForm(null)} className="text-[11px] font-semibold text-[#2A2035]/50">Cancel</button>
+                </div>
+              )}
+              <div className="max-h-56 overflow-y-auto divide-y divide-[#EEF2FB]">
+                {rows.length === 0 && <p className="px-4 py-4 text-[11px] text-[#2A2035]/40">No entries yet.</p>}
+                {[...rows].reverse().map(r => (
+                  <div key={r.id} className="px-4 py-2 flex items-center gap-2 bg-white">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${kindCls[r.kind]}`}>{kindLabel[r.kind]}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] text-[#2A2035] truncate">{r.description || '—'}</span>
+                      <span className="block text-[10px] text-[#2A2035]/45">{fmtD(r.date)} · balance after {fmtMoney(r.running)}</span>
+                    </span>
+                    <span className="text-xs font-bold tabular-nums shrink-0" style={{ color: r.kind === 'debt' ? '#B23A3A' : '#047857' }}>{r.kind === 'debt' ? '+' : '−'}{fmtMoney(r.amount)}</span>
+                    <button onClick={() => remove(r)} disabled={busy} title={r.kind === 'offset' ? 'Undo this offset' : 'Delete'} className="text-[11px] text-[#2A2035]/30 hover:text-[#DC2626] shrink-0">✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
