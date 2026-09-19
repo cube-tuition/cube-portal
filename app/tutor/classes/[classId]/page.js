@@ -489,11 +489,14 @@ export default function ClassOverviewPage() {
 
         {/* PRE/POST TAB */}
         {tab === 'prepost' && term && (
+          /* The class's own teacher sets the topics and enters the scores —
+             they are the one who marked the papers. Same rule as exam marking
+             and booklet editing below. */
           <PrePostSection
             classId={cls.id}
             termId={term.id}
             roster={roster}
-            canEdit={isAdmin}
+            canEdit={isClassTeacher}
           />
         )}
         {tab === 'prepost' && !term && (

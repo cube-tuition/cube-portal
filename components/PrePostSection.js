@@ -15,7 +15,7 @@ import { topicsFromPaper, marksForQuestionRange, paperTotalMarks } from '../lib/
  *   classId  — integer
  *   termId   — uuid
  *   roster   — [{id, full_name, ...}]
- *   canEdit  — boolean (admin or assigned tutor)
+ *   canEdit  — boolean (director, or the class's own teacher)
  *
  * Features:
  *   1. Topic setup panel — define test topics and mark allocations (canEdit only)
@@ -470,7 +470,7 @@ export default function PrePostSection({ classId, termId, roster, canEdit }) {
             <div className="text-3xl mb-2">📝</div>
             <p className="text-sm font-semibold text-[#2A2035] mb-1">No topics set up yet.</p>
             <p className="text-xs text-[#2A2035]/50">
-              {!canEdit ? 'Your teacher will set up the topics for this test.'
+              {!canEdit ? 'The class\u2019s teacher or a director will set up the topics for this test.'
                 : hasPaperTopics ? `Click "Set up topics" — the ${fromPaper.topics.length} ${fromPaper.topics.length === 1 ? 'row' : 'rows'} and ${paperMarks} marks on the pre-test paper are filled in for you.`
                 : 'Click "Set up topics" to define the test structure.'}
             </p>
