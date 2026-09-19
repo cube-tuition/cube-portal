@@ -85,6 +85,135 @@ const CAMPAIGNS = [
   { href: '/tutor/emails/end-of-term',      icon: '📋', title: 'Reports',          what: 'Mid-term and end-of-term reports — the goodwill peak, with the referral PS line.' },
 ]
 
+// ── Strategies by channel ─────────────────────────────────────────────────────
+// Everything CUBE does (or might do) to bring families in, grouped by the kind
+// of channel. Stored in portal_settings as JSON so directors can edit it here;
+// the default is a starting point built from what the portal already runs.
+const STRATEGIES_KEY = 'marketing_strategies'
+const STATUSES = { active: { label: 'Active', cls: 'bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0]' }, idea: { label: 'Idea', cls: 'bg-[#FFFBEB] text-[#92400E] border-[#FDE68A]' }, paused: { label: 'Paused', cls: 'bg-[#F3F4F6] text-[#6B7280] border-[#E5E7EB]' } }
+const DEFAULT_STRATEGIES = [
+  { id: 'emails', icon: '✉️', category: 'Emails', items: [
+    { id: 'e1', title: 'Term Start + invoice', note: 'Week 1. One line about referral & sibling discounts.', status: 'active', href: '/tutor/emails/term-start' },
+    { id: 'e2', title: 'Discount Program email', note: 'Week 2, once invoices are paid. Referral $50 each way, multi-course, siblings.', status: 'active', href: '/tutor/emails/discount-program' },
+    { id: 'e3', title: 'Re-enrolment reminder', note: 'Weeks 7–8. "A second subject saves $100."', status: 'active', href: '/tutor/emails/term-start' },
+    { id: 'e4', title: 'Reports with referral PS', note: 'Week 10 (and mid-term). Goodwill peak.', status: 'active', href: '/tutor/emails/end-of-term' },
+    { id: 'e5', title: 'Course Offers to a cohort', note: 'e.g. Maths to English-only families, Chemistry to Year 10.', status: 'active', href: '/tutor/emails/course-offers' },
+    { id: 'e6', title: 'Holiday Courses email', note: 'Week 8. Links to the sign-up form.', status: 'active', href: '/tutor/emails/holiday-courses' },
+  ] },
+  { id: 'referral', icon: '🎁', category: 'Referrals & word of mouth', items: [
+    { id: 'r1', title: '$50 / $50 referral credit', note: 'Both families credited once the new student is fully enrolled.', status: 'active', href: '/tutor/trials' },
+    { id: 'r2', title: 'Sibling discount', note: '$50 off per sibling enrolled together.', status: 'active' },
+    { id: 'r3', title: 'Ask happy families for a Google review', note: 'Right after end-of-term reports.', status: 'idea' },
+  ] },
+  { id: 'physical', icon: '📍', category: 'Physical promotions', items: [
+    { id: 'p1', title: 'Flyers / letterbox drop near local schools', note: 'Term 4 and January, before enrolments settle.', status: 'idea' },
+    { id: 'p2', title: 'School newsletter listing', note: 'Ask local primary schools to list holiday courses.', status: 'idea' },
+    { id: 'p3', title: 'Holiday course open morning', note: 'Free taster session in the break.', status: 'idea' },
+  ] },
+  { id: 'social', icon: '📱', category: 'Social media', items: [
+    { id: 's1', title: 'Instagram / Facebook posts', note: 'Results, study tips, holiday course dates. Weekly during term.', status: 'idea' },
+    { id: 's2', title: 'Local parents Facebook groups', note: 'Post holiday courses and free trials where allowed.', status: 'idea' },
+  ] },
+  { id: 'web', icon: '🌐', category: 'Website & search', items: [
+    { id: 'w1', title: 'Free-trial form', note: 'Submissions land in Trials with the "how did you hear" channel.', status: 'active', href: 'https://www.cubetuition.com.au/free-trial', external: true },
+    { id: 'w2', title: 'Google Business profile', note: 'Hours, photos, reviews. Feeds "Google Search" enquiries.', status: 'active' },
+    { id: 'w3', title: 'Google Ads for "tutoring near me"', note: 'Small budget test in January.', status: 'idea' },
+  ] },
+  { id: 'partners', icon: '🤝', category: 'Partnerships', items: [
+    { id: 'k1', title: 'School careers / wellbeing staff', note: 'Introduce CUBE for students needing support.', status: 'idea' },
+    { id: 'k2', title: 'Community centres and libraries', note: 'Notice boards, holiday programme listings.', status: 'idea' },
+  ] },
+]
+const uid = () => Math.random().toString(36).slice(2, 8)
+
+function StrategiesSection() {
+  const [cats, setCats] = useState(null)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editingItem, setEditingItem] = useState(null)   // { catId, item } while a row's fields are open
+  useEffect(() => {
+    supabase.from('portal_settings').select('value').eq('key', STRATEGIES_KEY).maybeSingle().then(({ data }) => {
+      try { setCats(data?.value ? JSON.parse(data.value) : DEFAULT_STRATEGIES) } catch { setCats(DEFAULT_STRATEGIES) }
+    })
+  }, [])
+  const update = (fn) => { setCats(prev => fn(prev)); setDirty(true) }
+  const save = async () => {
+    setSaving(true)
+    const { error } = await supabase.from('portal_settings').upsert({ key: STRATEGIES_KEY, value: JSON.stringify(cats), updated_at: new Date().toISOString() })
+    setSaving(false)
+    if (error) { alert('Could not save: ' + error.message); return }
+    setDirty(false)
+  }
+  const setItem = (catId, itemId, patch) => update(prev => prev.map(c => c.id !== catId ? c : { ...c, items: c.items.map(i => i.id === itemId ? { ...i, ...patch } : i) }))
+  const removeItem = (catId, itemId) => update(prev => prev.map(c => c.id !== catId ? c : { ...c, items: c.items.filter(i => i.id !== itemId) }))
+  const addItem = (catId) => { const item = { id: uid(), title: '', note: '', status: 'idea' }; update(prev => prev.map(c => c.id !== catId ? c : { ...c, items: [...c.items, item] })); setEditingItem({ catId, itemId: item.id }) }
+  const addCategory = () => { const name = prompt('Name of the new category (e.g. Events)'); if (!name?.trim()) return; update(prev => [...prev, { id: uid(), icon: '📌', category: name.trim(), items: [] }]) }
+  const renameCategory = (c) => { const name = prompt('Category name', c.category); if (!name?.trim()) return; const icon = prompt('Emoji for it', c.icon || '📌') || c.icon; update(prev => prev.map(x => x.id === c.id ? { ...x, category: name.trim(), icon } : x)) }
+  const removeCategory = (c) => { if (!confirm(`Remove "${c.category}" and its ${c.items.length} item${c.items.length === 1 ? '' : 's'}?`)) return; update(prev => prev.filter(x => x.id !== c.id)) }
+  const cycleStatus = (catId, item) => { const order = ['idea', 'active', 'paused']; setItem(catId, item.id, { status: order[(order.indexOf(item.status || 'idea') + 1) % order.length] }) }
+
+  if (!cats) return null
+  const totals = cats.flatMap(c => c.items).reduce((m, i) => ({ ...m, [i.status || 'idea']: (m[i.status || 'idea'] || 0) + 1 }), {})
+  return (
+    <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+        <p className="text-xs font-bold text-[#062E63]">🗂 Strategies by channel</p>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-[#2A2035]/45">{totals.active || 0} active · {totals.idea || 0} ideas · {totals.paused || 0} paused</span>
+          <button onClick={addCategory} className="text-[11px] font-semibold text-[#325099] hover:underline">+ Category</button>
+          {dirty && <button onClick={save} disabled={saving} className="text-xs font-semibold bg-[#325099] text-white px-3 py-1.5 rounded-lg hover:bg-[#062E63] disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button>}
+        </div>
+      </div>
+      <p className="text-[11px] text-[#2A2035]/45 mb-4">Every way CUBE reaches families, grouped by channel. Click a status pill to cycle Idea → Active → Paused; click a title to edit it.</p>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {cats.map(c => (
+          <div key={c.id} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] flex flex-col">
+            <div className="px-3.5 pt-3 pb-2 border-b border-[#E4EAFB] flex items-center gap-2">
+              <span className="text-lg leading-none">{c.icon}</span>
+              <button onClick={() => renameCategory(c)} className="text-xs font-bold text-[#062E63] hover:underline text-left flex-1 truncate" title="Rename">{c.category}</button>
+              <span className="text-[10px] text-[#2A2035]/40">{c.items.filter(i => i.status === 'active').length}/{c.items.length}</span>
+              <button onClick={() => removeCategory(c)} title="Remove category" className="text-[11px] text-[#2A2035]/25 hover:text-[#DC2626]">✕</button>
+            </div>
+            <ul className="p-2 space-y-1.5 flex-1">
+              {c.items.map(i => {
+                const st = STATUSES[i.status] || STATUSES.idea
+                const open = editingItem?.catId === c.id && editingItem?.itemId === i.id
+                return (
+                  <li key={i.id} className="rounded-lg border border-[#EEF2FB] bg-white px-2.5 py-2">
+                    {open ? (
+                      <div className="space-y-1.5">
+                        <input autoFocus value={i.title} onChange={e => setItem(c.id, i.id, { title: e.target.value })} placeholder="Strategy" className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs font-semibold" />
+                        <input value={i.note || ''} onChange={e => setItem(c.id, i.id, { note: e.target.value })} placeholder="When / how / notes" className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px]" />
+                        <input value={i.href || ''} onChange={e => setItem(c.id, i.id, { href: e.target.value, external: /^https?:/i.test(e.target.value) })} placeholder="Link (portal path or https://…)" className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px]" />
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setEditingItem(null)} className="text-[11px] font-semibold text-[#325099]">Done</button>
+                          <button onClick={() => { removeItem(c.id, i.id); setEditingItem(null) }} className="text-[11px] text-[#DC2626] ml-auto">Delete</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2">
+                        <span className="min-w-0 flex-1">
+                          <button onClick={() => setEditingItem({ catId: c.id, itemId: i.id })} className="block text-left text-xs font-semibold text-[#2A2035] hover:text-[#325099] truncate w-full" title="Edit">{i.title || <span className="italic text-[#2A2035]/40">Untitled</span>}</button>
+                          {i.note && <span className="block text-[10px] text-[#2A2035]/50 leading-snug">{i.note}</span>}
+                          {i.href && (i.external
+                            ? <a href={i.href} target="_blank" rel="noreferrer" className="text-[10px] text-[#325099] hover:underline">↗ open</a>
+                            : <Link href={i.href} className="text-[10px] text-[#325099] hover:underline">open →</Link>)}
+                        </span>
+                        <button onClick={() => cycleStatus(c.id, i)} title="Click to change status" className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${st.cls}`}>{st.label}</button>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+            <button onClick={() => addItem(c.id)} className="text-[11px] font-semibold text-[#325099] hover:underline px-3.5 pb-3 text-left">+ Add strategy</button>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 const fmtPct = (a, b) => b > 0 ? `${Math.round((a / b) * 100)}%` : '—'
 const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'
 
@@ -255,6 +384,8 @@ export default function MarketingPage() {
           </div>
           <p className="text-[10px] text-[#2A2035]/40 mt-3">Counts come from the trials pipeline. Arrows show the share moving to the next stage. Amber items are this term&apos;s planned actions from the plan below; green are done.</p>
         </section>
+
+        <StrategiesSection />
 
         {/* ── Term plan ──────────────────────────────────────────────────── */}
         <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
