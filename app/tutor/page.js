@@ -13,7 +13,6 @@ import { isCurrentMember } from '../../lib/enrolments'
 import ActionCentre from '../../components/ActionCentre'
 import TrialFunnel from '../../components/home/TrialFunnel'
 import CapacityBoard from '../../components/home/CapacityBoard'
-import CommandPalette from '../../components/home/CommandPalette'
 
 /*
  * Tutor portal — landing page
@@ -336,17 +335,6 @@ export default function TutorHome() {
                 Your home for class queues, attendance, and pay.
               </p>
 
-              {isAdmin && (
-                <button
-                  onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
-                  className="mt-5 inline-flex items-center gap-2 text-xs font-medium text-[#325099] bg-white/70 hover:bg-white border border-[#DEE7FF] rounded-full pl-3 pr-2 py-1.5 transition"
-                  title="Search students, classes and invoices"
-                >
-                  🔍 Quick search
-                  <kbd className="text-[10px] font-semibold bg-[#EEF4FF] border border-[#DEE7FF] rounded px-1.5 py-0.5">⌘K</kbd>
-                </button>
-              )}
-
               {/* Stat strip */}
               <div className="grid grid-cols-2 gap-3 mt-8 max-w-sm">
                 <StatTile label="Today" value={todayClasses.length} suffix={`class${todayClasses.length === 1 ? '' : 'es'}`} />
@@ -503,7 +491,6 @@ export default function TutorHome() {
         )}
       </section>
 
-      {isAdmin && <CommandPalette />}
 
       <footer className="border-t border-[#DEE7FF] bg-white mt-10">
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-5 text-center">
