@@ -61,6 +61,10 @@ const StatusBadge = ({ status }) => status ? (
   </span>
 ) : null
 
+// Every curriculum slot is this tall, filled or empty, so week rows line up
+// across the term columns — a ragged grid is much harder to read down.
+const SLOT_H = 'h-[52px]'
+
 // Curriculum slots use a quieter form of the same thing: a coloured dot and
 // plain text, so ten of them down a column don't shout over the booklet names.
 const STATUS_DOT_CLS = {
@@ -357,12 +361,12 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                       onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
                       onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
                       style={{ borderLeftColor: accentColor }}
-                      className={`group bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${overSlot === `${term}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF] hover:shadow-[0_1px_8px_rgba(50,80,153,0.10)]'} ${dragA?.id === a.id ? 'opacity-40' : ''}`}
+                      className={`group relative bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${groupLabel(b) ? 'py-1' : SLOT_H} flex flex-col justify-center ${overSlot === `${term}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#DCE4F5] hover:border-[#B9CCF5] hover:shadow-[0_2px_10px_rgba(50,80,153,0.12)]'} ${dragA?.id === a.id ? 'opacity-40' : ''}`}
                     >
-                      <div className="px-2.5 py-2">
+                      <div className="px-2.5">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-[10px] font-bold shrink-0 w-[34px]" style={{ color: accentColor }}>{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
-                          <p className="text-[11px] font-bold text-[#062E63] leading-snug flex-1 min-w-0">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
+                          <span className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap" style={{ color: accentColor }}>{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                          <p className="text-[11.5px] font-bold text-[#062E63] leading-tight flex-1 min-w-0 truncate" title={b.is_exam ? b.booklet_name : bookletLabel(b)}>{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                           {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
                           {b.is_exam ? (
                             <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
@@ -383,13 +387,14 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                           ) : null}
                         </div>
                         {groupLabel(b) && <p className="text-[9px] mt-0.5 font-medium truncate pl-[42px]" style={{ color: accentColor }}>{groupLabel(b)}</p>}
-                        <div className="flex items-center gap-2 mt-1 pl-[42px]">
-                          <StatusDot status={b.status} />
-                          <span className="flex-1" />
-                          <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
-                          {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[9px]" />}
-                          <button onClick={() => handleUnassign(a.id)}
-                            className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
+                        <div className="flex items-center mt-[3px] pl-[42px] h-[14px]">
+                          <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
+                          <span className="absolute left-[42px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
+                            {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[9px]" />}
+                            <button onClick={() => handleUnassign(a.id)}
+                              className="text-[9px] font-semibold text-[#A8531A] hover:underline transition">Unassign</button>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -400,10 +405,10 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                     onDragOver={(e) => { if (dragA) { e.preventDefault(); setOverSlot(`${term}-${week}`) } }}
                     onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
                     onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
-                    className={`group w-full border border-dashed rounded-lg transition text-left ${overSlot === `${term}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E1E8F7] bg-[#FCFDFF] hover:border-[#325099] hover:bg-[#F6F9FF]'}`}>
-                    <div className="px-2.5 py-[7px] flex items-baseline gap-2">
-                      <span className="text-[10px] font-bold shrink-0 w-[34px] text-[#B9C2D6] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
-                      <span className="text-[11px] font-medium text-[#2A2035]/25 group-hover:text-[#325099]/70 transition leading-snug">+ assign booklet</span>
+                    className={`group w-full border border-dashed rounded-lg transition text-left ${SLOT_H} flex items-center ${overSlot === `${term}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E4EAF7] bg-transparent hover:border-[#325099] hover:bg-[#F4F8FF]'}`}>
+                    <div className="px-2.5 flex items-baseline gap-2 w-full">
+                      <span className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap text-[#C3CBDC] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                      <span className="text-[11px] font-medium text-transparent group-hover:text-[#325099]/70 transition leading-snug">+ assign booklet</span>
                     </div>
                   </button>
                 )
@@ -1269,18 +1274,18 @@ function BookletsPageInner() {
                               onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
                               onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
                               style={{ borderLeftColor: accentColor }}
-                              className={`group bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF] hover:shadow-[0_1px_8px_rgba(50,80,153,0.10)]'} ${dragB?.id === b.id ? 'opacity-40' : ''}`}
+                              className={`group relative bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${SLOT_H} flex flex-col justify-center ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#DCE4F5] hover:border-[#B9CCF5] hover:shadow-[0_2px_10px_rgba(50,80,153,0.12)]'} ${dragB?.id === b.id ? 'opacity-40' : ''}`}
                             >
-                              <div className="px-2.5 py-2">
+                              <div className="px-2.5">
                                 {/* Title row: week, name, then whatever the week hands out */}
                                 <div className="flex items-baseline gap-2">
                                   <span
-                                    className="text-[10px] font-bold shrink-0 w-[34px]"
+                                    className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap"
                                     style={{ color: accentColor }}
                                   >
                                     {weekLabel(activeSub, week)}
                                   </span>
-                                  <p className="text-[12px] font-bold text-[#062E63] leading-snug flex-1 min-w-0">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
+                                  <p className="text-[12.5px] font-bold text-[#062E63] leading-tight flex-1 min-w-0 truncate" title={b.is_exam ? b.booklet_name : bookletLabel(b)}>{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                                   {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
                                   {b.is_exam ? (
                                     <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
@@ -1301,16 +1306,18 @@ function BookletsPageInner() {
                                     </div>
                                   ) : null}
                                 </div>
-                                {/* Status left, actions right — both always visible */}
-                                <div className="flex items-center gap-2 mt-1 pl-[42px]">
-                                  <StatusDot status={b.status} />
-                                  <span className="flex-1" />
-                                  <InfoButton booklet={b} size="text-[10px]" onClick={() => setInfoFor(b)} />
-                                  {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[10px]" />}
-                                  <button onClick={async () => {
-                                    await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
-                                    load()
-                                  }} className="text-[10px] font-semibold text-[#2A2035]/25 hover:text-[#D97706] hover:underline transition">Unassign</button>
+                                {/* Status by default; the actions take its place on
+                                    hover, so ten slots aren't thirty grey words. */}
+                                <div className="flex items-center mt-[3px] pl-[42px] h-[14px]">
+                                  <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
+                                  <span className="absolute left-[42px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <InfoButton booklet={b} size="text-[10px]" onClick={() => setInfoFor(b)} />
+                                    {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[10px]" />}
+                                    <button onClick={async () => {
+                                      await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
+                                      load()
+                                    }} className="text-[10px] font-semibold text-[#A8531A] hover:underline transition">Unassign</button>
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -1325,17 +1332,18 @@ function BookletsPageInner() {
                             onDragOver={(e) => { if (dragB) { e.preventDefault(); setOverGSlot(`${termNum}-${week}`) } }}
                             onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
                             onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
-                            className={`group w-full border border-dashed rounded-lg transition text-left ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E1E8F7] bg-[#FCFDFF] hover:border-[#325099] hover:bg-[#F6F9FF]'}`}
+                            className={`group w-full border border-dashed rounded-lg transition text-left ${SLOT_H} flex items-center ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E4EAF7] bg-transparent hover:border-[#325099] hover:bg-[#F4F8FF]'}`}
                           >
-                            {/* An empty week is a single quiet line, so the
-                                weeks that do have a booklet stand out. */}
-                            <div className="px-2.5 py-[7px] flex items-baseline gap-2">
+                            {/* An empty week shows only its number so the weeks
+                                that do have a booklet carry the eye; the
+                                invitation appears on hover. */}
+                            <div className="px-2.5 flex items-baseline gap-2 w-full">
                               <span
-                                className="text-[10px] font-bold shrink-0 w-[34px] text-[#B9C2D6] group-hover:text-[#325099] transition"
+                                className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap text-[#C3CBDC] group-hover:text-[#325099] transition"
                               >
                                 {isChemistry(activeSub) ? 'Ln' : 'Wk'} {week}
                               </span>
-                              <span className="text-[11px] font-medium text-[#2A2035]/25 group-hover:text-[#325099]/70 transition leading-snug">
+                              <span className="text-[11px] font-medium text-transparent group-hover:text-[#325099]/70 transition leading-snug">
                                 + assign booklet
                               </span>
                             </div>
