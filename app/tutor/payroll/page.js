@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
+import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import { formatTermLabel } from '../../../lib/terms'
 import { T_ADMINS, T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
 import { fortnightlyRetainerFor } from '../../../lib/cashRetainers'
@@ -598,17 +599,14 @@ export default function PayrollPage() {
     setFortnight(idx)
     reload(activeTerm, idx)
   }
-  const jumpTerm = (delta) => {
-    if (!activeTerm || terms.length === 0) return
-    const i = terms.findIndex(t => t.id === activeTerm.id)
-    const j = i + delta
-    if (j < 0 || j >= terms.length) return
-    const newTerm = terms[j]
+  const [termPicker, setTermPicker] = useState(null)   // anchor rect while the term dropdown is open
+  const selectTerm = (id) => {
+    const newTerm = terms.find(t => String(t.id) === String(id))
+    if (!newTerm || newTerm.id === activeTerm?.id) return
     setActiveTerm(newTerm)
     setFortnight(1)
     reload(newTerm, 1)
   }
-  const termIndex = activeTerm ? terms.findIndex(t => t.id === activeTerm.id) : -1
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -659,28 +657,29 @@ export default function PayrollPage() {
                 {status.label}
               </span>
             )}
-            {/* Term selector — small inline control */}
-            <div className="flex items-center gap-1 ml-auto bg-white border border-[#DEE7FF] rounded-full px-2 py-1">
-              <button
-                onClick={() => jumpTerm(-1)}
-                disabled={termIndex <= 0}
-                className="text-xs font-semibold text-[#062E63] disabled:text-[#2A2035]/30 hover:bg-[#F8FAFF] px-2 py-0.5 rounded-full transition"
-                aria-label="Previous term"
-              >
-                ←
-              </button>
-              <span className="text-xs font-semibold text-[#062E63] px-2 whitespace-nowrap">
-                {activeTerm ? formatTermLabel(activeTerm) : '—'}
-              </span>
-              <button
-                onClick={() => jumpTerm(1)}
-                disabled={termIndex < 0 || termIndex >= terms.length - 1}
-                className="text-xs font-semibold text-[#062E63] disabled:text-[#2A2035]/30 hover:bg-[#F8FAFF] px-2 py-0.5 rounded-full transition"
-                aria-label="Next term"
-              >
-                →
-              </button>
-            </div>
+            {/* Term selector — the shared searchable dropdown */}
+            <button
+              type="button"
+              onClick={e => setTermPicker(e.currentTarget.getBoundingClientRect())}
+              className="ml-auto flex items-center gap-2 bg-white border border-[#DEE7FF] rounded-full pl-3.5 pr-2.5 py-1.5 text-xs font-semibold text-[#062E63] hover:border-[#325099] transition"
+              aria-label="Choose term"
+            >
+              <span className="whitespace-nowrap">{activeTerm ? formatTermLabel(activeTerm) : '—'}</span>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[#2A2035]/40">
+                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {termPicker && (
+              <SearchSelectPopover
+                anchor={termPicker}
+                options={[...terms].sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))
+                  .map(t => ({ value: t.id, label: formatTermLabel(t), sub: [t.start_date, t.end_date].filter(Boolean).join(' → ') }))}
+                currentValue={activeTerm?.id ?? ''}
+                placeholder="Search terms…"
+                onSelect={id => { selectTerm(id); setTermPicker(null) }}
+                onClose={() => setTermPicker(null)}
+              />
+            )}
           </div>
 
           {/* Fortnight tabs */}
