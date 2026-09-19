@@ -336,13 +336,20 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   return (
     <>
       <div className={`grid grid-cols-2 gap-3 mt-3 ${terms.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
-        {terms.map(term => (
+        {terms.map(term => {
+          const filled = [...Array(10)].filter((_, i) => slotMap[`${term}-${i + 1}`]).length
+          return (
           <div key={term} className="flex flex-col min-w-0">
-            <div className="flex items-center justify-between px-3 py-1.5 rounded-lg mb-2" style={{ background: accentBg }}>
-              <span className="text-[10px] font-bold tracking-wide" style={{ color: accentColor }}>Term {term}</span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: accentColor }}>
-                {[...Array(10)].filter((_, i) => slotMap[`${term}-${i + 1}`]).length}/10
-              </span>
+            <div className="px-3 pt-1.5 pb-2 rounded-[10px] mb-2 bg-white border border-[#E6ECF8] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-bold tracking-wide text-[#0B2E5E]">Term {term}</span>
+                <span className="text-[9px] font-bold tabular-nums" style={{ color: accentColor }}>
+                  {filled}<span className="text-[#B4BFD4] font-semibold">/10</span>
+                </span>
+              </div>
+              <div className="h-[3px] rounded-full bg-[#EDF1FA] overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: `${filled * 10}%`, background: accentColor }} />
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               {Array.from({ length: 10 }, (_, i) => i + 1).map(week => {
@@ -361,11 +368,11 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                       onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
                       onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
                       style={{ borderLeftColor: accentColor }}
-                      className={`group relative bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${groupLabel(b) ? 'py-1' : SLOT_H} flex flex-col justify-center ${overSlot === `${term}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#DCE4F5] hover:border-[#B9CCF5] hover:shadow-[0_2px_10px_rgba(50,80,153,0.12)]'} ${dragA?.id === a.id ? 'opacity-40' : ''}`}
+                      className={`group relative bg-white rounded-[10px] border border-l-[3px] shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-all cursor-grab active:cursor-grabbing ${groupLabel(b) ? 'py-1' : SLOT_H} flex flex-col justify-center ${overSlot === `${term}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E6ECF8] hover:border-[#C8D7F3] hover:shadow-[0_3px_12px_rgba(16,24,40,0.10)]'} ${dragA?.id === a.id ? 'opacity-40' : ''}`}
                     >
-                      <div className="px-2.5">
+                      <div className="px-3">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap" style={{ color: accentColor }}>{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                          <span className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#98A5BE]">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
                           <p className="text-[11.5px] font-bold text-[#062E63] leading-tight flex-1 min-w-0 truncate" title={b.is_exam ? b.booklet_name : bookletLabel(b)}>{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                           {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
                           {b.is_exam ? (
@@ -386,10 +393,10 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                             </div>
                           ) : null}
                         </div>
-                        {groupLabel(b) && <p className="text-[9px] mt-0.5 font-medium truncate pl-[42px]" style={{ color: accentColor }}>{groupLabel(b)}</p>}
-                        <div className="flex items-center mt-[3px] pl-[42px] h-[14px]">
+                        {groupLabel(b) && <p className="text-[9px] mt-0.5 font-medium truncate pl-[44px]" style={{ color: accentColor }}>{groupLabel(b)}</p>}
+                        <div className="flex items-center mt-[3px] pl-[44px] h-[14px]">
                           <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
-                          <span className="absolute left-[42px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="absolute left-[44px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
                             <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
                             {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[9px]" />}
                             <button onClick={() => handleUnassign(a.id)}
@@ -405,9 +412,9 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                     onDragOver={(e) => { if (dragA) { e.preventDefault(); setOverSlot(`${term}-${week}`) } }}
                     onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
                     onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
-                    className={`group w-full border border-dashed rounded-lg transition text-left ${SLOT_H} flex items-center ${overSlot === `${term}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E4EAF7] bg-transparent hover:border-[#325099] hover:bg-[#F4F8FF]'}`}>
-                    <div className="px-2.5 flex items-baseline gap-2 w-full">
-                      <span className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap text-[#C3CBDC] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                    className={`group w-full rounded-[10px] transition text-left ${SLOT_H} flex items-center ${overSlot === `${term}-${week}` ? 'bg-[#E2EAFB] ring-2 ring-[#325099]/30' : 'bg-[#EEF2FA] hover:bg-[#E2EAFB]'}`}>
+                    <div className="px-3 flex items-baseline gap-2 w-full">
+                      <span className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#B4BFD4] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
                       <span className="text-[11px] font-medium text-transparent group-hover:text-[#325099]/70 transition leading-snug">+ assign booklet</span>
                     </div>
                   </button>
@@ -415,7 +422,8 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
               })}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
       {assignSlot && (
         <ClassAssignModal
@@ -1238,19 +1246,17 @@ function BookletsPageInner() {
                 return (
                   <div key={termNum} className="flex flex-col min-w-0">
                     {/* Column header */}
-                    <div
-                      className="flex items-center justify-between px-3 py-2 rounded-xl mb-3"
-                      style={{ background: accentBg }}
-                    >
-                      <span className="text-xs font-bold tracking-wide" style={{ color: accentColor }}>
-                        Term {termNum}
-                      </span>
-                      <span
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
-                        style={{ background: accentColor }}
-                      >
-                        {assignedCount}/10
-                      </span>
+                    <div className="px-3 pt-2 pb-2.5 rounded-[10px] mb-3 bg-white border border-[#E6ECF8] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[12px] font-bold tracking-wide text-[#0B2E5E]">Term {termNum}</span>
+                        <span className="text-[10px] font-bold tabular-nums" style={{ color: accentColor }}>
+                          {assignedCount}<span className="text-[#B4BFD4] font-semibold">/10</span>
+                        </span>
+                      </div>
+                      {/* How full the term is, at a glance */}
+                      <div className="h-[3px] rounded-full bg-[#EDF1FA] overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${assignedCount * 10}%`, background: accentColor }} />
+                      </div>
                     </div>
 
                     {/* One row per week 1–10 */}
@@ -1274,14 +1280,13 @@ function BookletsPageInner() {
                               onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
                               onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
                               style={{ borderLeftColor: accentColor }}
-                              className={`group relative bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${SLOT_H} flex flex-col justify-center ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#DCE4F5] hover:border-[#B9CCF5] hover:shadow-[0_2px_10px_rgba(50,80,153,0.12)]'} ${dragB?.id === b.id ? 'opacity-40' : ''}`}
+                              className={`group relative bg-white rounded-[10px] border border-l-[3px] shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-all cursor-grab active:cursor-grabbing ${SLOT_H} flex flex-col justify-center ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E6ECF8] hover:border-[#C8D7F3] hover:shadow-[0_3px_12px_rgba(16,24,40,0.10)]'} ${dragB?.id === b.id ? 'opacity-40' : ''}`}
                             >
-                              <div className="px-2.5">
+                              <div className="px-3">
                                 {/* Title row: week, name, then whatever the week hands out */}
                                 <div className="flex items-baseline gap-2">
                                   <span
-                                    className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap"
-                                    style={{ color: accentColor }}
+                                    className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#98A5BE]"
                                   >
                                     {weekLabel(activeSub, week)}
                                   </span>
@@ -1308,9 +1313,9 @@ function BookletsPageInner() {
                                 </div>
                                 {/* Status by default; the actions take its place on
                                     hover, so ten slots aren't thirty grey words. */}
-                                <div className="flex items-center mt-[3px] pl-[42px] h-[14px]">
+                                <div className="flex items-center mt-[3px] pl-[44px] h-[14px]">
                                   <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
-                                  <span className="absolute left-[42px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <span className="absolute left-[44px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <InfoButton booklet={b} size="text-[10px]" onClick={() => setInfoFor(b)} />
                                     {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[10px]" />}
                                     <button onClick={async () => {
@@ -1332,14 +1337,14 @@ function BookletsPageInner() {
                             onDragOver={(e) => { if (dragB) { e.preventDefault(); setOverGSlot(`${termNum}-${week}`) } }}
                             onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
                             onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
-                            className={`group w-full border border-dashed rounded-lg transition text-left ${SLOT_H} flex items-center ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E4EAF7] bg-transparent hover:border-[#325099] hover:bg-[#F4F8FF]'}`}
+                            className={`group w-full rounded-[10px] transition text-left ${SLOT_H} flex items-center ${overGSlot === `${termNum}-${week}` ? 'bg-[#E2EAFB] ring-2 ring-[#325099]/30' : 'bg-[#EEF2FA] hover:bg-[#E2EAFB]'}`}
                           >
                             {/* An empty week shows only its number so the weeks
                                 that do have a booklet carry the eye; the
                                 invitation appears on hover. */}
-                            <div className="px-2.5 flex items-baseline gap-2 w-full">
+                            <div className="px-3 flex items-baseline gap-2 w-full">
                               <span
-                                className="text-[10px] font-bold shrink-0 w-[34px] whitespace-nowrap text-[#C3CBDC] group-hover:text-[#325099] transition"
+                                className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#B4BFD4] group-hover:text-[#325099] transition"
                               >
                                 {isChemistry(activeSub) ? 'Ln' : 'Wk'} {week}
                               </span>
