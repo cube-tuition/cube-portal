@@ -30,6 +30,9 @@ import { useCourseCurriculum } from '../../../../lib/courses'
  * { id, lines: { partLabel | "_" : n } } — old worksheets keep loading as-is.
  */
 
+// Everything a tray question needs: the question, its parts and its figures.
+const QUESTION_COLS = '*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)'
+
 // question_ids entries are bare ids until someone sets lines on one.
 const entryId = (e) => (typeof e === 'string' ? e : e?.id)
 const entryLines = (e) => (typeof e === 'string' ? null : (e?.lines || null))
@@ -125,7 +128,7 @@ function AdditionalQuestionsInner() {
       fetchQuestionUsage().then(setUsageMap)
       loadWorksheets()
       supabase.from(T_QBANK_QUESTIONS)
-        .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
+        .select(QUESTION_COLS)
         .order('created_at', { ascending: false })
         .then(({ data }) => { setQuestions(data || []); setLoadingQ(false) })
       // Arriving from Generate (?new=1): create a worksheet and open it straight away.
@@ -220,7 +223,30 @@ function AdditionalQuestionsInner() {
     const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
     const ids = entries.map(entryId).filter(Boolean)
     const linesById = Object.fromEntries(entries.map((e) => [entryId(e), entryLines(e)]).filter(([k, v]) => k && v))
-    setTray(ids.map((id) => qById[id]).filter(Boolean)
+    /*
+     * A question this page has not cached — written after the page loaded, or
+     * outside the year/subject filter it fetched — must be FETCHED, not dropped.
+     * Dropping it silently shortened the tray, and the next autosave wrote that
+     * shorter list back: the question was gone from the sheet for good, and
+     * every section band after it then covered the wrong questions.
+     */
+    const byId = { ...qById }
+    const absent = ids.filter((id) => !byId[id])
+    if (absent.length) {
+      for (let i = 0; i < absent.length; i += 100) {
+        const { data } = await supabase.from(T_QBANK_QUESTIONS)
+          .select(QUESTION_COLS).in('id', absent.slice(i, i + 100))
+        for (const q of data || []) byId[q.id] = q
+      }
+      const stillMissing = ids.filter((id) => !byId[id])
+      if (stillMissing.length) {
+        // Only now is a question really unavailable (deleted, or not readable).
+        // Say so rather than quietly resaving the sheet without it.
+        alert(`${stillMissing.length} question${stillMissing.length === 1 ? '' : 's'} on this worksheet could not be loaded `
+            + 'and will be left out if you save. Close without saving if that is not what you want.')
+      }
+    }
+    setTray(ids.map((id) => byId[id]).filter(Boolean)
       .map((q) => (linesById[q.id] ? { ...q, _workingLines: linesById[q.id] } : q)))
     setIncludeMarks(ws.include_marks ?? true)
     setDirty(false)
@@ -316,7 +342,7 @@ function AdditionalQuestionsInner() {
   const skillsForFilter = useMemo(() => (tax && subjectId ? (tax.skillsBySubject[subjectId] || []) : []), [tax, subjectId])
   const onQuestionSaved = async () => {
     const { data } = await supabase.from(T_QBANK_QUESTIONS)
-      .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
+      .select(QUESTION_COLS)
       .eq('id', editQ.id).single()
     if (data) {
       setQuestions((qs) => qs.map((q) => (q.id === data.id ? data : q)))
