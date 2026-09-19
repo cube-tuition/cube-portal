@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
-import { formatTermLabel } from '../../../lib/terms'
+import { formatTermLabel, isHolidayTerm } from '../../../lib/terms'
 import { T_ADMINS, T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
 import { fortnightlyRetainerFor } from '../../../lib/cashRetainers'
 
@@ -210,7 +210,10 @@ export default function PayrollPage() {
         .from(T_TERMS)
         .select('*')
         .order('start_date', { ascending: true })
-      const allTerms = termsData || []
+      // Teaching terms only. Holiday periods are term rows too, but payroll's
+      // fortnights belong to teaching terms — the break after each one is the
+      // Holidays tab, not a term of its own.
+      const allTerms = (termsData || []).filter(t => !isHolidayTerm(t))
       setTerms(allTerms)
 
       // Payable people = tutors + directors (directors teach makeups / cover, and
