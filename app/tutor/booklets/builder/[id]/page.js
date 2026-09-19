@@ -1003,11 +1003,11 @@ export default function BookletBuilderEditor() {
           <span className={`text-[11px] ${conflict ? 'text-[#B23A3A] font-bold' : 'text-[#2A2035]/40'}`}>
             {conflict ? 'Not saved' : saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}
           </span>
-          {/* Senior English: how this workbook reaches students. Online = a
-              typeable student doc; publishing renders no PDFs. Shown whenever
-              it applies (or is already online, so it can always be switched
-              back after a subject/year change). */}
-          {(bk.delivery === 'online' || (/english/i.test(bk.subject || '') && Number(bk.year) >= 7 && !isExamStyle)) && (
+          {/* Senior English and Science: how this workbook reaches students.
+              Online = a typeable student doc; publishing renders no PDFs. Shown
+              whenever it applies (or is already online, so it can always be
+              switched back after a subject/year change). */}
+          {(bk.delivery === 'online' || (/english|science/i.test(bk.subject || '') && Number(bk.year) >= 7 && !isExamStyle)) && (
             <button
               onClick={() => mutate({ delivery: bk.delivery === 'online' ? 'physical' : 'online' }, 'Delivery')}
               title={bk.delivery === 'online'
