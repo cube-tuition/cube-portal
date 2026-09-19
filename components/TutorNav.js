@@ -16,6 +16,10 @@ import { SUBJECTS } from '../lib/resourceSubjects'
  * Operations dropdown: Drop-ins, Reports, Payroll
  * Admin dropdown:      Booklets, Database, Transition
  *
+ * Messages is not in a dropdown: it's the bubble button on the right of the
+ * bar, and it opens in its own tab, because it is the one page you keep open
+ * beside whatever else you are doing.
+ *
  * Tutor layout (4 items):
  *   Home · Info · Classes · My pay
  */
@@ -58,7 +62,6 @@ const ADMIN_GROUPS = [
       { label: 'Emails',        href: '/tutor/emails',               icon: '✉️'  },
       { label: 'Forms',         href: '/tutor/admin/forms',         icon: '📝' },
       { label: 'Marketing',     href: '/tutor/admin/marketing',     icon: '📣' },
-      { label: 'Messages',      href: '/tutor/admin/messages',       icon: '💬' },
       // Portal analytics, Trials and Flags all live under Monitoring now — the
       // hub links to all three, so they are not repeated here.
       { label: 'Monitoring',    href: '/tutor/admin/monitoring',     icon: '📶' },
@@ -261,6 +264,20 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
+          {/* Messages — opens in its own tab, so replying never costs you the
+              page you were on. Shown at every width, next to the hamburger. */}
+          {isAdmin && (
+            <a href="/tutor/admin/messages" target="_blank" rel="noopener noreferrer"
+              title="Messages — opens in a new tab"
+              aria-label="Messages (opens in a new tab)"
+              className="flex items-center justify-center w-9 h-9 rounded-xl text-[#062E63] hover:bg-[#F8FAFF] transition">
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+                strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4.5 3h11A2.5 2.5 0 0 1 18 5.5v6a2.5 2.5 0 0 1-2.5 2.5H9l-4 3v-3h-.5A2.5 2.5 0 0 1 2 11.5v-6A2.5 2.5 0 0 1 4.5 3Z" />
+                <path d="M6 7h8M6 10h5" />
+              </svg>
+            </a>
+          )}
           {staffName && (
             <span className="hidden sm:inline-flex items-center gap-2 text-xs font-semibold text-[#062E63] bg-[#F8FAFF] border border-[#DEE7FF] px-3 py-1.5 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
