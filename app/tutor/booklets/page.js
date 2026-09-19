@@ -61,6 +61,24 @@ const StatusBadge = ({ status }) => status ? (
   </span>
 ) : null
 
+// Curriculum slots use a quieter form of the same thing: a coloured dot and
+// plain text, so ten of them down a column don't shout over the booklet names.
+const STATUS_DOT_CLS = {
+  'Complete':          ['bg-emerald-500', 'text-emerald-700'],
+  'Needs Improvement': ['bg-amber-500',   'text-amber-700'],
+  'In Progress':       ['bg-blue-500',    'text-blue-700'],
+  'Not Started':       ['bg-[#C4CBD8]',   'text-[#2A2035]/35'],
+}
+const StatusDot = ({ status }) => {
+  if (!status) return null
+  const [dot, text] = STATUS_DOT_CLS[status] || STATUS_DOT_CLS['Not Started']
+  return (
+    <span className={`flex items-center gap-1 text-[9px] font-semibold whitespace-nowrap ${text}`}>
+      <span className={`w-[5px] h-[5px] rounded-full ${dot}`} />{status}
+    </span>
+  )
+}
+
 // ── Class Assign Modal ────────────────────────────────────────────────────────
 function ClassAssignModal({ classId, className, year, subject, term, week, accentColor, accentBg, onClose, onAssigned }) {
   const { groupLabel } = useChemModules()   // Chemistry lists by module, not topic
@@ -338,42 +356,41 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                       onDragOver={(e) => { if (dragA && dragA.id !== a.id) { e.preventDefault(); setOverSlot(`${term}-${week}`) } }}
                       onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
                       onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
-                      className={`bg-white rounded-xl border shadow-sm overflow-hidden hover:shadow-md transition-all cursor-grab active:cursor-grabbing ${overSlot === `${term}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF]'} ${dragA?.id === a.id ? 'opacity-40' : ''}`}
+                      style={{ borderLeftColor: accentColor }}
+                      className={`group bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${overSlot === `${term}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF] hover:shadow-[0_1px_8px_rgba(50,80,153,0.10)]'} ${dragA?.id === a.id ? 'opacity-40' : ''}`}
                     >
-                      <div className="h-[3px] w-full" style={{ background: accentColor }} />
-                      <div className="px-3 pt-2 pb-1.5">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accentColor }}>{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
-                          {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
-                                  <StatusBadge status={b.status} />
+                      <div className="px-2.5 py-2">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-[10px] font-bold shrink-0 w-[34px]" style={{ color: accentColor }}>{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                          <p className="text-[11px] font-bold text-[#062E63] leading-snug flex-1 min-w-0">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
+                          {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
+                          {b.is_exam ? (
+                            <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
+                          ) : pdfPaths.length > 0 ? (
+                            <div className="flex gap-1 shrink-0">
+                              {pdfPaths.slice(0, 2).map((path, pi) => {
+                                const { data } = supabase.storage.from('booklets').getPublicUrl(path)
+                                return data?.publicUrl ? (
+                                  <a key={pi} href={data.publicUrl} target="_blank" rel="noopener noreferrer"
+                                    className="text-[9px] font-bold px-1.5 py-[3px] rounded-md hover:opacity-80 transition whitespace-nowrap"
+                                    style={{ background: accentBg, color: accentColor }}>
+                                    {pdfNames[pi] ? pdfNames[pi].slice(0, 8) + (pdfNames[pi].length > 8 ? '…' : '') : `PDF ${pi + 1}`}
+                                  </a>
+                                ) : null
+                              })}
+                              {pdfPaths.length > 2 && <span className="text-[9px] text-[#2A2035]/30 self-center">+{pdfPaths.length - 2}</span>}
+                            </div>
+                          ) : null}
                         </div>
-                        <p className="text-[11px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
-                        {groupLabel(b) && <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: accentColor }}>{groupLabel(b)}</p>}
-                      </div>
-                      <div className="px-3 pb-2 flex items-center justify-between gap-1">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => handleUnassign(a.id)}
-                            className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
+                        {groupLabel(b) && <p className="text-[9px] mt-0.5 font-medium truncate pl-[42px]" style={{ color: accentColor }}>{groupLabel(b)}</p>}
+                        <div className="flex items-center gap-2 mt-1 pl-[42px]">
+                          <StatusDot status={b.status} />
+                          <span className="flex-1" />
                           <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
                           {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[9px]" />}
+                          <button onClick={() => handleUnassign(a.id)}
+                            className="text-[9px] font-semibold text-[#2A2035]/25 hover:text-amber-500 transition">Unassign</button>
                         </div>
-                        {b.is_exam ? (
-                          <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
-                        ) : (
-                          <div className="flex gap-1">
-                            {pdfPaths.slice(0, 2).map((path, pi) => {
-                              const { data } = supabase.storage.from('booklets').getPublicUrl(path)
-                              return data?.publicUrl ? (
-                                <a key={pi} href={data.publicUrl} target="_blank" rel="noopener noreferrer"
-                                  className="text-[9px] font-bold px-1.5 py-0.5 rounded-md hover:opacity-80 transition"
-                                  style={{ background: accentBg, color: accentColor }}>
-                                  {pdfNames[pi] ? pdfNames[pi].slice(0, 8) + (pdfNames[pi].length > 8 ? '…' : '') : `PDF ${pi + 1}`}
-                                </a>
-                              ) : null
-                            })}
-                            {pdfPaths.length > 2 && <span className="text-[9px] text-[#2A2035]/30">+{pdfPaths.length - 2}</span>}
-                          </div>
-                        )}
                       </div>
                     </div>
                   )
@@ -383,11 +400,10 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                     onDragOver={(e) => { if (dragA) { e.preventDefault(); setOverSlot(`${term}-${week}`) } }}
                     onDragLeave={() => setOverSlot(s => (s === `${term}-${week}` ? null : s))}
                     onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
-                    className={`group w-full border border-dashed rounded-xl overflow-hidden transition text-left ${overSlot === `${term}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#DEE7FF] bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF]'}`}>
-                    <div className="h-[3px] w-full bg-[#EEF2FB]" />
-                    <div className="px-3 pt-2 pb-2.5">
-                      <span className="text-[9px] font-bold uppercase tracking-widest block mb-0.5 text-[#A9B4CC] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
-                      <p className="text-[11px] font-semibold text-[#2A2035]/30 group-hover:text-[#325099]/60 transition">+ assign booklet</p>
+                    className={`group w-full border border-dashed rounded-lg transition text-left ${overSlot === `${term}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E1E8F7] bg-[#FCFDFF] hover:border-[#325099] hover:bg-[#F6F9FF]'}`}>
+                    <div className="px-2.5 py-[7px] flex items-baseline gap-2">
+                      <span className="text-[10px] font-bold shrink-0 w-[34px] text-[#B9C2D6] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                      <span className="text-[11px] font-medium text-[#2A2035]/25 group-hover:text-[#325099]/70 transition leading-snug">+ assign booklet</span>
                     </div>
                   </button>
                 )
@@ -1252,51 +1268,50 @@ function BookletsPageInner() {
                               onDragOver={(e) => { if (dragB && dragB.id !== b.id) { e.preventDefault(); setOverGSlot(`${termNum}-${week}`) } }}
                               onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
                               onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
-                              className={`bg-white rounded-xl border shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-all cursor-grab active:cursor-grabbing ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF]'} ${dragB?.id === b.id ? 'opacity-40' : ''}`}
+                              style={{ borderLeftColor: accentColor }}
+                              className={`group bg-white rounded-lg border border-l-[3px] transition-all cursor-grab active:cursor-grabbing ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] ring-2 ring-[#325099]/30' : 'border-[#E8EDF8] hover:border-[#C7D7FF] hover:shadow-[0_1px_8px_rgba(50,80,153,0.10)]'} ${dragB?.id === b.id ? 'opacity-40' : ''}`}
                             >
-                              <div className="h-[3px] w-full" style={{ background: accentColor }} />
-                              <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5">
-                                <div className="flex items-center gap-1.5">
+                              <div className="px-2.5 py-2">
+                                {/* Title row: week, name, then whatever the week hands out */}
+                                <div className="flex items-baseline gap-2">
                                   <span
-                                    className="text-[9px] font-bold uppercase tracking-widest"
+                                    className="text-[10px] font-bold shrink-0 w-[34px]"
                                     style={{ color: accentColor }}
                                   >
                                     {weekLabel(activeSub, week)}
                                   </span>
-                                  {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#FEF3C7] text-[#92400E]">Exam</span>}
-                                  <StatusBadge status={b.status} />
+                                  <p className="text-[12px] font-bold text-[#062E63] leading-snug flex-1 min-w-0">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
+                                  {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
+                                  {b.is_exam ? (
+                                    <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
+                                  ) : b.delivery === 'online' ? (
+                                    <span className="text-[9px] font-bold px-1.5 py-[3px] rounded-md bg-[#ECF9F4] text-[#0E7A5F] shrink-0 whitespace-nowrap" title="Online workbook — students type into it in their portal; no printed PDFs">Online</span>
+                                  ) : pdfPaths.length > 0 ? (
+                                    <div className="flex gap-1 shrink-0">
+                                      {pdfPaths.map((path, i) => {
+                                        const url = getPdfUrl(path)
+                                        return url ? (
+                                          <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                                            className="text-[9px] font-bold px-1.5 py-[3px] rounded-md hover:opacity-80 transition whitespace-nowrap"
+                                            style={{ background: accentBg, color: accentColor }}>
+                                            {pdfPaths.length > 1 ? `PDF ${i + 1}` : 'PDF'}
+                                          </a>
+                                        ) : null
+                                      })}
+                                    </div>
+                                  ) : null}
                                 </div>
-                                <p className="text-[12px] font-bold text-[#062E63] leading-snug">{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
-                              </div>
-                              <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
-                                <div className="flex gap-2.5">
-                                  <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
-                                  {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} />}
+                                {/* Status left, actions right — both always visible */}
+                                <div className="flex items-center gap-2 mt-1 pl-[42px]">
+                                  <StatusDot status={b.status} />
+                                  <span className="flex-1" />
+                                  <InfoButton booklet={b} size="text-[10px]" onClick={() => setInfoFor(b)} />
+                                  {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[10px]" />}
                                   <button onClick={async () => {
                                     await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                     load()
-                                  }} className="text-[10px] font-semibold text-[#2A2035]/30 hover:text-[#D97706] hover:underline transition">Unassign</button>
+                                  }} className="text-[10px] font-semibold text-[#2A2035]/25 hover:text-[#D97706] hover:underline transition">Unassign</button>
                                 </div>
-                                {b.is_exam ? (
-                                  <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
-                                ) : b.delivery === 'online' ? (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F]" title="Online workbook — students type into it in their portal; no printed PDFs">🌐 Online</span>
-                                ) : pdfPaths.length > 0 ? (
-                                  <div className="flex gap-1">
-                                    {pdfPaths.map((path, i) => {
-                                      const url = getPdfUrl(path)
-                                      return url ? (
-                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                                          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-lg transition"
-                                          style={{ background: accentBg, color: accentColor }}>
-                                          📄 {pdfPaths.length > 1 ? `PDF ${i + 1}` : 'PDF'}
-                                        </a>
-                                      ) : null
-                                    })}
-                                  </div>
-                                ) : (
-                                  <span className="text-[10px] text-[#2A2035]/20">No PDF</span>
-                                )}
                               </div>
                             </div>
                           )
@@ -1310,25 +1325,21 @@ function BookletsPageInner() {
                             onDragOver={(e) => { if (dragB) { e.preventDefault(); setOverGSlot(`${termNum}-${week}`) } }}
                             onDragLeave={() => setOverGSlot(s => (s === `${termNum}-${week}` ? null : s))}
                             onDrop={(e) => { e.preventDefault(); if (dragB) moveGeneral(dragB, termNum, week) }}
-                            className={`group w-full border border-dashed rounded-xl flex flex-col overflow-hidden transition text-left ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#DEE7FF] bg-[#FBFCFF] hover:border-[#325099] hover:bg-[#F8FAFF]'}`}
+                            className={`group w-full border border-dashed rounded-lg transition text-left ${overGSlot === `${termNum}-${week}` ? 'border-[#325099] bg-[#F0F4FF] ring-2 ring-[#325099]/30' : 'border-[#E1E8F7] bg-[#FCFDFF] hover:border-[#325099] hover:bg-[#F6F9FF]'}`}
                           >
-                            <div className="h-[3px] w-full bg-[#EEF2FB]" />
-                            <div className="px-3 pt-2.5 pb-2 flex flex-col gap-0.5 flex-1">
+                            {/* An empty week is a single quiet line, so the
+                                weeks that do have a booklet stand out. */}
+                            <div className="px-2.5 py-[7px] flex items-baseline gap-2">
                               <span
-                                className="text-[9px] font-bold uppercase tracking-widest text-[#A9B4CC] group-hover:text-[#325099] transition"
+                                className="text-[10px] font-bold shrink-0 w-[34px] text-[#B9C2D6] group-hover:text-[#325099] transition"
                               >
                                 {isChemistry(activeSub) ? 'Ln' : 'Wk'} {week}
                               </span>
-                              <p className="text-[12px] font-semibold text-[#2A2035]/30 group-hover:text-[#325099]/60 transition leading-snug">
+                              <span className="text-[11px] font-medium text-[#2A2035]/25 group-hover:text-[#325099]/70 transition leading-snug">
                                 + assign booklet
-                              </p>
+                              </span>
                             </div>
-                            <div className="px-3 pb-2.5 flex items-center justify-between gap-2">
-                              <div className="flex gap-2.5">
-                                <span className="text-[10px] text-transparent select-none">Edit</span>
-                              </div>
-                              <span className="text-[10px] text-transparent select-none">No PDF</span>
-                            </div>
+
                           </button>
                         )
                       })}
