@@ -75,7 +75,7 @@ function fortnightDates(term, idx) {
 function holidayDatesFor(term, terms) {
   if (!term) return null
   const start = addDaysIso(term.end_date, 1)
-  const next = (terms || []).filter(t => t.start_date > term.end_date)
+  const next = (terms || []).filter(t => !isHolidayTerm(t) && t.start_date > term.end_date)
     .sort((a, b) => a.start_date.localeCompare(b.start_date))[0]
   const end = next ? addDaysIso(next.start_date, -1) : addDaysIso(term.end_date, 42)
   return { start, end }
@@ -83,6 +83,7 @@ function holidayDatesFor(term, terms) {
 
 // Dates for a tab index (1..5 fortnights, or HOLIDAY_IDX for the break).
 function tabDates(term, idx, terms) {
+  if (isHolidayTerm(term)) return { start: term.start_date, end: term.end_date }
   return idx === HOLIDAY_IDX ? holidayDatesFor(term, terms) : fortnightDates(term, idx)
 }
 
@@ -93,6 +94,7 @@ function tabDates(term, idx, terms) {
 function pickInitialTermFortnight(terms, todayIso) {
   if (!terms || terms.length === 0) return { term: null, fortnight: 1 }
   const inTerm = terms.find(t => todayIso >= t.start_date && todayIso <= t.end_date)
+  if (inTerm && isHolidayTerm(inTerm)) return { term: inTerm, fortnight: HOLIDAY_IDX }
   if (inTerm) {
     const days = Math.floor(
       (new Date(todayIso + 'T00:00:00') - new Date(inTerm.start_date + 'T00:00:00')) / 86400000
@@ -101,7 +103,7 @@ function pickInitialTermFortnight(terms, todayIso) {
   }
   // Reaching here means today isn't inside any term → we're in a break, so land
   // on the Holidays tab of the most recent past term.
-  const past = [...terms].sort((a, b) => b.end_date.localeCompare(a.end_date))
+  const past = [...terms].filter(t => !isHolidayTerm(t)).sort((a, b) => b.end_date.localeCompare(a.end_date))
     .find(t => t.end_date < todayIso)
   if (past) return { term: past, fortnight: HOLIDAY_IDX }
   return { term: terms[0], fortnight: 1 }
@@ -210,10 +212,10 @@ export default function PayrollPage() {
         .from(T_TERMS)
         .select('*')
         .order('start_date', { ascending: true })
-      // Teaching terms only. Holiday periods are term rows too, but payroll's
-      // fortnights belong to teaching terms — the break after each one is the
-      // Holidays tab, not a term of its own.
-      const allTerms = (termsData || []).filter(t => !isHolidayTerm(t))
+      // Teaching terms carry five fortnights plus a Holidays tab for the break
+      // after them; a holiday-period row (term_number > 10) is that same break,
+      // listed under its own name so it can be opened directly.
+      const allTerms = termsData || []
       setTerms(allTerms)
 
       // Payable people = tutors + directors (directors teach makeups / cover, and
@@ -382,7 +384,8 @@ export default function PayrollPage() {
     const owed = Math.abs(Number(amount) || 0)
     const firstName = (tutor.full_name || '').split(' ')[0] || (tutor.full_name || 'Tutor')
     const termLabel = activeTerm.name || formatTermLabel(activeTerm)
-    const fnLabel   = fortnightLabel(fortnight)
+    // A holiday-period row already says "Holidays" in its name.
+    const fnLabel   = isHolidayTerm(activeTerm) ? '' : fortnightLabel(fortnight)
     const description = `${firstName} - ${termLabel} ${fnLabel}`.trim()
     try {
       // 1) Add the cash log outflow row
@@ -522,7 +525,7 @@ export default function PayrollPage() {
     const hours = paidShifts.reduce((a, s) => a + Number(s.hours || 0), 0)
     const superAmount = payMethod !== 'cash' ? gross * SUPER_RATE : 0
     const superYtd    = payMethod !== 'cash' ? (Number(quarterGrossByTutor[tutorId] || 0) * SUPER_RATE) : 0
-    const periodLabel = `${activeTerm?.name ? activeTerm.name + ' · ' : ''}${fortnightLabel(fortnight)} (${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
+    const periodLabel = `${activeTerm?.name ? activeTerm.name + (isHolidayTerm(activeTerm) ? ' ' : ' · ' + fortnightLabel(fortnight) + ' ') : fortnightLabel(fortnight) + ' '}(${fmtDate(run?.period_start)}–${fmtDate(run?.period_end)})`
     const paymentDate = run?.period_start ? fmtDateLong(addDaysIso(run.period_start, 14)) : null
     return { tutorId, email: emailByTutor[tutorId] || null, tutorName: g.name, periodLabel, paymentDate, payMethod, shifts, weeks, hours, gross, superAmount, superYtd, total: gross + superAmount }
   }
@@ -606,9 +609,10 @@ export default function PayrollPage() {
   const selectTerm = (id) => {
     const newTerm = terms.find(t => String(t.id) === String(id))
     if (!newTerm || newTerm.id === activeTerm?.id) return
+    const idx = isHolidayTerm(newTerm) ? HOLIDAY_IDX : 1
     setActiveTerm(newTerm)
-    setFortnight(1)
-    reload(newTerm, 1)
+    setFortnight(idx)
+    reload(newTerm, idx)
   }
 
   if (!staff) return (
@@ -687,7 +691,7 @@ export default function PayrollPage() {
 
           {/* Fortnight tabs */}
           <div className="flex items-center gap-1 mt-6 overflow-x-auto -mx-1 px-1 no-scrollbar">
-            {FORTNIGHT_LABELS.map((label, i) => {
+            {!isHolidayTerm(activeTerm) && FORTNIGHT_LABELS.map((label, i) => {
               const idx = i + 1
               const active = idx === fortnight
               const dates = activeTerm ? fortnightDates(activeTerm, idx) : null
@@ -713,7 +717,7 @@ export default function PayrollPage() {
             {/* Holidays tab — the break after the term (e.g. a makeup between terms) */}
             {(() => {
               const active = fortnight === HOLIDAY_IDX
-              const dates = activeTerm ? holidayDatesFor(activeTerm, terms) : null
+              const dates = activeTerm ? tabDates(activeTerm, HOLIDAY_IDX, terms) : null
               return (
                 <button
                   key="holidays"
