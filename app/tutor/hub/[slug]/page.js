@@ -110,9 +110,9 @@ export default function InfoViewPage() {
     }
   }, [])
 
-  if (page === undefined) return <div className="max-w-3xl mx-auto px-6 py-12 text-sm text-[#2A2035]/45">Loading…</div>
+  if (page === undefined) return <div className="max-w-[min(64rem,100%)] mx-auto px-6 py-12 text-sm text-[#2A2035]/45">Loading…</div>
   if (page === null) return (
-    <div className="max-w-3xl mx-auto px-6 py-16 text-center">
+    <div className="max-w-[min(64rem,100%)] mx-auto px-6 py-16 text-center">
       <div className="text-3xl mb-2">🔍</div>
       <p className="text-sm font-semibold text-[#062E63]">This page isn’t available.</p>
       <p className="text-xs text-[#2A2035]/55 mt-1">It may be unpublished or restricted. <Link href="/tutor/hub" className="text-[#325099] underline">Back to Info Centre</Link></p>
@@ -120,7 +120,7 @@ export default function InfoViewPage() {
   )
 
   if (page === 'legacy') return (
-    <div className="max-w-3xl mx-auto px-6 md:px-8 py-10">
+    <div className="max-w-[min(64rem,100%)] mx-auto px-6 md:px-8 py-10">
       <div className="flex items-center justify-between gap-3 mb-1">
         <h1 className="text-2xl md:text-3xl font-bold text-[#062E63] font-display">{legacy.title}</h1>
         {canEdit && <Link href="/tutor/hub/manage" className="shrink-0 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3.5 py-1.5 hover:bg-[#F0F4FF]">Manage pages</Link>}
@@ -140,7 +140,7 @@ export default function InfoViewPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 md:px-8 py-10">
+    <div className="max-w-[min(64rem,100%)] mx-auto px-6 md:px-8 py-10">
       {parent && (
         <Link href={`/tutor/hub/${parent.slug}`}
           className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] hover:underline mb-2">

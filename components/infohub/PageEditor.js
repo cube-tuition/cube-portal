@@ -401,7 +401,8 @@ export default function PageEditor({ page, staff }) {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-5 py-8">
+      {/* Preview matches the real page, which is wider than the editing column. */}
+      <div className={`${preview ? 'max-w-[min(64rem,100%)]' : 'max-w-3xl'} mx-auto px-5 py-8`}>
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Page title"
           className="w-full text-2xl md:text-3xl font-bold text-[#062E63] font-display bg-transparent focus:outline-none mb-6 placeholder:text-[#062E63]/30" />
 
