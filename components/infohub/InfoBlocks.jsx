@@ -5,6 +5,7 @@
  * drift. Lightweight: imports no editor code, so viewers don't load the editor.
  * Styling is fixed and on-brand; responsive (columns/table stack on mobile).
  */
+import { useState } from 'react'
 import { qbankImageUrl } from '../../lib/qbank'
 import { inlineHtml, inlineMultiline, videoEmbedUrl } from '../../lib/infohub/inline'
 import { calloutVariant } from '../../lib/infohub/blocks'
@@ -194,16 +195,72 @@ function Columns({ count, cols }) {
   )
 }
 
-function Table({ headerRow, rows }) {
+/*
+ * A cell in a column the author marked sensitive. It reads as a row of dots
+ * until someone chooses to look, and only admins and directors get the eye —
+ * a teacher sees the dots and nothing else. Revealing is per cell and lasts
+ * only as long as the page is open; nothing is remembered.
+ */
+function SecretCell({ text, canReveal }) {
+  const [open, setOpen] = useState(false)
+  const has = (text || '').trim() !== ''
+  if (!has) return <td />
+  if (!canReveal) {
+    return (
+      <td>
+        <span className="ih-secret-dots" aria-label="Hidden — you do not have permission to view this">••••••••</span>
+      </td>
+    )
+  }
+  return (
+    <td>
+      <span className="ih-secret">
+        {open
+          ? <span className="ih-secret-text" {...html(inlineMultiline(text))} />
+          : <span className="ih-secret-dots">••••••••</span>}
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="ih-eye"
+          aria-label={open ? 'Hide this information' : 'Show this information'}
+          aria-pressed={open}
+          title={open ? 'Hide' : 'Show'}
+        >
+          {open ? (
+            <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 3l14 14" /><path d="M8.2 8.3a2.4 2.4 0 003.4 3.4" />
+              <path d="M6.1 6.2C4.3 7.3 2.9 8.9 2.2 10c1.3 2.2 4.3 5 7.8 5 1.3 0 2.5-.4 3.6-1M12.7 5.4A7.9 7.9 0 0010 5c-.5 0-1 .05-1.4.14" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M2.2 10C3.5 7.8 6.5 5 10 5s6.5 2.8 7.8 5c-1.3 2.2-4.3 5-7.8 5s-6.5-2.8-7.8-5Z" />
+              <circle cx="10" cy="10" r="2.4" />
+            </svg>
+          )}
+        </button>
+      </span>
+    </td>
+  )
+}
+
+function Table({ headerRow, rows, secretCols, canReveal }) {
   const data = Array.isArray(rows) ? rows : []
   if (!data.length) return null
   const head = headerRow ? data[0] : null
   const body = headerRow ? data.slice(1) : data
+  const secret = Array.isArray(secretCols) ? secretCols : []
   return (
     <div className="ih-tbl-wrap">
       <table className="ih-tbl">
-        {head && <thead><tr>{head.map((c, i) => <th key={i} {...html(inlineHtml(c || ''))} />)}</tr></thead>}
-        <tbody>{body.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci} {...html(inlineHtml(c || ''))} />)}</tr>)}</tbody>
+        {head && <thead><tr>{head.map((c, i) => <th key={i} {...html(inlineMultiline(c || ''))} />)}</tr></thead>}
+        <tbody>{body.map((r, ri) => (
+          <tr key={ri}>{r.map((c, ci) => (
+            secret.includes(ci)
+              ? <SecretCell key={ci} text={c} canReveal={canReveal} />
+              /* Enter in a cell is a line break, same as a paragraph block */
+              : <td key={ci} {...html(inlineMultiline(c || ''))} />
+          ))}</tr>
+        ))}</tbody>
       </table>
     </div>
   )
@@ -239,7 +296,7 @@ function Faq({ items }) {
   )
 }
 
-function OneBlock({ b }) {
+function OneBlock({ b, canReveal }) {
   switch (b.type) {
     case 'heading':    return <Heading level={b.level} text={b.text} />
     case 'paragraph':  return <Para text={b.text} />
@@ -252,7 +309,7 @@ function OneBlock({ b }) {
     case 'callout':    return <Callout variant={b.variant} title={b.title} body={b.body} />
     case 'deadline':   return <Deadline title={b.title} date={b.date} note={b.note} />
     case 'columns':    return <Columns count={b.count} cols={b.cols} />
-    case 'table':      return <Table headerRow={b.headerRow} rows={b.rows} />
+    case 'table':      return <Table headerRow={b.headerRow} rows={b.rows} secretCols={b.secretCols} canReveal={canReveal} />
     case 'accordion':  return <Accordion items={b.items} />
     case 'image':      return <ImageBlock {...b} />
     case 'video':      return <VideoBlock url={b.url} caption={b.caption} />
@@ -264,11 +321,11 @@ function OneBlock({ b }) {
   }
 }
 
-export default function InfoBlocks({ blocks }) {
+export default function InfoBlocks({ blocks, canReveal = false }) {
   return (
     <div className="ih-root">
       <InfoBlocksStyle />
-      {(blocks || []).map(b => <div key={b.id} className="ih-block"><OneBlock b={b} /></div>)}
+      {(blocks || []).map(b => <div key={b.id} className="ih-block"><OneBlock b={b} canReveal={canReveal} /></div>)}
     </div>
   )
 }
@@ -358,6 +415,16 @@ export const IH_CSS = `
 /* Table */
 .ih-tbl-wrap{ overflow-x:auto; border:1px solid #E3E9F5; border-radius:12px; }
 .ih-tbl{ width:100%; border-collapse:collapse; font-size:14px; }
+/* Sensitive column: dots until revealed, with the eye kept on the right so a
+   column of them lines up. */
+.ih-secret{ display:flex; align-items:flex-start; gap:8px; justify-content:space-between; }
+.ih-secret-text{ flex:1; min-width:0; }
+.ih-secret-dots{ flex:1; letter-spacing:2px; color:#9AA5BC; user-select:none; }
+.ih-eye{ flex:none; display:inline-flex; align-items:center; justify-content:center;
+  width:22px; height:22px; border-radius:6px; color:#6B7A99; background:transparent;
+  border:none; cursor:pointer; transition:background .15s, color .15s; }
+.ih-eye:hover{ background:#EEF2FA; color:#325099; }
+.ih-eye:focus-visible{ outline:2px solid #325099; outline-offset:1px; }
 .ih-tbl th, .ih-tbl td{ border:1px solid #E8EDF8; padding:9px 12px; text-align:left; vertical-align:top; }
 .ih-tbl th{ background:#F8FAFF; color:#062E63; font-weight:700; }
 .ih-tbl tr:nth-child(even) td{ background:#FCFDFF; }

@@ -118,11 +118,20 @@ function PairsEditor({ items, onChange, keyA, keyB, labelA, labelB }) {
 
 function TableEditor({ block, set }) {
   const rows = block.rows
+  const secret = Array.isArray(block.secretCols) ? block.secretCols : []
   const setCell = (r, c, v) => set({ rows: rows.map((row, ri) => ri === r ? row.map((cell, ci) => ci === c ? v : cell) : row) })
   const addRow = () => set({ rows: [...rows, rows[0].map(() => '')] })
   const delRow = (r) => set({ rows: rows.length > 1 ? rows.filter((_, i) => i !== r) : rows })
   const addCol = () => set({ rows: rows.map(row => [...row, '']) })
-  const delCol = (c) => set({ rows: rows[0].length > 1 ? rows.map(row => row.filter((_, i) => i !== c)) : rows })
+  // Dropping a column has to shift every hidden-column index past it.
+  const delCol = (c) => {
+    if (rows[0].length <= 1) return
+    set({
+      rows: rows.map(row => row.filter((_, i) => i !== c)),
+      secretCols: secret.filter(i => i !== c).map(i => (i > c ? i - 1 : i)),
+    })
+  }
+  const toggleSecret = (c) => set({ secretCols: secret.includes(c) ? secret.filter(i => i !== c) : [...secret, c].sort((a, b) => a - b) })
   return (
     <div className="space-y-2">
       <label className="flex items-center gap-2 text-[11px] font-semibold text-[#325099]">
@@ -134,13 +143,34 @@ function TableEditor({ block, set }) {
             {rows.map((row, r) => (
               <tr key={r}>
                 {row.map((cell, c) => (
-                  <td key={c} className="p-0.5">
-                    <input className={I + ' min-w-[120px] text-xs'} value={cell} onChange={e => setCell(r, c, e.target.value)} />
+                  <td key={c} className="p-0.5 align-top">
+                    {/* A textarea, not an input, so Enter makes a line break */}
+                    <textarea
+                      className={I + ' min-w-[120px] text-xs resize-y leading-snug'}
+                      rows={Math.min(6, Math.max(1, String(cell || '').split('\n').length))}
+                      value={cell}
+                      onChange={e => setCell(r, c, e.target.value)}
+                    />
                   </td>
                 ))}
                 <td className="pl-1"><button onClick={() => delRow(r)} className="text-rose-400 hover:text-rose-600 text-xs" aria-label="Delete row">✕ row</button></td>
               </tr>
             ))}
+            {/* Per-column controls: hide behind an eye, or drop the column */}
+            <tr>{rows[0].map((_, c) => (
+              <td key={c} className="text-center pt-1">
+                <button
+                  onClick={() => toggleSecret(c)}
+                  title={secret.includes(c)
+                    ? 'Hidden — readers see dots and an eye to reveal it; teachers cannot reveal it'
+                    : 'Hide this column behind an eye'}
+                  aria-pressed={secret.includes(c)}
+                  className={`text-[10px] font-semibold ${secret.includes(c) ? 'text-[#325099]' : 'text-[#2A2035]/30 hover:text-[#325099]'}`}
+                >
+                  {secret.includes(c) ? '🙈 hidden' : '👁 hide'}
+                </button>
+              </td>
+            ))}<td /></tr>
             <tr>{rows[0].map((_, c) => (
               <td key={c} className="text-center"><button onClick={() => delCol(c)} className="text-rose-400 hover:text-rose-600 text-[10px]" aria-label="Delete column">✕ col</button></td>
             ))}<td /></tr>
@@ -151,6 +181,11 @@ function TableEditor({ block, set }) {
         <button onClick={addRow} className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">＋ Row</button>
         <button onClick={addCol} className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">＋ Column</button>
       </div>
+      {secret.length > 0 && (
+        <p className="text-[10px] text-[#2A2035]/45 leading-snug">
+          Hidden columns show as dots. Admins and directors get an eye to reveal a cell; teachers cannot.
+        </p>
+      )}
     </div>
   )
 }
@@ -409,7 +444,7 @@ export default function PageEditor({ page, staff }) {
         {preview ? (
           <div className="flex justify-center">
             <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-8 transition-all" style={{ width: deviceW, maxWidth: '100%' }}>
-              {blocks.length ? <InfoBlocks blocks={blocks} /> : <p className="text-sm text-[#2A2035]/40 text-center py-10">Nothing to preview yet.</p>}
+              {blocks.length ? <InfoBlocks blocks={blocks} canReveal /> : <p className="text-sm text-[#2A2035]/40 text-center py-10">Nothing to preview yet.</p>}
             </div>
           </div>
         ) : (
@@ -478,7 +513,7 @@ export default function PageEditor({ page, staff }) {
               ) : viewRev ? (
                 <div className="p-5">
                   <button onClick={() => setViewRev(null)} className="text-xs font-semibold text-[#325099] mb-3">← Back to list</button>
-                  <div className="bg-[#F8FAFF] rounded-xl border border-[#DEE7FF] p-5"><InfoBlocks blocks={viewRev.blocks} /></div>
+                  <div className="bg-[#F8FAFF] rounded-xl border border-[#DEE7FF] p-5"><InfoBlocks blocks={viewRev.blocks} canReveal /></div>
                 </div>
               ) : (
                 <div className="divide-y divide-[#EEF2FF]">

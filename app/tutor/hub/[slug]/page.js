@@ -28,6 +28,10 @@ function fmtDate(d) {
 export default function InfoViewPage() {
   const { slug } = useParams()
   const { staff, canEdit } = useHub()
+  // Only admins and directors get the eye on a hidden column; a teacher sees
+  // the dots and has no way to reveal them. (Directors sign in as 'admin' —
+  // see lib/infohub/visibility.js — so both roles are listed.)
+  const canReveal = ['admin', 'director'].includes(staff?.role)
   const [page, setPage] = useState(undefined)   // undefined=loading, null=not found
   const [legacy, setLegacy] = useState(null)    // { title, blocks } fallback
   const [ack, setAck] = useState(null)
@@ -126,7 +130,7 @@ export default function InfoViewPage() {
         {canEdit && <Link href="/tutor/hub/manage" className="shrink-0 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3.5 py-1.5 hover:bg-[#F0F4FF]">Manage pages</Link>}
       </div>
       {canEdit && <p className="text-[11px] text-[#92400E] font-semibold mb-6">Legacy page — import it in “Manage pages” to use the new editor.</p>}
-      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-8"><InfoBlocks blocks={legacy.blocks} /></div>
+      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-8"><InfoBlocks blocks={legacy.blocks} canReveal={canReveal} /></div>
     </div>
   )
 
@@ -197,7 +201,7 @@ export default function InfoViewPage() {
       <div className={`bg-white rounded-2xl border p-6 md:p-8 ${edit ? 'border-[#325099]/40 ring-2 ring-[#325099]/10' : 'border-[#DEE7FF]'}`}>
         {!blocks.length ? <p className="text-sm text-[#2A2035]/40 text-center py-6">This page is empty.</p>
           : edit ? <InlineBlocks blocks={blocks} onChange={onInlineChange} />
-          : <InfoBlocks blocks={blocks} />}
+          : <InfoBlocks blocks={blocks} canReveal={canReveal} />}
       </div>
       {edit && (
         <p className="text-[11px] text-[#2A2035]/50 mt-2">

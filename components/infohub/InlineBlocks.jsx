@@ -187,7 +187,7 @@ export default function InlineBlocks({ blocks, onChange }) {
               // saying where to change them — better than hiding them and
               // leaving a hole in the page you are editing.
               <div className="ihx-locked" title="Open the full editor to change this block">
-                <InfoBlocks blocks={[b]} />
+                <InfoBlocks blocks={[b]} canReveal />
               </div>
             )}
         </div>
