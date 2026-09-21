@@ -142,11 +142,9 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
           <button onClick={onClose} className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none">✕</button>
         </div>
 
-        {isNew && (
+        {isNew && !draftMode && (
           <p className="text-[11px] text-[#325099]/60 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3 py-2 mb-4">
-            {draftMode
-              ? 'Draft class — it is created for real, with its students enrolled, only when you Apply to live.'
-              : 'This creates a brand-new class in the database for this term.'}
+            This creates a brand-new class in the database for this term.
           </p>
         )}
 
