@@ -28,6 +28,23 @@ const SUBJECT_FAMILY = SUBJECT_FAMILIES
 // dashboards. Legacy rows with no status count as active.
 const isLiveClass = (c) => (c?.status || 'active') === 'active'
 
+/*
+ * The label on a booklet's PDF pill. Uploaded PDFs are named
+ * "<year>.<subject><S|T>. <name>" — "9.MS. Data & Stats 3" is the student copy
+ * and "9.MT." the teacher's — so the letter closing the code is the whole
+ * label worth showing. Falls back to upload order, then a number.
+ */
+const pdfRoleLabel = (name, i, total) => {
+  const code = String(name || '').split('.')[1] || ''
+  const last = code.trim().slice(-1).toUpperCase()
+  if (last === 'S' || last === 'T') return last
+  if (total <= 1) return 'PDF'
+  return i === 0 ? 'S' : i === 1 ? 'T' : String(i + 1)
+}
+const pdfRoleTitle = (l) => (l === 'S' ? 'Student PDF' : l === 'T' ? 'Teacher PDF' : 'Open the PDF')
+// One shape for every PDF pill in the curriculum.
+const PDF_PILL = 'inline-flex items-center text-[9px] font-bold h-[16px] rounded-md hover:opacity-80 transition whitespace-nowrap'
+
 const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
 const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
 const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry' || s === 'Physics' ? '#F0FDF4' : '#F5F3FF'
@@ -381,11 +398,13 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                             <div className="flex gap-1 shrink-0">
                               {pdfPaths.slice(0, 2).map((path, pi) => {
                                 const { data } = supabase.storage.from('booklets').getPublicUrl(path)
+                                const label = pdfRoleLabel(pdfNames[pi], pi, Math.min(pdfPaths.length, 2))
                                 return data?.publicUrl ? (
                                   <a key={pi} href={data.publicUrl} target="_blank" rel="noopener noreferrer"
-                                    className="text-[9px] font-bold px-1.5 py-[3px] rounded-md hover:opacity-80 transition whitespace-nowrap"
+                                    title={pdfRoleTitle(label)} aria-label={pdfRoleTitle(label)}
+                                    className={`${PDF_PILL} ${label.length === 1 ? 'w-[18px] justify-center' : 'px-1.5'}`}
                                     style={{ background: accentBg, color: accentColor }}>
-                                    {pdfNames[pi] ? pdfNames[pi].slice(0, 8) + (pdfNames[pi].length > 8 ? '…' : '') : `PDF ${pi + 1}`}
+                                    {label}
                                   </a>
                                 ) : null
                               })}
@@ -1267,6 +1286,7 @@ function BookletsPageInner() {
                         const pdfPaths = b
                           ? (b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : []))
                           : []
+                        const pdfNames = b?.pdf_filenames || []
 
                         if (b) {
                           // ── Assigned card ──────────────────────────────
@@ -1300,11 +1320,13 @@ function BookletsPageInner() {
                                     <div className="flex gap-1 shrink-0">
                                       {pdfPaths.map((path, i) => {
                                         const url = getPdfUrl(path)
+                                        const label = pdfRoleLabel(pdfNames[i], i, pdfPaths.length)
                                         return url ? (
                                           <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                                            className="text-[9px] font-bold px-1.5 py-[3px] rounded-md hover:opacity-80 transition whitespace-nowrap"
+                                            title={pdfRoleTitle(label)} aria-label={pdfRoleTitle(label)}
+                                            className={`${PDF_PILL} ${label.length === 1 ? 'w-[18px] justify-center' : 'px-1.5'}`}
                                             style={{ background: accentBg, color: accentColor }}>
-                                            {pdfPaths.length > 1 ? `PDF ${i + 1}` : 'PDF'}
+                                            {label}
                                           </a>
                                         ) : null
                                       })}
@@ -1694,6 +1716,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
                           const pdfPaths     = b
                             ? (b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : []))
                             : []
+                          const pdfNames     = b?.pdf_filenames || []
 
                           if (b) {
                             return (
@@ -1729,10 +1752,12 @@ function TutorCurriculumPage({ staff, scope = null }) {
                                               href={url}
                                               target="_blank"
                                               rel="noopener noreferrer"
-                                              className="text-[9px] font-bold px-1.5 py-0.5 rounded-md hover:opacity-75 transition"
+                                              title={pdfRoleTitle(pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length))}
+                                              aria-label={pdfRoleTitle(pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length))}
+                                              className={`${PDF_PILL} ${pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length).length === 1 ? 'w-[18px] justify-center' : 'px-1.5'}`}
                                               style={{ background: accentBg, color: accent }}
                                             >
-                                              {pdfPaths.length > 1 ? `PDF ${pi + 1}` : '📄 PDF'}
+                                              {pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length)}
                                             </a>
                                           ) : null
                                         })}
