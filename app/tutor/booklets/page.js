@@ -53,15 +53,31 @@ const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry'
 // One Info button per card — opens the consolidated booklet modal (details,
 // content, notes, improvement checklists). Badged amber with the number of open
 // checklist items so a booklet with outstanding fixes reads at a glance.
-const InfoButton = ({ booklet, onClick, size = 'text-[10px]' }) => {
+// Curriculum row actions are icon-only — the words "Info" and "Builder" were
+// repeated on every slot. Drawn as SVG rather than emoji so they can take the
+// amber tint that flags an open checklist (emoji ignore text colour).
+const ICON_BTN = 'inline-flex items-center justify-center w-[20px] h-[20px] rounded-md transition shrink-0'
+
+const InfoButton = ({ booklet, onClick }) => {
   const n = openTotal(booklet)
+  const label = n ? `${n} open item${n === 1 ? '' : 's'} on the improvement checklist` : 'All info for this booklet'
   return (
     <button
       onClick={onClick}
-      title={n ? `${n} open item${n === 1 ? '' : 's'} on the improvement checklist` : 'All info for this booklet'}
-      className={`${size} font-semibold transition ${
-        n ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/70 hover:text-[#325099] hover:underline'}`}
-    >ℹ️ Info{n ? ` · ${n}` : ''}</button>
+      title={label}
+      aria-label={label}
+      className={`${ICON_BTN} relative ${n ? 'text-[#B45309] hover:bg-[#FEF3C7]' : 'text-[#325099]/55 hover:text-[#325099] hover:bg-[#EEF2FA]'}`}
+    >
+      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="10" cy="10" r="7.4" /><path d="M10 9v4.2" /><path d="M10 6.6v.1" />
+      </svg>
+      {/* A count only appears when something is actually open */}
+      {n > 0 && (
+        <span className="absolute -top-[3px] -right-[3px] min-w-[11px] h-[11px] px-[2px] rounded-full bg-[#B45309] text-white text-[7px] font-bold leading-[11px] text-center">
+          {n > 9 ? '9+' : n}
+        </span>
+      )}
+    </button>
   )
 }
 
@@ -282,7 +298,7 @@ function useBuildIds(bookletIds, enabled) {
   return state.key === key ? state.map : NO_BUILDS
 }
 
-function BuilderButton({ buildId, size = 'text-[10px]' }) {
+function BuilderButton({ buildId }) {
   if (!buildId) return null
   return (
     <a
@@ -290,9 +306,14 @@ function BuilderButton({ buildId, size = 'text-[10px]' }) {
       target="_blank"
       rel="noopener noreferrer"
       title="Open this booklet in the builder"
+      aria-label="Open this booklet in the builder"
       onClick={(e) => e.stopPropagation()}
-      className={`${size} font-semibold text-[#325099]/60 hover:text-[#325099] hover:underline transition whitespace-nowrap`}
-    >🛠 Builder</a>
+      className={`${ICON_BTN} text-[#325099]/55 hover:text-[#325099] hover:bg-[#EEF2FA]`}
+    >
+      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12.6 3.4a3.6 3.6 0 00-4.8 4.3L3.3 12.2a1.6 1.6 0 002.2 2.3l4.6-4.4a3.6 3.6 0 004.4-4.7l-2 2-1.8-.4-.4-1.8 2-1.8Z" />
+      </svg>
+    </a>
   )
 }
 
@@ -411,8 +432,8 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                         <div className="flex items-center mt-[3px] pl-[44px] h-[14px]">
                           <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
                           <span className="absolute left-[44px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <InfoButton booklet={b} size="text-[9px]" onClick={() => setInfoFor(b)} />
-                            {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[9px]" />}
+                            <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
+                            {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} />}
                             <button onClick={() => handleUnassign(a.id)}
                               className="text-[9px] font-semibold text-[#A8531A] hover:underline transition">Unassign</button>
                           </span>
@@ -1327,8 +1348,8 @@ function BookletsPageInner() {
                                 <div className="flex items-center mt-[3px] pl-[44px] h-[14px]">
                                   <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
                                   <span className="absolute left-[44px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <InfoButton booklet={b} size="text-[10px]" onClick={() => setInfoFor(b)} />
-                                    {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} size="text-[10px]" />}
+                                    <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
+                                    {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} />}
                                     <button onClick={async () => {
                                       await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                       load()
