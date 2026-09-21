@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
+import { touchAvailability, availabilityUpdatedLabel, availabilityUpdatedExact } from '../../../lib/availability'
 
 const DAYS         = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const WEEKDAY_SLOTS = ['16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30']
@@ -29,6 +30,7 @@ export default function AvailabilityPage() {
   const [avail,    setAvail]    = useState(new Set()) // Set of "day|slot" strings
   const [toggling, setToggling] = useState(new Set()) // cells currently saving
   const [loading,  setLoading]  = useState(true)
+  const [stamp,    setStamp]    = useState(null)  // { availability_updated_at, availability_updated_by }
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -41,16 +43,31 @@ export default function AvailabilityPage() {
   const loadAvail = useCallback(async () => {
     if (!profile) return
     setLoading(true)
-    const { data } = await supabase
-      .from('teacher_availability')
-      .select('day_of_week, slot_time')
-      .eq('tutor_id', profile.id)
+    const [{ data }, { data: me }] = await Promise.all([
+      supabase
+        .from('teacher_availability')
+        .select('day_of_week, slot_time')
+        .eq('tutor_id', profile.id),
+      supabase
+        .from('tutors')
+        .select('availability_updated_at, availability_updated_by')
+        .eq('id', profile.id)
+        .maybeSingle(),
+    ])
     const keys = new Set((data || []).map(r => `${r.day_of_week}|${r.slot_time}`))
     setAvail(keys)
+    setStamp(me || null)
     setLoading(false)
   }, [profile])
 
   useEffect(() => { loadAvail() }, [loadAvail])
+
+  // Removing a slot deletes its row, so the table itself can't say when you
+  // last changed anything — the tutor row carries the answer.
+  const stampNow = async () => {
+    const at = await touchAvailability(profile?.id, profile?.full_name)
+    if (at) setStamp({ availability_updated_at: at, availability_updated_by: profile?.full_name || null })
+  }
 
   const toggle = async (day, slot) => {
     const key = `${day}|${slot}`
@@ -76,6 +93,7 @@ export default function AvailabilityPage() {
         .insert({ tutor_id: profile.id, day_of_week: day, slot_time: slot })
     }
 
+    await stampNow()
     setToggling(prev => { const n = new Set(prev); n.delete(key); return n })
   }
 
@@ -105,11 +123,16 @@ export default function AvailabilityPage() {
               <span className="text-xs font-semibold text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] px-3 py-1 rounded-full">
                 {availCount} slot{availCount !== 1 ? 's' : ''} marked available
               </span>
+              <span className="text-[11px] text-[#325099]/45"
+                title={availabilityUpdatedExact({ ...(stamp || {}), full_name: profile?.full_name })}>
+                {availabilityUpdatedLabel({ ...(stamp || {}), full_name: profile?.full_name })}
+              </span>
               {availCount > 0 && (
                 <button
                   onClick={async () => {
                     await supabase.from('teacher_availability').delete().eq('tutor_id', profile.id)
                     setAvail(new Set())
+                    await stampNow()
                   }}
                   className="text-[11px] text-[#325099]/50 hover:text-red-500 transition"
                 >

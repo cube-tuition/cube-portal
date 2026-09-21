@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import { touchAvailability, availabilityUpdatedLabel, availabilityUpdatedExact } from '../../../../lib/availability'
 
 const WEEKDAYS      = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAYS          = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -246,6 +247,9 @@ function TutorCard({ tutor, color, avail, onCellClick }) {
           <p className="text-xs text-[#325099]/50 mt-0.5">
             {mySlots.length === 0 ? 'No availability set' : `${mySlots.length} slot${mySlots.length !== 1 ? 's' : ''} available`}
           </p>
+          <p className="text-[11px] text-[#325099]/40 mt-0.5" title={availabilityUpdatedExact(tutor)}>
+            {availabilityUpdatedLabel(tutor)}
+          </p>
         </div>
       </div>
 
@@ -305,7 +309,7 @@ export default function AllAvailabilitiesPage() {
     ;(async () => {
       setLoading(true)
       const [{ data: tutorRows }, { data: availRows }] = await Promise.all([
-        supabase.from('tutors').select('id, full_name').eq('active', true).order('full_name'),
+        supabase.from('tutors').select('id, full_name, availability_updated_at, availability_updated_by').eq('active', true).order('full_name'),
         supabase.from('teacher_availability').select('tutor_id, day_of_week, slot_time'),
       ])
       setTutors(tutorRows || [])
@@ -349,6 +353,11 @@ export default function AllAvailabilitiesPage() {
       await supabase.from('teacher_availability')
         .insert({ tutor_id: tutorId, day_of_week: day, slot_time: slot })
     }
+    // A director changing someone's grid is still a change to that tutor's
+    // availability — stamped in their name, so the card says who.
+    const at = await touchAvailability(tutorId, profile?.full_name)
+    if (at) setTutors(ts => ts.map(t => (t.id === tutorId
+      ? { ...t, availability_updated_at: at, availability_updated_by: profile?.full_name || null } : t)))
   }
 
   return (
@@ -419,6 +428,7 @@ export default function AllAvailabilitiesPage() {
                     <button
                       key={t.id}
                       onClick={() => setFilter(f => f === t.id ? '' : t.id)}
+                      title={`${t.full_name} — ${availabilityUpdatedLabel(t)}`}
                       className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
                         active ? 'ring-2 ring-offset-1' : 'hover:opacity-80'
                       }`}
