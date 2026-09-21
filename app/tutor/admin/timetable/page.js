@@ -381,6 +381,7 @@ export default function TimetablePage() {
   const [drafts, setDrafts]         = useState([])     // [{ id, name, updated_at }] for this term
   const [draftId, setDraftId]       = useState('')     // the open draft
   const liveSnapshot = useRef(null)  // live entries captured on entering draft (for exit + apply diff)
+  const [liveList, setLiveList] = useState([])  // the same snapshot as state, for what renders (import button)
   const [hiddenIds, setHiddenIds]   = useState(() => new Set())  // cards hidden in the open draft
   const [pdfModal, setPdfModal] = useState(false)
   // Filters narrow what the grid SHOWS; clash and availability checks still run
@@ -770,6 +771,7 @@ export default function TimetablePage() {
     liveRosters.current = rosters
     const seeded = entries.map(e => ({ ...e, student_ids: rosters[e.id] || [] }))
     liveSnapshot.current = seeded
+    setLiveList(seeded)
     setEntries(seeded)
     setHiddenIds(new Set()); setDraftDirty(false)
     let list = await listDrafts(termId)
@@ -780,6 +782,17 @@ export default function TimetablePage() {
     setDrafts(list)
     setDraftMode(true)
     await openDraft(list[0].id)
+  }
+
+  // Pull the live timetable into the open draft: every live class the draft
+  // does not already have, with its live roster. Drafts are seeded only when
+  // they are created, so one made before a term's classes existed (or before
+  // the term transition copied them in) opens empty — this fills it.
+  const liveMissing = draftMode ? liveList.filter(l => !entries.some(e => String(e.id) === String(l.id))) : []
+  const importLive = () => {
+    if (!liveMissing.length) return
+    setEntries(prev => [...prev, ...liveMissing.map(l => ({ ...l, student_ids: l.student_ids || [] }))])
+    setDraftDirty(true)
   }
 
   const switchDraft = async (id) => {
@@ -831,6 +844,7 @@ export default function TimetablePage() {
     setDraftMode(false); setDraftId(''); setDraftDirty(false); setHiddenIds(new Set())
     if (liveSnapshot.current) setEntries(liveSnapshot.current)
     liveSnapshot.current = null
+    setLiveList([])
   }
 
   // Push the open draft's arrangement onto the live classes. Guarded by a
@@ -947,6 +961,7 @@ export default function TimetablePage() {
     const { data } = await supabase.from(T_CLASSES).select(CLASS_COLS).eq('term_id', termId)
     liveSnapshot.current = data || []
     liveRosters.current = await loadLiveRosters(data || [])
+    setLiveList((data || []).map(e => ({ ...e, student_ids: liveRosters.current[e.id] || [] })))
     // The draft's new cards now point at real classes.
     if (Object.keys(idMap).length) {
       const remapped = entries.map(e => idMap[e.id] ? { ...e, id: idMap[e.id] } : e)
@@ -1107,6 +1122,13 @@ export default function TimetablePage() {
                 </select>
                 <button onClick={newDraft} title="New draft (seeded from the live timetable)"
                   className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition">+ New</button>
+                {liveMissing.length > 0 && (
+                  <button onClick={importLive}
+                    title="Add every live class this draft doesn't have yet, with its current students"
+                    className={`text-sm font-semibold rounded-xl px-3 py-2 border transition ${entries.length === 0 ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
+                    ⤓ Import {liveMissing.length} live class{liveMissing.length === 1 ? '' : 'es'}
+                  </button>
+                )}
                 <button onClick={renameDraftNow} title="Rename this draft"
                   className="text-sm rounded-xl px-2.5 py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition">✎</button>
                 {hiddenIds.size > 0 && (
@@ -1234,6 +1256,17 @@ export default function TimetablePage() {
             </span>
           )}
         </div>
+
+        {draftMode && !loading && entries.length === 0 && (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 flex items-center justify-between gap-3 flex-wrap">
+            <span>This draft is empty — it was created before this term had classes. Import the live timetable to start from the real layout, or double-click a slot to add classes from scratch.</span>
+            {liveMissing.length > 0 && (
+              <button onClick={importLive} className="text-sm font-semibold rounded-xl px-4 py-2 bg-amber-600 text-white hover:bg-amber-700 transition shrink-0">
+                ⤓ Import {liveMissing.length} live class{liveMissing.length === 1 ? '' : 'es'}
+              </button>
+            )}
+          </div>
+        )}
 
         {loading ? (
           <div className="flex justify-center py-20">
