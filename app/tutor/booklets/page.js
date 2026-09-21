@@ -357,16 +357,11 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
           const filled = [...Array(10)].filter((_, i) => slotMap[`${term}-${i + 1}`]).length
           return (
           <div key={term} className="flex flex-col min-w-0">
-            <div className="px-3 pt-1.5 pb-2 rounded-[10px] mb-2 bg-white border border-[#E6ECF8] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] font-bold tracking-wide text-[#0B2E5E]">Term {term}</span>
-                <span className="text-[9px] font-bold tabular-nums" style={{ color: accentColor }}>
-                  {filled}<span className="text-[#B4BFD4] font-semibold">/10</span>
-                </span>
-              </div>
-              <div className="h-[3px] rounded-full bg-[#EDF1FA] overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{ width: `${filled * 10}%`, background: accentColor }} />
-              </div>
+            <div className="px-3 py-1.5 rounded-[10px] mb-2 bg-white border border-[#E6ECF8] shadow-[0_1px_2px_rgba(16,24,40,0.04)] flex items-center justify-between">
+              <span className="text-[11px] font-bold tracking-wide text-[#0B2E5E]">Term {term}</span>
+              <span className="text-[9px] font-bold tabular-nums" style={{ color: accentColor }}>
+                {filled}<span className="text-[#B4BFD4] font-semibold">/10</span>
+              </span>
             </div>
             <div className="flex flex-col gap-1.5">
               {Array.from({ length: 10 }, (_, i) => i + 1).map(week => {
@@ -1265,17 +1260,11 @@ function BookletsPageInner() {
                 return (
                   <div key={termNum} className="flex flex-col min-w-0">
                     {/* Column header */}
-                    <div className="px-3 pt-2 pb-2.5 rounded-[10px] mb-3 bg-white border border-[#E6ECF8] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[12px] font-bold tracking-wide text-[#0B2E5E]">Term {termNum}</span>
-                        <span className="text-[10px] font-bold tabular-nums" style={{ color: accentColor }}>
-                          {assignedCount}<span className="text-[#B4BFD4] font-semibold">/10</span>
-                        </span>
-                      </div>
-                      {/* How full the term is, at a glance */}
-                      <div className="h-[3px] rounded-full bg-[#EDF1FA] overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${assignedCount * 10}%`, background: accentColor }} />
-                      </div>
+                    <div className="px-3 py-2 rounded-[10px] mb-3 bg-white border border-[#E6ECF8] shadow-[0_1px_2px_rgba(16,24,40,0.04)] flex items-center justify-between">
+                      <span className="text-[12px] font-bold tracking-wide text-[#0B2E5E]">Term {termNum}</span>
+                      <span className="text-[10px] font-bold tabular-nums" style={{ color: accentColor }}>
+                        {assignedCount}<span className="text-[#B4BFD4] font-semibold">/10</span>
+                      </span>
                     </div>
 
                     {/* One row per week 1–10 */}
