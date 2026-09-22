@@ -13,7 +13,7 @@ import { newBlock } from '../../lib/bookletRender'
  */
 
 const SUBJECTS = ['Mathematics', 'English', 'Chemistry', 'Science']
-const YEARS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+const YEARS = [3, 5, 6, 7, 8, 9, 10, 11, 12]   // no Year 4 — CUBE doesn't teach it
 
 // The booklet builder's canonical subject value is 'Maths' (labelled
 // "Mathematics"); store that so its subject dropdown doesn't duplicate.

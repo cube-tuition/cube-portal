@@ -651,7 +651,7 @@ function AddStudentModal({ onClose, onAdded }) {
                   <SDField label="Year">
                     <select value={form.year} onChange={set('year')} className={SD_INPUT_CLS}>
                       <option value="">Select year…</option>
-                      {['K','1','2','3','4','5','6','7','8','9','10','11','12'].map(y => <option key={y} value={y}>{y === 'K' ? 'Kindergarten' : `Year ${y}`}</option>)}
+                      {['K','1','2','3','5','6','7','8','9','10','11','12'].map(y => <option key={y} value={y}>{y === 'K' ? 'Kindergarten' : `Year ${y}`}</option>)}
                     </select>
                   </SDField>
                 </div>
