@@ -13,46 +13,22 @@ import { T_COURSE_OFFERS, T_HOLIDAY_COURSE_EMAILS, T_FORMS } from '../../../../l
 /*
  * Marketing — /tutor/admin/marketing (admin only)
  *
- * The marketing regime on one page. The FUNNEL across the top is the frame:
- * five stages a family moves through, live counts on the boxes, conversion
- * on the arrows, and under each stage the actions that move families along.
- * Below it the TERM PLAN puts those actions on a ten-week strip with done
- * ticks (the same cadence the Action Centre raises each week), CHANNELS shows
- * where enquiries come from and what the referral programme is doing, and
- * CAMPAIGNS / LINKS gather the sendable pieces and public forms.
+ * The marketing regime on one page. STRATEGIES lists what we run, the TERM
+ * PLAN puts each term's actions on a ten-week strip with done ticks (the same
+ * cadence the Action Centre raises each week), CHANNELS shows where enquiries
+ * come from and what the referral programme is doing, and CAMPAIGNS / LINKS
+ * gather the sendable pieces and public forms. The plan's optional Stage
+ * column (reach / enquire / trial / enrol / stay) is kept so existing plans
+ * still parse; it is no longer drawn as a funnel.
  */
 
+// The plan's Stage column vocabulary (the funnel that used to draw these is gone).
 const STAGES = [
-  { key: 'reach',   label: 'Reach',        blurb: 'Families hear of CUBE',
-    actions: [
-      { label: 'Referral programme ($50 each way)', href: '/tutor/emails/discount-program' },
-      { label: 'Website free-trial form', href: 'https://www.cubetuition.com.au/free-trial', external: true },
-      { label: 'Google reviews ask (after reports)', href: '/tutor/emails/end-of-term' },
-      { label: 'Holiday course push', href: '/tutor/emails/holiday-courses' },
-    ] },
-  { key: 'enquire', label: 'Enquire',      blurb: 'A trial request arrives',
-    actions: [
-      { label: 'Follow up within 2 days', href: '/tutor/trials' },
-      { label: 'Book a trial + level test', href: '/tutor/trials' },
-    ] },
-  { key: 'trial',   label: 'Trial',        blurb: 'They try a lesson',
-    actions: [
-      { label: 'Trial reminder email', href: '/tutor/emails/trials' },
-      { label: 'Trial outcome + level-test report', href: '/tutor/trials' },
-    ] },
-  { key: 'enrol',   label: 'Enrol',        blurb: 'They join for the term',
-    actions: [
-      { label: 'Term Start email + invoice', href: '/tutor/emails/term-start' },
-      { label: 'Enrolment form', href: '/tutor/admin/forms' },
-      { label: 'Welcome line: "ask about referral & sibling discounts"', href: '/tutor/emails' },
-    ] },
-  { key: 'stay',    label: 'Stay & refer', blurb: 'They re-enrol and bring others',
-    actions: [
-      { label: 'Discount Program email (week 2)', href: '/tutor/emails/discount-program' },
-      { label: 'Mid-term + end-of-term reports', href: '/tutor/emails/end-of-term' },
-      { label: 'Re-enrolment reminder (weeks 7–8)', href: '/tutor/emails/term-start' },
-      { label: 'Course Offers to existing families', href: '/tutor/emails/course-offers' },
-    ] },
+  { key: 'reach', label: 'Reach' },
+  { key: 'enquire', label: 'Enquire' },
+  { key: 'trial', label: 'Trial' },
+  { key: 'enrol', label: 'Enrol' },
+  { key: 'stay', label: 'Stay & refer' },
 ]
 
 // Which funnel stage a plan row belongs to: an explicit 4th column wins, else
@@ -214,7 +190,6 @@ function StrategiesSection() {
   )
 }
 
-const fmtPct = (a, b) => b > 0 ? `${Math.round((a / b) * 100)}%` : '—'
 const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'
 
 export default function MarketingPage() {
@@ -322,9 +297,6 @@ export default function MarketingPage() {
 
   if (!profile || loading) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
-  const counts = { reach: funnel.referred, enquire: funnel.enquired, trial: funnel.trialled, enrol: funnel.enrolled, stay: funnel.referred }
-  const arrows = [null, fmtPct(funnel.contacted, funnel.enquired), fmtPct(funnel.trialled, funnel.enquired), fmtPct(funnel.enrolled, funnel.trialled), fmtPct(funnel.referred, funnel.enrolled)]
-  const rowsByStage = Object.fromEntries(STAGE_KEYS.map(k => [k, plan.filter(r => stageOf(r) === k)]))
   const maxChan = Math.max(1, ...channels.map(c => c.n))
   const referralLine = 'Know a family who’d benefit from CUBE? Refer them and you both get $50 off your term fees.'
 
@@ -345,45 +317,6 @@ export default function MarketingPage() {
             <button onClick={() => setScope('all')} className={`px-3 py-1 rounded-full ${scope === 'all' ? 'bg-[#062E63] text-white' : 'text-[#325099]'}`}>All time</button>
           </div>
         </div>
-
-        {/* ── Funnel ─────────────────────────────────────────────────────── */}
-        <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-          <p className="text-xs font-bold text-[#062E63] mb-4">The journey — {scope === 'all' ? 'all time' : term ? formatTermLabel(term) : ''}</p>
-          <div className="grid grid-cols-1 md:grid-cols-[repeat(5,minmax(0,1fr))] gap-3 items-stretch">
-            {STAGES.map((s, i) => (
-              <div key={s.key} className="relative flex flex-col">
-                {i > 0 && (
-                  <div className="hidden md:flex absolute -left-3 top-9 -translate-x-1/2 flex-col items-center z-10">
-                    <span className="text-[#BACBFF] text-lg leading-none">→</span>
-                    <span className="text-[9px] font-bold text-[#325099] bg-white px-1 rounded">{arrows[i]}</span>
-                  </div>
-                )}
-                <div className={`rounded-xl border p-3.5 ${i === 3 ? 'bg-[#062E63] border-[#062E63] text-white' : 'bg-[#F8FAFF] border-[#DEE7FF]'}`}>
-                  <p className={`text-[10px] font-bold uppercase tracking-wider ${i === 3 ? 'text-white/70' : 'text-[#325099]/70'}`}>{i + 1} · {s.label}</p>
-                  <p className={`text-2xl font-bold tabular-nums mt-0.5 ${i === 3 ? 'text-white' : 'text-[#062E63]'}`}>
-                    {s.key === 'reach' ? <span className="text-base">{counts.reach} via referral</span> : counts[s.key]}
-                  </p>
-                  <p className={`text-[11px] ${i === 3 ? 'text-white/70' : 'text-[#2A2035]/50'}`}>{s.blurb}</p>
-                </div>
-                <ul className="mt-2 space-y-1 flex-1">
-                  {s.actions.map(a => (
-                    <li key={a.label}>
-                      {a.external
-                        ? <a href={a.href} target="_blank" rel="noreferrer" className="block text-[11px] text-[#2A2035]/75 hover:text-[#325099] bg-white border border-[#F0F4FF] rounded-lg px-2.5 py-1.5">↗ {a.label}</a>
-                        : <Link href={a.href} className="block text-[11px] text-[#2A2035]/75 hover:text-[#325099] bg-white border border-[#F0F4FF] rounded-lg px-2.5 py-1.5">{a.label}</Link>}
-                    </li>
-                  ))}
-                  {rowsByStage[s.key].map(r => (
-                    <li key={r.key} className={`text-[11px] rounded-lg px-2.5 py-1.5 border ${doneKeys.includes(r.key) ? 'bg-[#ECFDF5] border-[#A7F3D0] text-[#065F46]' : 'bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]'}`} title={r.notes}>
-                      {doneKeys.includes(r.key) ? '✓' : '○'} {r.email} <span className="opacity-60">· {r.when}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] text-[#2A2035]/40 mt-3">Counts come from the trials pipeline. Arrows show the share moving to the next stage. Amber items are this term&apos;s planned actions from the plan below; green are done.</p>
-        </section>
 
         <StrategiesSection />
 
