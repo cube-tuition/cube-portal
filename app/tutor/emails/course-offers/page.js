@@ -11,7 +11,7 @@ import { T_STUDENTS, T_PARENTS, T_CLASSES, T_ENROLMENTS, T_COURSE_OFFERS } from 
 import { inferSubject } from '../../../../components/CourseDetail'
 import { TEST_RECIPIENT } from '../../../../lib/emailConfig'
 import {
-  OFFER_SUBJECTS, OFFER_YEARS, DEFAULT_OFFER_BODY, buildCourseOfferEmailHtml,
+  OFFER_SUBJECTS, OFFER_YEARS, DEFAULT_OFFER_BODY, DEFAULT_CTA, buildCourseOfferEmailHtml,
 } from '../../../../lib/courseOfferEmail'
 
 /*
@@ -26,6 +26,7 @@ import {
 
 const BLANK = () => ({
   name: 'Untitled offer', email_subject: '', body: DEFAULT_OFFER_BODY, offer_highlight: '',
+  cta_label: '', cta_url: '',
   year_levels: [], requires_subjects: [], excludes_subjects: [],
 })
 
@@ -57,6 +58,7 @@ export default function CourseOffersPage() {
     setDraft({
       name: o.name || 'Untitled offer', email_subject: o.email_subject || '', body: o.body || DEFAULT_OFFER_BODY,
       offer_highlight: o.offer_highlight || '',
+      cta_label: o.cta_label || '', cta_url: o.cta_url || '',
       year_levels: o.year_levels || [], requires_subjects: o.requires_subjects || [], excludes_subjects: o.excludes_subjects || [],
     })
     setDirty(false); setUnchecked(new Set()); setResults(null); setTestSentTo(null)
@@ -168,13 +170,13 @@ export default function CourseOffersPage() {
   const noEmailCount = matchingFamilies.filter(f => !f.parent_email).length
 
   const previewHtml = useMemo(
-    () => buildCourseOfferEmailHtml(draft.body, { parentName: selected[0]?.parent_name || 'there', studentNames: selected[0]?.student_names || 'your child' }, draft.offer_highlight),
-    [draft.body, draft.offer_highlight, selected])
+    () => buildCourseOfferEmailHtml(draft.body, { parentName: selected[0]?.parent_name || 'there', studentNames: selected[0]?.student_names || 'your child' }, draft.offer_highlight, { label: draft.cta_label, url: draft.cta_url }),
+    [draft.body, draft.offer_highlight, draft.cta_label, draft.cta_url, selected])
 
   // ── Send ─────────────────────────────────────────────────────────────────────
   const post = (payload) => authedFetch('/api/send-course-offer-emails', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subject: draft.email_subject, body: draft.body, highlight: draft.offer_highlight, ...payload }),
+    body: JSON.stringify({ subject: draft.email_subject, body: draft.body, highlight: draft.offer_highlight, cta: { label: draft.cta_label, url: draft.cta_url }, ...payload }),
   })
   const sendTest = async () => {
     setTesting(true); setError(null); setTestSentTo(null)
@@ -283,9 +285,27 @@ export default function CourseOffersPage() {
                 <input value={draft.email_subject} onChange={e => setField('email_subject', e.target.value)}
                   placeholder="e.g. A great fit for {{student_names}} — try Chemistry this term"
                   className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm mb-4 focus:outline-none focus:border-[#325099]" />
-                <label className="block text-[11px] font-semibold text-[#325099] mb-1">Body <span className="font-normal text-[#325099]/50">· {'{{parent_name}}'}, {'{{student_names}}'} · {'{{special_offer}}'} = the offer box · {'{{trial_button}}'} = the trial-form button · **bold** · lines starting with - become dot points</span></label>
+                <label className="block text-[11px] font-semibold text-[#325099] mb-1">Body <span className="font-normal text-[#325099]/50">· {'{{parent_name}}'}, {'{{student_names}}'} · {'{{special_offer}}'} = the offer box · {'{{cta_button}}'} = the button · **bold** · lines starting with - become dot points</span></label>
                 <textarea value={draft.body} onChange={e => setField('body', e.target.value)} rows={16}
                   className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm leading-relaxed font-mono focus:outline-none focus:border-[#325099] resize-y" />
+
+                {/* Where {{cta_button}} sends them. Blank = the free-trial form,
+                    which is right for most offers; a course with limited spots
+                    points at its own expression-of-interest form instead. */}
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.4fr] gap-3 mt-4">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#325099] mb-1">Button text</label>
+                    <input value={draft.cta_label} onChange={e => setField('cta_label', e.target.value)}
+                      placeholder={DEFAULT_CTA.label}
+                      className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#325099] mb-1">Button link <span className="font-normal text-[#325099]/50">· blank = the free-trial form</span></label>
+                    <input value={draft.cta_url} onChange={e => setField('cta_url', e.target.value)}
+                      placeholder={DEFAULT_CTA.url}
+                      className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
+                  </div>
+                </div>
               </section>
             </div>
 
