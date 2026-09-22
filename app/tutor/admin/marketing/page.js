@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
@@ -104,21 +104,33 @@ const uid = () => Math.random().toString(36).slice(2, 8)
 
 function StrategiesSection() {
   const [cats, setCats] = useState(null)
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState('')   // '' | 'saving' | 'saved' | 'failed'
   const [editingItem, setEditingItem] = useState(null)   // { catId, item } while a row's fields are open
+  const timer = useRef(null)
+  const latest = useRef(null)
   useEffect(() => {
     supabase.from('portal_settings').select('value').eq('key', STRATEGIES_KEY).maybeSingle().then(({ data }) => {
-      try { setCats(data?.value ? JSON.parse(data.value) : DEFAULT_STRATEGIES) } catch { setCats(DEFAULT_STRATEGIES) }
+      let parsed = DEFAULT_STRATEGIES
+      try { if (data?.value) parsed = JSON.parse(data.value) } catch { /* fall back to the default list */ }
+      if (!Array.isArray(parsed)) parsed = DEFAULT_STRATEGIES
+      latest.current = parsed; setCats(parsed)
     })
+    return () => clearTimeout(timer.current)
   }, [])
-  const update = (fn) => { setCats(prev => fn(prev)); setDirty(true) }
-  const save = async () => {
-    setSaving(true)
-    const { error } = await supabase.from('portal_settings').upsert({ key: STRATEGIES_KEY, value: JSON.stringify(cats), updated_at: new Date().toISOString() })
-    setSaving(false)
-    if (error) { alert('Could not save: ' + error.message); return }
-    setDirty(false)
+  // Every edit saves itself a moment later — there is no button to miss.
+  const persist = async () => {
+    const value = latest.current
+    if (!value) return
+    setStatus('saving')
+    const { error } = await supabase.from('portal_settings').upsert({ key: STRATEGIES_KEY, value: JSON.stringify(value), updated_at: new Date().toISOString() })
+    if (error) { setStatus('failed'); timer.current = setTimeout(persist, 4000); return }
+    setStatus('saved')
+  }
+  const update = (fn) => {
+    setCats(prev => { const next = fn(prev); latest.current = next; return next })
+    setStatus('saving')
+    clearTimeout(timer.current)
+    timer.current = setTimeout(persist, 600)
   }
   const setItem = (catId, itemId, patch) => update(prev => prev.map(c => c.id !== catId ? c : { ...c, items: c.items.map(i => i.id === itemId ? { ...i, ...patch } : i) }))
   const removeItem = (catId, itemId) => update(prev => prev.map(c => c.id !== catId ? c : { ...c, items: c.items.filter(i => i.id !== itemId) }))
@@ -137,10 +149,14 @@ function StrategiesSection() {
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-[#2A2035]/45">{totals.active || 0} active · {totals.idea || 0} ideas · {totals.paused || 0} paused</span>
           <button onClick={addCategory} className="text-[11px] font-semibold text-[#325099] hover:underline">+ Category</button>
-          {dirty && <button onClick={save} disabled={saving} className="text-xs font-semibold bg-[#325099] text-white px-3 py-1.5 rounded-lg hover:bg-[#062E63] disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button>}
+          {status && (
+            <span className={`text-[10px] font-semibold ${status === 'failed' ? 'text-[#B23A3A]' : status === 'saving' ? 'text-[#2A2035]/40' : 'text-[#047857]'}`}>
+              {status === 'failed' ? 'Not saved — retrying…' : status === 'saving' ? 'Saving…' : 'Saved ✓'}
+            </span>
+          )}
         </div>
       </div>
-      <p className="text-[11px] text-[#2A2035]/45 mb-4">Every way CUBE reaches families, grouped by channel. Click a status pill to cycle Idea → Active → Paused; click a title to edit it.</p>
+      <p className="text-[11px] text-[#2A2035]/45 mb-4">Every way CUBE reaches families, grouped by channel. Click a status pill to cycle Idea → Active → Paused; click a title to edit it. Changes save on their own.</p>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {cats.map(c => (
           <div key={c.id} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] flex flex-col">
