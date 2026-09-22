@@ -7,23 +7,21 @@ import { T_CLASSES, T_ENROLMENTS } from '../lib/tables'
 /*
  * How enrolments and student numbers have moved, term by term.
  *
- * Two different counts, deliberately shown side by side:
- *   students   — distinct people (headcount)
- *   enrolments — course places, so a student doing Maths and English counts twice
- * They move apart when families add or drop a second subject without leaving, so
- * showing only one of them hides half of what happened.
+ * Two counts, kept in separate panels because they answer different questions
+ * and do not move together:
+ *   students   — distinct people on the roll (headcount)
+ *   enrolments — course places, so one student doing Maths and English is two
+ * Between T2 and T3 2026 they moved in opposite directions; merging them into
+ * one figure would have reported that as either growth or loss, both wrong.
  *
- * A handful of headline numbers is a KPI row, not a chart — with three or four
- * terms of history a plotted line would imply a trend the data can't support.
- *
- * Holiday terms are left out: they are short optional courses, and folding a
- * 1-student holiday programme in beside a 45-student teaching term would read
- * as a collapse.
+ * Terms that have not started are left out entirely — a term still filling up
+ * would show as a fall. Holiday terms are out too: a 1-student holiday
+ * programme beside a 45-student teaching term reads as a collapse.
  */
-const TILE_COUNT = 4          // most recent terms shown
+const TERM_COUNT = 6          // most recent started terms shown
 
 export default function EnrolmentTrend() {
-  const [rows, setRows] = useState(null)   // null = loading, [] = nothing to show
+  const [rows, setRows] = useState(null)   // null = loading
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
@@ -52,6 +50,9 @@ export default function EnrolmentTrend() {
         const today = new Date().toISOString().slice(0, 10)
         const out = (terms || [])
           .filter((t) => !isHolidayTerm(t))
+          // A term we have not reached yet is still filling, so it is not a
+          // data point — showing it would read as a drop that has not happened.
+          .filter((t) => !t.start_date || t.start_date <= today)
           .sort((a, b) => (a.year - b.year) || (a.term_number - b.term_number))
           .map((t) => {
             const acc = perTerm.get(t.id)
@@ -60,13 +61,10 @@ export default function EnrolmentTrend() {
               label: `T${t.term_number} ${String(t.year).slice(2)}`,
               places: acc?.places ?? 0,
               students: acc?.students.size ?? 0,
-              // A term that hasn't started yet is still filling up, so its
-              // shortfall is not a fall — it gets no red delta.
-              upcoming: !!t.start_date && t.start_date > today,
             }
           })
           .filter((r) => r.places > 0)
-          .slice(-TILE_COUNT)
+          .slice(-TERM_COUNT)
         if (alive) setRows(out)
       } catch {
         if (alive) setFailed(true)
@@ -76,80 +74,91 @@ export default function EnrolmentTrend() {
   }, [])
 
   if (failed || (rows && rows.length < 2)) return null      // nothing worth saying
-  if (!rows) return <div className="h-[104px] rounded-2xl bg-white border border-[#F0F4FF] mb-4 animate-pulse" />
+  if (!rows) return <div className="h-[180px] rounded-2xl bg-white border border-[#F0F4FF] mb-4 animate-pulse" />
 
-  const settled = rows.filter((r) => !r.upcoming)
-  const last = settled[settled.length - 1]
-  const prev = settled[settled.length - 2]
+  const last = rows[rows.length - 1]
+  const prev = rows[rows.length - 2]
 
   return (
     <div className="bg-white rounded-2xl border border-[#F0F4FF] p-5 mb-4">
-      <div className="flex items-baseline justify-between gap-3 mb-3">
+      <div className="flex items-baseline justify-between gap-3 mb-4">
         <h2 className="text-sm font-bold text-[#062E63]">Enrolments over recent terms</h2>
-        <p className="text-[11px] text-[#2A2035]/45">
-          Students are people; enrolments are course places
-        </p>
+        <p className="text-[11px] text-[#2A2035]/45">Current term: {last.label}</p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        {rows.map((r, i) => {
-          const before = rows[i - 1]
-          return (
-            <div key={r.id} className={`rounded-xl px-3 py-2.5 border ${r.upcoming ? 'border-dashed border-[#E4EAF7] bg-[#FCFDFF]' : 'border-[#EDF1FA] bg-[#F8FAFF]'}`}>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[#98A5BE]">
-                {r.label}{r.upcoming && <span className="normal-case tracking-normal font-semibold"> · so far</span>}
-              </p>
-              <p className="text-[20px] font-bold text-[#062E63] leading-tight mt-0.5">{r.students}</p>
-              <p className="text-[10px] text-[#2A2035]/50 -mt-0.5">students</p>
-              <p className="text-[11px] font-semibold text-[#325099] mt-1.5">
-                {r.places} <span className="font-medium text-[#2A2035]/45">places</span>
-              </p>
-              <Delta from={before} to={r} />
-            </div>
-          )
-        })}
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Metric title="Students" unit="distinct people on the roll" field="students" rows={rows} />
+        <Metric title="Enrolments" unit="course places across all subjects" field="places" rows={rows} />
       </div>
 
-      {last && prev && (
-        <p className="text-xs text-[#2A2035]/60 leading-relaxed mt-3">{summary(prev, last, rows)}</p>
-      )}
+      <p className="text-xs text-[#2A2035]/60 leading-relaxed mt-4">{summary(prev, last)}</p>
     </div>
   )
 }
 
-// Change in headcount against the term before. An upcoming term is still
-// filling, so its difference is shown in neutral ink rather than as a drop.
-function Delta({ from, to }) {
-  if (!from) return <p className="text-[10px] text-[#2A2035]/30 mt-1">—</p>
-  const d = to.students - from.students
-  if (d === 0) return <p className="text-[10px] font-semibold text-[#2A2035]/40 mt-1">level with {from.label}</p>
-  const tone = to.upcoming ? 'text-[#2A2035]/45' : (d > 0 ? 'text-emerald-700' : 'text-[#A8531A]')
+/*
+ * One measure, one panel: the current figure, its change on the term before,
+ * and a bar per term.
+ *
+ * The bars are zero-based and scaled to the largest term, so a change of one
+ * student looks like a change of one student. A baseline cropped to make the
+ * movement dramatic would misreport a roll that is essentially level — the
+ * delta line above carries the exact number instead.
+ */
+function Metric({ title, unit, field, rows }) {
+  const last = rows[rows.length - 1]
+  const prev = rows[rows.length - 2]
+  const max = Math.max(...rows.map((r) => r[field]), 1)
+  const d = last[field] - prev[field]
+  const tone = d > 0 ? 'text-emerald-700' : d < 0 ? 'text-[#A8531A]' : 'text-[#2A2035]/45'
+
   return (
-    <p className={`text-[10px] font-semibold mt-1 ${tone}`}>
-      {d > 0 ? '+' : '−'}{Math.abs(d)} student{Math.abs(d) === 1 ? '' : 's'} <span className="font-medium text-[#2A2035]/40">vs {from.label}</span>
-    </p>
+    <div className="rounded-xl border border-[#EDF1FA] bg-[#FBFCFF] px-4 py-3.5">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-[#98A5BE]">{title}</p>
+      <div className="flex items-baseline gap-2 mt-0.5">
+        <span className="text-[26px] font-bold text-[#062E63] leading-none">{last[field]}</span>
+        <span className={`text-[11px] font-semibold ${tone}`}>
+          {d === 0 ? `level with ${prev.label}` : `${d > 0 ? '+' : '−'}${Math.abs(d)} on ${prev.label}`}
+        </span>
+      </div>
+      <p className="text-[10px] text-[#2A2035]/45 mt-0.5">{unit}</p>
+
+      <div className="mt-3 space-y-1.5">
+        {rows.map((r, i) => {
+          const isNow = i === rows.length - 1
+          return (
+            <div key={r.id} className="flex items-center gap-2" title={`${r.label}: ${r[field]} ${title.toLowerCase()}`}>
+              <span className="text-[9px] font-bold tabular-nums text-[#98A5BE] w-[34px] shrink-0">{r.label}</span>
+              <div className="flex-1 h-[8px] rounded-full bg-[#EDF1FA] overflow-hidden">
+                {/* current term in the accent, earlier terms recede */}
+                <div className="h-full rounded-full" style={{ width: `${(r[field] / max) * 100}%`, background: isNow ? '#325099' : '#AFC3E6' }} />
+              </div>
+              <span className={`text-[10px] tabular-nums w-[22px] text-right shrink-0 ${isNow ? 'font-bold text-[#062E63]' : 'text-[#2A2035]/45'}`}>{r[field]}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
-// One plain sentence, because four tiles do not say what actually happened.
-function summary(prev, last, rows) {
+// One plain sentence, because two panels of numbers do not say what happened.
+function summary(prev, last) {
   const dS = last.students - prev.students
   const dP = last.places - prev.places
-  const per = (r) => r.students ? (r.places / r.students) : 0
   const word = (n) => (n > 0 ? 'up' : n < 0 ? 'down' : 'flat')
+  const per = (r) => (r.students ? r.places / r.students : 0)
 
-  let s = `Headcount is ${word(dS)}${dS ? ` ${Math.abs(dS)}` : ''} on ${prev.label}, at ${last.students} students across ${last.places} places`
-  // The interesting case: the two counts disagree in direction.
+  let s = `On ${prev.label}, students are ${word(dS)}${dS ? ` ${Math.abs(dS)}` : ''} and places are ${word(dP)}${dP ? ` ${Math.abs(dP)}` : ''}`
   if (dS !== 0 && dP !== 0 && Math.sign(dS) !== Math.sign(dP)) {
-    s += `, so places went ${word(dP)} while student numbers went ${word(dS)} — existing families changed how many subjects they take`
-  } else if (per(last) && per(prev)) {
+    s += ` — the roll went ${word(dS)} while the families who stayed took ${dP > 0 ? 'more' : 'fewer'} subjects`
+  } else {
     const a = per(prev), b = per(last)
-    const moved = Math.abs(b - a) >= 0.05
-    s += moved
-      ? `, ${b > a ? 'more' : 'fewer'} subjects each on average (${b.toFixed(2)} vs ${a.toFixed(2)})`
-      : `, about ${b.toFixed(2)} subjects each either way`
+    if (a && b) {
+      s += Math.abs(b - a) >= 0.05
+        ? `, ${b > a ? 'more' : 'fewer'} subjects each on average (${b.toFixed(2)} vs ${a.toFixed(2)})`
+        : `, holding at about ${b.toFixed(2)} subjects each`
+    }
   }
-  const up = rows.find((r) => r.upcoming)
-  if (up) s += `. ${up.label} is still filling, so its ${up.students} is a floor, not a forecast`
   return s + '.'
 }
