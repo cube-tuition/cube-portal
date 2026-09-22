@@ -354,6 +354,14 @@ export default function ClassOverviewPage() {
     (cls.teacher || '').trim().split(' ')[0].toLowerCase() ===
       (staff?.full_name || '').trim().split(' ')[0].toLowerCase()
   )
+  // Entering marks — term test, mid-term, mock and Pre/Post — is open to anyone
+  // who can open this class, not just the teacher named on it. The access check
+  // on load has already narrowed that to an admin, the class's own teacher, a
+  // sub holding an assignment for it, or a tutor scheduled on one of its
+  // lessons, so whoever actually supervised and marked the paper can enter it.
+  // Deliberately wider than booklet editing, which stays with the named teacher.
+  const canEnterMarks = true
+
   const col = subjectColor(inferSubject(cls))
   const currentWeek = weekDates.find(w => w.week === tab) || { week: tab, dates: [], lessons: [] }
 
@@ -489,14 +497,13 @@ export default function ClassOverviewPage() {
 
         {/* PRE/POST TAB */}
         {tab === 'prepost' && term && (
-          /* The class's own teacher sets the topics and enters the scores —
-             they are the one who marked the papers. Same rule as exam marking
-             and booklet editing below. */
+          /* Whoever marked the papers sets the topics and enters the scores —
+             see canEnterMarks. */
           <PrePostSection
             classId={cls.id}
             termId={term.id}
             roster={roster}
-            canEdit={isClassTeacher}
+            canEdit={canEnterMarks}
           />
         )}
         {tab === 'prepost' && !term && (
@@ -526,7 +533,7 @@ export default function ClassOverviewPage() {
               termId={term.id}
               termNumber={term.term_number}
               roster={roster}
-              canEdit={isClassTeacher}
+              canEdit={canEnterMarks}
               kind={examKind}
             />
           </div>
@@ -713,7 +720,7 @@ export default function ClassOverviewPage() {
                             termId={term.id}
                             roster={roster}
                             kindKey={REPORT_WEEK[tab]}
-                            canEdit={isAdmin || (cls.teacher || '').split(' ')[0].toLowerCase() === (staff?.full_name || '').split(' ')[0].toLowerCase()}
+                            canEdit={isClassTeacher}
                           />
                         ) : null}
                       />
