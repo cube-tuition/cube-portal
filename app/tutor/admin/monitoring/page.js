@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
+import EnrolmentTrend from '../../../../components/EnrolmentTrend'
 
 /*
  * Monitoring — /tutor/admin/monitoring (admin only)
@@ -55,6 +56,8 @@ export default function MonitoringHub() {
             </div>
           </div>
         </div>
+
+        <EnrolmentTrend />
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {AREAS.map((a) => (
