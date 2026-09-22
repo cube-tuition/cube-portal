@@ -6,59 +6,14 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
-import { CADENCE_KEY, CADENCE_DONE_KEY, DEFAULT_CADENCE, parseCadence, cadenceHref, termWeek, markCadenceDone } from '../../../../lib/emailCadence'
-import { T_COURSE_OFFERS, T_HOLIDAY_COURSE_EMAILS } from '../../../../lib/tables'
 
 /*
  * Marketing — /tutor/admin/marketing (admin only)
  *
- * The marketing regime on one page. STRATEGIES lists what we run, the TERM
- * PLAN puts each term's actions on a ten-week strip with done ticks (the same
- * cadence the Action Centre raises each week), CHANNELS shows where enquiries
- * come from and what the referral programme is doing, and CAMPAIGNS / LINKS
- * gather the sendable pieces. The plan's optional Stage
- * column (reach / enquire / trial / enrol / stay) is kept so existing plans
- * still parse; it is no longer drawn as a funnel.
+ * STRATEGIES lists every way CUBE reaches families, grouped by channel and
+ * editable in place; CHANNELS shows where enquiries actually come from and
+ * what the referral programme is doing.
  */
-
-// The plan's Stage column vocabulary (the funnel that used to draw these is gone).
-const STAGES = [
-  { key: 'reach', label: 'Reach' },
-  { key: 'enquire', label: 'Enquire' },
-  { key: 'trial', label: 'Trial' },
-  { key: 'enrol', label: 'Enrol' },
-  { key: 'stay', label: 'Stay & refer' },
-]
-
-// Which funnel stage a plan row belongs to: an explicit 4th column wins, else
-// it is inferred from the email's name.
-const STAGE_KEYS = STAGES.map(s => s.key)
-function stageOf(row) {
-  const explicit = (row.stage || '').toLowerCase()
-  const hit = STAGES.find(s => explicit && (s.key === explicit || s.label.toLowerCase().startsWith(explicit)))
-  if (hit) return hit.key
-  const e = (row.email || '').toLowerCase()
-  if (e.includes('welcome') || e.includes('term start') || e.includes('invoice')) return 'enrol'
-  if (e.includes('trial')) return 'trial'
-  if (e.includes('holiday') || e.includes('review') || e.includes('social') || e.includes('flyer')) return 'reach'
-  return 'stay'
-}
-// Rows are "When | Email | Notes" with optional "| Stage | Channel" columns.
-function parsePlan(text) {
-  return parseCadence(text).map(r => {
-    const cols = (text.split('\n').map(l => l.trim()).filter(Boolean)[Number(r.key.split(':')[0])] || '').split('|').map(p => p.trim())
-    return { ...r, stage: cols[3] || '', channel: cols[4] || '' }
-  })
-}
-
-const CAMPAIGNS = [
-  { href: '/tutor/emails/term-start',       icon: '🎉', title: 'Term Start',       what: 'Re-enrolment confirmation with class details and invoice notice.' },
-  { href: '/tutor/emails/trials',           icon: '🧪', title: 'Trial reminders',  what: 'Welcome + first lesson details for new students.' },
-  { href: '/tutor/emails/discount-program', icon: '🎁', title: 'Discount Program', what: 'Referral ($50 each way), multi-course and sibling discounts.' },
-  { href: '/tutor/emails/course-offers',    icon: '📣', title: 'Course Offers',    what: 'Pitch a course to a chosen cohort.', table: T_COURSE_OFFERS },
-  { href: '/tutor/emails/holiday-courses',  icon: '🏖️', title: 'Holiday Courses',  what: 'Advertise a holiday intensive with a sign-up link.', table: T_HOLIDAY_COURSE_EMAILS },
-  { href: '/tutor/emails/end-of-term',      icon: '📋', title: 'Reports',          what: 'Mid-term and end-of-term reports — the goodwill peak, with the referral PS line.' },
-]
 
 // ── Strategies by channel ─────────────────────────────────────────────────────
 // Everything CUBE does (or might do) to bring families in, grouped by the kind
@@ -205,7 +160,6 @@ function StrategiesSection() {
 }
 
 const fmtPct = (a, b) => b > 0 ? `${Math.round((a / b) * 100)}%` : '—'
-const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'
 
 export default function MarketingPage() {
   const router = useRouter()
@@ -216,29 +170,16 @@ export default function MarketingPage() {
   const [scope, setScope] = useState('term')          // 'term' | 'all'
   const [trials, setTrials] = useState([])
   const [credits, setCredits] = useState([])
-  const [planText, setPlanText] = useState(DEFAULT_CADENCE)
-  const [doneKeys, setDoneKeys] = useState([])
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [templates, setTemplates] = useState({})      // table → [{name, updated_at}]
 
   const load = useCallback(async () => {
     const allTerms = await fetchAllTerms()
     const cur = getCurrentTerm(allTerms)
     setTerms(allTerms); setTerm(cur)
-    const [{ data: tr }, { data: cr }, { data: cad }, { data: done }, { data: co }, { data: hc }] = await Promise.all([
+    const [{ data: tr }, { data: cr }] = await Promise.all([
       supabase.from('trial_submissions').select('id, submitted_at, status, contacted_at, trial_date, converted_student_id, how_heard, referred_by, source'),
       supabase.from('student_credits').select('student_id, amount, reason, created_at'),
-      supabase.from('portal_settings').select('value').eq('key', CADENCE_KEY).maybeSingle(),
-      cur ? supabase.from('portal_settings').select('value').eq('key', CADENCE_DONE_KEY(cur.id)).maybeSingle() : Promise.resolve({ data: null }),
-      supabase.from(T_COURSE_OFFERS).select('name, updated_at').order('updated_at', { ascending: false }),
-      supabase.from(T_HOLIDAY_COURSE_EMAILS).select('name, updated_at').order('updated_at', { ascending: false }),
     ])
     setTrials(tr || []); setCredits(cr || [])
-    setPlanText(cad?.value || DEFAULT_CADENCE)
-    try { setDoneKeys(JSON.parse(done?.value || '[]')) } catch { setDoneKeys([]) }
-    setTemplates({ [T_COURSE_OFFERS]: co || [], [T_HOLIDAY_COURSE_EMAILS]: hc || [] })
     setLoading(false)
   }, [])
 
@@ -282,29 +223,6 @@ export default function MarketingPage() {
     return { owed, issued: refCredits.length, issuedTotal: refCredits.reduce((s, c) => s + Number(c.amount || 0), 0) }
   }, [trials, credits])
 
-  // ── Plan ───────────────────────────────────────────────────────────────────
-  const plan = useMemo(() => parsePlan(planText), [planText])
-  const week = term ? termWeek(term, new Date().toISOString().slice(0, 10)) : null
-  const savePlan = async () => {
-    setSaving(true)
-    const value = draft.trim() || DEFAULT_CADENCE
-    const { error } = await supabase.from('portal_settings').upsert({ key: CADENCE_KEY, value, updated_at: new Date().toISOString() })
-    setSaving(false)
-    if (error) { alert('Could not save: ' + error.message); return }
-    setPlanText(value); setEditing(false)
-  }
-  const toggleDone = async (row) => {
-    if (!term) return
-    if (doneKeys.includes(row.key)) {
-      const next = doneKeys.filter(k => k !== row.key)
-      await supabase.from('portal_settings').upsert({ key: CADENCE_DONE_KEY(term.id), value: JSON.stringify(next), updated_at: new Date().toISOString() })
-      setDoneKeys(next)
-    } else {
-      await markCadenceDone(term.id, row.key)
-      setDoneKeys([...doneKeys, row.key])
-    }
-  }
-
   if (!profile || loading) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
   const maxChan = Math.max(1, ...channels.map(c => c.n))
@@ -318,7 +236,7 @@ export default function MarketingPage() {
             <span className="text-3xl">📣</span>
             <div>
               <h1 className="text-2xl font-bold text-[#062E63]">Marketing</h1>
-              <p className="text-xs text-[#2A2035]/55 mt-0.5">How families find CUBE, what moves them along, and what fires each week of the term.</p>
+              <p className="text-xs text-[#2A2035]/55 mt-0.5">How CUBE reaches families, and where enquiries actually come from.</p>
             </div>
           </div>
           <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-full p-1 text-xs font-semibold">
@@ -329,75 +247,6 @@ export default function MarketingPage() {
 
         <StrategiesSection />
 
-        {/* ── Term plan ──────────────────────────────────────────────────── */}
-        <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-            <div>
-              <p className="text-xs font-bold text-[#062E63]">📅 Term plan{term ? ` — ${formatTermLabel(term)}` : ''}{week ? ` · now week ${Math.min(week, 10)}` : ''}</p>
-              <p className="text-[11px] text-[#2A2035]/45">The same plan the Action Centre raises each week. Tick an action when it has gone out.</p>
-            </div>
-            {!editing
-              ? <button onClick={() => { setDraft(planText); setEditing(true) }} className="text-xs font-semibold text-[#325099] hover:underline">✏️ Edit plan</button>
-              : <div className="flex items-center gap-2">
-                  <button onClick={() => setDraft(DEFAULT_CADENCE)} className="text-[10px] font-semibold text-[#2A2035]/40 hover:text-[#325099]">Reset to default</button>
-                  <button onClick={() => setEditing(false)} className="text-xs font-semibold text-[#2A2035]/50">Cancel</button>
-                  <button onClick={savePlan} disabled={saving} className="text-xs font-semibold bg-[#325099] text-white px-3 py-1.5 rounded-lg hover:bg-[#062E63] disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
-                </div>}
-          </div>
-          {editing ? (
-            <>
-              <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={Math.max(6, draft.split('\n').length + 1)}
-                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2.5 text-xs font-mono text-[#2A2035] leading-relaxed focus:outline-none focus:border-[#325099] resize-y" />
-              <p className="text-[10px] text-[#2A2035]/40 mt-1.5">One row per line: <code className="font-mono">When | Action | Notes | Stage | Channel</code>. Stage (reach, enquire, trial, enrol, stay) and Channel are optional. Rows starting “Week N” land on the strip and become weekly to-dos.</p>
-            </>
-          ) : (
-            <>
-              {/* Ten-week strip */}
-              <div className="overflow-x-auto">
-                <div className="min-w-[720px]">
-                  <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(11, minmax(0, 1fr))' }}>
-                    {Array.from({ length: 10 }, (_, i) => i + 1).map(w => (
-                      <div key={w} className={`text-center text-[10px] font-bold py-1 rounded ${week === w ? 'bg-[#062E63] text-white' : 'bg-[#F0F4FF] text-[#325099]'}`}>W{w}</div>
-                    ))}
-                    <div className={`text-center text-[10px] font-bold py-1 rounded ${week > 10 ? 'bg-[#062E63] text-white' : 'bg-[#FFF7ED] text-[#92400E]'}`}>🏖</div>
-                  </div>
-                  <div className="mt-1 space-y-1">
-                    {plan.filter(r => r.weekFrom !== null).map(r => {
-                      const from = Math.min(11, r.weekFrom), to = Math.min(11, r.weekTo)
-                      const done = doneKeys.includes(r.key)
-                      return (
-                        <div key={r.key} className="grid gap-1 items-center" style={{ gridTemplateColumns: 'repeat(11, minmax(0, 1fr))' }}>
-                          <button onClick={() => toggleDone(r)} title={`${r.notes}${r.channel ? ` · ${r.channel}` : ''}\nClick to mark ${done ? 'not done' : 'done'} for this term`}
-                            className={`text-left text-[11px] font-semibold rounded-lg px-2 py-1.5 truncate border transition ${done ? 'bg-[#ECFDF5] border-[#A7F3D0] text-[#065F46]' : week !== null && week >= from && week <= to ? 'bg-[#062E63] border-[#062E63] text-white' : 'bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]'}`}
-                            style={{ gridColumn: `${from} / ${to + 1}` }}>
-                            {done ? '✓ ' : ''}{r.email}
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-              {/* Standing rules + detail */}
-              <div className="mt-4 divide-y divide-[#F0F4FF]">
-                {plan.map(r => (
-                  <div key={r.key} className="flex items-start gap-3 py-2">
-                    <span className="text-[11px] font-bold text-[#325099] w-32 shrink-0 pt-0.5">{r.when}</span>
-                    <Link href={cadenceHref(r.email)} className="text-xs font-semibold text-[#062E63] w-44 shrink-0 pt-0.5 hover:underline">{r.email}</Link>
-                    <span className="text-xs text-[#2A2035]/60 leading-relaxed flex-1">{r.notes}{r.channel ? <span className="ml-2 text-[10px] font-semibold text-[#325099]/70">· {r.channel}</span> : null}</span>
-                    {r.weekFrom !== null && term && (
-                      <button onClick={() => toggleDone(r)} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${doneKeys.includes(r.key) ? 'bg-[#ECFDF5] border-[#A7F3D0] text-[#065F46]' : 'bg-white border-[#DEE7FF] text-[#325099]'}`}>
-                        {doneKeys.includes(r.key) ? '✓ done' : 'mark done'}
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </section>
-
-        <div className="grid lg:grid-cols-2 gap-6">
           {/* ── Channels ───────────────────────────────────────────────── */}
           <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
             <p className="text-xs font-bold text-[#062E63] mb-1">📡 Where enquiries come from</p>
@@ -428,28 +277,6 @@ export default function MarketingPage() {
             </div>
           </section>
 
-          {/* ── Campaigns ──────────────────────────────────────────────── */}
-          <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-            <p className="text-xs font-bold text-[#062E63] mb-1">✉️ Campaigns</p>
-            <p className="text-[11px] text-[#2A2035]/45 mb-4">Everything you can send, and its saved templates.</p>
-            <div className="divide-y divide-[#F0F4FF]">
-              {CAMPAIGNS.map(c => {
-                const tpl = c.table ? templates[c.table] || [] : null
-                return (
-                  <Link key={c.href} href={c.href} className="flex items-start gap-3 py-2.5 group">
-                    <span className="text-xl leading-none mt-0.5">{c.icon}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-xs font-bold text-[#062E63] group-hover:underline">{c.title}</span>
-                      <span className="block text-[11px] text-[#2A2035]/55">{c.what}</span>
-                      {tpl && <span className="block text-[10px] text-[#325099]/70 mt-0.5">{tpl.length ? `${tpl.length} template${tpl.length === 1 ? '' : 's'} · last edited ${fmtD(tpl[0].updated_at)}` : 'no templates yet'}</span>}
-                    </span>
-                    <span className="text-[11px] font-semibold text-[#325099] shrink-0">Open →</span>
-                  </Link>
-                )
-              })}
-            </div>
-          </section>
-        </div>
 
       </div>
     </div>
