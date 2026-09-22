@@ -114,6 +114,23 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
     for (const st of roster) next[st.id] = { ...(next[st.id] || {}), [it.qid]: String(it.max) }
     return next
   })
+  // The other direction: tick one student down a whole section's multiple
+  // choice. It fills ONLY the blanks, so marking already entered — including a
+  // cross — is never overwritten and a second click is harmless.
+  const markStudentMcqCorrect = (sid, rows) => setMarks((m) => {
+    const cur = m[sid] || {}
+    const next = { ...cur }
+    for (const it of rows) {
+      if (it.qtype !== 'mcq') continue
+      const a = cur[it.qid]
+      if (a === '' || a == null) next[it.qid] = String(it.max)
+    }
+    return { ...m, [sid]: next }
+  })
+  // How many of a student's MCQ cells in this section are still blank — drives
+  // the button's label and hides it once the column is done.
+  const blankMcqCount = (sid, rows) =>
+    rows.filter((it) => it.qtype === 'mcq' && (marks[sid]?.[it.qid] ?? '') === '').length
 
   // ── Save ────────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -249,9 +266,22 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
                     <th className="text-left font-semibold px-3 py-2 sticky left-0 bg-white">Question</th>
                     <th className="text-left font-semibold px-2 py-2">Topic</th>
                     <th className="text-center font-semibold px-2 py-2">Max</th>
-                    {roster.map((st) => (
-                      <th key={st.id} className="text-center font-semibold px-2 py-2 whitespace-nowrap">{firstName(st.full_name)}</th>
-                    ))}
+                    {roster.map((st) => {
+                      const blanks = canEdit ? blankMcqCount(st.id, rows) : 0
+                      return (
+                        <th key={st.id} className="text-center font-semibold px-2 py-2 whitespace-nowrap">
+                          {firstName(st.full_name)}
+                          {blanks > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => markStudentMcqCorrect(st.id, rows)}
+                              title={`Mark ${firstName(st.full_name)} correct on the ${blanks} unmarked multiple-choice question${blanks === 1 ? '' : 's'} here — cells you have already marked are left alone`}
+                              className="block mx-auto mt-0.5 text-[9px] font-bold text-[#10B981] hover:underline normal-case tracking-normal"
+                            >✓ all</button>
+                          )}
+                        </th>
+                      )
+                    })}
                     {!hideClassAvg && <th className="text-center font-semibold px-2 py-2">Class&nbsp;avg</th>}
                   </tr>
                 </thead>
