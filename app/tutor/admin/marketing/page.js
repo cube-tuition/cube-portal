@@ -190,6 +190,7 @@ function StrategiesSection() {
   )
 }
 
+const fmtPct = (a, b) => b > 0 ? `${Math.round((a / b) * 100)}%` : '—'
 const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : '—'
 
 export default function MarketingPage() {
