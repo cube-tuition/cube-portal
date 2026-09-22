@@ -144,7 +144,7 @@ function StrategiesSection() {
   const totals = cats.flatMap(c => c.items).reduce((m, i) => ({ ...m, [i.status || 'idea']: (m[i.status || 'idea'] || 0) + 1 }), {})
   return (
     <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <p className="text-xs font-bold text-[#062E63]">🗂 Strategies by channel</p>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-[#2A2035]/45">{totals.active || 0} active · {totals.idea || 0} ideas · {totals.paused || 0} paused</span>
@@ -156,7 +156,6 @@ function StrategiesSection() {
           )}
         </div>
       </div>
-      <p className="text-[11px] text-[#2A2035]/45 mb-4">Every way CUBE reaches families, grouped by channel. Click a status pill to cycle Idea → Active → Paused; click a title to edit it. Changes save on their own.</p>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {cats.map(c => (
           <div key={c.id} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] flex flex-col">
