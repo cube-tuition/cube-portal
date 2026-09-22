@@ -7,8 +7,7 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
 import { CADENCE_KEY, CADENCE_DONE_KEY, DEFAULT_CADENCE, parseCadence, cadenceHref, termWeek, markCadenceDone } from '../../../../lib/emailCadence'
-import { publicFormUrl } from '../../../../lib/forms'
-import { T_COURSE_OFFERS, T_HOLIDAY_COURSE_EMAILS, T_FORMS } from '../../../../lib/tables'
+import { T_COURSE_OFFERS, T_HOLIDAY_COURSE_EMAILS } from '../../../../lib/tables'
 
 /*
  * Marketing — /tutor/admin/marketing (admin only)
@@ -17,7 +16,7 @@ import { T_COURSE_OFFERS, T_HOLIDAY_COURSE_EMAILS, T_FORMS } from '../../../../l
  * PLAN puts each term's actions on a ten-week strip with done ticks (the same
  * cadence the Action Centre raises each week), CHANNELS shows where enquiries
  * come from and what the referral programme is doing, and CAMPAIGNS / LINKS
- * gather the sendable pieces and public forms. The plan's optional Stage
+ * gather the sendable pieces. The plan's optional Stage
  * column (reach / enquire / trial / enrol / stay) is kept so existing plans
  * still parse; it is no longer drawn as a funnel.
  */
@@ -223,27 +222,23 @@ export default function MarketingPage() {
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [templates, setTemplates] = useState({})      // table → [{name, updated_at}]
-  const [forms, setForms] = useState([])
-  const [copied, setCopied] = useState('')
 
   const load = useCallback(async () => {
     const allTerms = await fetchAllTerms()
     const cur = getCurrentTerm(allTerms)
     setTerms(allTerms); setTerm(cur)
-    const [{ data: tr }, { data: cr }, { data: cad }, { data: done }, { data: co }, { data: hc }, { data: fm }] = await Promise.all([
+    const [{ data: tr }, { data: cr }, { data: cad }, { data: done }, { data: co }, { data: hc }] = await Promise.all([
       supabase.from('trial_submissions').select('id, submitted_at, status, contacted_at, trial_date, converted_student_id, how_heard, referred_by, source'),
       supabase.from('student_credits').select('student_id, amount, reason, created_at'),
       supabase.from('portal_settings').select('value').eq('key', CADENCE_KEY).maybeSingle(),
       cur ? supabase.from('portal_settings').select('value').eq('key', CADENCE_DONE_KEY(cur.id)).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from(T_COURSE_OFFERS).select('name, updated_at').order('updated_at', { ascending: false }),
       supabase.from(T_HOLIDAY_COURSE_EMAILS).select('name, updated_at').order('updated_at', { ascending: false }),
-      supabase.from(T_FORMS).select('slug, title, active').order('title'),
     ])
     setTrials(tr || []); setCredits(cr || [])
     setPlanText(cad?.value || DEFAULT_CADENCE)
     try { setDoneKeys(JSON.parse(done?.value || '[]')) } catch { setDoneKeys([]) }
     setTemplates({ [T_COURSE_OFFERS]: co || [], [T_HOLIDAY_COURSE_EMAILS]: hc || [] })
-    setForms(fm || [])
     setLoading(false)
   }, [])
 
@@ -309,12 +304,10 @@ export default function MarketingPage() {
       setDoneKeys([...doneKeys, row.key])
     }
   }
-  const copy = async (text, k) => { try { await navigator.clipboard.writeText(text); setCopied(k); setTimeout(() => setCopied(''), 1500) } catch {} }
 
   if (!profile || loading) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
   const maxChan = Math.max(1, ...channels.map(c => c.n))
-  const referralLine = 'Know a family who’d benefit from CUBE? Refer them and you both get $50 off your term fees.'
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
@@ -458,25 +451,6 @@ export default function MarketingPage() {
           </section>
         </div>
 
-        {/* ── Links & copy ───────────────────────────────────────────────── */}
-        <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-          <p className="text-xs font-bold text-[#062E63] mb-1">🔗 Links and standing copy</p>
-          <p className="text-[11px] text-[#2A2035]/45 mb-4">Paste these into emails, the website or a message so the wording and links stay the same everywhere.</p>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {[{ k: 'trial', label: 'Free trial form (website)', value: 'https://www.cubetuition.com.au/free-trial' },
-              ...forms.map(f => ({ k: f.slug, label: `${f.title}${f.active ? '' : ' (closed)'}`, value: publicFormUrl(f.slug) })),
-              { k: 'ref', label: 'Referral one-liner', value: referralLine }].map(item => (
-              <div key={item.k} className="flex items-center gap-2 rounded-xl border border-[#F0F4FF] bg-[#FBFCFF] px-3 py-2">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[11px] font-semibold text-[#062E63]">{item.label}</span>
-                  <span className="block text-[10px] text-[#2A2035]/50 truncate">{item.value}</span>
-                </span>
-                <button onClick={() => copy(item.value, item.k)} className="text-[10px] font-semibold px-2 py-1 rounded-full border border-[#DEE7FF] bg-white text-[#325099] hover:border-[#325099] shrink-0">{copied === item.k ? 'Copied ✓' : 'Copy'}</button>
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] text-[#2A2035]/40 mt-3">Manage forms on <Link href="/tutor/admin/forms" className="text-[#325099] hover:underline">Forms</Link>. {terms.length ? `${terms.filter(t => Number(t.term_number) <= 10).length} terms on record.` : ''}</p>
-        </section>
       </div>
     </div>
   )
