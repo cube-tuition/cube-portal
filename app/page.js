@@ -213,10 +213,6 @@ export default function LoginPage() {
                 Your password is stored encrypted, so CUBE staff cannot see it — if you
                 forget it, a tutor can reset it but can never look it up.
               </p>
-
-              <p className="text-xs text-[#2A2035]/50 text-center mt-4">
-                Trouble logging in? Just ask your CUBE tutor — they&apos;ll sort it.
-              </p>
             </div>
           </div>
         </div>
