@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../lib/terms'
 
 /*
  * Marketing — /tutor/admin/marketing (admin only)
@@ -165,16 +164,10 @@ export default function MarketingPage() {
   const router = useRouter()
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [terms, setTerms] = useState([])
-  const [term, setTerm] = useState(null)
-  const [scope, setScope] = useState('term')          // 'term' | 'all'
   const [trials, setTrials] = useState([])
   const [credits, setCredits] = useState([])
 
   const load = useCallback(async () => {
-    const allTerms = await fetchAllTerms()
-    const cur = getCurrentTerm(allTerms)
-    setTerms(allTerms); setTerm(cur)
     const [{ data: tr }, { data: cr }] = await Promise.all([
       supabase.from('trial_submissions').select('id, submitted_at, status, contacted_at, trial_date, converted_student_id, how_heard, referred_by, source'),
       supabase.from('student_credits').select('student_id, amount, reason, created_at'),
@@ -191,11 +184,8 @@ export default function MarketingPage() {
     })()
   }, [router, load])
 
-  // ── Funnel numbers ─────────────────────────────────────────────────────────
-  const inScope = useMemo(() => {
-    if (scope === 'all' || !term) return trials
-    return trials.filter(t => t.submitted_at && t.submitted_at.slice(0, 10) >= term.start_date && t.submitted_at.slice(0, 10) <= term.end_date)
-  }, [trials, term, scope])
+  // ── Funnel numbers — every enquiry ever recorded ────────────────────────────
+  const inScope = trials
   const funnel = useMemo(() => {
     const enquired  = inScope.length
     const contacted = inScope.filter(t => t.contacted_at || ['contacted', 'trial_scheduled', 'enrolled', 'declined'].includes(t.status)).length
@@ -231,17 +221,13 @@ export default function MarketingPage() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
       <div className="max-w-6xl mx-auto px-6 pt-10 pb-16 space-y-6">
-        <div className="rounded-2xl px-7 py-6 border bg-[#EEF3FF] border-[#DEE7FF] flex items-center justify-between gap-4 flex-wrap">
+        <div className="rounded-2xl px-7 py-6 border bg-[#EEF3FF] border-[#DEE7FF]">
           <div className="flex items-center gap-3">
             <span className="text-3xl">📣</span>
             <div>
               <h1 className="text-2xl font-bold text-[#062E63]">Marketing</h1>
               <p className="text-xs text-[#2A2035]/55 mt-0.5">How CUBE reaches families, and where enquiries actually come from.</p>
             </div>
-          </div>
-          <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-full p-1 text-xs font-semibold">
-            <button onClick={() => setScope('term')} className={`px-3 py-1 rounded-full ${scope === 'term' ? 'bg-[#062E63] text-white' : 'text-[#325099]'}`}>{term ? formatTermLabel(term) : 'This term'}</button>
-            <button onClick={() => setScope('all')} className={`px-3 py-1 rounded-full ${scope === 'all' ? 'bg-[#062E63] text-white' : 'text-[#325099]'}`}>All time</button>
           </div>
         </div>
 
