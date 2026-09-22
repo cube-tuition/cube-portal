@@ -234,6 +234,60 @@ export default function CollabDoc({ classId, meId }) {
     } else if (op === 'deltable') table.remove()
     onInput(); trackCaret()
   }
+  // ── Resizing columns and rows by dragging a cell border ─────────────────
+  // Hovering within a few px of a cell's right or bottom edge shows a resize
+  // cursor; dragging sets the width of that column (every cell in it, and the
+  // table, so the layout stays fixed) or the height of that row. Sizes live as
+  // inline px styles, which the sanitiser keeps.
+  const EDGE = 5
+  const resize = useRef(null)          // { kind: 'col'|'row', cells: [...], startX, startY, start: [...] }
+  const [resizeCursor, setResizeCursor] = useState('')
+  const edgeAt = (e) => {
+    const cell = e.target.closest?.('td, th'); if (!cell || !edRef.current?.contains(cell)) return null
+    const r = cell.getBoundingClientRect()
+    if (Math.abs(e.clientX - r.right) <= EDGE) return { kind: 'col', cell }
+    if (Math.abs(e.clientY - r.bottom) <= EDGE) return { kind: 'row', cell }
+    return null
+  }
+  const onMouseMoveEd = (e) => {
+    if (resize.current) return
+    const hit = edgeAt(e)
+    setResizeCursor(hit ? (hit.kind === 'col' ? 'col-resize' : 'row-resize') : '')
+  }
+  const onMouseDownEd = (e) => {
+    const hit = edgeAt(e); if (!hit) return
+    e.preventDefault()                  // no caret move, no text selection while dragging
+    const table = hit.cell.closest('table'), row = hit.cell.parentElement
+    if (hit.kind === 'col') {
+      const idx = [...row.children].indexOf(hit.cell)
+      const cells = [...table.querySelectorAll('tr')].map(r => r.children[idx]).filter(Boolean)
+      resize.current = { kind: 'col', cells, table, startX: e.clientX, start: cells.map(c => c.getBoundingClientRect().width), tableStart: table.getBoundingClientRect().width }
+    } else {
+      const cells = [...row.children]
+      resize.current = { kind: 'row', cells, startY: e.clientY, start: row.getBoundingClientRect().height }
+    }
+    const move = (ev) => {
+      const rs = resize.current; if (!rs) return
+      if (rs.kind === 'col') {
+        const w = Math.max(40, Math.round(rs.start[0] + ev.clientX - rs.startX))
+        rs.cells.forEach(c => { c.style.width = `${w}px` })
+        // Every column is pinned once one is dragged, so only this one moves.
+        const first = rs.table.querySelector('tr')
+        if (first) for (const c of first.children) if (!c.style.width) c.style.width = `${Math.round(c.getBoundingClientRect().width)}px`
+        rs.table.style.width = `${[...first.children].reduce((sum, c) => sum + (parseFloat(c.style.width) || c.getBoundingClientRect().width), 0)}px`
+      } else {
+        const h = Math.max(24, Math.round(rs.start + ev.clientY - rs.startY))
+        rs.cells.forEach(c => { c.style.height = `${h}px` })
+      }
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up)
+      resize.current = null; setResizeCursor('')
+      onInput()
+    }
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up)
+  }
+
   const onKeyDown = (e) => {
     // Tab moves between cells (adding a row at the end) instead of leaving the page.
     if (e.key === 'Tab') {
@@ -266,6 +320,7 @@ export default function CollabDoc({ classId, meId }) {
             <button type="button" title="Delete this row" onMouseDown={e => e.preventDefault()} onClick={() => tableOp('delrow')} className={tbtn}>− row</button>
             <button type="button" title="Delete this column" onMouseDown={e => e.preventDefault()} onClick={() => tableOp('delcol')} className={tbtn}>− col</button>
             <button type="button" title="Delete the table" onMouseDown={e => e.preventDefault()} onClick={() => tableOp('deltable')} className={`${tbtn} text-[#B23A3A]`}>✕ table</button>
+            <span className="text-[10px] text-[#2A2035]/40 ml-1">drag a cell&apos;s right or bottom edge to resize</span>
           </>
         )}
       </div>
@@ -280,11 +335,14 @@ export default function CollabDoc({ classId, meId }) {
           spellCheck
           data-placeholder="Notes, reminders, vocab, anything — the whole class sees this page…"
           className="collab-editor outline-none text-[15px] leading-[26px] text-[#1c1c1c] min-h-[420px]"
+          style={resizeCursor ? { cursor: resizeCursor } : undefined}
           onInput={onInput}
           onPaste={onPaste}
           onKeyDown={onKeyDown}
           onKeyUp={trackCaret}
           onMouseUp={trackCaret}
+          onMouseMove={onMouseMoveEd}
+          onMouseDown={onMouseDownEd}
           onFocus={trackCaret}
         />
       </div>
@@ -304,7 +362,8 @@ export default function CollabDoc({ classId, meId }) {
         .collab-editor ul { list-style: disc; padding-left: 22px; margin: 4px 0 8px; }
         .collab-editor ol { list-style: decimal; padding-left: 22px; margin: 4px 0 8px; }
         .collab-editor u { text-decoration: underline; }
-        .collab-editor table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; table-layout: fixed; }
+        .collab-editor table { border-collapse: collapse; width: 100%; max-width: 100%; margin: 8px 0 12px; table-layout: fixed; }
+        .collab-editor th, .collab-editor td { box-sizing: border-box; overflow-wrap: anywhere; }
         .collab-editor th, .collab-editor td { border: 1px solid #C7D5F8; padding: 5px 8px; vertical-align: top; min-width: 60px; }
         .collab-editor th { background: #F0F4FF; font-weight: 700; color: #062E63; text-align: left; }
       `}</style>
