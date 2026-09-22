@@ -14,6 +14,121 @@ import TutorNav from '../../../../components/TutorNav'
  * what the referral programme is doing.
  */
 
+// ── The six-month goal ────────────────────────────────────────────────────────
+// Double the student count: 45 active students on 23 Sep 2026 → 90 by 23 Mar
+// 2027. Progress is live (active students now); the plan below is the route,
+// with a target per channel that adds up to the gap plus the Year 12 leavers.
+const GOAL = { baseline: 45, baselineDate: '2026-09-23', target: 90, deadline: '2027-03-23', year12Leaving: 8 }
+const PLAN_CHANNELS = [
+  { icon: '🎁', name: 'Referrals', target: 20, why: '11 of the last 17 enquiries were referrals — the channel that already works, doubled down.',
+    actions: [
+      'Referral email in week 2 of Term 4 and again week 2 of Term 1 (Discount Program page): $50 off for both families.',
+      'Hand every family a referral card with the end-of-term report (week 10) — name on it, $50 each way, a QR to the free-trial form.',
+      '"Bring a friend" to the holiday intensive: a second student from a new family attends the first day free.',
+      'Issue every referral credit within a week and say so in the invoice email — a credit families see is a credit they mention.',
+      'Ask the 10 longest-standing families personally, by phone, for one introduction each.',
+    ] },
+  { icon: '🏖️', name: 'Holiday intensives', target: 12, why: 'Short courses are the lowest-commitment way into CUBE; convert them into term enrolments.',
+    actions: [
+      'Term 3–4 break (28 Sep – 3 Oct): the Year 6 Head Start intensive, already built — fill it via the Holiday Courses email and the sign-up form.',
+      'January: "Year 7 Ready" (Maths + English, one week) and "HSC Kick-off" for the new Year 12 cohort (Adv Maths, Chemistry).',
+      'Every holiday student gets an offer on the last day: enrol for the term by the Friday and the first fortnight is $50 off.',
+      'Target: 20 holiday students across both breaks, 60% converting to a term class.',
+    ] },
+  { icon: '🌐', name: 'Google & website', target: 10, why: 'Only 2 enquiries came from search; the profile has almost no reviews. This is the cheapest untapped channel.',
+    actions: [
+      'Google Business profile: ask the 20 happiest families for a review in the week after end-of-term reports (a link in the reports email). Target 25 reviews by January.',
+      'Google Ads: $300/month from November to February on "tutoring Chatswood", "HSC tutoring", "Year 7 maths tutor", landing on the free-trial form.',
+      'Website: add the January course dates and the timetable in November so summer searches land on something concrete.',
+      'Every enquiry gets a same-day call and a trial booked within a week — the free-trial form is only worth what the follow-up is.',
+    ] },
+  { icon: '📍', name: 'Local schools & community', target: 8, why: 'Families of the current Year 6 and Year 10 cohorts cluster around a few schools.',
+    actions: [
+      'A one-page flyer ("Year 7 head start · Free trial · $50 referral") to the P&C newsletters of the five primary schools most of our Year 5–6 students attend, in late October and again in late January.',
+      'Notice boards: Chatswood library, the community centre, the two nearest swim schools — October and January.',
+      'An end-of-year results flyer in December: real (anonymised) improvements, three lines, one QR.',
+    ] },
+  { icon: '📱', name: 'Social media', target: 5, why: 'Not a lead engine on its own, but it keeps CUBE visible to the parents referrals send our way.',
+    actions: [
+      'Two posts a week during term on Instagram and Facebook: a study tip, a result, a photo of the room. Batch-made monthly.',
+      'Post holiday course dates and the free-trial link in the local parents\' Facebook groups where allowed, twice per break.',
+      'One boosted post in mid-January ($150) aimed at parents within 5 km, pointing at the January courses.',
+    ] },
+]
+const PLAN_PHASES = [
+  { when: 'Now → 12 Oct', label: 'Set up', items: ['Fill the Year 6 intensive', 'Reports go out with referral cards + review link', 'Google profile tidied, review asks sent', 'Flyer designed, schools listed'] },
+  { when: 'Term 4 · 13 Oct – 20 Dec', label: 'Referral term', items: ['Week 2: referral email', 'Late Oct: school newsletters + notice boards', 'Nov: Google Ads on, January courses on the website', 'Week 7–8: re-enrolment reminder with "second subject saves $100"', 'Dec: results flyer'] },
+  { when: 'Summer · 21 Dec – 1 Feb', label: 'January courses', items: ['Year 7 Ready and HSC Kick-off run', 'Boosted post + parents\' groups', 'Every holiday student gets the term offer', 'Late Jan: school newsletters again'] },
+  { when: 'Term 1 · Feb – 23 Mar', label: 'Convert', items: ['Week 1: term-start emails to every new family', 'Week 2: referral email', 'Weekly: call every open enquiry', 'Count on 23 March'] },
+]
+
+const monthsBetween = (a, b) => (new Date(b) - new Date(a)) / (30.44 * 86400000)
+
+function GoalSection({ activeNow, joinedByMonth }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const monthsLeft = Math.max(0, monthsBetween(today, GOAL.deadline))
+  const monthsGone = Math.max(0.1, monthsBetween(GOAL.baselineDate, today))
+  const needed = GOAL.target - GOAL.baseline + GOAL.year12Leaving   // new students the plan must bring in
+  const gap = Math.max(0, GOAL.target - activeNow)
+  const gained = activeNow - GOAL.baseline
+  const paceNeeded = monthsLeft > 0 ? gap / monthsLeft : gap
+  const recent = joinedByMonth.slice(-3)
+  const paceNow = recent.length ? recent.reduce((a, m) => a + m.enrolled, 0) / recent.length : 0
+  const pct = Math.min(100, Math.max(0, Math.round(((activeNow - GOAL.baseline) / (GOAL.target - GOAL.baseline)) * 100)))
+  const fmtDate = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+  return (
+    <section className="rounded-2xl border border-[#062E63] bg-[#062E63] text-white p-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Six-month goal</p>
+          <h2 className="text-2xl font-bold mt-1">Double the students: {GOAL.baseline} → {GOAL.target} by {fmtDate(GOAL.deadline)}</h2>
+          <p className="text-sm text-white/70 mt-1">Counted from {fmtDate(GOAL.baselineDate)}. With {GOAL.year12Leaving} Year 12s finishing in November, that means about <strong className="text-white">{needed} new students</strong> in six months — roughly <strong className="text-white">{Math.ceil(needed / 6)} a month</strong>, against about {paceNow ? paceNow.toFixed(1) : '5'} a month lately.</p>
+        </div>
+        <div className="text-right">
+          <p className="text-4xl font-bold tabular-nums">{activeNow}</p>
+          <p className="text-[11px] text-white/60">active students now</p>
+        </div>
+      </div>
+      <div className="mt-5">
+        <div className="h-3 rounded-full bg-white/15 overflow-hidden">
+          <div className="h-full bg-[#9db8e8] rounded-full transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-white/70 mt-1.5 flex-wrap gap-2">
+          <span>{gained >= 0 ? `+${gained}` : gained} since {fmtDate(GOAL.baselineDate)} · {pct}% of the way</span>
+          <span>{gap} to go · {monthsLeft.toFixed(1)} months left · need {paceNeeded.toFixed(1)} new students a month from here</span>
+        </div>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-6">
+        {PLAN_CHANNELS.map(c => (
+          <div key={c.name} className="rounded-xl bg-white/10 border border-white/15 p-3.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-sm font-bold">{c.icon} {c.name}</p>
+              <p className="text-lg font-bold tabular-nums text-[#9db8e8]">+{c.target}</p>
+            </div>
+            <p className="text-[11px] text-white/60 mt-1 leading-snug">{c.why}</p>
+            <ul className="mt-2.5 space-y-1.5">
+              {c.actions.map((a, i) => <li key={i} className="text-[11px] leading-snug text-white/85 pl-3 relative before:content-['•'] before:absolute before:left-0 before:text-[#9db8e8]">{a}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-white/55 mt-3">Channel targets add to +{PLAN_CHANNELS.reduce((n, c) => n + c.target, 0)} new students, against the {needed} needed. Alongside them: keep every current family (re-enrolment reminder weeks 7–8) and lift subjects per student from 1.4 towards 1.7 with the multi-course discount — that doubles revenue faster than headcount alone.</p>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+        {PLAN_PHASES.map((ph, i) => (
+          <div key={ph.label} className="rounded-xl border border-white/15 p-3.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#9db8e8]">{i + 1} · {ph.when}</p>
+            <p className="text-sm font-bold mt-0.5">{ph.label}</p>
+            <ul className="mt-2 space-y-1">
+              {ph.items.map(it => <li key={it} className="text-[11px] text-white/80 leading-snug">– {it}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-white/55 mt-4">Weekly numbers to watch: enquiries (target 2–3 a week), enquiry → enrolment (keep above 70%), Google reviews (25 by January), referral credits issued.</p>
+    </section>
+  )
+}
+
 // ── Strategies by channel ─────────────────────────────────────────────────────
 // Everything CUBE does (or might do) to bring families in, grouped by the kind
 // of channel. Stored in portal_settings as JSON so directors can edit it here;
@@ -166,13 +281,16 @@ export default function MarketingPage() {
   const [loading, setLoading] = useState(true)
   const [trials, setTrials] = useState([])
   const [credits, setCredits] = useState([])
+  const [activeNow, setActiveNow] = useState(GOAL.baseline)
 
   const load = useCallback(async () => {
-    const [{ data: tr }, { data: cr }] = await Promise.all([
+    const [{ data: tr }, { data: cr }, { count: act }] = await Promise.all([
       supabase.from('trial_submissions').select('id, submitted_at, status, contacted_at, trial_date, converted_student_id, how_heard, referred_by, source'),
       supabase.from('student_credits').select('student_id, amount, reason, created_at'),
+      supabase.from('students').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     ])
     setTrials(tr || []); setCredits(cr || [])
+    if (typeof act === 'number') setActiveNow(act)
     setLoading(false)
   }, [])
 
@@ -194,6 +312,16 @@ export default function MarketingPage() {
     const referred  = inScope.filter(t => t.referred_by || /referr/i.test(t.how_heard || '')).length
     return { enquired, contacted, trialled, enrolled, referred }
   }, [inScope])
+
+  // Students who enrolled, by month of enquiry — the recent pace.
+  const joinedByMonth = useMemo(() => {
+    const m = {}
+    for (const t of trials) {
+      if (!t.submitted_at || !(t.status === 'enrolled' || t.converted_student_id)) continue
+      const k = t.submitted_at.slice(0, 7); m[k] = (m[k] || 0) + 1
+    }
+    return Object.entries(m).sort(([a], [b]) => a.localeCompare(b)).map(([month, enrolled]) => ({ month, enrolled }))
+  }, [trials])
 
   const channels = useMemo(() => {
     const m = {}
@@ -230,6 +358,8 @@ export default function MarketingPage() {
             </div>
           </div>
         </div>
+
+        <GoalSection activeNow={activeNow} joinedByMonth={joinedByMonth} />
 
         <StrategiesSection />
 
