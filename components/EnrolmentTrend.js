@@ -77,7 +77,6 @@ export default function EnrolmentTrend() {
   if (!rows) return <div className="h-[180px] rounded-2xl bg-white border border-[#F0F4FF] mb-4 animate-pulse" />
 
   const last = rows[rows.length - 1]
-  const prev = rows[rows.length - 2]
 
   return (
     <div className="bg-white rounded-2xl border border-[#F0F4FF] p-5 mb-4">
@@ -90,8 +89,6 @@ export default function EnrolmentTrend() {
         <Metric title="Students" unit="distinct people on the roll" field="students" rows={rows} />
         <Metric title="Enrolments" unit="course places across all subjects" field="places" rows={rows} />
       </div>
-
-      <p className="text-xs text-[#2A2035]/60 leading-relaxed mt-4">{summary(prev, last)}</p>
     </div>
   )
 }
@@ -140,25 +137,4 @@ function Metric({ title, unit, field, rows }) {
       </div>
     </div>
   )
-}
-
-// One plain sentence, because two panels of numbers do not say what happened.
-function summary(prev, last) {
-  const dS = last.students - prev.students
-  const dP = last.places - prev.places
-  const word = (n) => (n > 0 ? 'up' : n < 0 ? 'down' : 'flat')
-  const per = (r) => (r.students ? r.places / r.students : 0)
-
-  let s = `On ${prev.label}, students are ${word(dS)}${dS ? ` ${Math.abs(dS)}` : ''} and places are ${word(dP)}${dP ? ` ${Math.abs(dP)}` : ''}`
-  if (dS !== 0 && dP !== 0 && Math.sign(dS) !== Math.sign(dP)) {
-    s += ` — the roll went ${word(dS)} while the families who stayed took ${dP > 0 ? 'more' : 'fewer'} subjects`
-  } else {
-    const a = per(prev), b = per(last)
-    if (a && b) {
-      s += Math.abs(b - a) >= 0.05
-        ? `, ${b > a ? 'more' : 'fewer'} subjects each on average (${b.toFixed(2)} vs ${a.toFixed(2)})`
-        : `, holding at about ${b.toFixed(2)} subjects each`
-    }
-  }
-  return s + '.'
 }
