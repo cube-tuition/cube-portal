@@ -98,12 +98,6 @@ export default function LoginPage() {
               Tuition Portal
             </span>
           </Link>
-          <a
-            href="https://cubetuition.com.au"
-            className="text-xs md:text-sm font-semibold text-[#062E63] hover:text-[#325099] transition"
-          >
-            ← Back to cubetuition.com.au
-          </a>
         </div>
       </header>
 
