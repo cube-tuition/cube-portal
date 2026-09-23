@@ -35,6 +35,14 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
 
   // Viewer state
   const [viewUrl,      setViewUrl]      = useState(null)
+  const viewFrameRef = useRef(null)
+  // Print straight from the viewer, no file saved (same as the PDF preview
+  // modal). Chrome's PDF viewer prints on the frame's window; a viewer that
+  // won't gets the PDF opened in a new tab, whose own Ctrl+P prints it.
+  const printView = () => {
+    const win = viewFrameRef.current?.contentWindow
+    try { win.focus(); win.print() } catch { window.open(viewUrl, '_blank', 'noopener') }
+  }
   const [viewLabel,    setViewLabel]    = useState('')
   const [viewLoading,  setViewLoading]  = useState(null)    // index being loaded
 
@@ -283,6 +291,10 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            <button onClick={printView} title="Print this PDF without downloading it"
+              className="text-xs font-semibold text-[#325099] hover:text-[#062E63] px-3 py-2 rounded-full hover:bg-[#F8FAFF] transition">
+              🖨 Print
+            </button>
             <a href={viewUrl} download target="_blank" rel="noopener noreferrer"
               className="text-xs font-semibold text-[#325099] hover:text-[#062E63] px-3 py-2 rounded-full hover:bg-[#F8FAFF] transition">
               ↓ Download
@@ -294,6 +306,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
           </div>
         </div>
         <iframe
+          ref={viewFrameRef}
           src={viewUrl}
           className="w-full"
           style={{ height: '75vh', border: 'none' }}
