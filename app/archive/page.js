@@ -7,11 +7,12 @@ import { requireStudent } from '../../lib/requireStudent'
 import {
   fetchAllTerms,
   getEnrolmentTerm,
-  getPastTerms,
+  getPastTermsForStudent,
   formatTermLabel,
   formatTermRange,
   filterByTerm,
 } from '../../lib/terms'
+import { enrolledTermIdsFor } from '../../lib/classes'
 import PortalNav from '../../components/PortalNav'
 import { T_STUDENTS, T_QUIZ_RESULTS, T_RESULTS, T_ATTENDANCE } from '../../lib/tables'
 
@@ -22,6 +23,7 @@ export default function ArchivePage() {
   const [quizzes, setQuizzes] = useState([])
   const [results, setResults] = useState([])
   const [attendance, setAttendance] = useState([])
+  const [enrolledTermIds, setEnrolledTermIds] = useState(() => new Set())
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
@@ -39,22 +41,26 @@ export default function ArchivePage() {
       setTerms(all)
       setCurrentTerm(getEnrolmentTerm(all))
 
-      const [{ data: qz }, { data: ex }, { data: at }] = await Promise.all([
+      const [{ data: qz }, { data: ex }, { data: at }, termIds] = await Promise.all([
         supabase.from(T_QUIZ_RESULTS).select('subject, score, max_score, quiz_date').eq('student_id', user.id),
         supabase.from(T_RESULTS).select('score, exams(name, max_score, exam_date)').eq('student_id', user.id),
         supabase.from(T_ATTENDANCE).select('class_id, session_date, status').eq('student_id', user.id),
+        enrolledTermIdsFor(user.id),
       ])
       setQuizzes(qz || [])
       setResults(ex || [])
       setAttendance(at || [])
+      setEnrolledTermIds(termIds)
       setLoading(false)
     }
     load()
   }, [])
 
+  // Holiday terms only appear when this student actually did a course in that
+  // break — otherwise a year here collects an empty card per school holiday.
   const past = useMemo(
-    () => getPastTerms(terms, currentTerm?.id),
-    [terms, currentTerm]
+    () => getPastTermsForStudent(terms, currentTerm?.id, enrolledTermIds),
+    [terms, currentTerm, enrolledTermIds]
   )
 
   return (
