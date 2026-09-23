@@ -24,6 +24,7 @@ import { authedFetch } from '../../lib/authedFetch'
  * of intent — it does not stop anyone determined from fetching the file.
  */
 export default function PdfPreviewModal({ url, filename, title = 'Preview', downloadUrl, onClose }) {
+  const frameRef = useRef(null)
   const [role, setRole] = useState(null)
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
@@ -53,6 +54,15 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
   const needsReason = role !== 'admin' && role !== 'director'
 
   const startDownload = () => { allowRef.current = true; linkRef.current?.click() }
+
+  // Print straight from the preview — the browser's print dialog on the PDF
+  // frame, no file saved. Chrome's PDF viewer answers a print() call on the
+  // frame's window; where a browser won't (Firefox's viewer), fall back to
+  // opening the PDF in a new tab, whose own Ctrl+P prints it.
+  const print = () => {
+    const win = frameRef.current?.contentWindow
+    try { win.focus(); win.print() } catch { window.open(url, '_blank', 'noopener') }
+  }
 
   const onDownloadClick = (e) => {
     if (allowRef.current) { allowRef.current = false; return }   // the gated click, let through
@@ -93,6 +103,10 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-sm font-bold text-white truncate flex-1">{title}</h2>
+          <button onClick={print} title="Print this PDF without downloading it"
+            className="px-3.5 py-1.5 rounded-lg bg-white text-[#062E63] text-xs font-semibold hover:bg-[#EEF3FF] transition">
+            🖨 Print
+          </button>
           <a ref={linkRef} href={downloadUrl || url} download={filename} onClick={onDownloadClick}
             className="px-3.5 py-1.5 rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#243c75] transition">
             Download
@@ -145,7 +159,7 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
           * Nothing here stops devtools, Ctrl+P, or the file's public URL — this
           * is a workflow gate, as the note at the top of this file says.
           */}
-        <iframe src={`${url}#toolbar=0&navpanes=0`} title={filename || 'PDF preview'}
+        <iframe ref={frameRef} src={`${url}#toolbar=0&navpanes=0`} title={filename || 'PDF preview'}
           className="flex-1 w-full rounded-xl bg-white border border-white/10 min-h-0" />
       </div>
     </div>
