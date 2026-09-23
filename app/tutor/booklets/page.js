@@ -405,7 +405,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                     >
                       <div className="px-3">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#98A5BE]">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                          <span className="text-[9px] font-bold uppercase tracking-wider shrink-0 min-w-[36px] whitespace-nowrap text-[#98A5BE]">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
                           <p className="text-[11.5px] font-bold text-[#062E63] leading-tight flex-1 min-w-0 truncate" title={b.is_exam ? b.booklet_name : bookletLabel(b)}>{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                           {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
                           {b.is_exam ? (
@@ -449,7 +449,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                     onDrop={(e) => { e.preventDefault(); if (dragA) moveAssignment(dragA, term, week) }}
                     className={`group w-full rounded-[10px] transition text-left ${SLOT_H} flex items-center ${overSlot === `${term}-${week}` ? 'bg-[#E2EAFB] ring-2 ring-[#325099]/30' : 'bg-[#EEF2FA] hover:bg-[#E2EAFB]'}`}>
                     <div className="px-3 flex items-baseline gap-2 w-full">
-                      <span className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#B4BFD4] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
+                      <span className="text-[9px] font-bold uppercase tracking-wider shrink-0 min-w-[36px] whitespace-nowrap text-[#B4BFD4] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
                       <span className="text-[11px] font-medium text-transparent group-hover:text-[#325099]/70 transition leading-snug">+ assign booklet</span>
                     </div>
                   </button>
@@ -1316,7 +1316,7 @@ function BookletsPageInner() {
                                 {/* Title row: week, name, then whatever the week hands out */}
                                 <div className="flex items-baseline gap-2">
                                   <span
-                                    className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#98A5BE]"
+                                    className="text-[9px] font-bold uppercase tracking-wider shrink-0 min-w-[44px] whitespace-nowrap text-[#98A5BE]"
                                   >
                                     {weekLabel(activeSub, week)}
                                   </span>
@@ -1345,9 +1345,9 @@ function BookletsPageInner() {
                                 </div>
                                 {/* Status by default; the actions take its place on
                                     hover, so ten slots aren't thirty grey words. */}
-                                <div className="flex items-center mt-[3px] pl-[44px] h-[14px]">
+                                <div className="flex items-center mt-[3px] pl-[52px] h-[14px]">
                                   <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
-                                  <span className="absolute left-[44px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <span className="absolute left-[52px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
                                     {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} />}
                                     <button onClick={async () => {
@@ -1376,9 +1376,9 @@ function BookletsPageInner() {
                                 invitation appears on hover. */}
                             <div className="px-3 flex items-baseline gap-2 w-full">
                               <span
-                                className="text-[9px] font-bold uppercase tracking-wider shrink-0 w-[36px] whitespace-nowrap text-[#B4BFD4] group-hover:text-[#325099] transition"
+                                className="text-[9px] font-bold uppercase tracking-wider shrink-0 min-w-[44px] whitespace-nowrap text-[#B4BFD4] group-hover:text-[#325099] transition"
                               >
-                                {isChemistry(activeSub) ? 'Ln' : 'Wk'} {week}
+                                {weekLabel(activeSub, week)}
                               </span>
                               <span className="text-[11px] font-medium text-transparent group-hover:text-[#325099]/70 transition leading-snug">
                                 + assign booklet
