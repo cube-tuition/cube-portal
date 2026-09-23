@@ -409,7 +409,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                           <p className="text-[11.5px] font-bold text-[#062E63] leading-tight flex-1 min-w-0 truncate" title={b.is_exam ? b.booklet_name : bookletLabel(b)}>{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                           {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
                           {b.is_exam ? (
-                            <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
+                            <ExamPdfButtons examId={b.exam_id} bookletId={b.id} onReleased={load} accentColor={accentColor} accentBg={accentBg} />
                           ) : pdfPaths.length > 0 ? (
                             <div className="flex gap-1 shrink-0">
                               {pdfPaths.slice(0, 2).map((path, pi) => {
@@ -1323,7 +1323,7 @@ function BookletsPageInner() {
                                   <p className="text-[12.5px] font-bold text-[#062E63] leading-tight flex-1 min-w-0 truncate" title={b.is_exam ? b.booklet_name : bookletLabel(b)}>{b.is_exam ? b.booklet_name : bookletLabel(b)}</p>
                                   {b.is_exam && <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-[2px] rounded bg-[#FEF3C7] text-[#92400E] shrink-0">Exam</span>}
                                   {b.is_exam ? (
-                                    <ExamPdfButtons examId={b.exam_id} accentColor={accentColor} accentBg={accentBg} />
+                                    <ExamPdfButtons examId={b.exam_id} bookletId={b.id} onReleased={load} accentColor={accentColor} accentBg={accentBg} />
                                   ) : b.delivery === 'online' ? (
                                     <span className="text-[9px] font-bold px-1.5 py-[3px] rounded-md bg-[#ECF9F4] text-[#0E7A5F] shrink-0 whitespace-nowrap" title="Online workbook — students type into it in their portal; no printed PDFs">Online</span>
                                   ) : pdfPaths.length > 0 ? (
@@ -1751,7 +1751,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
                                       Wk {week}{isCurWeek ? ' ●' : ''}
                                     </span>
                                     {b.is_exam ? (
-                                      <ExamPdfButtons examId={b.exam_id} accentColor={accent} accentBg={accentBg} />
+                                      <ExamPdfButtons examId={b.exam_id} bookletId={b.id} accentColor={accent} accentBg={accentBg} />
                                     ) : pdfPaths.length > 0 ? (
                                       <div className="flex gap-1 flex-wrap justify-end">
                                         {pdfPaths.slice(0, 3).map((path, pi) => {

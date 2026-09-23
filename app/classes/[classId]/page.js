@@ -224,7 +224,9 @@ export default function ClassPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-[#2A2035]">{b.booklet_name}</p>
                       <p className="text-[11px] text-[#2A2035]/45 mt-0.5">
-                        {online ? 'Online workbook — type your answers in the portal' : pdfs.length ? 'Workbook — read it in the portal' : 'No file attached yet'}
+                        {online ? 'Online workbook — type your answers in the portal'
+                          : pdfs.length ? (b.is_exam ? 'Exam paper — read it in the portal' : 'Workbook — read it in the portal')
+                          : 'No file attached yet'}
                         {groupLabel(b) ? ` · ${groupLabel(b)}` : ''}
                       </p>
                     </div>
@@ -240,7 +242,7 @@ export default function ClassPage() {
                         target="_blank" rel="noopener noreferrer"
                         className="shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition"
                         style={{ background: col.bg, color: col.fg }}
-                      >📄 Open workbook ↗</a>
+                      >📄 Open {b.is_exam ? 'paper' : 'workbook'} ↗</a>
                     ) : null}
                     {/* Solutions unlock a week after this week's lesson ends —
                         i.e. once the next lesson has finished — so the homework
