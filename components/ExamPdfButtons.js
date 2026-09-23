@@ -14,6 +14,9 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
   const [busy, setBusy] = useState(null)   // 'paper' | 'solutions' | 'release'
   const [err, setErr] = useState('')
   const [released, setReleased] = useState(false)
+  // Releasing rasterises two whole papers and uploads them — around 40 seconds
+  // in practice. Without a step showing, a single "…" reads as a hung button.
+  const [step, setStep] = useState('')
 
   if (!examId) return null
 
@@ -36,9 +39,11 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
       const paths = []
       const names = []
       for (const solutions of [false, true]) {
+        setStep(solutions ? '2/2' : '1/2')
         const { url, filename } = await renderExamPdf(examId, { solutions, preview: true })
         const blob = await fetch(url).then((r) => r.blob())
         URL.revokeObjectURL(url)
+        setStep('↑')
         const path = `exams/${bookletId}/${slug}${solutions ? '_solutions' : ''}.pdf`
         const { error } = await supabase.storage.from('booklets')
           .upload(path, blob, { upsert: true, contentType: 'application/pdf' })
@@ -55,7 +60,7 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
     } catch (e) {
       setErr(e.message || 'Could not release this exam.')
     } finally {
-      setBusy(null)
+      setBusy(null); setStep('')
     }
   }
 
@@ -77,7 +82,7 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
   const big = size === 'lg'
   const cls = big
     ? 'text-xs font-semibold px-4 py-2 rounded-full transition disabled:opacity-50'
-    : 'inline-flex items-center justify-center text-[9px] font-bold h-[16px] w-[18px] rounded-md transition disabled:opacity-50'
+    : 'inline-flex items-center justify-center text-[9px] font-bold h-[16px] min-w-[18px] px-1 rounded-md transition disabled:opacity-50'
 
   return (
     <div className={`flex items-center ${big ? 'gap-1.5' : 'gap-1'} shrink-0`}>
@@ -93,15 +98,17 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
       </button>
       {bookletId && (
         <button onClick={release} disabled={!!busy} className={cls}
-          style={{ background: released ? '#ECF9F4' : accentBg, color: released ? '#0E7A5F' : accentColor }}
-          title={released
+          style={err
+            ? { background: '#FDECEC', color: '#B23A3A' }
+            : { background: released ? '#ECF9F4' : accentBg, color: released ? '#0E7A5F' : accentColor }}
+          title={err ? `Release failed: ${err}` : released
             ? 'Released — students can open the paper, and the solutions unlock a week after the lesson'
-            : 'Release to students: publishes the paper now, with the solutions held until a week after the lesson'}
+            : 'Release to students: publishes the paper now, with the solutions held until a week after the lesson. Takes about a minute — it builds both PDFs.'}
           aria-label={released ? 'Released to students' : 'Release this exam to students'}>
-          {busy === 'release' ? '…' : released ? '✓' : (big ? '↗ Release' : '↗')}
+          {busy === 'release' ? (step || '…') : err ? '!' : released ? '✓' : (big ? '↗ Release' : '↗')}
         </button>
       )}
-      {err && <span className="text-[9px] text-[#DC2626]">{err}</span>}
+      {err && big && <span className="text-[9px] text-[#DC2626]">{err}</span>}
     </div>
   )
 }
