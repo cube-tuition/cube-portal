@@ -12,7 +12,8 @@ import { pickSubjectColor } from '../../../lib/subjectColours'
 import MonthCalendarModal from '../../../components/calendar/MonthCalendarModal'
 import { isRosteredTutor } from '../../../lib/dropin'
 import { inferSubject } from '../../../components/CourseDetail'
-import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS } from '../../../lib/tables'
+import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS, T_TUTORS, T_ADMINS } from '../../../lib/tables'
+import { effectiveTeacher } from '../../../lib/lessonAccess'
 import { buildClassLabelMap } from '../../../lib/classLabels'
 import { isOneToOneByName } from '../../../lib/classFormat'
 
@@ -98,6 +99,7 @@ export default function TutorClassesPage() {
   const [dropinSessions, setDropinSessions] = useState([]) // [dropin_sessions row] — drop-in sessions for this tutor
   const [subDates, setSubDates] = useState(new Set()) // Set of "classId|dateISO" — own classes that have a sub assigned
   const [weekLessons, setWeekLessons] = useState([])  // actual lesson rows for the current week
+  const [allStaff, setAllStaff] = useState([])        // resolves a lesson's scheduled_teacher_id to a name
   const [monthOpen, setMonthOpen] = useState(false)   // full-screen month calendar modal
   const [search, setSearch] = useState('')
   const [authErr, setAuthErr] = useState(null)
@@ -277,12 +279,25 @@ export default function TutorClassesPage() {
     const weekMax = isoDate(addDays(weekStart, 6))
     supabase
       .from(T_LESSONS)
-      .select('id, lesson_date, start_time, end_time, class_id, status')
+      // main_teacher + scheduled_teacher_id drive who is actually on for the
+      // week; without them the pill can only fall back to the class's
+      // permanent teacher and a covered week looks uncovered.
+      .select('id, lesson_date, start_time, end_time, class_id, status, main_teacher, scheduled_teacher_id')
       .gte('lesson_date', weekMin)
       .lte('lesson_date', weekMax)
       .is('makeup_student_id', null)
       .then(({ data }) => setWeekLessons(data || []))
   }, [weekStart, calClasses])
+
+  // ── Staff names, to resolve a lesson's scheduled_teacher_id ──────────────
+  useEffect(() => {
+    Promise.all([
+      supabase.from(T_TUTORS).select('id, full_name'),
+      supabase.from(T_ADMINS).select('id, full_name'),
+    ]).then(([{ data: tutorRows }, { data: adminRows }]) => {
+      setAllStaff([...(tutorRows || []), ...(adminRows || [])])
+    })
+  }, [])
 
   // ── Drop-in sessions: re-fetch whenever week or staff changes ────────────
   useEffect(() => {
@@ -426,12 +441,18 @@ export default function TutorClassesPage() {
       if (!cls) continue
       if (movedSourceIds.has(lesson.id) && isOneToOne(cls)) continue // moved 1:1 — shows on the makeup day only
       const d = new Date(lesson.lesson_date + 'T00:00:00')
+      // Who is on for THIS week, which is not always the class's permanent
+      // teacher — same helper the class page uses, so the two agree.
+      const teach = effectiveTeacher(lesson, cls, allStaff)
       out.push({
         key:     `lesson-${lesson.id}`,
         date:    d,
         dateISO: lesson.lesson_date,
         dayName: dayNameOf(d),
-        cls:     { ...cls, start_time: lesson.start_time || cls.start_time, end_time: lesson.end_time || cls.end_time },
+        cls:     { ...cls, start_time: lesson.start_time || cls.start_time, end_time: lesson.end_time || cls.end_time,
+                   teacher: teach.name || cls.teacher },
+        teacherIsSub: teach.isSub,
+        teacherId: teach.id,
         lessonId: lesson.id,
       })
     }
@@ -441,7 +462,7 @@ export default function TutorClassesPage() {
       return startMinutes(a.cls.start_time) - startMinutes(b.cls.start_time)
     })
     return out
-  }, [calClasses, weekLessons, makeupSessions])
+  }, [calClasses, weekLessons, makeupSessions, allStaff])
 
   const sessionsByDate = useMemo(() => {
     // Ownership flag per pill — drives the tutor view's blue-vs-grey styling
@@ -453,8 +474,10 @@ export default function TutorClassesPage() {
       if (!map.has(s.dateISO)) map.set(s.dateISO, [])
       map.get(s.dateISO).push({
         ...s,
-        hasSub: subDates.has(`${s.cls.id}|${s.dateISO}`),
-        mine: isMineCls(s.cls),
+        hasSub: s.teacherIsSub || subDates.has(`${s.cls.id}|${s.dateISO}`),
+        // s.cls.teacher is already the week's teacher, so a week someone else
+        // is covering greys out and a week you cover highlights.
+        mine: s.teacherId ? s.teacherId === staff?.id : isMineCls(s.cls),
       })
     }
     // Inject sub sessions into the calendar (only those in the current week view)
