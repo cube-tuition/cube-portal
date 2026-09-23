@@ -70,27 +70,35 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
     }
   }
 
-  const cls = size === 'lg'
+  // In a curriculum slot the row also carries the week, the booklet name and
+  // an Exam badge, so three worded buttons squeezed the name down to an
+  // ellipsis. Compact form matches the workbook pills beside it: S is the
+  // student copy (the paper), T the teacher copy (the solutions).
+  const big = size === 'lg'
+  const cls = big
     ? 'text-xs font-semibold px-4 py-2 rounded-full transition disabled:opacity-50'
-    : 'text-[10px] font-bold px-2 py-0.5 rounded-lg transition disabled:opacity-50'
+    : 'inline-flex items-center justify-center text-[9px] font-bold h-[16px] w-[18px] rounded-md transition disabled:opacity-50'
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className={`flex items-center ${big ? 'gap-1.5' : 'gap-1'} shrink-0`}>
       <button onClick={() => make(false)} disabled={!!busy} className={cls}
-        style={{ background: accentBg, color: accentColor }} title="Generate the exam paper PDF">
-        {busy === 'paper' ? '…' : '⬇ Paper'}
+        style={{ background: accentBg, color: accentColor }}
+        title="Download the exam paper (student copy)" aria-label="Download the exam paper">
+        {busy === 'paper' ? '…' : big ? '⬇ Paper' : 'S'}
       </button>
       <button onClick={() => make(true)} disabled={!!busy} className={cls}
-        style={{ background: accentBg, color: accentColor }} title="Generate the solutions PDF">
-        {busy === 'solutions' ? '…' : '⬇ Solutions'}
+        style={{ background: accentBg, color: accentColor }}
+        title="Download the solutions (teacher copy)" aria-label="Download the solutions">
+        {busy === 'solutions' ? '…' : big ? '⬇ Solutions' : 'T'}
       </button>
       {bookletId && (
         <button onClick={release} disabled={!!busy} className={cls}
           style={{ background: released ? '#ECF9F4' : accentBg, color: released ? '#0E7A5F' : accentColor }}
           title={released
             ? 'Released — students can open the paper, and the solutions unlock a week after the lesson'
-            : 'Build the paper and solutions and publish them to students, like a workbook'}>
-          {busy === 'release' ? '…' : released ? '✓ Released' : '↗ Release'}
+            : 'Release to students: publishes the paper now, with the solutions held until a week after the lesson'}
+          aria-label={released ? 'Released to students' : 'Release this exam to students'}>
+          {busy === 'release' ? '…' : released ? '✓' : (big ? '↗ Release' : '↗')}
         </button>
       )}
       {err && <span className="text-[9px] text-[#DC2626]">{err}</span>}
