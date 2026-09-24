@@ -382,7 +382,14 @@ function AdditionalQuestionsInner() {
     }
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [worksheets, topicById, listYear, listSub])
-  const wsUnfiled = useMemo(() => worksheets.filter((ws) => !topicById[ws.topic_id]), [worksheets, topicById])
+  // Unfiled worksheets sort by year, then most recent. Two worksheets can
+  // share a title here, so grouping by year is what makes them tellable apart.
+  // Worksheets with no year sort last, where they read as needing attention.
+  const wsUnfiled = useMemo(() => worksheets
+    .filter((ws) => !topicById[ws.topic_id])
+    .sort((a, b) => (Number(b.cover_year || 0) - Number(a.cover_year || 0))
+                 || String(b.updated_at).localeCompare(String(a.updated_at))),
+    [worksheets, topicById])
 
   const trayIds = useMemo(() => new Set(tray.map((q) => q.id)), [tray])
 
@@ -588,7 +595,19 @@ function AdditionalQuestionsInner() {
                       {wsUnfiled.map((ws) => (
                         <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
                           <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
-                            <p className="text-xs font-semibold text-[#2A2035] truncate">{ws.title}</p>
+                            {/* Unfiled worksheets have no topic to place them under a
+                                year, and the titles repeat — two "Term 3 Revision"
+                                sit in here — so the cover year leads the row. */}
+                            <p className="text-xs font-semibold text-[#2A2035] truncate flex items-center gap-1.5">
+                              <span
+                                className={`shrink-0 min-w-[24px] text-center text-[9px] font-bold px-1 py-[1px] rounded ${
+                                  ws.cover_year ? 'bg-[#EEF4FF] text-[#325099]' : 'bg-[#F4F6FB] text-[#2A2035]/30'}`}
+                                title={ws.cover_year ? `Year ${ws.cover_year}` : 'No cover year set — open it and choose one'}
+                              >
+                                {ws.cover_year ? `Y${ws.cover_year}` : '–'}
+                              </span>
+                              <span className="truncate">{ws.title}</span>
+                            </p>
                             <p className="text-[10px] text-[#2A2035]/45 mt-0.5">
                               {(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0)} question{(Array.isArray(ws.question_ids) ? ws.question_ids.length : 0) === 1 ? '' : 's'}
                                · updated {new Date(ws.updated_at).toLocaleDateString()}
