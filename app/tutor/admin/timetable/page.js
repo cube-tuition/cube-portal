@@ -799,9 +799,15 @@ export default function TimetablePage() {
   }
 
   const newDraft = async () => {
+    // Name it up front. Drafts are how you compare arrangements of a term, so
+    // "Draft 2" tells you nothing when you come back to three of them — but the
+    // numbered default is still there for anyone who just wants to get going.
+    const suggested = `Draft ${drafts.length + 1}`
+    const name = prompt('Name this draft — e.g. "Term 4 option A" or "Kevin Fri instead of Wed"', suggested)
+    if (name == null) return                       // cancelled — no empty draft left behind
     // Seed a new draft from the live timetable so you start from the real layout.
     const created = await createDraft({
-      termId, name: `Draft ${drafts.length + 1}`,
+      termId, name: name.trim() || suggested,
       entries: liveSnapshot.current || entries, hiddenIds: [], createdBy: profile?.id,
     })
     setDrafts(prev => [created, ...prev])
@@ -821,7 +827,7 @@ export default function TimetablePage() {
 
   const renameDraftNow = async () => {
     const cur = drafts.find(d => d.id === draftId)
-    const name = prompt('Draft name:', cur?.name || 'Untitled draft')
+    const name = prompt('Rename this draft:', cur?.name || 'Untitled draft')
     if (name == null) return
     const clean = name.trim() || 'Untitled draft'
     await renameDraft(draftId, clean)
@@ -1114,7 +1120,7 @@ export default function TimetablePage() {
                   value={draftId}
                   onChange={e => switchDraft(e.target.value)}
                   title="Choose a draft plan"
-                  className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] max-w-[170px]"
+                  className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] max-w-[260px]"
                 >
                   {drafts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
@@ -1127,8 +1133,8 @@ export default function TimetablePage() {
                     ⤓ Import {liveMissing.length} live class{liveMissing.length === 1 ? '' : 'es'}
                   </button>
                 )}
-                <button onClick={renameDraftNow} title="Rename this draft"
-                  className="text-sm rounded-xl px-2.5 py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition">✎</button>
+                <button onClick={renameDraftNow} title="Rename this draft" aria-label="Rename this draft"
+                  className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition whitespace-nowrap">✎ Rename</button>
                 {hiddenIds.size > 0 && (
                   <button onClick={() => { setHiddenIds(new Set()); setDraftDirty(true) }}
                     title="Show all cards hidden in this draft"
