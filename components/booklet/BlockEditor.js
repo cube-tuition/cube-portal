@@ -559,7 +559,7 @@ export function MathObjFields({ obj, upd }) {
 // object and/or a plain blank space beneath the text.
 export const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '' }
 // A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
-const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
+const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', cellAlign: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
 
 // Attach/edit/remove an optional table embedded in a block (block.table).
 // Mirrors the maths-object / blank-space "＋ Add" affordances.
@@ -1139,6 +1139,13 @@ function TableEditor({ block, set }) {
             for tables read across the rows (unit → example) rather than down. */}
         <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer">
           <input type="checkbox" checked={!!block.headerCol} onChange={e => set({ headerCol: e.target.checked })} /> Header column
+        </label>
+        {/* Cells centre by default, which suits values and reads badly for a
+            table full of sentences. */}
+        <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer"
+          title="Read the cells from the left — for a table of sentences rather than values">
+          <input type="checkbox" checked={block.cellAlign === 'left'}
+            onChange={e => set({ cellAlign: e.target.checked ? 'left' : '' })} /> Left-align cells
         </label>
         <div className="flex items-center gap-1.5 text-[11px] text-[#2A2035]/50">
           <span>Rows</span>
