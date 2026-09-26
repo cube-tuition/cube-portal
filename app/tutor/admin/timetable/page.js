@@ -377,6 +377,17 @@ export default function TimetablePage() {
   const [profile, setProfile] = useState(null)
   const [terms, setTerms]     = useState([])
   const [termId, setTermId]   = useState('')
+  // The open term + draft live in the address (?term=…&draft=…) so a refresh
+  // lands back in the same draft instead of on the live timetable. Read once
+  // on load; `pendingDraft` holds the draft to reopen until the term's classes
+  // are in (the draft is seeded from them).
+  const [urlInit] = useState(() => {
+    if (typeof window === 'undefined') return {}
+    const p = new URLSearchParams(window.location.search)
+    return { term: p.get('term'), draft: p.get('draft') }
+  })
+  const pendingDraft = useRef(urlInit.draft || null)
+  const [reopenFrom, setReopenFrom] = useState(null)   // the term's classes, once loaded, while reopening
   const [courses, setCourses] = useState([])
   const [tutors, setTutors]   = useState([])    // tutors + directors (everyone who can teach)
   const [allStudents, setAllStudents] = useState([])  // {id, full_name, year} — for draft roster editing
@@ -452,14 +463,17 @@ export default function TimetablePage() {
       const upcoming = allTerms
         .filter(t => cur ? t.start_date > cur.start_date : true)
         .sort((a, b) => a.start_date.localeCompare(b.start_date))
-      setTermId(upcoming[0]?.id || cur?.id || allTerms[0]?.id || '')
+      const fromUrl = urlInit.term && allTerms.some(t => String(t.id) === String(urlInit.term)) ? urlInit.term : null
+      if (!fromUrl) pendingDraft.current = null   // a draft belongs to its term — no term, no draft
+      setTermId(fromUrl || upcoming[0]?.id || cur?.id || allTerms[0]?.id || '')
     })()
-  }, [profile])
+  }, [profile])  // eslint-disable-line react-hooks/exhaustive-deps -- urlInit is fixed at mount
 
   const CLASS_COLS = 'id, class_name, course_id, teacher, room, day_of_week, start_time, end_time, term_id'
   const loadClasses = async (tid) => {
     const { data } = await supabase.from(T_CLASSES).select(CLASS_COLS).eq('term_id', tid)
     setEntries(data || [])
+    return data || []
   }
 
   // Classes for the selected term
@@ -469,9 +483,33 @@ export default function TimetablePage() {
       // Switching terms leaves draft mode (drafts are per-term) and reloads live.
       setDraftMode(false); setDraftDirty(false); setHiddenIds(new Set())
       setDraftId(''); setDrafts([]); liveSnapshot.current = null
-      setLoading(true); await loadClasses(termId); setLoading(false)
+      setLoading(true)
+      const live = await loadClasses(termId)
+      // A refresh left us in a draft — reopen it (below, once enterDraft
+      // exists) before showing anything, so the live board never flashes up.
+      if (pendingDraft.current) { setReopenFrom(live); return }
+      setLoading(false)
     })()
   }, [termId])
+
+  // Mirror the open term + draft into the address (replace, not push — the
+  // back button should leave the page, not step through drafts).
+  useEffect(() => {
+    if (!termId || pendingDraft.current) return
+    const p = new URLSearchParams(window.location.search)
+    p.set('term', termId)
+    if (draftMode && draftId) p.set('draft', draftId); else p.delete('draft')
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${p}`)
+  }, [termId, draftMode, draftId])
+
+  // Refreshing reopens the draft, but only as last saved — warn before
+  // unsaved draft edits are thrown away.
+  useEffect(() => {
+    if (!draftMode || !draftDirty) return
+    const warn = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [draftMode, draftDirty])
 
   const courseLabel = (id) => {
     const c = courses.find(c => String(c.id) === String(id))
@@ -898,13 +936,16 @@ export default function TimetablePage() {
   }
 
   // Enter draft: remember the live board, load this term's drafts, then open the
-  // most recent — creating one seeded from the live timetable if none exist.
-  const enterDraft = async () => {
+  // most recent (or `preferId`, when a refresh is reopening one) — creating one
+  // seeded from the live timetable if none exist. `live` is the term's classes;
+  // it defaults to what's on screen, and is passed in when entering straight
+  // after a load, before `entries` has caught up.
+  const enterDraft = async (preferId = null, live = entries) => {
     // Capture the live enrolment baseline, then seed every entry's draft roster
     // from it so roster edits start from the real classes.
-    const rosters = await loadLiveRosters(entries)
+    const rosters = await loadLiveRosters(live)
     liveRosters.current = rosters
-    const seeded = entries.map(e => ({ ...e, student_ids: rosters[e.id] || [] }))
+    const seeded = live.map(e => ({ ...e, student_ids: rosters[e.id] || [] }))
     liveSnapshot.current = seeded
     setLiveList(seeded)
     setEntries(seeded)
@@ -916,8 +957,17 @@ export default function TimetablePage() {
     }
     setDrafts(list)
     setDraftMode(true)
-    await openDraft(list[0].id)
+    await openDraft(list.find(d => String(d.id) === String(preferId))?.id || list[0].id)
   }
+
+  useEffect(() => {
+    if (!reopenFrom) return
+    const id = pendingDraft.current
+    pendingDraft.current = null
+    ;(async () => {
+      try { await enterDraft(id, reopenFrom) } finally { setReopenFrom(null); setLoading(false) }
+    })()
+  }, [reopenFrom])  // eslint-disable-line react-hooks/exhaustive-deps -- runs once per reopen
 
   // Pull the live timetable into the open draft: every live class the draft
   // does not already have, with its live roster. Drafts are seeded only when
@@ -1270,7 +1320,7 @@ export default function TimetablePage() {
             {/* Drafts — saved, independent plans; nothing touches live until "Apply to live" */}
             {!draftMode ? (
               <button
-                onClick={enterDraft}
+                onClick={() => enterDraft()}
                 title="Open a saved draft plan (or start one). Edits never touch the live timetable."
                 className="text-sm font-semibold rounded-xl px-4 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition"
               >
