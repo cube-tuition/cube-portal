@@ -10,6 +10,7 @@ import {
 import TutorNav from '../../../../components/TutorNav'
 import { downloadTimetablePdf } from '../../../../lib/timetablePdf'
 import { listDrafts, createDraft, loadDraft, saveDraft, renameDraft, deleteDraft } from '../../../../lib/timetableDrafts'
+import DraftEnrolmentTable from '../../../../components/timetable/DraftEnrolmentTable'
 import { subjectFromCourseCode, yearFromCourseCode } from '../../../../lib/courses'
 import { inferSubject } from '../../../../components/CourseDetail'
 
@@ -399,6 +400,8 @@ export default function TimetablePage() {
   const liveSnapshot = useRef(null)  // live entries captured on entering draft (for exit + apply diff)
   const [liveList, setLiveList] = useState([])  // the same snapshot as state, for what renders (import button)
   const [hiddenIds, setHiddenIds]   = useState(() => new Set())  // cards hidden in the open draft
+  // Planning fields on the draft's enrolments — { "<class_id>|<student_id>": { parent, teacher, note } }.
+  const [enrolMeta, setEnrolMeta]   = useState({})
   const [pdfModal, setPdfModal] = useState(false)
   // Filters narrow what the grid SHOWS; clash and availability checks still run
   // over every placed class, so hiding a card never hides a warning about it.
@@ -740,11 +743,23 @@ export default function TimetablePage() {
   const removeStudentFromClass = (classId, sid) => setRoster(classId, ids => ids.filter(x => x !== sid))
   const moveStudent = (sid, fromId, toId) => {
     if (!toId || String(fromId) === String(toId)) return
+    // Match on the card's own id (the table hands ids back as strings).
+    const to = entries.find(e => String(e.id) === String(toId))?.id ?? toId
     setEntries(prev => prev.map(e => {
       if (String(e.id) === String(fromId)) return { ...e, student_ids: (e.student_ids || []).filter(x => x !== sid) }
-      if (String(e.id) === String(toId))   return { ...e, student_ids: (e.student_ids || []).includes(sid) ? e.student_ids : [...(e.student_ids || []), sid] }
+      if (String(e.id) === String(to))     return { ...e, student_ids: (e.student_ids || []).includes(sid) ? e.student_ids : [...(e.student_ids || []), sid] }
       return e
     }))
+    // A move keeps the enrolment's note, but not its confirmations — the
+    // parent and teacher agreed to the old class's day and time, not this one.
+    setEnrolMeta(m => {
+      const note = m[`${fromId}|${sid}`]?.note
+      return note ? { ...m, [`${to}|${sid}`]: { ...(m[`${to}|${sid}`] || {}), note } } : m
+    })
+    setDraftDirty(true)
+  }
+  const setEnrolmentMeta = (key, patch) => {
+    setEnrolMeta(m => ({ ...m, [key]: { ...(m[key] || {}), ...patch } }))
     setDraftDirty(true)
   }
 
@@ -872,6 +887,7 @@ export default function TimetablePage() {
     // back to the live roster so nothing looks empty.
     setEntries((d.entries || []).map(e => ({ ...e, student_ids: e.student_ids ?? rosters[e.id] ?? [] })))
     setHiddenIds(new Set(d.hidden_ids))
+    setEnrolMeta(d.enrolment_meta || {})
     setDraftDirty(false)
   }
 
@@ -933,7 +949,7 @@ export default function TimetablePage() {
     if (!draftId) return
     setSavingDraft(true)
     try {
-      await saveDraft(draftId, { entries, hiddenIds: [...hiddenIds] })
+      await saveDraft(draftId, { entries, hiddenIds: [...hiddenIds], enrolmentMeta: enrolMeta })
       setDraftDirty(false)
       setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, updated_at: new Date().toISOString() } : d))
     } catch (e) { alert('Could not save draft: ' + (e.message || e)) }
@@ -960,7 +976,7 @@ export default function TimetablePage() {
   }
 
   const exitDraft = () => {
-    setDraftMode(false); setDraftId(''); setDraftDirty(false); setHiddenIds(new Set())
+    setDraftMode(false); setDraftId(''); setDraftDirty(false); setHiddenIds(new Set()); setEnrolMeta({})
     if (liveSnapshot.current) setEntries(liveSnapshot.current)
     liveSnapshot.current = null
     setLiveList([])
@@ -1084,8 +1100,15 @@ export default function TimetablePage() {
     // The draft's new cards now point at real classes.
     if (Object.keys(idMap).length) {
       const remapped = entries.map(e => idMap[e.id] ? { ...e, id: idMap[e.id] } : e)
+      // Planning notes are keyed by card id too — follow the new class ids.
+      const remappedMeta = Object.fromEntries(Object.entries(enrolMeta).map(([k, v]) => {
+        const cut = k.lastIndexOf('|')
+        const cid = k.slice(0, cut)
+        return [idMap[cid] ? `${idMap[cid]}|${k.slice(cut + 1)}` : k, v]
+      }))
       setEntries(remapped)
-      try { await saveDraft(draftId, { entries: remapped, hiddenIds: [...hiddenIds] }); setDraftDirty(false) } catch { /* the draft still works; it just re-saves later */ }
+      setEnrolMeta(remappedMeta)
+      try { await saveDraft(draftId, { entries: remapped, hiddenIds: [...hiddenIds], enrolmentMeta: remappedMeta }); setDraftDirty(false) } catch { /* the draft still works; it just re-saves later */ }
     }
     const bits = [
       `${updates.length} updated`,
@@ -1532,6 +1555,30 @@ export default function TimetablePage() {
               </div>
             </div>
           </div>
+        )}
+
+        {draftMode && !loading && (
+          <DraftEnrolmentTable
+            draftId={draftId}
+            entries={entries}
+            liveList={liveList}
+            hiddenIds={hiddenIds}
+            studentsById={studentsById}
+            allStudents={allStudents}
+            meta={enrolMeta}
+            onMeta={setEnrolmentMeta}
+            onAdd={addStudentToClass}
+            onRemove={removeStudentFromClass}
+            onMove={moveStudent}
+            isOffCourse={isOffCourse}
+            enrolledSummary={enrolledSummary}
+            courseName={courseName}
+            whenOf={(e) => {
+              const st = parseTime(e.start_time), en = parseTime(e.end_time)
+              return [e.day_of_week?.slice(0, 3), st != null ? `${fmtTime(st)}${en != null ? '–' + fmtTime(en) : ''}` : ''].filter(Boolean).join(' ')
+            }}
+            teacherOf={teacherShort}
+          />
         )}
 
         {pdfModal && (
