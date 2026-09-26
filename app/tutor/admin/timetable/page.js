@@ -758,6 +758,12 @@ export default function TimetablePage() {
     })
     setDraftDirty(true)
   }
+  // A class's own fields edited from the draft enrolments table (day, times,
+  // teacher) — the same change the class modal makes, local to the draft.
+  const updateDraftClass = (classId, patch) => {
+    setEntries(prev => prev.map(e => e.id === classId ? { ...e, ...patch } : e))
+    setDraftDirty(true)
+  }
   const setEnrolmentMeta = (key, patch) => {
     setEnrolMeta(m => ({ ...m, [key]: { ...(m[key] || {}), ...patch } }))
     setDraftDirty(true)
@@ -1577,7 +1583,11 @@ export default function TimetablePage() {
               const st = parseTime(e.start_time), en = parseTime(e.end_time)
               return [e.day_of_week?.slice(0, 3), st != null ? `${fmtTime(st)}${en != null ? '–' + fmtTime(en) : ''}` : ''].filter(Boolean).join(' ')
             }}
-            teacherOf={teacherShort}
+            teacherOf={(e) => teacherShort({ ...e, tutor_id: resolveTutorId(e.teacher) })}
+            tutors={tutors}
+            teacherIdOf={(e) => resolveTutorId(e.teacher)}
+            timeToInput={(t) => { const m = parseTime(t); return m == null ? '' : toHHMM(m) }}
+            onEditClass={updateDraftClass}
           />
         )}
 

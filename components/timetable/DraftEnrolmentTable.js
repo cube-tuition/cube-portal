@@ -11,6 +11,9 @@ import { useMemo, useState } from 'react'
  * planning fields (confirmed with parent / teacher, notes) never do — they
  * live on the draft only (timetable_drafts.enrolment_meta).
  *
+ * Day, times and teacher belong to the class, not the enrolment, so editing
+ * them on any row changes the class card and every row of that class.
+ *
  * Live enrolments the draft no longer has are listed struck through, so the
  * table shows exactly what Apply to live will disenrol. A student moved to
  * another class of the same course is one row ("moved from …"), not a
@@ -18,13 +21,27 @@ import { useMemo, useState } from 'react'
  */
 
 const CELL = 'px-2.5 py-1.5 align-middle'
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const INLINE = 'border border-transparent hover:border-[#DEE7FF] rounded-lg px-1 py-0.5 bg-transparent text-[#325099] focus:outline-none focus:border-[#325099] focus:bg-white'
+const toMins = (hhmm) => { const [h, m] = String(hhmm || '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null }
+const fromMins = (n) => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`
 const yearNum = (y) => { const n = parseInt(y, 10); return Number.isFinite(n) ? n : 99 }
 
 export default function DraftEnrolmentTable({
   draftId, entries, liveList, hiddenIds, studentsById, allStudents,
   meta, onMeta, onAdd, onRemove, onMove,
   isOffCourse, enrolledSummary, courseName, whenOf, teacherOf,
+  tutors = [], teacherIdOf, timeToInput, onEditClass,
 }) {
+  // Moving the start keeps the class's length, as dragging a card does.
+  const setStart = (e, value) => {
+    const s0 = toMins(timeToInput(e.start_time)), e0 = toMins(timeToInput(e.end_time)), s1 = toMins(value)
+    const patch = { start_time: value }
+    if (s0 != null && e0 != null && s1 != null && e0 > s0) patch.end_time = fromMins(Math.min(s1 + (e0 - s0), 23 * 60 + 59))
+    onEditClass(e.id, patch)
+  }
+  const CLASS_WIDE = 'Changes the whole class — its card and every student in it'
+
   const [query, setQuery]   = useState('')
   const [year, setYear]     = useState('')
   const [show, setShow]     = useState('all')   // all | changes | parent | teacher
@@ -93,6 +110,11 @@ export default function DraftEnrolmentTable({
     return [st?.full_name, r.entry.class_name, courseName(r.entry.course_id), m.note]
       .some(v => (v || '').toLowerCase().includes(q))
   })
+
+  // Shade alternate classes grey / white so each class's students read as a
+  // block. Rows are sorted year → class, so a class's rows are contiguous.
+  const band = []
+  shown.forEach((r, i) => band.push(i && String(r.entry.id) !== String(shown[i - 1].entry.id) ? band[i - 1] + 1 : (band[i - 1] || 0)))
 
   const placed = rows.filter(r => !r.removed)
   const parentDone  = placed.filter(r => meta[r.key]?.parent).length
@@ -174,7 +196,7 @@ export default function DraftEnrolmentTable({
               const newYear = i > 0 && yearNum(studentsById[prev.sid]?.year) !== yearNum(st?.year)
               return (
                 <tr key={r.key}
-                  className={`border-b border-[#F3F6FD] ${newYear ? 'border-t-2 border-t-[#DEE7FF]' : ''} ${r.removed ? 'bg-red-50/40 text-[#325099]/45' : 'hover:bg-[#F8FAFF]'}`}>
+                  className={`border-b border-[#F3F6FD] ${newYear ? 'border-t-2 border-t-[#DEE7FF]' : ''} ${r.removed ? 'bg-red-50/60 text-[#325099]/45' : band[i] % 2 ? 'bg-[#F1F4FA] hover:bg-[#E8EDF7]' : 'bg-white hover:bg-[#F8FAFF]'}`}>
                   <td className={`${CELL} font-semibold text-[#325099]/70`}>{st?.year || '—'}</td>
                   <td className={`${CELL} font-semibold whitespace-nowrap ${r.removed ? 'line-through' : 'text-[#062E63]'}`}>
                     {st?.full_name || 'Unknown student'}
@@ -197,8 +219,44 @@ export default function DraftEnrolmentTable({
                     )}
                   </td>
                   <td className={`${CELL} whitespace-nowrap ${r.removed ? 'line-through' : ''}`}>{courseName(r.entry.course_id) || '—'}</td>
-                  <td className={`${CELL} whitespace-nowrap ${r.removed ? 'line-through' : ''}`}>{whenOf(r.entry) || '—'}</td>
-                  <td className={`${CELL} ${r.removed ? 'line-through' : ''}`}>{teacherOf(r.entry) || '—'}</td>
+                  {r.removed ? (
+                    <>
+                      <td className={`${CELL} whitespace-nowrap line-through`}>{whenOf(r.entry) || '—'}</td>
+                      <td className={`${CELL} line-through`}>{teacherOf(r.entry) || '—'}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className={`${CELL} whitespace-nowrap`} title={CLASS_WIDE}>
+                        <select value={r.entry.day_of_week || ''} onChange={e => onEditClass(r.entry.id, { day_of_week: e.target.value || null })}
+                          className={`${INLINE} w-[4.2rem]`}>
+                          <option value="">—</option>
+                          {DAYS.map(d => <option key={d} value={d}>{d.slice(0, 3)}</option>)}
+                        </select>
+                        <input type="time" value={timeToInput(r.entry.start_time)} onChange={e => e.target.value && setStart(r.entry, e.target.value)}
+                          className={`${INLINE} w-[6.2rem]`} />
+                        <span className="text-[#325099]/40">–</span>
+                        <input type="time" value={timeToInput(r.entry.end_time)} onChange={e => e.target.value && onEditClass(r.entry.id, { end_time: e.target.value })}
+                          className={`${INLINE} w-[6.2rem]`} />
+                      </td>
+                      <td className={CELL} title={CLASS_WIDE}>
+                        {(() => {
+                          const tid = teacherIdOf(r.entry)
+                          return (
+                            <select value={tid || (r.entry.teacher ? '_raw' : '')}
+                              onChange={e => {
+                                if (e.target.value === '_raw') return
+                                onEditClass(r.entry.id, { teacher: tutors.find(t => String(t.id) === e.target.value)?.full_name || null })
+                              }}
+                              className={`${INLINE} max-w-[9rem]`}>
+                              <option value="">— none —</option>
+                              {!tid && r.entry.teacher && <option value="_raw">{r.entry.teacher}</option>}
+                              {tutors.map(t => <option key={t.id} value={String(t.id)}>{t.full_name}</option>)}
+                            </select>
+                          )
+                        })()}
+                      </td>
+                    </>
+                  )}
                   <td className={`${CELL} whitespace-nowrap`}>
                     {r.removed && (
                       <span className="text-red-600 font-semibold" title="Apply to live will disenrol them from this class">
