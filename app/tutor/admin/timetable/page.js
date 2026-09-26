@@ -730,20 +730,62 @@ export default function TimetablePage() {
     setDraftDirty(true)
   }
 
-  // Student check — non-archived students not placed in any class in this draft.
+  /*
+   * Enrolment check — which of the term's enrolments this draft has not placed.
+   *
+   * It counts enrolments, not students: a student taking Maths and English
+   * who is placed in Maths only still has an English enrolment unaccounted
+   * for, and counting students hid that. Two sources:
+   *   - the live term's class enrolments (liveList's rosters), and
+   *   - trial enrolments with no class yet — a website enquiry creates one,
+   *     and it is exactly the kind a plan forgets.
+   * An enrolment is covered when the student sits in a draft class of the SAME
+   * COURSE, not necessarily the same class: moving someone from Monday's Y8
+   * Maths to Wednesday's is a rearrangement, not a lost enrolment. A trial
+   * stub has no course yet, so any placement covers it.
+   */
   const [showUnassigned, setShowUnassigned]   = useState(false)
   const [unassignedQuery, setUnassignedQuery] = useState('')
-  const unassignedStudents = useMemo(() => {
+  const [trialStubs, setTrialStubs]           = useState([])
+  useEffect(() => {
+    if (!draftMode) return
+    supabase.from(T_ENROLMENTS).select('id, student_id')
+      .is('class_id', null).eq('status', 'trial').is('ended_at', null)
+      .then(({ data }) => setTrialStubs(data || []))
+  }, [draftMode])
+
+  const unassignedEnrolments = useMemo(() => {
     if (!draftMode) return []
-    const assigned = new Set()
-    for (const e of entries) for (const sid of (e.student_ids || [])) assigned.add(sid)
-    // Only current students belong in the pool — disenrolled / quit-trial students
-    // (status not active/trial) are no longer assignable.
+    // Only current students — a disenrolled or quit-trial student's leftover
+    // enrolment is not something to place.
     const ACTIVE = new Set(['active', 'trial'])
-    return allStudents
-      .filter(s => ACTIVE.has(s.status) && !assigned.has(s.id))
-      .sort((a, b) => (Number(a.year) || 0) - (Number(b.year) || 0) || (a.full_name || '').localeCompare(b.full_name || ''))
-  }, [draftMode, entries, allStudents])
+    const current = (sid) => ACTIVE.has(studentsById[sid]?.status)
+    const byCourse = new Set(), byClass = new Set(), placed = new Set()
+    for (const e of entries) for (const sid of (e.student_ids || [])) {
+      placed.add(sid)
+      byClass.add(`${e.id}|${sid}`)
+      if (e.course_id) byCourse.add(`${e.course_id}|${sid}`)
+    }
+    const out = []
+    for (const cls of liveList) {
+      for (const sid of (cls.student_ids || [])) {
+        if (!current(sid)) continue
+        const covered = cls.course_id
+          ? byCourse.has(`${cls.course_id}|${sid}`)
+          : byClass.has(`${cls.id}|${sid}`)
+        if (!covered) out.push({ key: `${cls.id}|${sid}`, student_id: sid, course_id: cls.course_id, from: cls.class_name })
+      }
+    }
+    for (const st of trialStubs) {
+      if (!current(st.student_id) || placed.has(st.student_id)) continue
+      out.push({ key: `trial|${st.id}`, student_id: st.student_id, course_id: null, from: null, trial: true })
+    }
+    const yearOf = (sid) => Number(studentsById[sid]?.year) || 0
+    const nameOf = (sid) => studentsById[sid]?.full_name || ''
+    return out.sort((a, b) => yearOf(a.student_id) - yearOf(b.student_id)
+      || nameOf(a.student_id).localeCompare(nameOf(b.student_id)))
+  }, [draftMode, entries, liveList, trialStubs, studentsById])
+  const courseName = (id) => courses.find(c => c.id === id)?.course_name || null
 
   // ── Draft mode (persistent, independent of the live timetable) ──────────────
   const FIELDS = ['course_id', 'class_name', 'teacher', 'room', 'day_of_week', 'start_time', 'end_time']
@@ -1042,39 +1084,55 @@ export default function TimetablePage() {
           <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-[28rem] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-[#EEF2FB]">
               <div>
-                <p className="text-lg font-bold text-[#062E63]">Unassigned students</p>
+                <p className="text-lg font-bold text-[#062E63]">Unassigned enrolments</p>
                 <p className="text-xs text-[#325099]/60 mt-0.5">
-                  {unassignedStudents.length} student{unassignedStudents.length === 1 ? '' : 's'} not in any class in this draft
+                  {unassignedEnrolments.length} enrolment{unassignedEnrolments.length === 1 ? '' : 's'} not yet placed in this draft
                 </p>
               </div>
               <button onClick={() => setShowUnassigned(false)} className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none">✕</button>
             </div>
-            {unassignedStudents.length === 0 ? (
-              <p className="text-sm text-emerald-700 px-6 py-10 text-center">✓ Every student is assigned to a class.</p>
+            {unassignedEnrolments.length === 0 ? (
+              <p className="text-sm text-emerald-700 px-6 py-10 text-center">✓ Every enrolment is placed in a class.</p>
             ) : (
               <>
                 <div className="px-6 py-3 border-b border-[#EEF2FB]">
                   <input
                     value={unassignedQuery}
                     onChange={e => setUnassignedQuery(e.target.value)}
-                    placeholder="Search by name…"
+                    placeholder="Search by student or course…"
                     className="w-full border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-[#325099]"
                   />
                 </div>
                 <div className="overflow-y-auto px-6 py-3">
                   {(() => {
                     const q = unassignedQuery.trim().toLowerCase()
-                    const list = q ? unassignedStudents.filter(s => (s.full_name || '').toLowerCase().includes(q)) : unassignedStudents
+                    const list = q
+                      ? unassignedEnrolments.filter(u =>
+                          (studentsById[u.student_id]?.full_name || '').toLowerCase().includes(q)
+                          || (courseName(u.course_id) || '').toLowerCase().includes(q)
+                          || (u.from || '').toLowerCase().includes(q))
+                      : unassignedEnrolments
                     return list.length === 0 ? (
                       <p className="text-sm text-[#325099]/40 py-6 text-center">No matches.</p>
                     ) : (
                       <div>
-                        {list.map(s => (
-                          <div key={s.id} className="flex items-center justify-between text-sm py-1.5 border-b border-[#F4F7FF] last:border-0">
-                            <span className="text-[#062E63]">{s.full_name}</span>
-                            <span className="text-xs text-[#325099]/50">{s.year ? `Year ${s.year}` : '—'}</span>
-                          </div>
-                        ))}
+                        {list.map(u => {
+                          const st = studentsById[u.student_id]
+                          return (
+                            <div key={u.key} className="flex items-center justify-between gap-3 text-sm py-2 border-b border-[#F4F7FF] last:border-0">
+                              <div className="min-w-0">
+                                <p className="text-[#062E63] truncate">{st?.full_name || 'Student'}</p>
+                                {/* what they're enrolled in, and where it was on the live timetable */}
+                                <p className="text-[11px] text-[#2A2035]/50 truncate">
+                                  {u.trial
+                                    ? <span className="font-semibold text-amber-700">Trial — no class yet</span>
+                                    : <>{courseName(u.course_id) || 'Course'}{u.from ? <span className="text-[#2A2035]/35"> · from {u.from}</span> : null}</>}
+                                </p>
+                              </div>
+                              <span className="text-xs text-[#325099]/50 shrink-0">{st?.year ? `Year ${st.year}` : '—'}</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     )
                   })()}
@@ -1143,13 +1201,13 @@ export default function TimetablePage() {
                   </button>
                 )}
                 <button onClick={() => setShowUnassigned(true)}
-                  title="Students in the database not assigned to any class in this draft"
+                  title="Enrolments this draft hasn't placed — each subject a student takes counts separately"
                   className={`text-sm font-semibold rounded-xl px-3 py-2 border transition ${
-                    unassignedStudents.length
+                    unassignedEnrolments.length
                       ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
                       : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
                   }`}>
-                  {unassignedStudents.length ? `⚠ ${unassignedStudents.length} unassigned` : '✓ All assigned'}
+                  {unassignedEnrolments.length ? `⚠ ${unassignedEnrolments.length} unassigned` : '✓ All placed'}
                 </button>
                 <button onClick={saveDraftNow} disabled={savingDraft || !draftDirty}
                   className="text-sm font-semibold rounded-xl px-4 py-2 border bg-[#325099] text-white border-[#325099] hover:bg-[#062E63] transition disabled:opacity-50">
