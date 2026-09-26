@@ -9,12 +9,12 @@ import QuickEditModal from '../../../../components/qbank/QuickEditModal'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
-import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, qbankSubtopicsForCurriculumTopic } from '../../../../lib/qbank'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, qbankSubtopicsForCurriculumTopic, groupWorksheetsBySubject } from '../../../../lib/qbank'
 import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
 import DocLivePreview from '../../../../components/qbank/DocLivePreview'
-import { useCourseCurriculum } from '../../../../lib/courses'
+import { useCourseCurriculum, subjectRank } from '../../../../lib/courses'
 
 /*
  * Additional Questions — /tutor/qbank/worksheets
@@ -39,8 +39,21 @@ const entryLines = (e) => (typeof e === 'string' ? null : (e?.lines || null))
 
 // ── AQ master database tabs — same shape as the workbook master database ─────
 const AQ_YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
-const aqAccent = (s) => (s === 'Maths' || s?.includes('Maths')) ? '#325099' : s === 'Chemistry' ? '#0F766E' : '#7C3AED'
-const aqAccentBg = (s) => (s === 'Maths' || s?.includes('Maths')) ? '#EEF4FF' : s === 'Chemistry' ? '#F0FDF4' : '#F5F3FF'
+// One colour per subject, so a Science sheet never reads as a Maths one at a
+// glance. Anything unrecognised keeps the old purple.
+const AQ_COLOURS = {
+  Maths: ['#325099', '#EEF4FF'],
+  English: ['#7C3AED', '#F5F3FF'],
+  Chemistry: ['#0F766E', '#F0FDF4'],
+  Physics: ['#BE123C', '#FFF1F2'],
+  Science: ['#B45309', '#FFF7ED'],
+}
+const aqColour = (s) => AQ_COLOURS[s] || (s?.includes('Maths') ? AQ_COLOURS.Maths : ['#7C3AED', '#F5F3FF'])
+const aqAccent = (s) => aqColour(s)[0]
+const aqAccentBg = (s) => aqColour(s)[1]
+// An unfiled worksheet names no subject, so read one off the bank taxonomy of
+// the questions on it — the same derivation the cover uses.
+const UNSORTED = 'Unsorted'
 
 export default function AdditionalQuestionsPage() {
   return <Suspense><AdditionalQuestionsInner /></Suspense>
@@ -390,6 +403,25 @@ function AdditionalQuestionsInner() {
     .sort((a, b) => (Number(b.cover_year || 0) - Number(a.cover_year || 0))
                  || String(b.updated_at).localeCompare(String(a.updated_at))),
     [worksheets, topicById])
+  /*
+   * ...then split by subject, so a Year 9 Science sheet never sits in the same
+   * pile as the Maths ones. An unfiled worksheet carries no subject of its own,
+   * so it is read off the bank taxonomy of the questions on it — the first one
+   * that resolves, exactly as the cover is derived. A sheet with no questions
+   * yet (or whose questions have not loaded) falls to "Unsorted".
+   */
+  const wsUnfiledGroups = useMemo(() => groupWorksheetsBySubject(
+    wsUnfiled,
+    (ws) => {
+      for (const e of (Array.isArray(ws.question_ids) ? ws.question_ids : [])) {
+        const name = labelFor(qById[entryId(e)])?.subject?.name
+        if (name) return name
+      }
+      return null
+    },
+    // House order first (Maths, English, Chemistry, …), as the subject tabs use.
+    { unsorted: UNSORTED, rank: subjectRank },
+  ), [wsUnfiled, qById, labelFor])
 
   const trayIds = useMemo(() => new Set(tray.map((q) => q.id)), [tray])
 
@@ -585,14 +617,20 @@ function AdditionalQuestionsInner() {
                 </div>
               ) : (
                 <div className="space-y-8 pb-12">
-                  <div>
+                  {wsUnfiledGroups.map(([subject, list]) => (
+                  <div key={subject}>
                     <div className="flex items-center gap-3 mb-3">
-                      <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#F4F4F4] text-[#9CA3AF]">No topic</span>
-                      <span className="text-[10px] text-[#2A2035]/30 font-medium">{wsUnfiled.length} worksheet{wsUnfiled.length !== 1 ? 's' : ''} · open one and pick its topic to file it under a year</span>
+                      <span className="text-xs font-bold px-3 py-1 rounded-full"
+                        style={subject === UNSORTED
+                          ? { background: '#F4F4F4', color: '#9CA3AF' }
+                          : { background: aqAccentBg(subject), color: aqAccent(subject) }}>
+                        {subject}
+                      </span>
+                      <span className="text-[10px] text-[#2A2035]/30 font-medium">{list.length} worksheet{list.length !== 1 ? 's' : ''} · open one and pick its topic to file it under a year</span>
                       <div className="flex-1 h-px bg-[#E8EDF8]" />
                     </div>
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
-                      {wsUnfiled.map((ws) => (
+                      {list.map((ws) => (
                         <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
                           <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
                             {/* Unfiled worksheets have no topic to place them under a
@@ -614,7 +652,10 @@ function AdditionalQuestionsInner() {
                             </p>
                           </button>
                           <button onClick={() => openWorksheet(ws)}
-                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0 bg-[#EEF4FF] text-[#325099]">
+                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0"
+                            style={subject === UNSORTED
+                              ? { background: '#F4F4F4', color: '#9CA3AF' }
+                              : { background: aqAccentBg(subject), color: aqAccent(subject) }}>
                             Open →
                           </button>
                           <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#2A2035]/30 hover:text-rose-500 shrink-0" title="Delete worksheet">✕</button>
@@ -622,6 +663,7 @@ function AdditionalQuestionsInner() {
                       ))}
                     </div>
                   </div>
+                  ))}
                 </div>
               )
             )}
