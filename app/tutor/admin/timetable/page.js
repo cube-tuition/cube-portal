@@ -91,7 +91,7 @@ function isPlaced(c) {
 // ── Edit / add modal ─────────────────────────────────────────────────────────────
 function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRemove, onDelete,
                       draftMode = false, studentsById = {}, allStudents = [], otherClasses = [],
-                      onAddStudent, onRemoveStudent, onMoveStudent }) {
+                      onAddStudent, onRemoveStudent, onMoveStudent , isOffCourse = () => false, enrolledSummary = () => ''}) {
   const [stuQuery, setStuQuery] = useState('')  // add-student typeahead (draft mode)
   const [form, setForm] = useState(() => ({
     course_id : entry.course_id ?? '',
@@ -226,7 +226,8 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
 
         {draftMode && (() => {
           const roster = rosterIds
-            .map(id => ({ id, name: studentsById[id]?.full_name || 'Unknown student', year: studentsById[id]?.year }))
+            .map(id => ({ id, name: studentsById[id]?.full_name || 'Unknown student', year: studentsById[id]?.year,
+              off: isOffCourse(id, form.course_id, entry.id) }))
             .sort((a, b) => a.name.localeCompare(b.name))
           const inClass = new Set(rosterIds)
           const q = stuQuery.trim().toLowerCase()
@@ -250,7 +251,15 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
                 <div className="space-y-1 mb-2">
                   {roster.map(s => (
                     <div key={s.id} className="flex items-center gap-2 text-xs">
-                      <span className="flex-1 truncate text-[#325099]">{s.name}{s.year ? ` · ${s.year}` : ''}</span>
+                      <span className="flex-1 min-w-0 truncate text-[#325099]">
+                        {s.name}{s.year ? ` · ${s.year}` : ''}
+                        {s.off && (
+                          <span
+                            title={`Not enrolled in this course — ${enrolledSummary(s.id)}. Apply to live will enrol them in it.`}
+                            className="ml-1.5 inline-block px-1.5 py-px rounded bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold cursor-help"
+                          >⚠ not enrolled</span>
+                        )}
+                      </span>
                       {!isNew && otherClasses.length > 0 && (
                         <select
                           value=""
@@ -266,6 +275,12 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
                     </div>
                   ))}
                 </div>
+              )}
+              {roster.some(s => s.off) && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mb-2">
+                  ⚠ {roster.filter(s => s.off).map(s => s.name).join(', ')} {roster.filter(s => s.off).length === 1 ? 'isn’t' : 'aren’t'} enrolled
+                  in this course. Check it’s the right class — if it’s a new enrolment, you can ignore this.
+                </p>
               )}
               <div className="relative">
                 <input
@@ -283,6 +298,9 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
                         className="w-full text-left px-3 py-1.5 text-xs text-[#325099] hover:bg-[#F0F4FF]"
                       >
                         {s.full_name}{s.year ? ` · ${s.year}` : ''}
+                        {isOffCourse(s.id, form.course_id, entry.id) && (
+                          <span className="ml-1.5 text-amber-600" title={enrolledSummary(s.id)}>· not enrolled in this course</span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -787,6 +805,61 @@ export default function TimetablePage() {
   }, [draftMode, entries, liveList, trialStubs, studentsById])
   const courseName = (id) => courses.find(c => c.id === id)?.course_name || null
 
+  /*
+   * Off-course check — the reverse of the one above: a student sitting in a
+   * draft class whose course they are not enrolled in (Julia, enrolled in Y8
+   * Maths and Y8 English, dropped into a Y6 English class). Enrolled courses
+   * are the courses of the live term classes the student is in. Not flagged:
+   *   - a student already in that exact live class (a course-less class, or a
+   *     roster the draft simply kept),
+   *   - a draft class with no course (nothing to check against),
+   *   - a student whose only enrolment is a classless trial — their course is
+   *     not decided yet, so any class is a fair placement.
+   * It is a warning, not a block: Apply to live will still enrol them, which
+   * is right when the student really is taking up a new course.
+   */
+  const enrolledCourses = useMemo(() => {
+    const m = {}
+    for (const cls of liveList) for (const sid of (cls.student_ids || [])) {
+      if (cls.course_id) (m[sid] ||= new Set()).add(cls.course_id)
+    }
+    return m
+  }, [liveList])
+  const offCourseBasis = useMemo(() => {
+    const liveHas = new Set()
+    for (const cls of liveList) for (const sid of (cls.student_ids || [])) liveHas.add(`${cls.id}|${sid}`)
+    const trialOnly = new Set(trialStubs.map(t => t.student_id).filter(sid => !enrolledCourses[sid]))
+    return { liveHas, trialOnly }
+  }, [liveList, trialStubs, enrolledCourses])
+  const isOffCourse = (sid, courseId, entryId) => {
+    if (!draftMode || !courseId) return false
+    const { liveHas, trialOnly } = offCourseBasis
+    if (liveHas.has(`${entryId}|${sid}`) || trialOnly.has(sid)) return false
+    return !enrolledCourses[sid]?.has(courseId)
+  }
+  const offCourse = useMemo(() => {
+    if (!draftMode) return []
+    const out = []
+    for (const e of entries) {
+      if (hiddenIds.has(e.id)) continue
+      for (const sid of (e.student_ids || [])) {
+        if (isOffCourse(sid, e.course_id, e.id)) out.push({ entry_id: e.id, student_id: sid, course_id: e.course_id, class_name: e.class_name })
+      }
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isOffCourse reads only offCourseBasis/enrolledCourses
+  }, [draftMode, entries, hiddenIds, offCourseBasis, enrolledCourses])
+  const offCourseByEntry = useMemo(() => {
+    const m = {}
+    for (const o of offCourse) (m[o.entry_id] ||= new Set()).add(o.student_id)
+    return m
+  }, [offCourse])
+  // What a student is enrolled in, for the warning text ("enrolled in Y8 Maths, Y8 English").
+  const enrolledSummary = (sid) => {
+    const names = [...(enrolledCourses[sid] || [])].map(courseName).filter(Boolean)
+    return names.length ? `enrolled in ${names.join(', ')}` : 'no class enrolments this term'
+  }
+
   // ── Draft mode (persistent, independent of the live timetable) ──────────────
   const FIELDS = ['course_id', 'class_name', 'teacher', 'room', 'day_of_week', 'start_time', 'end_time']
 
@@ -1071,6 +1144,8 @@ export default function TimetablePage() {
             onAddStudent={(sid) => addStudentToClass(editing.id, sid)}
             onRemoveStudent={(sid) => removeStudentFromClass(editing.id, sid)}
             onMoveStudent={(sid, toId) => moveStudent(sid, editing.id, toId)}
+            isOffCourse={isOffCourse}
+            enrolledSummary={enrolledSummary}
             onClose={() => setEditing(null)}
             onSave={saveEntry}
             onRemove={removeFromTimetable}
@@ -1265,6 +1340,14 @@ export default function TimetablePage() {
               ◷ outside availability: {offRows.map(r => teacherShort(r)).filter((v, i, a) => a.indexOf(v) === i).join(', ')}
             </span>
           )}
+          {offCourse.length > 0 && (
+            <span
+              title={offCourse.map(o => `${studentsById[o.student_id]?.full_name || 'Student'} → ${o.class_name || courseName(o.course_id) || 'class'} (${enrolledSummary(o.student_id)})`).join('\n')}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold cursor-help"
+            >
+              ⚠ {offCourse.length} student{offCourse.length === 1 ? '' : 's'} in a course they’re not enrolled in
+            </span>
+          )}
           {clashCount === 0 && offCount === 0 && placedCount > 0 && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
               ✓ No clashes
@@ -1427,6 +1510,13 @@ export default function TimetablePage() {
                             </p>
                             <p className="text-[9px] leading-tight truncate" style={{ color: col.text, opacity: 0.8 }}>
                               {fmtTime(ev.s)}–{fmtTime(ev.e)}
+                              {offCourseByEntry[ev.id] && (
+                                <span
+                                  title={`Not enrolled in this course: ${[...offCourseByEntry[ev.id]].map(sid => studentsById[sid]?.full_name || 'Student').join(', ')}`}
+                                  className="ml-1 px-1 rounded bg-amber-100 text-amber-800 font-bold"
+                                  style={{ opacity: 1 }}
+                                >⚠ {offCourseByEntry[ev.id].size} not enrolled</span>
+                              )}
                             </p>
                             {(ev.teacher || ev.room) && (
                               <p className="text-[9px] leading-tight truncate" style={{ color: col.text, opacity: 0.7 }}>
