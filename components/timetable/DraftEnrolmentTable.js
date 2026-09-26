@@ -23,6 +23,17 @@ import { useMemo, useState } from 'react'
 const CELL = 'px-2.5 py-1.5 align-middle'
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const INLINE = 'border border-transparent hover:border-[#DEE7FF] rounded-lg px-1 py-0.5 bg-transparent text-[#325099] focus:outline-none focus:border-[#325099] focus:bg-white'
+/*
+ * Student pickers offer EVERY student in the students table — a pending
+ * sign-up, a trial, or someone returning after a break can all be planned
+ * into classes. Current students sort first so a year search ("8") leads
+ * with them, and anyone not active is labelled.
+ */
+const STATUS_RANK = { active: 0, trial: 1, pending: 2 }
+export const pickerRank = (s) => STATUS_RANK[s?.status || 'active'] ?? 3
+export const pickerStatus = (s) => (!s?.status || s.status === 'active') ? '' : s.status
+export const sortForPicker = (list) => [...list].sort((a, b) => pickerRank(a) - pickerRank(b) || (a.full_name || '').localeCompare(b.full_name || ''))
+
 const toMins = (hhmm) => { const [h, m] = String(hhmm || '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null }
 const fromMins = (n) => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`
 const yearNum = (y) => { const n = parseInt(y, 10); return Number.isFinite(n) ? n : 99 }
@@ -122,10 +133,9 @@ export default function DraftEnrolmentTable({
   const removedCount = rows.length - placed.length
   const classCount = new Set(placed.map(r => String(r.entry.id))).size
 
-  const ACTIVE = new Set(['active', 'trial'])
   const aq = addQuery.trim().toLowerCase()
   const addMatches = aq && !addSid
-    ? allStudents.filter(s => ACTIVE.has(s.status || 'active') && (s.full_name || '').toLowerCase().includes(aq)).slice(0, 10)
+    ? sortForPicker(allStudents.filter(s => (s.full_name || '').toLowerCase().includes(aq))).slice(0, 12)
     : []
   const addTarget = entries.find(e => String(e.id) === String(addClass))
   const addDup = addTarget && addSid && (addTarget.student_ids || []).includes(addSid)
@@ -196,7 +206,7 @@ export default function DraftEnrolmentTable({
               const newYear = i > 0 && yearNum(studentsById[prev.sid]?.year) !== yearNum(st?.year)
               return (
                 <tr key={r.key}
-                  className={`border-b border-[#F3F6FD] ${newYear ? 'border-t-2 border-t-[#DEE7FF]' : ''} ${r.removed ? 'bg-red-50/60 text-[#325099]/45' : band[i] % 2 ? 'bg-[#F1F4FA] hover:bg-[#E8EDF7]' : 'bg-white hover:bg-[#F8FAFF]'}`}>
+                  className={`border-b border-[#E9ECF2] ${newYear ? 'border-t-2 border-t-[#DEE7FF]' : ''} ${r.removed ? 'bg-red-50/60 text-[#325099]/45' : band[i] % 2 ? 'bg-[#E4E7EC] hover:bg-[#D9DDE4]' : 'bg-white hover:bg-[#F8FAFF]'}`}>
                   <td className={`${CELL} font-semibold text-[#325099]/70`}>{st?.year || '—'}</td>
                   <td className={`${CELL} font-semibold whitespace-nowrap ${r.removed ? 'line-through' : 'text-[#062E63]'}`}>
                     {st?.full_name || 'Unknown student'}
@@ -331,6 +341,7 @@ export default function DraftEnrolmentTable({
                 <button key={s.id} onClick={() => { setAddSid(s.id); setAddQuery(s.full_name || '') }}
                   className="w-full text-left px-3 py-1.5 text-[#325099] hover:bg-[#F0F4FF]">
                   {s.full_name}{s.year ? ` · ${s.year}` : ''}
+                  {pickerStatus(s) && <span className="ml-1.5 text-[10px] font-semibold text-[#325099]/45">{pickerStatus(s)}</span>}
                 </button>
               ))}
             </div>

@@ -10,7 +10,7 @@ import {
 import TutorNav from '../../../../components/TutorNav'
 import { downloadTimetablePdf } from '../../../../lib/timetablePdf'
 import { listDrafts, createDraft, loadDraft, saveDraft, renameDraft, deleteDraft } from '../../../../lib/timetableDrafts'
-import DraftEnrolmentTable from '../../../../components/timetable/DraftEnrolmentTable'
+import DraftEnrolmentTable, { sortForPicker, pickerStatus } from '../../../../components/timetable/DraftEnrolmentTable'
 import { subjectFromCourseCode, yearFromCourseCode } from '../../../../lib/courses'
 import { inferSubject } from '../../../../components/CourseDetail'
 
@@ -234,11 +234,11 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
           const q = stuQuery.trim().toLowerCase()
           // Type a name, or just a year ("9") to list that year's students.
           const yearQ = q.match(/^(?:y|yr|year)?\s*(\d{1,2})$/)?.[1]
-          const ACTIVE = new Set(['active', 'trial'])
+          // Every student in the students table, current ones first.
           const matches = q
-            ? allStudents.filter(s => !inClass.has(s.id) && ACTIVE.has(s.status || 'active') && (yearQ
+            ? sortForPicker(allStudents.filter(s => !inClass.has(s.id) && (yearQ
                 ? String(s.year) === yearQ
-                : (s.full_name || '').toLowerCase().includes(q))).slice(0, 12)
+                : (s.full_name || '').toLowerCase().includes(q)))).slice(0, 12)
             : []
           return (
             <div className="mt-4 pt-4 border-t border-[#EEF2FB]">
@@ -299,6 +299,7 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
                         className="w-full text-left px-3 py-1.5 text-xs text-[#325099] hover:bg-[#F0F4FF]"
                       >
                         {s.full_name}{s.year ? ` · ${s.year}` : ''}
+                        {pickerStatus(s) && <span className="ml-1.5 text-[10px] font-semibold text-[#325099]/45">{pickerStatus(s)}</span>}
                         {isOffCourse(s.id, form.course_id, entry.id) && (
                           <span className="ml-1.5 text-amber-600" title={enrolledSummary(s.id)}>· not enrolled in this course</span>
                         )}
@@ -834,8 +835,9 @@ export default function TimetablePage() {
    *   - a student already in that exact live class (a course-less class, or a
    *     roster the draft simply kept),
    *   - a draft class with no course (nothing to check against),
-   *   - a student whose only enrolment is a classless trial — their course is
-   *     not decided yet, so any class is a fair placement.
+   *   - a student with no class enrolments this term — a classless trial, a
+   *     pending sign-up, someone returning. There is no course to compare
+   *     against, so any class is a fair placement.
    * It is a warning, not a block: Apply to live will still enrol them, which
    * is right when the student really is taking up a new course.
    */
@@ -849,14 +851,12 @@ export default function TimetablePage() {
   const offCourseBasis = useMemo(() => {
     const liveHas = new Set()
     for (const cls of liveList) for (const sid of (cls.student_ids || [])) liveHas.add(`${cls.id}|${sid}`)
-    const trialOnly = new Set(trialStubs.map(t => t.student_id).filter(sid => !enrolledCourses[sid]))
-    return { liveHas, trialOnly }
-  }, [liveList, trialStubs, enrolledCourses])
+    return { liveHas }
+  }, [liveList])
   const isOffCourse = (sid, courseId, entryId) => {
     if (!draftMode || !courseId) return false
-    const { liveHas, trialOnly } = offCourseBasis
-    if (liveHas.has(`${entryId}|${sid}`) || trialOnly.has(sid)) return false
-    return !enrolledCourses[sid]?.has(courseId)
+    if (!enrolledCourses[sid] || offCourseBasis.liveHas.has(`${entryId}|${sid}`)) return false
+    return !enrolledCourses[sid].has(courseId)
   }
   const offCourse = useMemo(() => {
     if (!draftMode) return []
