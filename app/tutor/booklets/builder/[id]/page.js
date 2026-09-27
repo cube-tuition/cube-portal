@@ -18,7 +18,7 @@ import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
-import { fetchTaxonomy, SUBJECT_FAMILIES } from '../../../../../lib/qbank'
+import { fetchTaxonomy, SUBJECT_FAMILIES, fetchAllRows } from '../../../../../lib/qbank'
 import { fetchSyllabus, filterModulesToPool, removeDotpointsFromSections, dotpointAllocation, countSelected } from '../../../../../lib/syllabus'
 import { buildSyllabusContent } from '../../../../../lib/bookletContent'
 import LatexContent from '../../../../../components/qbank/LatexContent'
@@ -1528,9 +1528,10 @@ function BankPicker({ booklet, onClose, onPick }) {
   const [qtype, setQtype] = useState('')
 
   useEffect(() => {
-    supabase.from(T_QBANK_QUESTIONS)
+    fetchAllRows(() => supabase.from(T_QBANK_QUESTIONS)
       .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
-      .then(({ data }) => setQs(data || []))
+      .order('id'))
+      .then(setQs, () => setQs([]))
     fetchTaxonomy().then(setTax)
   }, [])
 

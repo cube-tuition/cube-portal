@@ -9,7 +9,7 @@ import SearchSelectPopover from '../../components/SearchSelectPopover'
 import LatexContent from '../../components/qbank/LatexContent'
 import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
 import { fetchAllTerms, getEnrolmentTerm } from '../../lib/terms'
-import { fetchTaxonomy, qbankImageUrl, partLabel, questionTotalMarks as questionMarks } from '../../lib/qbank'
+import { fetchTaxonomy, qbankImageUrl, partLabel, questionTotalMarks as questionMarks, fetchAllRows } from '../../lib/qbank'
 import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS } from '../../lib/tables'
 import { enrolledClassesForTerm } from '../../lib/classes'
 
@@ -110,9 +110,10 @@ export default function Resources() {
 
       fetchTaxonomy().then(setTax)
       loadSets(user.id)
-      supabase.from(T_QBANK_QUESTIONS)
+      fetchAllRows(() => supabase.from(T_QBANK_QUESTIONS)
         .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
-        .then(({ data }) => setQuestions(data || []))
+        .order('id'))
+        .then(setQuestions, () => setQuestions([]))
     }
     load()
   }, [router, loadSets])

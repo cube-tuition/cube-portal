@@ -13,7 +13,7 @@ import {
   fetchTaxonomy, deleteQbankImage, qbankImageUrl, duplicateQuestion,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
   buildTaxonomyMaps, labelForQuestion,
-  SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks } from '../../../lib/qbank'
+  SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, fetchAllRows } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
@@ -81,11 +81,12 @@ function QuestionBankInner() {
   const [audienceTab, setAudienceTab] = useState('all')   // all | exam (CUBE) | student
 
   const loadQuestions = useCallback(async () => {
-    const { data } = await supabase
+    // Whole bank, paged — a plain select stops silently at 1000 rows.
+    const data = await fetchAllRows(() => supabase
       .from(T_QBANK_QUESTIONS)
       .select('*, qbank_question_parts(id, part_label, prompt_latex, marks, sort_order), qbank_question_images(id, storage_path)')
-      .order('created_at', { ascending: false })
-    setQuestions(data || [])
+      .order('created_at', { ascending: false }).order('id')).catch(() => [])
+    setQuestions(data)
     setLoadingQ(false)
   }, [])
 

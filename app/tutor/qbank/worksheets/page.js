@@ -9,7 +9,7 @@ import QuickEditModal from '../../../../components/qbank/QuickEditModal'
 import TutorNav from '../../../../components/TutorNav'
 import LatexContent from '../../../../components/qbank/LatexContent'
 import { T_QBANK_QUESTIONS, T_QBANK_WORKSHEETS } from '../../../../lib/tables'
-import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, qbankSubtopicsForCurriculumTopic, groupWorksheetsBySubject } from '../../../../lib/qbank'
+import { fetchTaxonomy, yearsFromSubjects, qbankImageUrl, DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage, logWorksheetUsage, buildTaxonomyMaps, labelForQuestion, SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, qbankSubtopicsForCurriculumTopic, groupWorksheetsBySubject, fetchAllRows } from '../../../../lib/qbank'
 import { exportWorksheet, renderWorksheetPreview } from '../../../../lib/qbankWorksheet'
 import UsageBadge from '../../../../components/qbank/UsageBadge'
 import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
@@ -140,10 +140,12 @@ function AdditionalQuestionsInner() {
       fetchTaxonomy().then(setTax)
       fetchQuestionUsage().then(setUsageMap)
       loadWorksheets()
-      supabase.from(T_QBANK_QUESTIONS)
+      // Whole bank, paged — a plain select stops silently at 1000 rows.
+      fetchAllRows(() => supabase.from(T_QBANK_QUESTIONS)
         .select(QUESTION_COLS)
-        .order('created_at', { ascending: false })
-        .then(({ data }) => { setQuestions(data || []); setLoadingQ(false) })
+        .order('created_at', { ascending: false }).order('id'))
+        .then((rows) => setQuestions(rows), () => setQuestions([]))
+        .finally(() => setLoadingQ(false))
       // Arriving from Generate (?new=1): create a worksheet and open it straight away.
       if (searchParams.get('new') === '1') {
         supabase.from(T_QBANK_WORKSHEETS)
@@ -414,7 +416,9 @@ function AdditionalQuestionsInner() {
     wsUnfiled,
     (ws) => {
       for (const e of (Array.isArray(ws.question_ids) ? ws.question_ids : [])) {
-        const name = labelFor(qById[entryId(e)])?.subject?.name
+        const q = qById[entryId(e)]
+        if (!q) continue            // not loaded (or since deleted) — try the next one
+        const name = labelFor(q)?.subject?.name
         if (name) return name
       }
       return null
