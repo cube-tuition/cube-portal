@@ -61,6 +61,8 @@ export default function LevelTestLessonPage() {
   const [familyTemplate, setFamilyTemplate] = useState(DEFAULT_LEVEL_TEST_FAMILY_TEMPLATE)
   const [siblings, setSiblings] = useState([])           // [{ lesson, student, data }] — data = loadLevelTestLesson()
   const [familyPick, setFamilyPick] = useState({})       // lesson id → included in the family email
+  const [familyComment, setFamilyComment] = useState('') // shown once at the end of the family email
+  const familyTimer = useRef(null)
 
   useEffect(() => {
     getAuthProfile().then(async ({ profile, role }) => {
@@ -100,6 +102,10 @@ export default function LevelTestLessonPage() {
       }))).filter(sb => sb?.data)
       setSiblings(full)
       setFamilyPick(Object.fromEntries(full.map(sb => [sb.lesson.id, true])))
+      // The family comment is written to every lesson in the family, so any
+      // one of them holds it; this lesson's copy wins if they ever differ.
+      setFamilyComment(got.lesson.report_family_comment
+        || full.map(sb => sb.data.lesson.report_family_comment).find(v => String(v || '').trim()) || '')
     } catch (e) {
       setError(e.message || String(e))
     } finally {
@@ -174,6 +180,22 @@ export default function LevelTestLessonPage() {
   }
   useEffect(() => () => clearTimeout(commentTimer.current), [])
 
+  // The family comment belongs to the send, not to one child: it is saved onto
+  // this lesson and every ticked sibling's, so either page shows the same text.
+  const saveFamilyComment = (v) => {
+    setFamilyComment(v)
+    setCommentState('saving')
+    clearTimeout(familyTimer.current)
+    const ids = [lesson?.id, ...pickedSiblings.map(sb => sb.lesson.id)].filter(Boolean)
+    familyTimer.current = setTimeout(async () => {
+      const { error: e } = await supabase.from('lessons')
+        .update({ report_family_comment: v.trim() || null }).in('id', ids)
+      setCommentState(e ? 'idle' : 'saved')
+      if (e) setToast('Family comment not saved: ' + e.message)
+    }, 800)
+  }
+  useEffect(() => () => clearTimeout(familyTimer.current), [])
+
   const emailTestTitle = () => (tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`)
   const reportFilename = (st) => `${(st?.full_name || 'student').trim()} - Level Test Report.pdf`
   const emailPreview = () => {
@@ -190,7 +212,7 @@ export default function LevelTestLessonPage() {
     return {
       to,
       subject: levelTestFamilySubject(kids),
-      body: renderLevelTestFamilyEmail(familyTemplate, { children: kids, teacherName: profile?.full_name }),
+      body: renderLevelTestFamilyEmail(familyTemplate, { children: kids, familyComment, teacherName: profile?.full_name }),
       attached: sendChildren().map(c => reportFilename(c.student)),
     }
   }
@@ -384,6 +406,12 @@ export default function LevelTestLessonPage() {
                       )
                     })}
                   </div>
+                  {isFamily && (
+                    <div className="mt-3">
+                      <CommentBox label="Family comment (optional)" value={familyComment} onChange={saveFamilyComment} rows={2}
+                        placeholder="Anything for every child at once — shown once, at the very end of the email, under “Overall”." />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -422,7 +450,7 @@ export default function LevelTestLessonPage() {
                     {/* Rendered through the same helper the send route uses, so
                         the preview and the email cannot disagree. It escapes
                         before formatting, so the body cannot inject markup. */}
-                    <div className="px-4 py-3.5 text-[13px] text-[#1a1a1a] leading-relaxed bg-white"
+                    <div className="px-4 py-3.5 text-[13px] text-[#1a1a1a] leading-relaxed bg-white break-keep"
                       dangerouslySetInnerHTML={{ __html: levelTestEmailHtml(pv.body) }} />
                   </div>
                 )

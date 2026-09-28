@@ -56,7 +56,8 @@ export async function POST(req) {
       bcc: [PORTAL_BCC],
       subject,
       text: levelTestEmailText(body),
-      html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;max-width:600px">${
+      // keep-all: Korean comments wrap between words, not mid-word.
+      html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;max-width:600px;word-break:keep-all">${
         levelTestEmailHtml(body)
       }</div>`,
       attachments: files.map((f, i) => ({
