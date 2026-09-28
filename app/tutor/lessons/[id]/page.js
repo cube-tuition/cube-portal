@@ -5,12 +5,13 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { authedFetch } from '../../../../lib/authedFetch'
 import TutorNav from '../../../../components/TutorNav'
-import { subjectCode } from '../../../../lib/format'
-import { loadLevelTestItems, loadLevelTestMarks, saveLevelTestMark } from '../../../../lib/levelTest'
-import { computeExamAnalysis } from '../../../../lib/examMarking'
-import StudentExamAnalysisView, { studentAnalysisRows } from '../../../../components/StudentExamAnalysisView'
+import { saveLevelTestMark, loadLevelTestLesson, levelTestViews, levelTestReportArgs, levelTestName, markedCountOf, findSiblingLevelTests } from '../../../../lib/levelTest'
+import StudentExamAnalysisView from '../../../../components/StudentExamAnalysisView'
 import { exportLevelTestReport } from '../../../../lib/levelTestReport'
-import { renderLevelTestEmail, levelTestEmailSubject, levelTestEmailHtml, DEFAULT_LEVEL_TEST_TEMPLATE, LEVEL_TEST_EMAIL_KEY } from '../../../../lib/levelTestEmail'
+import {
+  renderLevelTestEmail, levelTestEmailSubject, levelTestEmailHtml, DEFAULT_LEVEL_TEST_TEMPLATE, LEVEL_TEST_EMAIL_KEY,
+  renderLevelTestFamilyEmail, levelTestFamilySubject, DEFAULT_LEVEL_TEST_FAMILY_TEMPLATE, LEVEL_TEST_FAMILY_EMAIL_KEY,
+} from '../../../../lib/levelTestEmail'
 
 /*
  * Level-test lesson page — a lesson can link to several level tests. Each test
@@ -18,14 +19,15 @@ import { renderLevelTestEmail, levelTestEmailSubject, levelTestEmailHtml, DEFAUL
  * question bank's topics). Marks are namespaced per build ("<buildId>::<blockId>")
  * so question ids never collide across tests. The feedback PDF gets one section
  * per test.
+ *
+ * FAMILY EMAIL — brothers and sisters who sat level tests around the same time
+ * (same parent email, lessons within a fortnight) are listed here, ticked by
+ * default, and go out as ONE email with a report per child rather than one
+ * email each. Either child's page can send it; every lesson in the send is
+ * stamped, so the other page shows it has already gone.
  */
 
-// Which test this is — every level-test build is titled just "Level Test", so
-// the year + subject prefix is what actually identifies it ("9.M. Level Test").
-const testName = (b) => {
-  const code = subjectCode(b?.subject)
-  return (b?.year && code) ? `${b.year}.${code}. Level Test` : (b?.title || 'Level Test')
-}
+const testName = levelTestName
 
 const fmtDate = (s) => { if (!s) return ''; const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) }
 const fmtTime = (t) => { if (!t) return ''; const [h, m] = String(t).split(':').map(Number); const ap = h >= 12 ? 'pm' : 'am'; const hh = ((h + 11) % 12) + 1; return m ? `${hh}:${String(m).padStart(2, '0')}${ap}` : `${hh}${ap}` }
@@ -55,6 +57,9 @@ export default function LevelTestLessonPage() {
   const [templateSaving, setTemplateSaving] = useState(false)
   const [reporting, setReporting] = useState(false)
   const [toast, setToast] = useState(null)
+  const [familyTemplate, setFamilyTemplate] = useState(DEFAULT_LEVEL_TEST_FAMILY_TEMPLATE)
+  const [siblings, setSiblings] = useState([])           // [{ lesson, student, data }] — data = loadLevelTestLesson()
+  const [familyPick, setFamilyPick] = useState({})       // lesson id → included in the family email
 
   useEffect(() => {
     getAuthProfile().then(async ({ profile, role }) => {
@@ -66,53 +71,32 @@ export default function LevelTestLessonPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const { data: les, error: lerr } = await supabase.from('lessons')
-        .select('id, lesson_date, start_time, end_time, room, notes, lesson_type, makeup_student_id, student_name, scheduled_teacher_id, level_test_build_id, level_test_build_ids, report_comment')
-        .eq('id', id).maybeSingle()
-      if (lerr) throw lerr
-      if (!les) { setError('Lesson not found.'); setLoading(false); return }
-      setLesson(les)
-      setComment(les.report_comment || '')
-      const { data: tpl } = await supabase.from('portal_settings')
-        .select('value').eq('key', LEVEL_TEST_EMAIL_KEY).maybeSingle()
-      if (tpl?.value?.trim()) setTemplate(tpl.value)
+      const got = await loadLevelTestLesson(id)
+      if (!got) { setError('Lesson not found.'); setLoading(false); return }
+      setLesson(got.lesson)
+      setComment(got.lesson.report_comment || '')
+      setStudent(got.student)
+      setGuardian(got.guardian)
+      setTests(got.tests)
+      setMarks(got.marks)
 
-      if (les.makeup_student_id) {
-        const { data: st } = await supabase.from('students').select('id, full_name, year').eq('id', les.makeup_student_id).maybeSingle()
-        setStudent(st || null)
-        if (st) {
-          const { data: gs } = await supabase.from('guardians').select('full_name, email').eq('student_id', st.id)
-          setGuardian((gs || []).find(g => g.email) || gs?.[0] || null)
-        }
-      } else if (les.student_name) {
-        setStudent({ id: `lt-${les.id}`, full_name: les.student_name, year: null })
-        setGuardian(null)
+      const { data: tpls } = await supabase.from('portal_settings')
+        .select('key, value').in('key', [LEVEL_TEST_EMAIL_KEY, LEVEL_TEST_FAMILY_EMAIL_KEY])
+      for (const t of tpls || []) {
+        if (!t.value?.trim()) continue
+        if (t.key === LEVEL_TEST_EMAIL_KEY) setTemplate(t.value)
+        if (t.key === LEVEL_TEST_FAMILY_EMAIL_KEY) setFamilyTemplate(t.value)
       }
 
-      // Linked level tests (array, falling back to the legacy single column).
-      const buildIds = (Array.isArray(les.level_test_build_ids) && les.level_test_build_ids.length)
-        ? les.level_test_build_ids
-        : (les.level_test_build_id ? [les.level_test_build_id] : [])
-
-      if (buildIds.length) {
-        const { data: bs } = await supabase.from('booklet_builds').select('id, title, subject, year, blocks').in('id', buildIds)
-        const byId = Object.fromEntries((bs || []).map(b => [b.id, b]))
-        const out = []
-        for (const bid of buildIds) {              // preserve the chosen order
-          const b = byId[bid]
-          if (!b) continue
-          const raw = await loadLevelTestItems(Array.isArray(b.blocks) ? b.blocks : [])
-          // Namespace each item id by its build so marks never collide across tests.
-          const items = raw.map(it => ({ ...it, qid: `${b.id}::${it.qid}` }))
-          out.push({ build: b, items })
-        }
-        setTests(out)
-      } else {
-        setTests([])
-      }
-
-      const mm = await loadLevelTestMarks(id)
-      setMarks(mm)
+      // Brothers and sisters tested around the same time, each loaded in full
+      // so their reports can go in the same email. A sibling that fails to
+      // load is simply not offered — this child's own report still works.
+      const sibs = await findSiblingLevelTests({ lesson: got.lesson, student: got.student, guardianEmail: got.guardian?.email })
+      const full = (await Promise.all(sibs.map(async (sb) => {
+        try { return { ...sb, data: await loadLevelTestLesson(sb.lesson.id) } } catch { return null }
+      }))).filter(sb => sb?.data)
+      setSiblings(full)
+      setFamilyPick(Object.fromEntries(full.map(sb => [sb.lesson.id, true])))
     } catch (e) {
       setError(e.message || String(e))
     } finally {
@@ -141,14 +125,18 @@ export default function LevelTestLessonPage() {
   const studentId = student?.id || '__s'
 
   // Per-test analysis (one StudentExamAnalysisView per test, one PDF section per test).
-  const testViews = useMemo(() => tests.map(t => {
-    const analysis = computeExamAnalysis(t.items, { [studentId]: marks }, [{ id: studentId }])
-    const v = studentAnalysisRows(analysis, studentId)
-    return { build: t.build, items: t.items, view: v }
-  }), [tests, marks, studentId])
+  const testViews = useMemo(() => levelTestViews(tests, marks, studentId), [tests, marks, studentId])
+  const markedCount = markedCountOf(tests, marks)
 
-  const allItems = useMemo(() => tests.flatMap(t => t.items), [tests])
-  const markedCount = allItems.filter(it => { const a = marks[it.qid]; return a !== '' && a != null }).length
+  // The children in this send: this one first, then each ticked sibling.
+  // A sibling's comment and marks are read as they were when this page
+  // loaded — they are edited on that child's own page.
+  const pickedSiblings = siblings.filter(sb => familyPick[sb.lesson.id])
+  const isFamily = pickedSiblings.length > 0
+  const sendChildren = () => [
+    { lesson, student, guardian, tests, marks, comment },
+    ...pickedSiblings.map(sb => ({ ...sb.data, comment: sb.data.lesson.report_comment || '' })),
+  ]
 
   // The comment autosaves like a mark — typed once, kept with the lesson.
   // Cmd/Ctrl-B on the comment box wraps the selection in ** **, and unwraps it
@@ -188,32 +176,43 @@ export default function LevelTestLessonPage() {
   useEffect(() => () => clearTimeout(commentTimer.current), [])
 
   const emailTestTitle = () => (tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`)
-  const emailPreview = () => ({
-    to: guardian?.email || '(parent email — asked for when sending)',
-    subject: levelTestEmailSubject({ studentName: student?.full_name, testTitle: emailTestTitle() }),
-    body: renderLevelTestEmail(template, { studentName: student?.full_name, testTitle: emailTestTitle(), comment, teacherName: profile?.full_name }),
-  })
-
-  const saveTemplate = async () => {
-    setTemplateSaving(true)
-    const value = editingTemplate.trim() ? editingTemplate : DEFAULT_LEVEL_TEST_TEMPLATE
-    const { error: e } = await supabase.from('portal_settings')
-      .upsert({ key: LEVEL_TEST_EMAIL_KEY, value }, { onConflict: 'key' })
-    setTemplateSaving(false)
-    if (e) { setToast('Template not saved: ' + e.message); return }
-    setTemplate(value)
-    setEditingTemplate(null)
-    setToast('Template saved — it now applies to every level-test email.')
+  const reportFilename = (st) => `${(st?.full_name || 'student').trim()} - Level Test Report.pdf`
+  const emailPreview = () => {
+    const to = guardian?.email || '(parent email — asked for when sending)'
+    if (!isFamily) {
+      return {
+        to,
+        subject: levelTestEmailSubject({ studentName: student?.full_name, testTitle: emailTestTitle() }),
+        body: renderLevelTestEmail(template, { studentName: student?.full_name, testTitle: emailTestTitle(), comment, teacherName: profile?.full_name }),
+        attached: [reportFilename(student)],
+      }
+    }
+    const kids = sendChildren().map(c => ({ studentName: c.student?.full_name, comment: c.comment }))
+    return {
+      to,
+      subject: levelTestFamilySubject(kids),
+      body: renderLevelTestFamilyEmail(familyTemplate, { children: kids, teacherName: profile?.full_name }),
+      attached: sendChildren().map(c => reportFilename(c.student)),
+    }
   }
 
-  const reportArgs = () => ({
-    student, guardian, lesson, teacherName: profile?.full_name,
-    tests: testViews.map(tv => ({
-      title: testName(tv.build),
-      rows: tv.view.rows, overall: tv.view.overall, sections: tv.view.sections,
-      strengths: tv.view.strengths, weaknesses: tv.view.weaknesses,
-    })),
-  })
+  // The editor works on whichever template this send will use.
+  const saveTemplate = async () => {
+    setTemplateSaving(true)
+    const [key, fallback, apply] = isFamily
+      ? [LEVEL_TEST_FAMILY_EMAIL_KEY, DEFAULT_LEVEL_TEST_FAMILY_TEMPLATE, setFamilyTemplate]
+      : [LEVEL_TEST_EMAIL_KEY, DEFAULT_LEVEL_TEST_TEMPLATE, setTemplate]
+    const value = editingTemplate.trim() ? editingTemplate : fallback
+    const { error: e } = await supabase.from('portal_settings')
+      .upsert({ key, value }, { onConflict: 'key' })
+    setTemplateSaving(false)
+    if (e) { setToast('Template not saved: ' + e.message); return }
+    apply(value)
+    setEditingTemplate(null)
+    setToast(`Template saved — it now applies to every ${isFamily ? 'family ' : ''}level-test email.`)
+  }
+
+  const reportArgs = () => levelTestReportArgs({ lesson, student, guardian, tests, marks, teacherName: profile?.full_name })
 
   const downloadReport = async () => {
     setReporting(true)
@@ -225,34 +224,62 @@ export default function LevelTestLessonPage() {
   const emailReport = async () => {
     const to = guardian?.email || (typeof window !== 'undefined' ? window.prompt('Parent email address:') : '')
     if (!to) { setToast('No email address provided.'); return }
-    if (!confirm(`Email this level test report to ${guardian?.full_name || to}?`)) return
+    const kids = sendChildren()
+    const unmarked = kids.filter(c => markedCountOf(c.tests, c.marks) === 0).map(c => c.student?.full_name)
+    if (unmarked.length) { setToast(`Nothing marked yet for ${unmarked.join(', ')} — mark it or untick them first.`); return }
+    const already = kids.filter(c => c.lesson?.report_emailed_at).map(c => c.student?.full_name)
+    const names = kids.map(c => c.student?.full_name).join(', ')
+    if (!confirm(
+      (isFamily
+        ? `Send ONE email to ${guardian?.full_name || to} with ${kids.length} reports (${names})?`
+        : `Email this level test report to ${guardian?.full_name || to}?`)
+      + (already.length ? `\n\nAlready emailed before: ${already.join(', ')}. This sends again.` : ''))) return
+
     setEmailing(true)
     try {
-      const { base64, filename } = await exportLevelTestReport(reportArgs(), { base64: true })
+      // One PDF per child, built the same way the Download button builds this one.
+      const attachments = []
+      for (const c of kids) {
+        const { base64 } = await exportLevelTestReport(
+          levelTestReportArgs({ ...c, teacherName: profile?.full_name }), { base64: true })
+        attachments.push({ pdf_base64: base64, pdf_filename: reportFilename(c.student) })
+      }
+      const pv = emailPreview()
       const res = await authedFetch('/api/send-level-test-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lesson_id: id,
+          lesson_ids: kids.map(c => c.lesson.id),
           email_to: to,
           student_name: student?.full_name,
           test_title: emailTestTitle(),
           comment,
           teacher_name: profile?.full_name,
-          email_subject: emailPreview().subject,
-          email_body: emailPreview().body,
-          pdf_base64: base64,
-          pdf_filename: filename,
+          email_subject: pv.subject,
+          email_body: pv.body,
+          attachments,
         }),
       })
       const out = await res.json()
       if (!res.ok) throw new Error(out.error || 'Email failed')
-      setToast('Report emailed to ' + to)
+      setToast(`${kids.length > 1 ? `${kids.length} reports` : 'Report'} emailed to ${to}`
+        + (out.stamped === false ? ' — but not recorded as sent' : ''))
+      load()   // pick up the sent stamps
     } catch (e) {
       setToast('Email failed: ' + (e.message || e))
     } finally {
       setEmailing(false)
     }
+  }
+
+  // "Sent" line for a lesson: when, and who went in the same email.
+  const sentNote = (les) => {
+    if (!les?.report_emailed_at) return null
+    const d = new Date(les.report_emailed_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+    const nameOf = (lid) => (lid === lesson?.id ? student?.full_name
+      : siblings.find(sb => sb.lesson.id === lid)?.student?.full_name)
+    const others = (les.report_emailed_with || []).filter(lid => lid !== les.id).map(nameOf).filter(Boolean)
+    return `Emailed ${d}${others.length ? ` with ${others.map(n => n.split(' ')[0]).join(' & ')}'s report` : ''}`
   }
 
   if (!ready) return <div className="min-h-screen flex items-center justify-center bg-white"><div className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase">Loading…</div></div>
@@ -294,13 +321,16 @@ export default function LevelTestLessonPage() {
                 <p className="text-[11px] text-[#2A2035]/55 mt-0.5">
                   {tests.length} test{tests.length === 1 ? '' : 's'} · {markedCount} question{markedCount === 1 ? '' : 's'} marked · {guardian?.email ? <>emails to <span className="font-semibold">{guardian.full_name || 'parent'}</span></> : 'enter the parent email when sending'}
                 </p>
+                {sentNote(lesson) && (
+                  <p className="text-[11px] font-semibold text-[#065F46] mt-0.5">✓ {sentNote(lesson)}{lesson.report_emailed_to ? ` · ${lesson.report_emailed_to}` : ''}</p>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button onClick={downloadReport} disabled={reporting || markedCount === 0}
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-2 rounded-full hover:bg-[#F0F4FF] transition disabled:opacity-40">
                   {reporting ? 'Generating…' : '↓ Download PDF'}
                 </button>
-                <button onClick={() => setEditingTemplate(template)}
+                <button onClick={() => setEditingTemplate(isFamily ? familyTemplate : template)}
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-2 rounded-full hover:bg-[#F0F4FF] transition">
                   ✎ Edit template
                 </button>
@@ -312,10 +342,47 @@ export default function LevelTestLessonPage() {
                 </button>
                 <button onClick={emailReport} disabled={emailing || markedCount === 0}
                   className="text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2 rounded-full transition disabled:opacity-40">
-                  {emailing ? 'Sending…' : '✉ Email to parent'}
+                  {emailing ? 'Sending…' : isFamily ? `✉ Email family (${pickedSiblings.length + 1} reports)` : '✉ Email to parent'}
                 </button>
               </div>
             </div>
+
+              {/* Siblings with the same parent, tested around the same time.
+                  Ticked ones ride in this email, one report each. */}
+              {siblings.length > 0 && (
+                <div className="mt-4 rounded-xl border border-[#C7D7FF] bg-[#F5F8FF] px-4 py-3">
+                  <p className="text-xs font-bold text-[#062E63]">👪 Same parent — send as one family email</p>
+                  <p className="text-[11px] text-[#2A2035]/55 mt-0.5 mb-2">
+                    {guardian?.full_name || 'This parent'} also has {siblings.length === 1 ? 'a child' : 'children'} who sat a level test within a fortnight. Ticked children go in the same email, one report each.
+                  </p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-[12px] text-[#2A2035]/70">
+                      <input type="checkbox" checked disabled className="accent-[#062E63]" />
+                      <span className="font-semibold text-[#2A2035]">{student?.full_name}</span>
+                      <span className="text-[#2A2035]/45">{tests.map(t => testName(t.build)).join(' · ')} · this page</span>
+                    </div>
+                    {siblings.map(sb => {
+                      const n = markedCountOf(sb.data.tests, sb.data.marks)
+                      const hasComment = !!(sb.data.lesson.report_comment || '').trim()
+                      return (
+                        <label key={sb.lesson.id} className="flex flex-wrap items-center gap-2 text-[12px] text-[#2A2035]/70 cursor-pointer">
+                          <input type="checkbox" checked={!!familyPick[sb.lesson.id]} className="accent-[#062E63]"
+                            onChange={e => setFamilyPick(fp => ({ ...fp, [sb.lesson.id]: e.target.checked }))} />
+                          <span className="font-semibold text-[#2A2035]">{sb.student?.full_name}</span>
+                          <span className="text-[#2A2035]/45">
+                            {sb.data.tests.map(t => testName(t.build)).join(' · ') || 'no tests linked'} · {fmtDate(sb.lesson.lesson_date)}
+                          </span>
+                          <span className={n ? 'text-[#065F46]' : 'text-[#B45309] font-semibold'}>{n ? `${n} marked` : 'nothing marked'}</span>
+                          {!hasComment && <span className="text-[#2A2035]/40">· no comment</span>}
+                          {sentNote(sb.lesson) && <span className="text-[#065F46] font-semibold">· {sentNote(sb.lesson)}</span>}
+                          <a href={`/tutor/lessons/${sb.lesson.id}`} onClick={e => e.stopPropagation()}
+                            className="text-[#325099] font-semibold hover:underline">mark / comment →</a>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Comment to the parents — lands in the email body, between the
                   template and the sign-off. Autosaves with the lesson. */}
@@ -344,7 +411,7 @@ export default function LevelTestLessonPage() {
                     <div className="px-4 py-2.5 bg-[#F8FAFF] border-b border-[#EEF2FF] text-[11px] text-[#2A2035]/70 space-y-0.5">
                       <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">To</span>{pv.to}</p>
                       <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">Subject</span><span className="font-semibold text-[#2A2035]">{pv.subject}</span></p>
-                      <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">Attached</span>Feedback report PDF</p>
+                      <p><span className="font-bold text-[#325099]/70 uppercase tracking-wider text-[9px] mr-2">Attached</span>{pv.attached.join(', ')}</p>
                     </div>
                     {/* Rendered through the same helper the send route uses, so
                         the preview and the email cannot disagree. It escapes
@@ -434,8 +501,12 @@ export default function LevelTestLessonPage() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 border-b border-[#F0F4FF] flex items-start justify-between gap-3">
               <div>
-                <p className="text-base font-bold text-[#062E63]">Email template</p>
-                <p className="text-[11px] text-[#2A2035]/50 mt-0.5">One template for every level-test feedback email — saving applies portal-wide.</p>
+                <p className="text-base font-bold text-[#062E63]">{isFamily ? 'Family email template' : 'Email template'}</p>
+                <p className="text-[11px] text-[#2A2035]/50 mt-0.5">
+                  {isFamily
+                    ? 'Used when several children’s reports go in one email — saving applies portal-wide.'
+                    : 'One template for every level-test feedback email — saving applies portal-wide.'}
+                </p>
               </div>
               <button onClick={() => setEditingTemplate(null)}
                 className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
@@ -449,14 +520,16 @@ export default function LevelTestLessonPage() {
               />
               <p className="text-[11px] text-[#2A2035]/50 mt-2 leading-relaxed">
                 Placeholders fill in automatically:{' '}
-                {['{{first_name}}', '{{student_name}}', '{{test_title}}', '{{teacher_name}}', '{{comment}}'].map(ph => (
+                {(isFamily ? ['{{first_names}}', '{{teacher_name}}', '{{comments}}'] : ['{{first_name}}', '{{student_name}}', '{{test_title}}', '{{teacher_name}}', '{{comment}}']).map(ph => (
                   <code key={ph} className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 mr-1.5 text-[10px]">{ph}</code>
                 ))}
-                — <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comment}}'}</code> is the box on the marking page, and its paragraph disappears when left empty.
+                {isFamily
+                  ? <>— <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comments}}'}</code> is each child’s comment box under their name; children with no comment are left out.</>
+                  : <>— <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comment}}'}</code> is the box on the marking page, and its paragraph disappears when left empty.</>}
               </p>
             </div>
             <div className="px-6 py-4 border-t border-[#F0F4FF] flex items-center justify-between gap-3">
-              <button onClick={() => setEditingTemplate(DEFAULT_LEVEL_TEST_TEMPLATE)}
+              <button onClick={() => setEditingTemplate(isFamily ? DEFAULT_LEVEL_TEST_FAMILY_TEMPLATE : DEFAULT_LEVEL_TEST_TEMPLATE)}
                 className="text-[11px] font-semibold text-[#2A2035]/45 hover:text-[#B23A3A] transition">Reset to default</button>
               <div className="flex gap-2">
                 <button onClick={() => setEditingTemplate(null)}
