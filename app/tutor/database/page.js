@@ -6869,6 +6869,8 @@ function AddEnrolmentModal({ onClose, onCreated }) {
   const [classSearch,   setClassSearch]   = useState('')
   const [studentId, setStudentId] = useState('')
   const [classId,   setClassId]   = useState('')
+  const [terms,     setTerms]     = useState([])   // recent + upcoming terms, for the term picker
+  const [termId,    setTermId]    = useState('')
   const [status,    setStatus]    = useState('active')
   const [startWeek, setStartWeek] = useState(1)
   const [trialStartDate, setTrialStartDate] = useState(null)
@@ -6879,16 +6881,42 @@ function AddEnrolmentModal({ onClose, onCreated }) {
   useEffect(() => {
     supabase.from('students').select('id, full_name, school, year').order('full_name')
       .then(({ data }) => setStudents(data || []))
-    // Join courses to get course_price. New trials join the term being taught
-    // now (or the upcoming one during holidays); classes are per-term rows, so
-    // an unscoped fetch would list every class once per term.
+    /*
+     * Classes are per-term rows, so the list is always one term's. It starts on
+     * the term a new student would join — but a holiday period is its own term
+     * row now, and while one is running it IS that term, which left only the
+     * couple of holiday-course classes to pick from. So a holiday defaults to
+     * the next regular term, and the picker still offers the holiday term for
+     * enrolling someone into a holiday class.
+     */
     ;(async () => {
-      const term = getEnrolmentTerm(await fetchAllTerms())
-      const cols = 'id, class_name, day_of_week, start_time, end_time, courses(course_price)'
-      const { data } = await (term?.id ? classesForTerm(term.id, cols) : classesAllTerms(cols)).order('class_name')
-      setClasses(data || [])
+      const all = await fetchAllTerms()
+      const enrol = getEnrolmentTerm(all)
+      const byStart = [...all].sort((a, b) => a.start_date.localeCompare(b.start_date))
+      const nextRegular = enrol && isHolidayTerm(enrol)
+        ? byStart.find(t => !isHolidayTerm(t) && t.start_date > enrol.start_date)
+        : null
+      const start = nextRegular || enrol
+      // Offer the last few terms and everything ahead — enrolments are made
+      // for now and next, and occasionally backdated a term.
+      const fromIdx = Math.max(0, byStart.findIndex(t => t.id === start?.id) - 3)
+      setTerms(start ? byStart.slice(fromIdx) : byStart)
+      setTermId(start?.id || '')
     })()
   }, [])
+
+  // Join courses to get course_price.
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      await Promise.resolve()
+      if (!alive) return
+      const cols = 'id, class_name, day_of_week, start_time, end_time, courses(course_price)'
+      const { data } = await (termId ? classesForTerm(termId, cols) : classesAllTerms(cols)).order('class_name')
+      if (alive) setClasses(data || [])
+    })()
+    return () => { alive = false }
+  }, [termId])
 
   // Trial start = the class's lesson on its class day in the selected start week.
   useEffect(() => {
@@ -6932,6 +6960,9 @@ function AddEnrolmentModal({ onClose, onCreated }) {
     const display = hr === 0 ? 12 : (hr > 12 ? hr - 12 : hr)
     return `${display}:${mn}${ap}`
   }
+
+  // Holiday classes carry no weekday — show what there is, without a stray "·".
+  const classWhen = (c) => [c.day_of_week, c.start_time ? `${fmtTime(c.start_time)}–${fmtTime(c.end_time)}` : ''].filter(Boolean).join(' · ')
 
   const selectedStudent = students.find(s => s.id === studentId)
   const selectedClass   = classes.find(c => c.id === classId)
@@ -7014,12 +7045,21 @@ function AddEnrolmentModal({ onClose, onCreated }) {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Class</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099]">Class</label>
+              <select value={termId} onChange={e => { setTermId(e.target.value); setClassId(''); setClassSearch('') }}
+                title="Which term's classes to list"
+                className="px-2 py-1 rounded-lg border border-[#DEE7FF] text-[11px] font-semibold text-[#325099] bg-white focus:outline-none focus:border-[#325099]">
+                {terms.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}{t.start_date <= isoDateEnr(new Date()) && t.end_date >= isoDateEnr(new Date()) ? ' (now)' : ''}</option>
+                ))}
+              </select>
+            </div>
             {selectedClass ? (
               <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-[#325099] bg-[#EEF4FF]">
                 <div>
                   <p className="text-sm font-semibold text-[#2A2035]">{selectedClass.class_name}</p>
-                  <p className="text-[11px] text-[#2A2035]/50">{selectedClass.day_of_week} · {fmtTime(selectedClass.start_time)}–{fmtTime(selectedClass.end_time)}</p>
+                  <p className="text-[11px] text-[#2A2035]/50">{classWhen(selectedClass)}</p>
                 </div>
                 <button onClick={() => { setClassId(''); setClassSearch('') }} className="text-xs text-[#325099] hover:underline">Change</button>
               </div>
@@ -7034,7 +7074,7 @@ function AddEnrolmentModal({ onClose, onCreated }) {
                       <button key={c.id} onClick={() => setClassId(c.id)}
                         className="w-full text-left px-3 py-2 text-xs hover:bg-[#EEF4FF] transition border-b border-[#DEE7FF] last:border-0">
                         <span className="font-semibold text-[#2A2035]">{c.class_name}</span>
-                        <span className="text-[#2A2035]/50 ml-2">{c.day_of_week} · {fmtTime(c.start_time)}–{fmtTime(c.end_time)}</span>
+                        <span className="text-[#2A2035]/50 ml-2">{classWhen(c)}</span>
                       </button>
                     ))
                   }
