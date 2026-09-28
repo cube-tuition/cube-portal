@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { fetchAllTerms, getEnrolmentTerm, curriculumTerms, isTermOutOfCurriculum } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, getRegularEnrolmentTerm, curriculumTerms, isTermOutOfCurriculum } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { fmtTime, weekLabel, fmtWorkbookCode, isChemistry, chemModuleNumber, chemModuleLabel, bookletLabel } from '../../../lib/format'
 import ExamPdfButtons from '../../../components/ExamPdfButtons'
@@ -1033,6 +1033,11 @@ function BookletsPageInner() {
   const [dragB,      setDragB]      = useState(null) // booklet being dragged (General grid)
   const [overGSlot,  setOverGSlot]  = useState(null) // 'term-week' under the drag
   const [classes,      setClasses]      = useState([])
+  // Which term's classes the class tabs show. Classes are per-term rows, so a
+  // past term's curriculum lives on that term's copies — the picker is how
+  // you get back to it once the term is over.
+  const [allTerms,     setAllTerms]     = useState([])
+  const [viewTermId,   setViewTermId]   = useState('')
   const [activeClass,  setActiveClass]  = useState(null) // class id
 
   // Auth
@@ -1062,9 +1067,9 @@ function BookletsPageInner() {
   const loadClasses = useCallback(async () => {
     // Classes are per-term rows (the rollover copies them), so scope to the
     // current term or each class shows once per term it has existed in.
-    const term = getEnrolmentTerm(await fetchAllTerms())
+    if (!viewTermId) return
     const cols = 'id, class_name, day_of_week, start_time, teacher, status, courses(course_code)'
-    let { data } = term?.id ? await classesForTerm(term.id, cols) : { data: null }
+    let { data } = await classesForTerm(viewTermId, cols)
     if (!data?.length) {
       // Term with no classes yet — fall back to all terms (mirrors the tutor
       // view below).
@@ -1086,7 +1091,17 @@ function BookletsPageInner() {
     })
     setClasses(filtered)
     setActiveClass(null) // always reset to General when year/subject changes
-  }, [activeYear, activeSub])
+  }, [activeYear, activeSub, viewTermId])
+
+  // Default to the term being taught — past a holiday, which holds only its
+  // few holiday-course classes, to the regular term it leads into.
+  useEffect(() => {
+    if (!staff) return
+    fetchAllTerms().then(all => {
+      setAllTerms([...(all || [])].sort((a, b) => b.start_date.localeCompare(a.start_date)))
+      setViewTermId(getRegularEnrolmentTerm(all || [])?.id || '')
+    })
+  }, [staff])
 
   useEffect(() => { if (staff) loadClasses() }, [staff, loadClasses])
 
@@ -1201,6 +1216,18 @@ function BookletsPageInner() {
             </button>
           ))}
         </div>
+
+        {/* Which term's classes to show — a finished term's curriculum is on
+            that term's class rows, so pick the term to get back to it. */}
+        {allTerms.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 text-xs">
+            <span className="font-semibold text-[#325099]/60">Classes from</span>
+            <select value={viewTermId} onChange={e => setViewTermId(e.target.value)}
+              className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 font-semibold text-[#325099] bg-white focus:outline-none focus:border-[#325099]">
+              {allTerms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Class tabs: General + one per class (tabs only if ≥1 class) */}
         {classes.length > 0 && (
@@ -1448,15 +1475,29 @@ function TutorCurriculumPage({ staff, scope = null }) {
   const [activeClassId, setActiveClassId] = useState(null)
   const [assignments,   setAssignments]   = useState([])  // class_booklet_assignments rows
   const [currentTerm,   setCurrentTerm]   = useState(null)
+  const [allTerms,      setAllTerms]      = useState([])
+  const [viewTermId,    setViewTermId]    = useState('')   // whose classes the tabs show
   const [loadingCls,    setLoadingCls]    = useState(true)
   const [loadingAsgn,   setLoadingAsgn]   = useState(false)
 
-  // ── Load current term + tutor's classes ────────────────────────────────────
+  // ── Terms: the one being taught (past a holiday, the regular term it leads
+  // into — a holiday term's number is 11+, not a real term), and the list the
+  // term picker offers so a finished term's curriculum stays reachable.
   useEffect(() => {
-    const init = async () => {
-      const terms = await fetchAllTerms()
-      const term  = getEnrolmentTerm(terms)
+    fetchAllTerms().then(all => {
+      const term = getRegularEnrolmentTerm(all || [])
       setCurrentTerm(term)
+      setAllTerms([...(all || [])].sort((a, b) => b.start_date.localeCompare(a.start_date)))
+      setViewTermId(term?.id || '')
+    })
+  }, [])
+
+  // ── Load the tutor's classes for the chosen term ───────────────────────────
+  useEffect(() => {
+    if (!viewTermId) return
+    const init = async () => {
+      setLoadingCls(true)
+      const term = { id: viewTermId }
 
       const firstName = (staff.full_name || '').split(' ')[0]
 
@@ -1488,7 +1529,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
           .order('start_time')
         const all = inScope(fallback || [])
         setClasses(all)
-        if (all.length) setActiveClassId(all[0].id)
+        setActiveClassId(all.length ? all[0].id : null)
       } else {
         setClasses(cls)
         setActiveClassId(cls[0].id)
@@ -1497,7 +1538,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
       setLoadingCls(false)
     }
     init()
-  }, [staff, scope])
+  }, [staff, scope, viewTermId])
 
   // ── Load assignments for selected class ────────────────────────────────────
   useEffect(() => {
@@ -1582,11 +1623,17 @@ function TutorCurriculumPage({ staff, scope = null }) {
             <p className="text-sm text-[#2A2035]/50 mt-0.5">
               {classes.length === 0
                 ? 'Booklet schedule across your classes'
-                : `${classes.length} class${classes.length !== 1 ? 'es' : ''} this term`}
-              {currentTerm && (
-                <span className="ml-2 text-[#325099]/60">· {currentTerm.name}</span>
-              )}
+                : `${classes.length} class${classes.length !== 1 ? 'es' : ''}${viewTermId === currentTerm?.id ? ' this term' : ''}`}
             </p>
+            {allTerms.length > 0 && (
+              <div className="flex items-center gap-2 mt-2 text-xs">
+                <span className="font-semibold text-[#325099]/60">Classes from</span>
+                <select value={viewTermId} onChange={e => setViewTermId(e.target.value)}
+                  className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 font-semibold text-[#325099] bg-white focus:outline-none focus:border-[#325099]">
+                  {allTerms.map(t => <option key={t.id} value={t.id}>{t.name}{t.id === currentTerm?.id ? ' (current)' : ''}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           {currentTerm && curTermNum && (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-[#EEF4FF] text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full">
