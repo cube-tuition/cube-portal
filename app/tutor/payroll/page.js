@@ -494,6 +494,45 @@ export default function PayrollPage() {
     } finally { setShiftActing(null) }
   }
 
+  /*
+   * Approve every pending shift in one go, leaving the run OPEN — the bulk form
+   * of the per-shift Approve button, not the finalise button below it. Goes
+   * through approve_shift one shift at a time so each keeps its own guards
+   * (rate set, in this fortnight, run not exported/paid); a shift that fails is
+   * reported and left pending rather than stopping the rest. Unpriced shifts
+   * are skipped up front, as their own Approve button is disabled.
+   */
+  const pendingShifts = useMemo(
+    () => shifts.filter(s => ['draft', 'submitted'].includes(s.status)), [shifts])
+  const approveAllShifts = async () => {
+    const todo = pendingShifts.filter(s => s.rate_snapshot != null)
+    const unpriced = pendingShifts.length - todo.length
+    if (!todo.length) return
+    const sum = todo.reduce((a, s) => a + Number(s.amount || 0), 0)
+    if (!confirm(`Approve ${todo.length} pending shift${todo.length === 1 ? '' : 's'} (${fmtMoney(sum)})?\n\n`
+      + 'The run stays open — you can still undo any shift, then finalise when ready.'
+      + (unpriced ? `\n\n${unpriced} shift${unpriced === 1 ? '' : 's'} with no rate will be skipped.` : ''))) return
+    setApproving(true)
+    const failed = []
+    try {
+      // A few at a time: fast, without firing dozens of requests at once.
+      for (let i = 0; i < todo.length; i += 6) {
+        const batch = todo.slice(i, i + 6)
+        const res = await Promise.all(batch.map(s =>
+          supabase.rpc('approve_shift', { p_shift: s.id, p_pay_run: run.id })))
+        res.forEach((r, j) => {
+          if (r.error) failed.push(`${batch[j].tutor_name} · ${batch[j].work_date}: ${r.error.message}`)
+        })
+      }
+    } finally {
+      await reload()
+      setApproving(false)
+    }
+    if (failed.length) {
+      alert(`Approved ${todo.length - failed.length} of ${todo.length}. These were left pending:\n\n${failed.join('\n')}`)
+    }
+  }
+
   const approveRun = async () => {
     const pending = totals.shiftCount - totals.approvedCount
     if (!confirm(`Approve ${pending ? `the remaining ${pending}` : 'all'} shift${pending === 1 ? '' : 's'} and finalise this run? Run total: ${fmtMoney(totals.amount)}`)) return
@@ -797,11 +836,21 @@ export default function PayrollPage() {
             </div>
           </div>
 
-          {totals.missingRate > 0 && (
-            <div className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FCD34D] px-3 py-2 rounded-full">
-              ⚠ {totals.missingRate} shift{totals.missingRate === 1 ? '' : 's'} missing a rate — set them inline below before approving.
-            </div>
-          )}
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            {/* Same availability as the per-shift Approve buttons: any run not yet exported or paid. */}
+            {run && !['exported', 'paid'].includes(run.status) && pendingShifts.some(s => s.rate_snapshot != null) && (
+              <button onClick={approveAllShifts} disabled={approving}
+                title="Approve every pending shift. The run stays open until you finalise it."
+                className="text-sm font-semibold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] border border-[#6EE7B7] px-4 py-2 rounded-full transition disabled:opacity-50">
+                {approving ? 'Approving…' : `✓ Approve all ${pendingShifts.filter(s => s.rate_snapshot != null).length} pending`}
+              </button>
+            )}
+            {totals.missingRate > 0 && (
+              <div className="inline-flex items-center gap-2 text-xs font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FCD34D] px-3 py-2 rounded-full">
+                ⚠ {totals.missingRate} shift{totals.missingRate === 1 ? '' : 's'} missing a rate — set them inline below before approving.
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -1028,7 +1077,7 @@ export default function PayrollPage() {
                     {approving ? 'Approving…'
                       : totals.approvedCount > 0 && totals.approvedCount < totals.shiftCount
                         ? `Approve remaining ${totals.shiftCount - totals.approvedCount} & finalise`
-                        : `Approve all ${totals.shiftCount} shifts`}
+                        : `Approve all ${totals.shiftCount} & finalise`}
                   </button>
                 </>
               ) : (
