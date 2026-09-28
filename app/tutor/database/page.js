@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
-import { fetchAllTerms, getEnrolmentTerm, isHolidayTerm } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, getRegularEnrolmentTerm, isHolidayTerm } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
@@ -1778,8 +1778,9 @@ export default function DatabasePage() {
       const terms = await fetchAllTerms()
       setAllTerms(terms || [])
       // Default to the enrolment term: the in-progress term while teaching,
-      // or (during the break) the next upcoming one — not the term just ended.
-      const cur = getEnrolmentTerm(terms)
+      // or (during the break) the next upcoming one — not the term just ended,
+      // and not a holiday-course term, which holds only a couple of classes.
+      const cur = getRegularEnrolmentTerm(terms)
       if (cur) {
         setCurrentTermId(cur.id)
         setCurrentTermName(cur.name || `Term ${cur.term_number} ${cur.year}`)
@@ -6688,6 +6689,7 @@ export default function DatabasePage() {
       {showAddEnrolmentModal && (
         <AddEnrolmentModal
           allTerms={allTerms}
+          termId={dbTermFilter}
           onClose={() => setShowAddEnrolmentModal(false)}
           onCreated={() => { setShowAddEnrolmentModal(false); setReloadKey(k => k + 1) }}
         />
@@ -6862,7 +6864,7 @@ function isoDateEnr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
-function AddEnrolmentModal({ onClose, onCreated }) {
+function AddEnrolmentModal({ termId: tabTermId = null, onClose, onCreated }) {
   const [students, setStudents]   = useState([])
   const [classes,  setClasses]    = useState([])
   const [studentSearch, setStudentSearch] = useState('')
@@ -6887,23 +6889,20 @@ function AddEnrolmentModal({ onClose, onCreated }) {
      * row now, and while one is running it IS that term, which left only the
      * couple of holiday-course classes to pick from. So a holiday defaults to
      * the next regular term, and the picker still offers the holiday term for
-     * enrolling someone into a holiday class.
+     * enrolling someone into a holiday class. Opened from a term tab, it
+     * starts on that tab's term instead — that is the term being worked in.
      */
     ;(async () => {
       const all = await fetchAllTerms()
-      const enrol = getEnrolmentTerm(all)
       const byStart = [...all].sort((a, b) => a.start_date.localeCompare(b.start_date))
-      const nextRegular = enrol && isHolidayTerm(enrol)
-        ? byStart.find(t => !isHolidayTerm(t) && t.start_date > enrol.start_date)
-        : null
-      const start = nextRegular || enrol
+      const start = all.find(t => t.id === tabTermId) || getRegularEnrolmentTerm(all)
       // Offer the last few terms and everything ahead — enrolments are made
       // for now and next, and occasionally backdated a term.
       const fromIdx = Math.max(0, byStart.findIndex(t => t.id === start?.id) - 3)
       setTerms(start ? byStart.slice(fromIdx) : byStart)
       setTermId(start?.id || '')
     })()
-  }, [])
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps -- the modal mounts fresh each time it opens; the tab term is read once
 
   // Join courses to get course_price.
   useEffect(() => {
