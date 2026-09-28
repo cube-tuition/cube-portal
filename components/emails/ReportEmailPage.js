@@ -12,6 +12,8 @@ import { TEST_RECIPIENT } from '../../lib/emailConfig'
 import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey,
          loadReportExclusions, setReportExcluded, reportKey } from '../../lib/emailOverrides'
 import { kindByKey, REPORT_BUCKET, storagePrefix } from '../../lib/reportKind'
+import { isOneToOneClass } from '../../lib/classFormat'
+import { oneOnOneNote, applyOneOnOneNote } from '../../lib/reportEmailNote'
 
 /*
  * Report emailing — drives both /tutor/emails/end-of-term and
@@ -61,11 +63,15 @@ function fillTemplate(template, vars) {
 // Students are de-duplicated by id so a child in two classes isn't repeated —
 // matching what the send route does. Used for the preview, the per-family
 // editor pre-fill, and the email HTML.
-function resolvedBody(template, family, termName) {
+//
+// `isOverride` marks a per-family personalised body: it is used verbatim, so
+// the 1:1 note is only filled into its placeholder, never inserted again.
+function resolvedBody(template, family, termName, { isOverride = false } = {}) {
   const unique       = family.students.filter((s, i, a) => a.findIndex(x => x.student_id === s.student_id) === i)
   const firstNames   = unique.map(s => s.student_name.split(' ')[0])
   const count        = firstNames.length
-  return fillTemplate(template, {
+  const note         = oneOnOneNote(family.one_on_one_names || [], family.students.length)
+  return fillTemplate(applyOneOnOneNote(template, note, { autoInsert: !isOverride }), {
     parentName:   family.parent_name || 'there',
     termName,
     studentNames: formatNames(firstNames),
@@ -75,8 +81,8 @@ function resolvedBody(template, family, termName) {
   })
 }
 
-function buildEmailHtml(template, family, termName) {
-  const bodyText = resolvedBody(template, family, termName)
+function buildEmailHtml(template, family, termName, opts) {
+  const bodyText = resolvedBody(template, family, termName, opts)
   const escaped = bodyText
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const paragraphs = escaped
@@ -142,6 +148,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
   const [termId,   setTermId]   = useState('')
   const [loading,  setLoading]  = useState(true)
   const [students, setStudents] = useState([])   // enriched enrolment rows
+  const [oneOnOne, setOneOnOne] = useState([])   // [{ student_id, first_name, family_id }] — 1:1 enrolments this term
   const [uploads,  setUploads]  = useState({})   // key → { exists, uploading }
   // Keep end-of-term on its original localStorage keys so a saved template survives.
   const TEMPLATE_KEY = kindKey === 'end_of_term' ? 'cube_eot_template' : `cube_${kindKey}_template`
@@ -226,23 +233,35 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
     try {
       // Classes for this term only — no all-terms fallback: end-of-term emails
       // must never pick up another term's copy of a class.
-      let { data: cls } = await supabase.from(T_CLASSES).select('id, class_name').eq('term_id', termId)
-      // 1:1 students don't get written reports — exclude 1:1 classes entirely.
-      cls = (cls || []).filter(c => !/\b1\s*:\s*1\b/.test(c.class_name || ''))
+      const { data: allCls } = await supabase.from(T_CLASSES).select('id, class_name, course_id').eq('term_id', termId)
+      // 1:1 students don't get written reports — 1:1 classes get no report
+      // rows. A 1:1 class is one whose course is set to the 1:1 format, or
+      // (for a course not tagged yet) whose name says 1:1.
+      const courseIds = [...new Set((allCls || []).map(c => c.course_id).filter(Boolean))]
+      const { data: courseRows } = courseIds.length
+        ? await supabase.from('courses').select('id, delivery_mode').in('id', courseIds)
+        : { data: [] }
+      const modeByCourse = Object.fromEntries((courseRows || []).map(c => [c.id, c.delivery_mode]))
+      const isOneToOne = (c) => isOneToOneClass(c, modeByCourse) || /\b1\s*:\s*1\b/.test(c.class_name || '')
+      const cls = (allCls || []).filter(c => !isOneToOne(c))
+      const oneToOneIds = new Set((allCls || []).filter(isOneToOne).map(c => c.id))
       const classMap = Object.fromEntries((cls || []).map(c => [c.id, c]))
       const classIds = (cls || []).map(c => c.id)
-      if (!classIds.length) { setStudents([]); setLoading(false); return }
+      if (!classIds.length) { setStudents([]); setOneOnOne([]); setLoading(false); return }
 
-      // Active enrolments
-      const { data: enr, error: enrErr } = await supabase
+      // Active enrolments — group classes for the reports, 1:1 classes only
+      // to know which families need the "no 1:1 reports" sentence.
+      const { data: allEnr, error: enrErr } = await supabase
         .from(T_ENROLMENTS).select('id, student_id, class_id, status')
-        .in('class_id', classIds)
+        .in('class_id', [...classIds, ...oneToOneIds])
         .in('status', ['active', 'trial'])
       if (enrErr) throw new Error(enrErr.message)
-      if (!enr?.length) { setStudents([]); setLoading(false); return }
+      const enr = (allEnr || []).filter(e => !oneToOneIds.has(e.class_id))
+      const oneEnr = (allEnr || []).filter(e => oneToOneIds.has(e.class_id))
+      if (!enr.length) { setStudents([]); setOneOnOne([]); setLoading(false); return }
 
       // Students
-      const studentIds = [...new Set(enr.map(e => e.student_id))]
+      const studentIds = [...new Set((allEnr || []).map(e => e.student_id))]
       const { data: studs } = await supabase
         .from(T_STUDENTS).select('id, full_name, year, family_id').in('id', studentIds)
       const studMap = Object.fromEntries((studs || []).map(s => [s.id, s]))
@@ -273,6 +292,11 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
       }).sort((a, b) => (a.class_name + a.student_name).localeCompare(b.class_name + b.student_name))
 
       setStudents(rows)
+      setOneOnOne([...new Set(oneEnr.map(e => e.student_id))].map(id => ({
+        student_id: id,
+        first_name: (studMap[id]?.full_name || '').split(' ')[0],
+        family_id:  studMap[id]?.family_id || null,
+      })))
       await checkStorageUploads(rows, termId)
     } catch (e) {
       setError(e.message)
@@ -336,8 +360,17 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
         })
       }
     }
+    // Children with a 1:1 enrolment this term, for the "no 1:1 reports" note
+    // (end-of-term emails). A sibling who only does 1:1 still counts — the
+    // family key matches on family_id.
+    if (kindKey === 'end_of_term') {
+      for (const o of oneOnOne) {
+        const f = map[o.family_id || `student:${o.student_id}`]
+        if (f && o.first_name) (f.one_on_one_names ||= []).includes(o.first_name) || f.one_on_one_names.push(o.first_name)
+      }
+    }
     return Object.values(map)
-  }, [students])
+  }, [students, oneOnOne, kindKey])
 
   // Load per-family personalised bodies + per-report exclusions for the term.
   // (Both resolve to empty when there's no term, so the set happens off the
@@ -887,7 +920,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
             {/* Rendered email */}
             <div className="flex-1 overflow-auto">
               <iframe
-                srcDoc={buildEmailHtml(overrides[familyKey(previewFamily)] || template, { ...previewFamily, students: includedStudents(previewFamily) }, term?.name || '')}
+                srcDoc={buildEmailHtml(overrides[familyKey(previewFamily)] || template, { ...previewFamily, students: includedStudents(previewFamily) }, term?.name || '', { isOverride: !!overrides[familyKey(previewFamily)] })}
                 className="w-full border-0"
                 style={{ minHeight: '500px' }}
                 title="Email preview"

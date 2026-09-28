@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 import { kindByKey, REPORT_BUCKET, storagePath } from '../../../lib/reportKind'
+import { oneOnOneNote, applyOneOnOneNote } from '../../../lib/reportEmailNote'
 
 // "Term 2 2026" → "26T2" for compact filenames; falls back to a safe slug.
 function termCode(termName = '') {
@@ -155,7 +156,12 @@ export async function POST(request) {
         theyHave:     count === 1 ? 'they have' : 'they have',
         plural:       count > 1 ? 's' : '',
       }
-      const bodyText = fillTemplate(family.custom_body || template, vars)
+      // End-of-term: families with a child in a 1:1 course get a sentence
+      // saying 1:1 has no written report (the page computes who). A
+      // personalised body already carries it from its pre-fill, so it is only
+      // placed into a {{one_on_one_note}} slot there, never inserted again.
+      const note = oneOnOneNote(family.one_on_one_names || [], family.students.length)
+      const bodyText = fillTemplate(applyOneOnOneNote(family.custom_body || template, note, { autoInsert: !family.custom_body }), vars)
       const subject  = fillTemplate(subjectTemplate, vars)
 
       const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
