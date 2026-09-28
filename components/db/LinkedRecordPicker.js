@@ -16,8 +16,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
  *   width     cell width in px (keeps the popover aligned to the column)
  *   onPick    (id|null) => void   called when the user selects / clears
  *   onCancel  () => void          called on Escape / outside click
+ *   note      optional line under the search box (e.g. which term is listed)
  */
-export default function LinkedRecordPicker({ value, options = [], width = 240, onPick, onCancel }) {
+// Enough to show a whole term's classes or a year's students unfiltered; past
+// it, the list says how many more there are rather than silently stopping.
+const SHOW_MAX = 200
+export default function LinkedRecordPicker({ value, options = [], width = 240, onPick, onCancel, note = null }) {
   const [q, setQ] = useState('')
   const boxRef = useRef(null)
   const inputRef = useRef(null)
@@ -37,8 +41,9 @@ export default function LinkedRecordPicker({ value, options = [], width = 240, o
     const list = needle
       ? options.filter(o => `${o.label} ${o.secondary ?? ''}`.toLowerCase().includes(needle))
       : options
-    return list.slice(0, 50)
+    return list
   }, [q, options])
+  const shown = filtered.slice(0, SHOW_MAX)
 
   const panelW = Math.max(width, 240)
 
@@ -57,6 +62,7 @@ export default function LinkedRecordPicker({ value, options = [], width = 240, o
           placeholder="Search…"
           className="w-full px-2 py-1.5 text-xs bg-[#F7F9FF] border border-[#DEE7FF] rounded focus:outline-none focus:border-[#325099]"
         />
+        {note && <p className="px-1 pt-1 text-[10px] text-[#2A2035]/45">{note}</p>}
       </div>
       <div className="max-h-60 overflow-y-auto py-1">
         <button
@@ -68,7 +74,7 @@ export default function LinkedRecordPicker({ value, options = [], width = 240, o
         </button>
         {filtered.length === 0 ? (
           <p className="px-3 py-2 text-[11px] text-[#2A2035]/40">No matches.</p>
-        ) : filtered.map(o => {
+        ) : shown.map(o => {
           const selected = String(o.id) === String(value)
           return (
             <button
@@ -84,6 +90,9 @@ export default function LinkedRecordPicker({ value, options = [], width = 240, o
             </button>
           )
         })}
+        {filtered.length > shown.length && (
+          <p className="px-3 py-1.5 text-[10px] text-[#2A2035]/40 italic">+{filtered.length - shown.length} more — type to narrow the list</p>
+        )}
       </div>
     </div>
   )

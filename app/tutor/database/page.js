@@ -5690,11 +5690,28 @@ export default function DatabasePage() {
                                 // Linked record → searchable picker (only ever returns an existing id)
                                 if (ek === 'linked') {
                                   const ref = linkedRef(mTbl, mCol)
+                                  // Classes are per-term rows: offer one term's — the term of
+                                  // the class already there (a move stays in its term), else
+                                  // the term tab — or, on "All terms", every class labelled
+                                  // with its term.
+                                  let opts = ref ? refData.options(ref.refTable) : []
+                                  let pickNote = null
+                                  if (ref?.refTable === 'classes') {
+                                    const scope = refData.resolve('classes', editValue)?.row?.term_id || dbTermFilter
+                                    const termName = (id) => refData.resolve('terms', id)?.label || ''
+                                    if (scope) {
+                                      opts = opts.filter(o => String(o.row?.term_id) === String(scope))
+                                      pickNote = `${termName(scope) || 'This term'}'s classes`
+                                    } else {
+                                      opts = opts.map(o => ({ ...o, secondary: [o.secondary, termName(o.row?.term_id)].filter(Boolean).join(' · ') }))
+                                    }
+                                  }
                                   if (ref) return (
                                     <div className="relative" style={{ width: w, minHeight: 30 }}>
                                       <LinkedRecordPicker
                                         value={editValue}
-                                        options={refData.options(ref.refTable)}
+                                        options={opts}
+                                        note={pickNote}
                                         width={w}
                                         onPick={(id) => handleDropdownSave(id === null || id === undefined ? '' : String(id))}
                                         onCancel={() => setEditingCell(null)}
