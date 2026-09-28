@@ -225,8 +225,12 @@ export default function LevelTestLessonPage() {
     const to = guardian?.email || (typeof window !== 'undefined' ? window.prompt('Parent email address:') : '')
     if (!to) { setToast('No email address provided.'); return }
     const kids = sendChildren()
-    const unmarked = kids.filter(c => markedCountOf(c.tests, c.marks) === 0).map(c => c.student?.full_name)
-    if (unmarked.length) { setToast(`Nothing marked yet for ${unmarked.join(', ')} — mark it or untick them first.`); return }
+    // Every linked test needs marks, or its section goes out as "No marks
+    // recorded yet" — e.g. Maths marked but English not.
+    const unmarked = kids.flatMap(c => c.tests
+      .filter(t => markedCountOf([t], c.marks) === 0)
+      .map(t => `${(c.student?.full_name || '').split(' ')[0]} — ${testName(t.build)}`))
+    if (unmarked.length) { setToast(`Not marked yet: ${unmarked.join(', ')}. Mark it, or untick that child, first.`); return }
     const already = kids.filter(c => c.lesson?.report_emailed_at).map(c => c.student?.full_name)
     const names = kids.map(c => c.student?.full_name).join(', ')
     if (!confirm(
