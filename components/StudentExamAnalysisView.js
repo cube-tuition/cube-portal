@@ -12,8 +12,8 @@
  *   rows        : [{ topic, studentPct, classPct, studentAwarded, studentMax }]
  *   overall     : { awarded, max, pct }
  *   strengths   : string[]   topics scored >= 80%  → shown as "Best topics"
- *   weaknesses  : string[]   topics scored < 60%   → shown as "Topics needing
- *                                                    most improvement"
+ *   weaknesses  : string[]   the two lowest-scoring topics, never a best topic
+ *                            → shown as "Topics needing most improvement"
  */
 const band = (p) => {
   if (p == null) return { color: '#9CA3AF', bg: '#F3F4F6', label: '—' }
@@ -146,11 +146,28 @@ export function studentAnalysisRows(analysis, studentId) {
     const cell = ps.sections?.[sec]
     return { section: sec, awarded: cell?.awarded ?? 0, max: cell?.max ?? 0, pct: cell?.max ? Math.round((cell.awarded / cell.max) * 100) : null }
   }).filter((s) => s.max > 0)
+  const scored = rows.filter((r) => r.studentPct != null)
+  const strengths = scored.filter((r) => r.studentPct >= 80).map((r) => r.topic)
+  // Improvement list: the two lowest topics that are not also shown as a best
+  // topic. The view names a best topic even when none reaches 80% (the
+  // strongest stands in), so that one is left out too — unless it is the only
+  // topic, where "no major gaps" beside a low score would be the worse lie.
+  let candidates = scored.filter((r) => r.studentPct < 80)
+  if (!strengths.length && candidates.length > 1) {
+    const top = candidates.reduce((a, b) => (b.studentPct > a.studentPct ? b : a))
+    candidates = candidates.filter((r) => r !== top)
+  }
   return {
     rows,
     overall: { awarded: ps.awarded, max: ps.max, pct: overallPct },
     sections,
-    strengths: rows.filter((r) => r.studentPct != null && r.studentPct >= 80).map((r) => r.topic),
-    weaknesses: rows.filter((r) => r.studentPct != null && r.studentPct < 60).map((r) => r.topic),
+    strengths,
+    weaknesses: bottomTopics(candidates, 2),
   }
+}
+
+// The n lowest-scoring topics, weakest first. Ties keep the paper's topic order
+// (the sort is stable), so the same marks always name the same topics.
+function bottomTopics(scored, n) {
+  return [...scored].sort((a, b) => a.studentPct - b.studentPct).slice(0, n).map((r) => r.topic)
 }
