@@ -5,11 +5,11 @@ import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import { authedFetch } from '../../../../lib/authedFetch'
 import TutorNav from '../../../../components/TutorNav'
-import { saveLevelTestMark, loadLevelTestLesson, levelTestViews, levelTestReportArgs, levelTestName, markedCountOf, findSiblingLevelTests } from '../../../../lib/levelTest'
+import { saveLevelTestMark, loadLevelTestLesson, levelTestViews, levelTestReportArgs, levelTestName, markedCountOf, findSiblingLevelTests, levelTestCommentSections } from '../../../../lib/levelTest'
 import StudentExamAnalysisView from '../../../../components/StudentExamAnalysisView'
 import { exportLevelTestReport } from '../../../../lib/levelTestReport'
 import {
-  renderLevelTestEmail, levelTestEmailSubject, levelTestEmailHtml, DEFAULT_LEVEL_TEST_TEMPLATE, LEVEL_TEST_EMAIL_KEY,
+  renderLevelTestEmail, levelTestEmailSubject, levelTestEmailHtml, DEFAULT_LEVEL_TEST_TEMPLATE, LEVEL_TEST_EMAIL_KEY, levelTestCommentBlock,
   renderLevelTestFamilyEmail, levelTestFamilySubject, DEFAULT_LEVEL_TEST_FAMILY_TEMPLATE, LEVEL_TEST_FAMILY_EMAIL_KEY,
 } from '../../../../lib/levelTestEmail'
 
@@ -47,11 +47,12 @@ export default function LevelTestLessonPage() {
   const [marks, setMarks] = useState({})          // { "<buildId>::<blockId>": awarded(string) }
   const [savingId, setSavingId] = useState(null)
   const [emailing, setEmailing] = useState(false)
-  const [comment, setComment] = useState('')            // teacher's note to the parents, lives in the email body
+  const [comment, setComment] = useState('')            // OVERALL note to the parents (lessons.report_comment)
+  const [testComments, setTestComments] = useState({})  // one per linked test: { buildId: text } (lessons.report_comments)
   const [commentState, setCommentState] = useState('idle')  // idle | saving | saved
   const [previewOpen, setPreviewOpen] = useState(false)
   const commentTimer = useRef(null)
-  const commentRef = useRef(null)
+  const commentLatest = useRef({ overall: '', byTest: {} })   // what the debounced save writes
   const [template, setTemplate] = useState(DEFAULT_LEVEL_TEST_TEMPLATE)
   const [editingTemplate, setEditingTemplate] = useState(null)   // draft text while the editor is open
   const [templateSaving, setTemplateSaving] = useState(false)
@@ -75,6 +76,8 @@ export default function LevelTestLessonPage() {
       if (!got) { setError('Lesson not found.'); setLoading(false); return }
       setLesson(got.lesson)
       setComment(got.lesson.report_comment || '')
+      setTestComments(got.lesson.report_comments || {})
+      commentLatest.current = { overall: got.lesson.report_comment || '', byTest: got.lesson.report_comments || {} }
       setStudent(got.student)
       setGuardian(got.guardian)
       setTests(got.tests)
@@ -133,45 +136,41 @@ export default function LevelTestLessonPage() {
   // loaded — they are edited on that child's own page.
   const pickedSiblings = siblings.filter(sb => familyPick[sb.lesson.id])
   const isFamily = pickedSiblings.length > 0
+  // A child's comments as the email shows them: a subheading per test, then
+  // the overall comment.
+  const commentBlockFor = (c) => levelTestCommentBlock({
+    sections: levelTestCommentSections(c.tests, c.byTest), overall: c.overall,
+  })
   const sendChildren = () => [
-    { lesson, student, guardian, tests, marks, comment },
-    ...pickedSiblings.map(sb => ({ ...sb.data, comment: sb.data.lesson.report_comment || '' })),
-  ]
+    { lesson, student, guardian, tests, marks, overall: comment, byTest: testComments },
+    ...pickedSiblings.map(sb => ({ ...sb.data, overall: sb.data.lesson.report_comment || '', byTest: sb.data.lesson.report_comments || {} })),
+  ].map(c => ({ ...c, comment: commentBlockFor(c) }))
 
-  // The comment autosaves like a mark — typed once, kept with the lesson.
-  // Cmd/Ctrl-B on the comment box wraps the selection in ** **, and unwraps it
-  // if it is already wrapped. The markers are the storage format; they never
-  // reach the parent — the email turns them into <strong> and strips them from
-  // its plain-text copy.
-  const onCommentKeyDown = (e) => {
-    if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b')) return
-    e.preventDefault()
-    const el = commentRef.current
-    if (!el) return
-    const { selectionStart: a, selectionEnd: b, value } = el
-    if (a === b) return
-    const picked = value.slice(a, b)
-    const wrapped = picked.startsWith('**') && picked.endsWith('**') && picked.length > 4
-    const next = wrapped
-      ? value.slice(0, a) + picked.slice(2, -2) + value.slice(b)
-      : value.slice(0, a) + `**${picked}**` + value.slice(b)
-    saveComment(next)
-    // Keep the same words selected so the shortcut toggles. Wrapping adds two
-    // markers before the selection and two after; unwrapping removes all four.
-    const [from, to] = wrapped ? [a, b - 4] : [a + 2, b + 2]
-    requestAnimationFrame(() => el.setSelectionRange(from, to))
-  }
-
-  const saveComment = (v) => {
-    setComment(v)
+  // Comments autosave like a mark — typed once, kept with the lesson. Every
+  // box feeds one debounced save that writes both columns from the latest
+  // values, so typing in two boxes in quick succession can't lose either.
+  const queueCommentSave = () => {
     setCommentState('saving')
     clearTimeout(commentTimer.current)
     commentTimer.current = setTimeout(async () => {
+      const { overall, byTest } = commentLatest.current
+      const clean = Object.fromEntries(Object.entries(byTest).filter(([, v]) => String(v || '').trim()))
       const { error: e } = await supabase.from('lessons')
-        .update({ report_comment: v.trim() || null }).eq('id', id)
+        .update({ report_comment: overall.trim() || null, report_comments: clean }).eq('id', id)
       setCommentState(e ? 'idle' : 'saved')
       if (e) setToast('Comment not saved: ' + e.message)
     }, 800)
+  }
+  const saveComment = (v) => {
+    setComment(v)
+    commentLatest.current = { ...commentLatest.current, overall: v }
+    queueCommentSave()
+  }
+  const saveTestComment = (buildId, v) => {
+    const byTest = { ...commentLatest.current.byTest, [buildId]: v }
+    setTestComments(byTest)
+    commentLatest.current = { ...commentLatest.current, byTest }
+    queueCommentSave()
   }
   useEffect(() => () => clearTimeout(commentTimer.current), [])
 
@@ -183,7 +182,7 @@ export default function LevelTestLessonPage() {
       return {
         to,
         subject: levelTestEmailSubject({ studentName: student?.full_name, testTitle: emailTestTitle() }),
-        body: renderLevelTestEmail(template, { studentName: student?.full_name, testTitle: emailTestTitle(), comment, teacherName: profile?.full_name }),
+        body: renderLevelTestEmail(template, { studentName: student?.full_name, testTitle: emailTestTitle(), comment: sendChildren()[0].comment, teacherName: profile?.full_name }),
         attached: [reportFilename(student)],
       }
     }
@@ -257,7 +256,6 @@ export default function LevelTestLessonPage() {
           email_to: to,
           student_name: student?.full_name,
           test_title: emailTestTitle(),
-          comment,
           teacher_name: profile?.full_name,
           email_subject: pv.subject,
           email_body: pv.body,
@@ -367,7 +365,8 @@ export default function LevelTestLessonPage() {
                     </div>
                     {siblings.map(sb => {
                       const n = markedCountOf(sb.data.tests, sb.data.marks)
-                      const hasComment = !!(sb.data.lesson.report_comment || '').trim()
+                      const hasComment = [sb.data.lesson.report_comment, ...Object.values(sb.data.lesson.report_comments || {})]
+                        .some(v => String(v || '').trim())
                       return (
                         <label key={sb.lesson.id} className="flex flex-wrap items-center gap-2 text-[12px] text-[#2A2035]/70 cursor-pointer">
                           <input type="checkbox" checked={!!familyPick[sb.lesson.id]} className="accent-[#062E63]"
@@ -388,24 +387,27 @@ export default function LevelTestLessonPage() {
                 </div>
               )}
 
-              {/* Comment to the parents — lands in the email body, between the
-                  template and the sign-off. Autosaves with the lesson. */}
+              {/* Comments to the parents — one per test, then an overall one. They
+                  land in the email body under subheadings ("Maths", "English"),
+                  between the template and the sign-off. Autosave with the lesson. */}
               <div className="mt-4">
-                <div className="flex items-baseline justify-between gap-3 mb-1">
-                  <label className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60">Comment to parents</label>
+                <div className="flex items-baseline justify-between gap-3 mb-2">
+                  <p className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60">Comments to parents</p>
                   <span className="text-[10px] text-[#2A2035]/40">
-                    {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : 'Shown in the email body · **bold** or ⌘B'}
+                    {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : 'Each shows as a subheading in the email · **bold** or ⌘B'}
                   </span>
                 </div>
-                <textarea
-                  ref={commentRef}
-                  value={comment}
-                  onChange={(e) => saveComment(e.target.value)}
-                  onKeyDown={onCommentKeyDown}
-                  rows={3}
-                  placeholder={`e.g. ${(student?.full_name || 'They').split(' ')[0]} worked carefully through the whole paper — with some practice on the focus areas below, they'll be very well placed…`}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] text-[13px] text-[#2A2035] leading-relaxed placeholder:text-[#2A2035]/30 focus:outline-none focus:border-[#325099] focus:bg-white transition resize-y"
-                />
+                <div className={`grid gap-3 ${tests.length > 1 ? 'md:grid-cols-2' : ''}`}>
+                  {levelTestCommentSections(tests, testComments).map(sc => (
+                    <CommentBox key={sc.buildId} label={sc.label} value={sc.text}
+                      onChange={v => saveTestComment(sc.buildId, v)}
+                      placeholder={`How ${(student?.full_name || 'they').split(' ')[0]} went in ${sc.label}…`} />
+                  ))}
+                </div>
+                <div className="mt-3">
+                  <CommentBox label="Overall (optional)" value={comment} onChange={saveComment} rows={2}
+                    placeholder="Anything that spans every test — shown last, under “Overall”." />
+                </div>
               </div>
 
               {previewOpen && (() => {
@@ -528,8 +530,8 @@ export default function LevelTestLessonPage() {
                   <code key={ph} className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 mr-1.5 text-[10px]">{ph}</code>
                 ))}
                 {isFamily
-                  ? <>— <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comments}}'}</code> is each child’s comment box under their name; children with no comment are left out.</>
-                  : <>— <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comment}}'}</code> is the box on the marking page, and its paragraph disappears when left empty.</>}
+                  ? <>— <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comments}}'}</code> is each child’s name as a heading with their comments as subheadings (Maths, English, Overall) underneath; children with no comments are left out.</>
+                  : <>— <code className="bg-[#F0F4FF] text-[#325099] rounded px-1.5 py-0.5 text-[10px]">{'{{comment}}'}</code> is the comment boxes on the marking page, one subheading per test, and disappears when they are all empty.</>}
               </p>
             </div>
             <div className="px-6 py-4 border-t border-[#F0F4FF] flex items-center justify-between gap-3">
@@ -553,6 +555,41 @@ export default function LevelTestLessonPage() {
           {toast}
         </div>
       )}
+    </div>
+  )
+}
+
+/*
+ * One comment box. Cmd/Ctrl-B wraps the selection in ** **, and unwraps it if
+ * it is already wrapped. The markers are the storage format; they never reach
+ * the parent — the email turns them into <strong> and strips them from its
+ * plain-text copy.
+ */
+function CommentBox({ label, value, onChange, placeholder, rows = 3 }) {
+  const ref = useRef(null)
+  const onKeyDown = (e) => {
+    if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b')) return
+    e.preventDefault()
+    const el = ref.current
+    if (!el) return
+    const { selectionStart: a, selectionEnd: b, value: v } = el
+    if (a === b) return
+    const picked = v.slice(a, b)
+    const wrapped = picked.startsWith('**') && picked.endsWith('**') && picked.length > 4
+    onChange(wrapped
+      ? v.slice(0, a) + picked.slice(2, -2) + v.slice(b)
+      : v.slice(0, a) + `**${picked}**` + v.slice(b))
+    // Keep the same words selected so the shortcut toggles. Wrapping adds two
+    // markers before the selection and two after; unwrapping removes all four.
+    const [from, to] = wrapped ? [a, b - 4] : [a + 2, b + 2]
+    requestAnimationFrame(() => el.setSelectionRange(from, to))
+  }
+  return (
+    <div>
+      <label className="block text-[11px] font-bold text-[#062E63] mb-1">{label}</label>
+      <textarea ref={ref} value={value} rows={rows} placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown}
+        className="w-full px-3 py-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] text-[13px] text-[#2A2035] leading-relaxed placeholder:text-[#2A2035]/30 focus:outline-none focus:border-[#325099] focus:bg-white transition resize-y" />
     </div>
   )
 }
