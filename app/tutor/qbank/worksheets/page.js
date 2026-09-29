@@ -127,6 +127,19 @@ function AdditionalQuestionsInner() {
   const [qtype, setQtype] = useState('')   // '' | 'mcq' | 'extended'
   const [search, setSearch] = useState('')
 
+  /*
+   * The open worksheet lives in the address bar (?ws=<id>), so a refresh — or a
+   * copied link — reopens it rather than dropping back to the list. Other
+   * params (?subject=, ?year=, ?subj=) are kept; ?new=1 is spent once used.
+   */
+  const setWsInUrl = useCallback((id) => {
+    const params = new URLSearchParams(window.location.search)
+    if (id) params.set('ws', id); else params.delete('ws')
+    params.delete('new')
+    const qs = params.toString()
+    router.replace(`/tutor/qbank/worksheets${qs ? `?${qs}` : ''}`, { scroll: false })
+  }, [router])
+
   const loadWorksheets = useCallback(async () => {
     const { data } = await supabase.from(T_QBANK_WORKSHEETS)
       .select('*').order('updated_at', { ascending: false })
@@ -155,7 +168,7 @@ function AdditionalQuestionsInner() {
             if (error || !data) return
             setSelectedId(data.id); setTitle(data.title || ''); setWsTopicId(''); setWsSubtopicId(''); setCoverYear(''); setTray([]); setIncludeMarks(data.include_marks ?? true); setDirty(false)
             loadWorksheets()
-            router.replace('/tutor/qbank/worksheets')   // drop ?new=1 so refresh doesn't create another
+            setWsInUrl(data.id)   // swaps ?new=1 for ?ws — a refresh reopens it rather than creating another
           })
       }
     })
@@ -221,8 +234,10 @@ function AdditionalQuestionsInner() {
     if (!id || loadingQ || !worksheets.length) return
     wantWsRef.current = null
     const ws = worksheets.find((w) => String(w.id) === String(id))
+    // ?ws stays in the URL while it is open (openWorksheet keeps it there); a
+    // link to a worksheet that no longer exists is dropped.
     if (ws) openWorksheet(ws)
-    router.replace('/tutor/qbank/worksheets')   // drop ?ws so a refresh doesn't re-open
+    else setWsInUrl(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingQ, worksheets])
 
@@ -230,6 +245,7 @@ function AdditionalQuestionsInner() {
   const openWorksheet = async (ws) => {
     await flushNow()
     setSelectedId(ws.id)
+    setWsInUrl(ws.id)
     setTitle(ws.title || '')
     setWsTopicId(ws.topic_id ?? '')
     setWsSubtopicId(ws.subtopic_id ?? '')
@@ -267,7 +283,7 @@ function AdditionalQuestionsInner() {
     setDirty(false)
   }
 
-  const closeEditor = async () => { await flushNow(); setSelectedId(null); loadWorksheets() }
+  const closeEditor = async () => { await flushNow(); setSelectedId(null); setWsInUrl(null); loadWorksheets() }
 
   const createWorksheet = async () => {
     const { data, error } = await supabase.from(T_QBANK_WORKSHEETS)
@@ -313,7 +329,7 @@ function AdditionalQuestionsInner() {
     if (!window.confirm(`Delete worksheet "${ws.title}"? The questions stay in the bank — only this saved list is removed.`)) return
     const { error } = await supabase.from(T_QBANK_WORKSHEETS).delete().eq('id', ws.id)
     if (error) { alert('Delete failed: ' + error.message); return }
-    if (selectedId === ws.id) setSelectedId(null)
+    if (selectedId === ws.id) { setSelectedId(null); setWsInUrl(null) }
     loadWorksheets()
   }
 
