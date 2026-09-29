@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { listExams, createExam, deleteExam } from '../../lib/qbankExams'
+import { listExams, createExam, deleteExam, duplicateExam } from '../../lib/qbankExams'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
 
 /*
@@ -64,6 +64,19 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
   const mathsN = countIn('maths')
   const englishN = countIn('english')
   const chemN = countIn('chemistry')
+
+  // Copy an exam and open the copy — e.g. a class's variant of the term test.
+  const [duplicating, setDuplicating] = useState(null)
+  const handleDuplicate = async (id) => {
+    setDuplicating(id)
+    try {
+      const newId = await duplicateExam(id, profile?.full_name)
+      router.push(`/tutor/qbank/exams/${newId}`)
+    } catch (e) {
+      alert(`Could not duplicate: ${e.message || e}`)
+      setDuplicating(null)
+    }
+  }
 
   const handleDelete = async (id, title) => {
     if (!confirm(`Delete "${title}"? This cannot be undone.`)) return
@@ -131,6 +144,11 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
                   </div>
                 </Link>
                 <Link href={`/tutor/qbank/exams/${e.id}`} className="text-[11px] font-semibold text-[#325099] hover:underline">Open</Link>
+                <button onClick={() => handleDuplicate(e.id)} disabled={!!duplicating}
+                  title="Make a copy of this paper — same sections and questions — and open it"
+                  className="text-[11px] font-semibold text-[#325099] hover:underline disabled:opacity-40">
+                  {duplicating === e.id ? 'Duplicating…' : 'Duplicate'}
+                </button>
                 <button onClick={() => handleDelete(e.id, e.title)} className="text-[11px] text-[#DC2626] hover:underline">Delete</button>
               </div>
             )
