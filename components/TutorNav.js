@@ -159,7 +159,7 @@ function NavDropdown({ group, pathname }) {
  * backdrop-filter makes fixed-position children position against the nav
  * instead of the screen, which would clip the sheet to the bar.
  */
-function MobileSheet({ open, onClose, pathname, staffName, isAdmin, inApp, onLogout }) {
+function MobileSheet({ open, onClose, pathname, staffName, isAdmin, onLogout }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { const id = requestAnimationFrame(() => setMounted(true)); return () => cancelAnimationFrame(id) }, [])
   // Lock the page behind the sheet, and let Escape close it.
@@ -175,7 +175,8 @@ function MobileSheet({ open, onClose, pathname, staffName, isAdmin, inApp, onLog
 
   const isActive = (href) => (href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(href))
   const first = (staffName || '').split(' ')[0]
-  const primary = [...BASE_LINKS, ...(isAdmin ? [{ label: 'Messages', href: inApp ? '/messages' : '/tutor/admin/messages', icon: '💬' }] : [])]
+  // Messages isn't repeated here: the envelope in the top bar already opens it.
+  const primary = BASE_LINKS
   const sections = [
     ...(!isAdmin ? TUTOR_GROUPS : []),
     ...(!isAdmin ? [{ label: 'My work', links: TUTOR_LINKS }] : []),
@@ -215,7 +216,7 @@ function MobileSheet({ open, onClose, pathname, staffName, isAdmin, inApp, onLog
 
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-5">
           {/* Everyday pages */}
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-3 gap-2.5">
             {primary.map((l) => <Tile key={l.href} link={l} big />)}
           </div>
           {/* Each section */}
@@ -361,7 +362,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
       {/* Mobile menu — a full-height sheet (see MobileSheet) */}
       <MobileSheet open={mobileOpen} onClose={() => setMobileOpen(false)} pathname={pathname}
-        staffName={staffName} isAdmin={isAdmin} inApp={inApp} onLogout={handleLogout} />
+        staffName={staffName} isAdmin={isAdmin} onLogout={handleLogout} />
     </nav>
   )
 }
