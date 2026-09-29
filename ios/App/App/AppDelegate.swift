@@ -58,3 +58,56 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
 }
+
+/// The app's main screen: Capacitor's web view plus a solid strip behind the
+/// status bar. The web view keeps the page below the status bar, but content
+/// scrolled up still showed through in that strip; the cover hides it.
+/// Lives here (not its own file) so the Xcode project needs no new entries.
+class MainViewController: CAPBridgeViewController {
+    private let statusBarCover = UIView()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        statusBarCover.backgroundColor = .white
+        statusBarCover.isUserInteractionEnabled = false
+        statusBarCover.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(statusBarCover)
+        NSLayoutConstraint.activate([
+            statusBarCover.topAnchor.constraint(equalTo: view.topAnchor),
+            statusBarCover.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            statusBarCover.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            statusBarCover.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+        ])
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        view.bringSubviewToFront(statusBarCover)
+    }
+}
+
+/// Scene lifecycle (required for apps built with the iOS 27 SDK — without it
+/// UIKit refuses to launch the app). The window comes from Main.storyboard via
+/// UISceneStoryboardFile in Info.plist; URL / universal-link opens now arrive
+/// here instead of the AppDelegate, so pass them on to Capacitor the same way.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        if let context = connectionOptions.urlContexts.first {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: context.url, options: [:])
+        }
+        if let activity = connectionOptions.userActivities.first {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: activity, restorationHandler: { _ in })
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        guard let url = URLContexts.first?.url else { return }
+        _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: url, options: [:])
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
+    }
+}
