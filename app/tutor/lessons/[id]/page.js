@@ -490,8 +490,17 @@ export default function LevelTestLessonPage() {
                                 <div key={it.qid} className="flex items-center gap-3 px-5 py-3">
                                   <span className="w-7 text-xs font-bold text-[#062E63] shrink-0">Q{it.n}</span>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-[#2A2035] truncate">{it.stem || <span className="text-[#2A2035]/35 italic">(no text)</span>}</p>
-                                    <p className="text-[10px] text-[#2A2035]/45">{it.topic}{it.qtype === 'mcq' ? ' · MCQ' : ''}</p>
+                                    {it.criterion ? (
+                                      <>
+                                        <p className="text-sm text-[#2A2035] truncate">{it.criterion}</p>
+                                        <p className="text-[10px] text-[#2A2035]/45 truncate">{it.rubricName || 'Marking criteria'} · {it.stem}</p>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <p className="text-sm text-[#2A2035] truncate">{it.stem || <span className="text-[#2A2035]/35 italic">(no text)</span>}</p>
+                                        <p className="text-[10px] text-[#2A2035]/45">{it.topic}{it.qtype === 'mcq' ? ' · MCQ' : ''}</p>
+                                      </>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0">
                                     <input

@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { listRubrics } from '../../../../../lib/rubrics'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
 import { buildLabel } from '../../../../../lib/format'
@@ -585,6 +586,14 @@ export default function BookletBuilderEditor() {
   }, [bk])
 
   const isLevelTest = bk?.doc_type === 'level_test'
+  // Marking-criteria library, offered on level-test questions (English writing).
+  const [rubricOptions, setRubricOptions] = useState([])
+  useEffect(() => {
+    if (!isLevelTest) return
+    let alive = true
+    listRubrics().then(rs => { if (alive) setRubricOptions(rs) })
+    return () => { alive = false }
+  }, [isLevelTest])
   const isPreTest = bk?.doc_type === 'pre_test'
   // Exam-style docs (level tests + pre-tests) use a two-column layout: one big
   // left column (palette folded in + questions) and the live preview on the right.
@@ -921,7 +930,7 @@ export default function BookletBuilderEditor() {
         </div>
       </div>
       <BlockEditor block={b} onChange={onChangeFor(b.id)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null}
-        showTopic={isExamStyle} topicOptions={paperTopicOptions} />
+        showTopic={isExamStyle} topicOptions={paperTopicOptions} rubricOptions={isLevelTest ? rubricOptions : null} />
     </div>
     )
   }

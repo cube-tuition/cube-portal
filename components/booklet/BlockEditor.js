@@ -748,7 +748,7 @@ const partsCarryMarks = (b) =>
   Array.isArray(b?.parts) && b.parts.some((p) => p.marks != null && p.marks !== '')
 
 function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null,
-                      showTopic = false, topicOptions = [] }) {
+                      showTopic = false, topicOptions = [], rubricOptions = null }) {
   const set = (patch) => onChange({ ...block, ...patch })
   // Maths workbook/homework don't print marks (only the revision quiz does), so
   // hide the Marks input there — but always show it in the revision quiz.
@@ -871,6 +871,24 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
       return (
         <div className="space-y-2.5">
           {showTopic && <TopicField block={block} set={set} options={topicOptions} />}
+          {rubricOptions && (() => {
+            const r = rubricOptions.find(x => x.id === block.rubric_id)
+            const total = r ? r.criteria.reduce((s, c) => s + (Number(c.max) || 0), 0) : 0
+            return (
+              <div>
+                <label className={L}>Marking criteria</label>
+                <select value={block.rubric_id || ''} onChange={e => set({ rubric_id: e.target.value || null })} className={I}>
+                  <option value="">— none (one mark for the whole question) —</option>
+                  {rubricOptions.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
+                {r && (
+                  <p className="text-[10px] text-[#325099]/70 mt-1">
+                    Marked per criterion ({r.criteria.map(c => `${c.name} /${c.max}`).join(' · ')}) — {total} marks in all. Each criterion shows as its own topic on the level-test report.
+                  </p>
+                )}
+              </div>
+            )
+          })()}
           <div><label className={L}>Question prompt</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey placeholder="Find the area of the following:" /></div>
           <div className={showMarks ? 'grid grid-cols-[1fr_90px] gap-2 items-end' : ''}>
             <div className="flex items-end gap-3">
