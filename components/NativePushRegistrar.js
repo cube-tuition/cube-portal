@@ -38,6 +38,12 @@ export default function NativePushRegistrar() {
             { onConflict: 'token' },
           )
         })
+        // Tapping a notification opens the page it points at (a text thread,
+        // the calls list) inside the app.
+        await PN.addListener('pushNotificationActionPerformed', ({ notification }) => {
+          const url = notification?.data?.url
+          if (url && url.startsWith('/')) window.location.href = url
+        })
         await PN.register()
       } catch {
         started.current = false // allow a retry on next auth change
