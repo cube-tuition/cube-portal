@@ -54,6 +54,13 @@ const CAMPAIGNS = [
     badge:       'Marketing',
   },
   {
+    href:        '/tutor/emails/reviews',
+    icon:        '⭐',
+    title:       'Review Requests',
+    description: 'Ask families for a Google review — a first ask and one gentle reminder, with a record of who has been asked. Set your Google review link once, preview, test, and send.',
+    badge:       'Marketing',
+  },
+  {
     href:        '/tutor/emails/holiday-courses',
     icon:        '🏖️',
     title:       'Holiday Courses',
