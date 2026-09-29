@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import GlobalUndo from './GlobalUndo'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
+import { useIsNativeApp } from '../lib/nativeApp'
 import { SUBJECTS } from '../lib/resourceSubjects'
 
 /*
@@ -187,6 +188,7 @@ function MobileGroup({ group, pathname, onClose }) {
 
 // ── Main nav ──────────────────────────────────────────────────────────────────
 export default function TutorNav({ staffName, isAdmin = false }) {
+  const inApp = useIsNativeApp()
   // Usage heartbeat — same rule as the student nav: throttled, fire-and-forget.
   useEffect(() => { recordPortalActivity() }, [])
 
@@ -266,10 +268,13 @@ export default function TutorNav({ staffName, isAdmin = false }) {
         <div className="flex items-center gap-2">
           {/* Messages — opens in its own tab, so replying never costs you the
               page you were on. Shown at every width, next to the hamburger. */}
+          {/* In the iPhone app there are no tabs (a new tab is Safari), so it
+              opens the phone-shaped inbox in place instead. */}
           {isAdmin && (
-            <a href="/tutor/admin/messages" target="_blank" rel="noopener noreferrer"
-              title="Messages — opens in a new tab"
-              aria-label="Messages (opens in a new tab)"
+            <a href={inApp ? '/messages' : '/tutor/admin/messages'}
+              {...(inApp ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+              title={inApp ? 'Messages' : 'Messages — opens in a new tab'}
+              aria-label={inApp ? 'Messages' : 'Messages (opens in a new tab)'}
               className="flex items-center justify-center w-9 h-9 rounded-xl text-[#062E63] hover:bg-[#F8FAFF] transition">
               <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor"
                 strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -2,6 +2,7 @@ import { Outfit, Inter } from "next/font/google";
 import "./globals.css";
 import NoNumberScroll from "../components/NoNumberScroll";
 import NativePushRegistrar from "../components/NativePushRegistrar";
+import NativeLinkGuard from "../components/NativeLinkGuard";
 import { APP_FLAG_SCRIPT } from "../lib/nativeApp";
 
 const outfit = Outfit({
@@ -35,6 +36,7 @@ export default function RootLayout({ children }) {
       <body className="min-h-full flex flex-col">
         <NoNumberScroll />
         <NativePushRegistrar />
+        <NativeLinkGuard />
         {children}
       </body>
     </html>

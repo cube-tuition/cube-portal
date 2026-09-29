@@ -120,6 +120,8 @@ function MessagesAppInner() {
       <header className="sticky top-0 z-10 bg-white border-b border-[#DEE7FF] px-4 pt-3 pb-2">
         <div className="flex items-center justify-between gap-2">
           <div>
+            {/* The inbox has no portal nav; this is the way back to the rest of it. */}
+            <Link href="/tutor" className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#325099]/70 mb-0.5">‹ Portal</Link>
             <h1 className="text-xl font-bold text-[#062E63]">Messages</h1>
             <p className="text-[11px] text-[#2A2035]/45">{profile?.full_name} · office number</p>
           </div>
