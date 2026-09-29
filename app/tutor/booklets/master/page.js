@@ -17,6 +17,8 @@ import {
   isChemistry, chemModuleNumber, chemLessonNumber, chemModuleLabel, bookletLabel, buildLabel,
 } from '../../../../lib/format'
 import { useCourseCurriculum } from '../../../../lib/courses'
+import { bookletPdfs } from '../../../../lib/resourceSubjects'
+import PdfPreviewModal from '../../../../components/qbank/PdfPreviewModal'
 
 
 
@@ -463,6 +465,9 @@ function MasterDatabaseInner() {
   const [showAdd,    setShowAdd]    = useState(false)
 
   const [infoFor,        setInfoFor]        = useState(null)   // booklet whose info modal is open
+  const [previewChoice,  setPreviewChoice]  = useState(null)   // booklet asking "Student or Teacher?"
+  const [preview,        setPreview]        = useState(null)   // { url, downloadUrl, filename, title } in the PDF modal
+  const [otherFor,       setOtherFor]       = useState(null)   // booklet id whose "Other" menu is open
   const [deleteBooklet,  setDeleteBooklet]  = useState(null)   // booklet pending deletion
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting,       setDeleting]       = useState(false)
@@ -470,6 +475,14 @@ function MasterDatabaseInner() {
   const [topicBank,      setTopicBank]      = useState([])
   // Chemistry module number → syllabus module name, for the group headings.
   const [moduleNames,    setModuleNames]    = useState({})
+
+  // The "Other" menu closes on any click outside it (clicks inside stop here).
+  useEffect(() => {
+    if (otherFor == null) return undefined
+    const close = () => setOtherFor(null)
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [otherFor])
 
   useEffect(() => {
     getAuthProfile().then(({ user, profile }) => {
@@ -874,7 +887,10 @@ function MasterDatabaseInner() {
                       builder button left, one booklet per full-width row wasted
                       most of the line. Drops to one column on narrow screens. */}
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
-                    {bks.map(b => (
+                    {bks.map(b => {
+                      const build = buildByBookletId[b.id]
+                      const open  = openTotal(b)
+                      return (
                       <div key={b.id}
                         className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
                         <div className="min-w-0 flex-1">
@@ -882,15 +898,30 @@ function MasterDatabaseInner() {
                             {bookletLabel(b)}
                             {b.delivery === 'online' && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F] align-middle" title="Online workbook — a typeable student doc, no printed PDFs">🌐 Online</span>}
                           </p>
-                          {/* Info — term, week, topic, content, notes and the
-                              improvement checklists all live in this modal. */}
-                          <button
-                            onClick={() => setInfoFor(b)}
-                            title={openTotal(b) ? `${openTotal(b)} open item${openTotal(b) === 1 ? '' : 's'} on the improvement checklist` : 'All info for this booklet'}
-                            className={`mt-0.5 text-[10px] font-semibold transition ${openTotal(b) ? 'text-[#B45309] hover:text-[#92400E] hover:underline' : 'text-[#325099]/70 hover:text-[#325099] hover:underline'}`}
-                          >
-                            {`\u2139\uFE0F Info${openTotal(b) ? ` \u00B7 ${openTotal(b)}` : ''}`}
-                          </button>
+                          {/* Other — the rarely-used, destructive-ish actions,
+                              kept out of the row's main buttons. */}
+                          <div className="relative mt-0.5" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => setOtherFor(otherFor === b.id ? null : b.id)}
+                              className="text-[10px] font-semibold text-[#2A2035]/40 hover:text-[#325099] transition"
+                              title="Duplicate or delete this booklet"
+                            >Other ▾</button>
+                            {otherFor === b.id && (
+                              <div className="absolute left-0 top-full mt-1 z-30 w-44 bg-white rounded-lg border border-[#DEE7FF] shadow-lg py-1">
+                                <button
+                                  onClick={() => { setOtherFor(null); duplicateWorkbook(build.id) }}
+                                  disabled={!build || duplicating === build?.id}
+                                  className="w-full text-left px-3 py-1.5 text-[11px] font-semibold text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-40 disabled:hover:bg-transparent"
+                                  title={build ? 'Copy this workbook into a new draft (e.g. for another year)' : 'Open it in the builder first — there is nothing to copy yet'}
+                                >{duplicating === build?.id ? 'Duplicating…' : 'Duplicate'}</button>
+                                <button
+                                  onClick={() => { setOtherFor(null); setDeleteBooklet(b); setDeleteConfirmText('') }}
+                                  className="w-full text-left px-3 py-1.5 text-[11px] font-semibold text-red-500 hover:bg-red-50"
+                                  title="Delete booklet"
+                                >Delete</button>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* No topic control here: the rows are already grouped
@@ -907,29 +938,37 @@ function MasterDatabaseInner() {
                           {WORKBOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
 
+                        {/* Info — term, week, topic, content, notes and the
+                            improvement checklists all live in this modal. */}
+                        <button
+                          onClick={() => setInfoFor(b)}
+                          title={open ? `${open} open item${open === 1 ? '' : 's'} on the improvement checklist` : 'All info for this booklet'}
+                          className={`shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition whitespace-nowrap ${open
+                            ? 'border-[#FDE68A] bg-[#FFFBEB] text-[#B45309] hover:border-[#F59E0B]'
+                            : 'border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099]'}`}
+                        >
+                          {`Info${open ? ` \u00B7 ${open}` : ''}`}
+                        </button>
+
+                        <button
+                          onClick={() => setPreviewChoice(b)}
+                          className="shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-lg border border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition whitespace-nowrap"
+                          title="Preview the student or teacher copy"
+                        >Preview</button>
+
                         {/* Builder — every workbook opens in the builder; a linked
                             draft is created on first open. */}
                         <div className="shrink-0">
-                          {buildByBookletId[b.id] ? (
-                            <div className="flex items-center gap-1.5">
-                              <a
-                                href={`/tutor/booklets/builder/${buildByBookletId[b.id].id}`}
-                                target="_blank" rel="noopener noreferrer"
-                                className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap"
-                                style={{ background: accentBg, color: accentColor }}
-                                title="Open this workbook in the builder"
-                              >
-                                Open builder ↗
-                              </a>
-                              <button
-                                onClick={() => duplicateWorkbook(buildByBookletId[b.id].id)}
-                                disabled={duplicating === buildByBookletId[b.id].id}
-                                className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40 whitespace-nowrap"
-                                title="Duplicate this workbook into a new draft (e.g. for another year)"
-                              >
-                                {duplicating === buildByBookletId[b.id].id ? '…' : 'Duplicate'}
-                              </button>
-                            </div>
+                          {build ? (
+                            <a
+                              href={`/tutor/booklets/builder/${build.id}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap"
+                              style={{ background: accentBg, color: accentColor }}
+                              title="Open this workbook in the builder"
+                            >
+                              Open builder ↗
+                            </a>
                           ) : (
                             <button
                               onClick={() => openInBuilder(b)}
@@ -941,16 +980,9 @@ function MasterDatabaseInner() {
                             </button>
                           )}
                         </div>
-
-                        <div className="shrink-0 flex items-center gap-2.5 pl-1 border-l border-[#F0F4FF]">
-                          <button
-                            onClick={() => { setDeleteBooklet(b); setDeleteConfirmText('') }}
-                            className="text-[10px] font-semibold text-red-400/70 hover:text-red-600 transition"
-                            title="Delete booklet"
-                          >Delete</button>
-                        </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )
@@ -1009,6 +1041,69 @@ function MasterDatabaseInner() {
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); load() }}
         />
+      )}
+
+      {/* Preview: which copy? Student and teacher are the booklet's stored
+          PDFs, told apart by the same rule the Materials pages use. A copy
+          that isn't uploaded is shown, but can't be picked. */}
+      {previewChoice && (() => {
+        const pdfs = bookletPdfs(previewChoice)
+        const named = pdfs.some(p => p.isSolutions)
+        // Two opaque files (neither identifiable) are offered by number rather
+        // than guessed at; a lone file is the student copy.
+        const options = named || pdfs.length <= 1
+          ? [
+              { key: 'student', label: 'Student', hint: 'The copy students work in', pdf: pdfs.find(p => !p.isSolutions) },
+              { key: 'teacher', label: 'Teacher', hint: 'With solutions', pdf: pdfs.find(p => p.isSolutions) },
+            ]
+          : pdfs.map((p, i) => ({ key: p.path, label: p.label, hint: `File ${i + 1} of ${pdfs.length}`, pdf: p }))
+        const label = bookletLabel(previewChoice)
+        const openPdf = (o) => {
+          const name = o.pdf.filename || `${label}${o.key === 'teacher' ? ' (Teacher)' : ''}.pdf`
+          setPreview({
+            url: supabase.storage.from('booklets').getPublicUrl(o.pdf.path).data?.publicUrl,
+            downloadUrl: supabase.storage.from('booklets').getPublicUrl(o.pdf.path, { download: name }).data?.publicUrl,
+            filename: name,
+            title: `${label} — ${o.label}`,
+          })
+          setPreviewChoice(null)
+        }
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={e => { if (e.target === e.currentTarget) setPreviewChoice(null) }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-[#062E63]">Preview</h2>
+                  <p className="text-[11px] text-[#2A2035]/50 truncate">{label}</p>
+                </div>
+                <button onClick={() => setPreviewChoice(null)} className="w-7 h-7 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
+              </div>
+              {pdfs.length === 0 ? (
+                <p className="text-xs text-[#2A2035]/55 mt-3">
+                  No PDF uploaded for this booklet yet{previewChoice.delivery === 'online' ? ' — it is an online workbook, so it has none' : ''}. Open it in the builder to see it.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2.5 mt-3">
+                  {options.map(o => (
+                    <button key={o.key} onClick={() => o.pdf && openPdf(o)} disabled={!o.pdf}
+                      className="text-left rounded-xl border border-[#DEE7FF] hover:border-[#325099] hover:bg-[#F8FAFF] transition p-3 disabled:opacity-40 disabled:hover:border-[#DEE7FF] disabled:hover:bg-transparent"
+                      title={o.pdf ? `Preview the ${o.label.toLowerCase()} copy` : `No ${o.label.toLowerCase()} copy uploaded`}>
+                      <p className="text-sm font-bold text-[#062E63]">{o.label}</p>
+                      <p className="text-[10px] text-[#2A2035]/50 mt-0.5">{o.pdf ? o.hint : 'Not uploaded'}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {preview && (
+        <PdfPreviewModal url={preview.url} downloadUrl={preview.downloadUrl}
+          filename={preview.filename} title={preview.title}
+          onClose={() => setPreview(null)} />
       )}
 
       {/* Chemistry content is generated from the sections' drawn syllabus
