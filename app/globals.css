@@ -36,3 +36,22 @@ html, body {
 .font-display {
   font-family: var(--font-outfit), "Avenir Next", Avenir, sans-serif;
 }
+
+/* Session marking on phones: each student's row becomes a stacked card
+   (name, then each control under its own label) instead of a table you have
+   to scroll sideways. The labels come from each cell's data-label. */
+@media (max-width: 767px) {
+  .mk-cards, .mk-cards > tbody, .mk-cards > tbody > tr, .mk-cards > tbody > tr > td { display: block; width: 100%; }
+  .mk-cards > thead { display: none; }
+  /* A row is a 3-column grid: the quick controls (attendance, homework, quiz)
+     sit side by side; the name, comments and any full-width row span it. */
+  .mk-cards > tbody > tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 10px; padding: 12px 16px; }
+  .mk-cards > tbody > tr > td { grid-column: 1 / -1; padding: 6px 0 !important; }
+  .mk-cards > tbody > tr > td[data-label]:not([data-label="Additional comments"]) { grid-column: auto; }
+  .mk-cards > tbody > tr > td[data-label] { background: transparent; }
+  .mk-cards td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    color: rgba(50, 80, 153, .7);
+  }
+}

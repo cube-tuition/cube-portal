@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
@@ -99,6 +99,12 @@ export default function ClassOverviewPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [rawTab, setTab] = useState(initialTab)        // 1..10 | 'prepost' | 'exams'
+  // Keeps the selected week in view on phones, where the week tabs scroll sideways.
+  const weekStripRef = useRef(null)
+  useEffect(() => {
+    const el = weekStripRef.current?.querySelector('[data-active="1"]')
+    el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  }, [rawTab])
   /*
    * Pre/post testing belongs to a teaching term: a holiday course runs a few
    * days and is not tested against itself. The tab is hidden below, and a
@@ -374,7 +380,7 @@ export default function ClassOverviewPage() {
         className="border-b border-[#DEE7FF]"
         style={{ background: `linear-gradient(135deg, ${col.bg} 0%, #EEF4FF 60%, #BFD1FF 100%)` }}
       >
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-10 md:py-14">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-10 py-6 sm:py-10 md:py-14">
           <Link
             href="/tutor/classes"
             className="inline-flex items-center gap-1 text-[11px] tracking-[0.25em] uppercase font-semibold text-[#325099] hover:text-[#062E63] mb-5 transition"
@@ -385,7 +391,7 @@ export default function ClassOverviewPage() {
           <p className="text-[11px] tracking-[0.35em] uppercase font-semibold font-display mb-2" style={{ color: col.fg }}>
             {inferSubject(cls)}
           </p>
-          <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold leading-tight tracking-tight text-[#2A2035] mb-3 font-display">
             {cls.class_name || 'Untitled class'}
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70">
@@ -396,7 +402,7 @@ export default function ClassOverviewPage() {
           </p>
 
           {/* Stat strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-8 max-w-3xl">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 sm:mt-8 max-w-3xl">
             <StatTile label="Students"  value={roster.length} suffix="enrolled" />
             <StatTile
               label="Quiz avg"
@@ -413,10 +419,13 @@ export default function ClassOverviewPage() {
       </section>
 
       {/* WEEK TABS */}
-      <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 md:px-10 py-6 sm:py-10">
         {/* All tabs share the row (flex-1) with the date stacked under the
             label, so the whole term fits without horizontal scrolling. */}
-        <div className="flex items-stretch gap-1.5 mb-6">
+        {/* Phones: a horizontally swipeable strip (each tab a comfortable
+            tap target, the current week scrolled into view). From md up the
+            tabs share the row as before. */}
+        <div ref={weekStripRef} className="flex items-stretch gap-1.5 mb-6 max-md:overflow-x-auto max-md:-mx-4 max-md:px-4 max-md:pb-1 max-md:snap-x [scrollbar-width:none]">
           {weekDates.length === 0 ? (
             <p className="text-sm text-[#2A2035]/50">Class day_of_week missing &mdash; can&rsquo;t compute weekly sessions.</p>
           ) : (
@@ -436,8 +445,9 @@ export default function ClassOverviewPage() {
                 return (
                   <button
                     key={week}
+                    data-active={active ? '1' : undefined}
                     onClick={() => setTab(week)}
-                    className={`${isHoliday ? 'flex-none px-3' : 'flex-1 min-w-0 px-1'} py-1.5 rounded-full border transition flex flex-col items-center justify-center leading-tight ${
+                    className={`${isHoliday ? 'flex-none px-3' : 'flex-1 min-w-0 px-1 max-md:flex-none max-md:min-w-[58px] max-md:px-2.5'} max-md:snap-start max-md:py-2 py-1.5 rounded-full border transition flex flex-col items-center justify-center leading-tight ${
                       allCancelled
                         ? active
                           ? 'bg-[#991B1B] text-white border-[#991B1B]'
@@ -458,7 +468,7 @@ export default function ClassOverviewPage() {
                       {!allCancelled && hasData && !active && !hasSub && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#10b981]" />}
                     </span>
                     {primaryDate && (
-                      <span className={`text-[10px] font-medium whitespace-nowrap max-w-full truncate hidden lg:block ${active ? 'text-white/70' : 'text-[#2A2035]/40'}`}>
+                      <span className={`text-[10px] font-medium whitespace-nowrap max-w-full truncate max-md:block hidden lg:block ${active ? 'text-white/70' : 'text-[#2A2035]/40'}`}>
                         {fmtDate(primaryDate)}
                       </span>
                     )}

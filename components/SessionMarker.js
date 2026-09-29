@@ -925,7 +925,7 @@ function MarkTable({
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm border-collapse">
+        <table className="w-full text-sm border-collapse mk-cards">
           <thead>
             <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
               <Th className="text-left pl-5 pr-3 w-[26%]">Student name</Th>
@@ -1008,14 +1008,14 @@ function MarkTable({
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3" data-label="Attendance">
                       <div className={attInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
                         <PillSelect value={att} options={ATTENDANCE_OPTIONS}
                                     onChange={v => onChange(s.id, 'attendance', v)} disabled={isLocked} />
                       </div>
                     </td>
                     {hwEnabled && currentWeek !== 1 && currentWeek !== 10 && (
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3" data-label="Homework">
                         <div className={hwInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
                           <PillSelect value={m.hw || ''} options={GRADE_OPTIONS}
                                       onChange={v => onChange(s.id, 'hw', v)} disabled={isLocked || isAbsent} />
@@ -1023,7 +1023,7 @@ function MarkTable({
                       </td>
                     )}
                     {currentWeek !== 1 && currentWeek !== 10 && rqEnabled && (
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3" data-label={isOneToOne ? 'Understanding %' : 'RQ mark %'}>
                         <div className={rqInvalid ? 'rounded-full ring-2 ring-[#EF4444]' : ''}>
                           {isOneToOne ? (
                             <PillSelect
@@ -1039,7 +1039,7 @@ function MarkTable({
                         </div>
                       </td>
                     )}
-                    <td className="px-5 py-3 bg-[#F5F8FF]/60">
+                    <td className="px-5 py-3 bg-[#F5F8FF]/60" data-label="Additional comments">
                       <CommentBox
                         value={m.comment}
                         onChange={v => onChange(s.id, 'comment', v)}
