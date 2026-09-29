@@ -275,7 +275,7 @@ export function StudentReport({ student, cls, term, roster, attendance, quizzes,
             <div className="mt-4">
               <PrePostCharts student={student} topics={topics} totalMarks={totalMarks}
                 scoresMap={prepost.scores} classAvg={prepost.classAvg}
-                expectedPre={prepost.expectedPre} expectedPost={prepost.expectedPost} />
+                expectedPre={prepost.expectedPre} expectedPost={prepost.expectedPost} showRaw={false} />
             </div>
           )}
           </>

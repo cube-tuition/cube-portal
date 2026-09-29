@@ -737,7 +737,9 @@ function StudentCharts({ student, topics, totalMarks, scoresMap, classAvg, expec
 // Renders one student's pre/post results: raw by topic, % by topic, and totals
 // vs class average (with optional Expected target). Computes its own chart data
 // from the shared inputs so it can be dropped into the report individualised.
-export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap = {}, classAvg = { pre: null, post: null, byTopic: { pre: [], post: [] } }, expectedPre = null, expectedPost = null }) {
+// `showRaw` — the class Pre/Post tab shows the raw-mark chart too; the term
+// report leaves it out and sets the % and total charts side by side.
+export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap = {}, classAvg = { pre: null, post: null, byTopic: { pre: [], post: [] } }, expectedPre = null, expectedPost = null, showRaw = true }) {
   const preScores  = scoresMap[student.id]?.pre  || []
   const postScores = scoresMap[student.id]?.post || []
   const preTotal  = preScores.filter(s => s != null).reduce((a, b) => a + Number(b), 0)
@@ -768,10 +770,7 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
     { name: 'Pre test',  'Score': hasPreData  ? safePct(preTotal,  totalMarks) : null, 'Class avg': hasClassAvg && classAvg.pre  != null ? safePct(classAvg.pre,  totalMarks) : null, 'Expected': expPrePct },
     { name: 'Post test', 'Score': hasPostData ? safePct(postTotal, totalMarks) : null, 'Class avg': hasClassAvg && classAvg.post != null ? safePct(classAvg.post, totalMarks) : null, 'Expected': expPostPct },
   ]
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      {/* Raw marks by topic */}
+  const rawChart = (
       <div>
         <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">{fn}: Pre/Post test by topic (Raw mark)</p>
         <ResponsiveContainer width="100%" height={200}>
@@ -789,8 +788,9 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
           </BarChart>
         </ResponsiveContainer>
       </div>
+  )
 
-      {/* % by topic */}
+  const pctChart = (
       <div>
         <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">{fn}: Pre/Post test by topic (%)</p>
         <ResponsiveContainer width="100%" height={200}>
@@ -808,11 +808,11 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
           </BarChart>
         </ResponsiveContainer>
       </div>
-      </div>
+  )
 
-      {/* Totals vs class average — centred on its own row.
-          Class average is hidden for small cohorts (≤2 students). */}
-      <div className="md:max-w-[calc(50%_-_12px)] md:mx-auto">
+  // Totals vs class average. Class average is hidden for small cohorts (≤2 students).
+  const totalChart = (
+      <div>
         <p className="text-xs font-semibold text-[#062E63] mb-3 font-display">
           {fn}: Pre/Post test {hasClassAvg ? 'vs Class Average ' : ''}(Total)
         </p>
@@ -833,6 +833,16 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
           </BarChart>
         </ResponsiveContainer>
       </div>
+  )
+
+  if (!showRaw) {
+    return <div className="grid grid-cols-2 gap-6">{pctChart}{totalChart}</div>
+  }
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">{rawChart}{pctChart}</div>
+      {/* The total sits centred on its own row under the two topic charts. */}
+      <div className="md:max-w-[calc(50%_-_12px)] md:mx-auto">{totalChart}</div>
     </div>
   )
 }
