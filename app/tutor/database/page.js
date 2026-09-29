@@ -1688,7 +1688,10 @@ export default function DatabasePage() {
   const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
   const [courseStatusTab, setCourseStatusTab]   = useState('active') // courses view: 'active' | 'inactive' | 'all'
   const [classStatusTab, setClassStatusTab]     = useState('active') // classes view: 'active' | 'inactive' | 'all'
-  const [enrolStatusTab, setEnrolStatusTab]     = useState('active') // enrolments view: 'active' | 'trial' | 'disenrol' | 'all'
+  const [enrolStatusTab, setEnrolStatusTab]     = useState('active') // enrolments view: 'active' | 'trial' | 'disenrol' | 'inactive' | 'all'
+  // student id → students.status, for the enrolments view's Inactive tab. Kept
+  // off the rows themselves: a deleted row is re-inserted whole by Undo.
+  const [enrolStudentStatus, setEnrolStudentStatus] = useState({})
   const [disenrolModal, setDisenrolModal]       = useState(null)     // { rowId } — reason prompt when flipping an enrolment to disenrol
   const [unenrolModal, setUnenrolModal]         = useState(null)     // { classId, studentId, name } — taking a student off a class card
 
@@ -1959,12 +1962,15 @@ export default function DatabasePage() {
         const studentIds = [...new Set(r.map(row => row.student_id).filter(Boolean))]
         const classIds   = [...new Set(r.map(row => row.class_id).filter(Boolean))]
         const [{ data: studentRows }, { data: classRows }, { data: allClassRows }] = await Promise.all([
-          supabase.from(T_STUDENTS).select('id, full_name').in('id', studentIds),
+          supabase.from(T_STUDENTS).select('id, full_name, status').in('id', studentIds),
           supabase.from(T_CLASSES).select('id, class_name').in('id', classIds),
           supabase.from(T_CLASSES).select('id, class_name, term_id'),
         ])
         const classLabelMap = buildClassLabelMap(allClassRows || [])
         const sMap = Object.fromEntries((studentRows || []).map(s => [s.id, s.full_name]))
+        if (selectedTable === T_ENROLMENTS) {
+          setEnrolStudentStatus(Object.fromEntries((studentRows || []).map(s => [s.id, s.status])))
+        }
         const cMap = Object.fromEntries((classRows  || []).map(c => [c.id, classLabelMap.get(c.id) ?? c.class_name]))
         enrichedRows = r.map(row => ({ ...row, student_name: sMap[row.student_id] ?? null, class_name: cMap[row.class_id] ?? null }))
         // Show name cols first (after id), then the raw FK cols at the end.
@@ -3902,10 +3908,17 @@ export default function DatabasePage() {
       out = out.filter(r => ((r.status || 'active') === 'active') === wantActive)
     }
     // Enrolments view: status tabs ("trial" covers trial + trial complete).
+    // Inactive = the enrolments of students marked inactive, whatever the
+    // enrolment says — those students have left, so their still-"active" rows
+    // are kept out of Active and Trial. Disenrolled still lists every
+    // disenrolment, an inactive student's included.
     if (selectedTable === T_ENROLMENTS && enrolStatusTab !== 'all') {
-      out = enrolStatusTab === 'trial'
-        ? out.filter(r => r.status === 'trial' || r.status === 'trial complete')
-        : out.filter(r => r.status === enrolStatusTab)
+      const studentInactive = (r) => enrolStudentStatus[r.student_id] === 'inactive'
+      out = enrolStatusTab === 'inactive' ? out.filter(studentInactive)
+        : enrolStatusTab === 'disenrol' ? out.filter(r => r.status === 'disenrol')
+        : enrolStatusTab === 'trial'
+          ? out.filter(r => (r.status === 'trial' || r.status === 'trial complete') && !studentInactive(r))
+          : out.filter(r => r.status === enrolStatusTab && !studentInactive(r))
     }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -3929,12 +3942,12 @@ export default function DatabasePage() {
       })
     }
     return out
-  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab, classStatusTab, enrolStatusTab])
+  }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab, classStatusTab, enrolStatusTab, enrolStudentStatus])
 
   // End Reason only means anything for disenrolled rows — show the column on
-  // the Disenrolled tab only.
+  // the Disenrolled tab, and on Inactive, where students who left often have one.
   const visibleCol = (col) => !hiddenCols.has(col)
-    && !(selectedTable === T_ENROLMENTS && col === 'end_reason' && enrolStatusTab !== 'disenrol')
+    && !(selectedTable === T_ENROLMENTS && col === 'end_reason' && !['disenrol', 'inactive'].includes(enrolStatusTab))
 
   if (!staff) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -4574,10 +4587,11 @@ export default function DatabasePage() {
               {/* Status tabs — enrolments only */}
               {selectedTable === T_ENROLMENTS && (
                 <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                  {[['active', 'Active'], ['trial', 'Trial'], ['disenrol', 'Disenrolled'], ['all', 'All']].map(([v, label], i) => (
+                  {[['active', 'Active'], ['trial', 'Trial'], ['disenrol', 'Disenrolled'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setEnrolStatusTab(v)}
+                      title={v === 'inactive' ? 'Enrolments of students marked inactive' : undefined}
                       className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${enrolStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
