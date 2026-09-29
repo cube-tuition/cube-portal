@@ -55,3 +55,10 @@ html, body {
     color: rgba(50, 80, 153, .7);
   }
 }
+
+/* Phone menu sheet (components/TutorNav.js MobileSheet). */
+@keyframes nav-sheet-in { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes nav-sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+.nav-sheet-in { animation: nav-sheet-in .24s cubic-bezier(.22, .8, .3, 1); }
+.nav-sheet-fade { animation: nav-sheet-fade .2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .nav-sheet-in, .nav-sheet-fade { animation: none; } }

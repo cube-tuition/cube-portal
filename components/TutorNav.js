@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
@@ -26,9 +27,9 @@ import { SUBJECTS } from '../lib/resourceSubjects'
  */
 
 const BASE_LINKS = [
-  { label: 'Home',    href: '/tutor' },
-  { label: 'Info',    href: '/tutor/hub' },
-  { label: 'Classes', href: '/tutor/classes' },
+  { label: 'Home',    href: '/tutor',         icon: '🏠' },
+  { label: 'Info',    href: '/tutor/hub',     icon: '📌' },
+  { label: 'Classes', href: '/tutor/classes', icon: '🏫' },
 ]
 const SHARED_GROUPS = []
 /*
@@ -46,12 +47,12 @@ const TUTOR_GROUPS = [
   { label: 'Materials', links: subjectLinks('/materials') },
 ]
 const TUTOR_LINKS = [
-  { label: 'Curriculum',  href: '/tutor/booklets' },
-  { label: 'My pay',      href: '/tutor/pay' },
-  { label: 'Availability', href: '/tutor/availability' },
+  { label: 'Curriculum',  href: '/tutor/booklets',     icon: '📚' },
+  { label: 'My pay',      href: '/tutor/pay',          icon: '💰' },
+  { label: 'Availability', href: '/tutor/availability', icon: '📅' },
 ]
 const ADMIN_FLAT_LINKS = [
-  { label: 'Database', href: '/tutor/database' },
+  { label: 'Database', href: '/tutor/database', icon: '🗄️' },
 ]
 const ADMIN_GROUPS = [
   { label: 'Resources', links: subjectLinks() },
@@ -149,40 +150,94 @@ function NavDropdown({ group, pathname }) {
 }
 
 // ── Mobile group section (collapsible) ───────────────────────────────────────
-function MobileGroup({ group, pathname, onClose }) {
-  const [open, setOpen] = useState(false)
-  const groupActive = group.links.some(l => pathname?.startsWith(l.href))
+/*
+ * The phone menu: a sheet that slides in from the right over a dimmed page.
+ * Your name and role on top, the everyday pages as big tiles, then each nav
+ * section as a labelled grid of icon buttons, and log out at the foot.
+ *
+ * Rendered through a portal to <body>: the nav bar has backdrop-blur, and a
+ * backdrop-filter makes fixed-position children position against the nav
+ * instead of the screen, which would clip the sheet to the bar.
+ */
+function MobileSheet({ open, onClose, pathname, staffName, isAdmin, inApp, onLogout }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { const id = requestAnimationFrame(() => setMounted(true)); return () => cancelAnimationFrame(id) }, [])
+  // Lock the page behind the sheet, and let Escape close it.
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey) }
+  }, [open, onClose])
+  if (!mounted || !open) return null
 
-  return (
-    <div>
-      <button onClick={() => setOpen(o => !o)}
-        className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition ${
-          groupActive ? 'text-[#062E63]' : 'text-[#2A2035]/70'
-        }`}>
-        {group.label}
-        <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`}
-          viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      {open && (
-        <div className="bg-[#F8FAFF] border-t border-[#DEE7FF]">
-          {group.links.map(link => {
-            const active = pathname?.startsWith(link.href)
-            return (
-              <Link key={link.href} href={link.href} onClick={onClose}
-                className={`flex items-center gap-3 px-7 py-3 text-sm transition ${
-                  active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'
-                }`}>
-                <span className="text-base leading-none">{link.icon}</span>
-                {link.label}
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099]" />}
-              </Link>
-            )
-          })}
+  const isActive = (href) => (href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(href))
+  const first = (staffName || '').split(' ')[0]
+  const primary = [...BASE_LINKS, ...(isAdmin ? [{ label: 'Messages', href: inApp ? '/messages' : '/tutor/admin/messages', icon: '💬' }] : [])]
+  const sections = [
+    ...(!isAdmin ? TUTOR_GROUPS : []),
+    ...(!isAdmin ? [{ label: 'My work', links: TUTOR_LINKS }] : []),
+    ...(isAdmin ? ADMIN_GROUPS : []),
+    ...(isAdmin ? [{ label: 'Data', links: ADMIN_FLAT_LINKS }] : []),
+  ]
+
+  const Tile = ({ link, big }) => {
+    const active = isActive(link.href)
+    return (
+      <Link href={link.href} onClick={onClose}
+        className={`flex ${big ? 'flex-col items-start gap-2 p-3.5' : 'items-center gap-2.5 px-3 py-2.5'} rounded-2xl border transition active:scale-[0.98] ${
+          active ? 'bg-[#062E63] border-[#062E63] text-white' : 'bg-white border-[#E5ECFF] text-[#2A2035] active:bg-[#F0F4FF]'}`}>
+        <span className={`${big ? 'text-xl' : 'text-base'} leading-none`}>{link.icon || '•'}</span>
+        <span className={`text-[13px] font-semibold leading-tight ${active ? 'text-white' : ''}`}>{link.label}</span>
+      </Link>
+    )
+  }
+
+  return createPortal(
+    <div className="md:hidden fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Menu">
+      <div className="absolute inset-0 bg-[#0B1020]/45 backdrop-blur-[2px] nav-sheet-fade" onClick={onClose} />
+      <div className="absolute inset-y-0 right-0 w-[88%] max-w-sm bg-[#F7F9FE] shadow-2xl flex flex-col nav-sheet-in"
+        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        {/* Who you are */}
+        <div className="flex items-center gap-3 px-5 pt-5 pb-4">
+          <span className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#325099] to-[#062E63] text-white text-lg font-bold flex items-center justify-center shrink-0">
+            {(first || 'C').slice(0, 1).toUpperCase()}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[15px] font-bold text-[#062E63] truncate">{staffName || 'CUBE Tuition'}</p>
+            <p className="text-[11px] font-semibold text-[#325099]/70">{isAdmin ? 'Director' : 'Tutor'} · CUBE Portal</p>
+          </div>
+          <button onClick={onClose} aria-label="Close menu"
+            className="w-9 h-9 rounded-full bg-white border border-[#E5ECFF] text-[#062E63] text-lg flex items-center justify-center active:bg-[#F0F4FF]">×</button>
         </div>
-      )}
-    </div>
+
+        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-5">
+          {/* Everyday pages */}
+          <div className="grid grid-cols-2 gap-2.5">
+            {primary.map((l) => <Tile key={l.href} link={l} big />)}
+          </div>
+          {/* Each section */}
+          {sections.map((g) => (
+            <div key={g.label}>
+              <p className="px-1 mb-2 text-[10px] font-bold tracking-[0.18em] uppercase text-[#325099]/60">{g.label}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {g.links.map((l) => <Tile key={l.href} link={l} />)}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="px-4 pt-2 pb-4 border-t border-[#E5ECFF] bg-[#F7F9FE]">
+          <button onClick={onLogout}
+            className="w-full py-3 rounded-2xl bg-white border border-[#FECACA] text-sm font-semibold text-[#B91C1C] active:bg-[#FEF2F2]">
+            Log out
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -304,66 +359,9 @@ export default function TutorNav({ staffName, isAdmin = false }) {
         </div>
       </div>
 
-      {/* Mobile drawer */}
-      {mobileOpen && (
-        <div className="md:hidden border-t border-[#DEE7FF] bg-white divide-y divide-[#DEE7FF]">
-          {/* Base links */}
-          {BASE_LINKS.map(link => {
-            const active = link.href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(link.href)
-            return (
-              <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
-                className={`flex items-center px-5 py-3.5 text-sm font-medium transition ${active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'}`}>
-                {link.label}
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099]" />}
-              </Link>
-            )
-          })}
-          {/* Shared groups (all users) */}
-          {SHARED_GROUPS.map(group => (
-            <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
-          ))}
-          {!isAdmin && TUTOR_GROUPS.map(group => (
-            <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
-          ))}
-          {/* Admin groups */}
-          {isAdmin && ADMIN_GROUPS.map(group => (
-            <MobileGroup key={group.label} group={group} pathname={pathname} onClose={() => setMobileOpen(false)} />
-          ))}
-          {/* Admin flat */}
-          {isAdmin && ADMIN_FLAT_LINKS.map(link => {
-            const active = pathname?.startsWith(link.href)
-            return (
-              <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
-                className={`flex items-center px-5 py-3.5 text-sm font-medium transition ${active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'}`}>
-                {link.label}
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099]" />}
-              </Link>
-            )
-          })}
-          {/* Tutor links */}
-          {!isAdmin && TUTOR_LINKS.map(link => {
-            const active = pathname?.startsWith(link.href)
-            return (
-              <Link key={link.href} href={link.href} onClick={() => setMobileOpen(false)}
-                className={`flex items-center px-5 py-3.5 text-sm font-medium transition ${active ? 'text-[#062E63] font-semibold bg-[#EEF4FF]' : 'text-[#2A2035]/70'}`}>
-                {link.label}
-              </Link>
-            )
-          })}
-          {/* Footer row */}
-          <div className="px-5 py-3.5 flex items-center justify-between">
-            {staffName && (
-              <span className="flex items-center gap-2 text-xs font-semibold text-[#062E63]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                {staffName}{isAdmin ? ' (director)' : ''}
-              </span>
-            )}
-            <button onClick={handleLogout} className="text-sm font-semibold text-red-500 hover:text-red-700 transition ml-auto">
-              Logout
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Mobile menu — a full-height sheet (see MobileSheet) */}
+      <MobileSheet open={mobileOpen} onClose={() => setMobileOpen(false)} pathname={pathname}
+        staffName={staffName} isAdmin={isAdmin} inApp={inApp} onLogout={handleLogout} />
     </nav>
   )
 }
