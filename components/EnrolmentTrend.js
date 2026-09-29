@@ -17,6 +17,11 @@ import { T_CLASSES, T_ENROLMENTS } from '../lib/tables'
  * Terms that have not started are left out entirely — a term still filling up
  * would show as a fall. Holiday terms are out too: a 1-student holiday
  * programme beside a 45-student teaching term reads as a collapse.
+ *
+ * Both counts take only ACTIVE enrolments of ACTIVE students. A student marked
+ * inactive can still hold an enrolment nobody closed, and that is not a place.
+ * Student status is today's, not the term's, so a student who has since left
+ * drops out of the terms they were in as well.
  */
 const TERM_COUNT = 6          // most recent started terms shown
 
@@ -31,7 +36,7 @@ export default function EnrolmentTrend() {
         const terms = await fetchAllTerms()
         const [{ data: classes, error: cErr }, { data: enrols, error: eErr }] = await Promise.all([
           supabase.from(T_CLASSES).select('id, term_id'),
-          supabase.from(T_ENROLMENTS).select('class_id, student_id, status'),
+          supabase.from(T_ENROLMENTS).select('class_id, student_id, status, students(status)'),
         ])
         if (cErr || eErr) throw (cErr || eErr)
 
@@ -39,6 +44,7 @@ export default function EnrolmentTrend() {
         const perTerm = new Map()        // term_id → { places, students:Set }
         for (const e of enrols || []) {
           if (e.status !== 'active') continue           // trials and disenrols aren't a place
+          if (e.students?.status !== 'active') continue  // nor is an inactive/pending/trial student's
           const tid = termOfClass.get(e.class_id)
           if (!tid) continue
           let acc = perTerm.get(tid)
