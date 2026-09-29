@@ -13,6 +13,7 @@ import { loadExamAnalysisForClass } from '../../../../../../lib/examMarking'
 import { loadPrePostForReport } from '../../../../../../components/PrePostSection'
 import { nodeToJpeg } from '../../../../../../lib/rasterise'
 import { kindBySlug, REPORT_BUCKET, storagePath } from '../../../../../../lib/reportKind'
+import { mergesInto, mergedAway } from '../../../../../../lib/reportMerges'
 
 /*
  * Printable report bundle — one page per student.
@@ -48,6 +49,7 @@ export default function ReportPage() {
   const [prepost,  setPrepost]  = useState(null)      // { topics, totalMarks, scores: { [studentId]: { pre, post } } }
   const [examData, setExamData] = useState(null)      // { topics, marks, sillyMistakes, maxScores }
   const [rqByWeek, setRqByWeek] = useState({})        // weekNum → has_rq (false ⇒ no revision quiz)
+  const [rqByStudent, setRqByStudent] = useState({})  // studentId → rqByWeek, for one-off merged students (lib/reportMerges)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [building, setBuilding] = useState(false)
@@ -90,9 +92,14 @@ export default function ReportPage() {
         .from(T_ENROLMENTS)
         .select('students (id, full_name, school, year)')
         .eq('class_id', classId)
+      // A student merged into another class's report for this term (a one-off
+      // in lib/reportMerges) is left off this one, so they get one report.
+      const away = mergedAway(classId, termId, kind.key)
       const students = (links || []).map(l => l.students).filter(Boolean)
+        .filter(s => !away.has(s.id))
         .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
       setRoster(students)
+      const merges = mergesInto(classId, termId, kind.key).filter(m => students.some(s => s.id === m.studentId))
 
       if (students.length === 0) { setLoading(false); return }
       const ids = students.map(s => s.id)
@@ -105,7 +112,19 @@ export default function ReportPage() {
         .in('student_id', ids)
         .gte('session_date', t.start_date)
         .lte('session_date', t.end_date)
-      setAttendance(att || [])
+      // ...plus, for a merged student, their sessions in the class they left.
+      const fromAtt = {}
+      for (const m of merges) {
+        const { data: fa } = await supabase
+          .from(T_ATTENDANCE)
+          .select('student_id, session_date, status, notes')
+          .eq('class_id', m.from)
+          .eq('student_id', m.studentId)
+          .gte('session_date', t.start_date)
+          .lte('session_date', t.end_date)
+        fromAtt[m.studentId] = { from: m.from, rows: fa || [] }
+      }
+      setAttendance([...(att || []), ...Object.values(fromAtt).flatMap(x => x.rows)])
 
       // Quizzes for the roster + subject + term
       const subj = inferSubject(c)
@@ -158,12 +177,34 @@ export default function ReportPage() {
         .from('lessons')
         .select('week, has_rq, is_makeup')
         .eq('class_id', classId)
-      const rqMap = {}
-      for (const l of lessonRqRows || []) {
-        if (l.is_makeup || l.week == null) continue
-        rqMap[l.week] = l.has_rq
+      const rqMapOf = (rows) => {
+        const out = {}
+        for (const l of rows || []) {
+          if (l.is_makeup || l.week == null) continue
+          out[l.week] = l.has_rq
+        }
+        return out
       }
+      const rqMap = rqMapOf(lessonRqRows)
       setRqByWeek(rqMap)
+
+      // A merged student's weeks in the class they left follow THAT class's
+      // revision-quiz flags; their weeks here follow this class's.
+      const perStudent = {}
+      for (const [sid, { from, rows }] of Object.entries(fromAtt)) {
+        const { data: fromLessons } = await supabase
+          .from('lessons').select('week, has_rq, is_makeup').eq('class_id', from)
+        const fromMap = rqMapOf(fromLessons)
+        const start = new Date(`${t.start_date}T00:00:00`)
+        const weekOf = (d) => Math.floor((new Date(`${d}T00:00:00`) - start) / (7 * 864e5)) + 1
+        const mine = { ...rqMap }
+        for (const r of rows) {
+          const w = weekOf(r.session_date)
+          if (w >= 1) mine[w] = fromMap[w]
+        }
+        perStudent[sid] = mine
+      }
+      setRqByStudent(perStudent)
 
       setLoading(false)
     })()
@@ -341,7 +382,7 @@ export default function ReportPage() {
             criteria={criteria[s.id] || {}}
             prepost={prepost}
             examData={examData}
-            rqByWeek={rqByWeek}
+            rqByWeek={rqByStudent[s.id] || rqByWeek}
             kind={kind}
             isLast={i === roster.length - 1}
           />
