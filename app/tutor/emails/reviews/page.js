@@ -190,11 +190,6 @@ export default function ReviewEmailPage() {
           </p>
         </div>
 
-        {/* Ground rules */}
-        <p className="text-[11px] text-[#2A2035]/55 bg-white border border-[#DEE7FF] rounded-xl px-3 py-2 mb-4">
-          <strong className="text-[#062E63]">Keep it within Google’s rules:</strong> send to every family, not just the ones you expect to be happy · offer nothing in return (no discounts or draws) · don’t suggest wording for them to copy.
-        </p>
-
         {/* Editable content */}
         <div className="bg-white border border-[#DEE7FF] rounded-2xl mb-6 overflow-hidden">
           <button onClick={() => setEditOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#F8FAFF] transition">
