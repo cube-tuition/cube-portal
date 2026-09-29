@@ -266,7 +266,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
   }
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-[#DEE7FF]">
+    <nav className="sticky top-0 z-50 bg-white/95 app:bg-white backdrop-blur-md app:backdrop-blur-none border-b border-[#DEE7FF]">
       {/* Portal-wide Ctrl/Cmd+Z undo + toast (TutorNav is on every tutor page) */}
       <GlobalUndo />
       <div className="max-w-7xl mx-auto px-5 md:px-10 py-4 flex items-center justify-between">
