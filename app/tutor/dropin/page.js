@@ -125,15 +125,15 @@ function SessionModal({ session, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90dvh]">
+        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#F0F4FF]">
           <h2 className="text-sm font-bold text-[#062E63]">{isEdit ? 'Edit Session' : 'New Drop-in Session'}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
         </div>
-        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-6 py-5 flex flex-col gap-4">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-3">
+        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-4 md:px-6 py-5 flex flex-col gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="col-span-2 md:col-span-3">
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Date</label>
               <input type="date" value={form.session_date}
                 onChange={e => setForm(f => ({ ...f, session_date: e.target.value }))} required className={INP} />
@@ -148,7 +148,7 @@ function SessionModal({ session, onClose, onSaved }) {
               <input type="time" value={form.end_time}
                 onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))} required className={INP} />
             </div>
-            <div>
+            <div className="col-span-2 md:col-span-1">
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Capacity</label>
               <input type="number" min={1} max={50} value={form.max_capacity}
                 onChange={e => setForm(f => ({ ...f, max_capacity: e.target.value }))} className={INP} />
@@ -166,7 +166,7 @@ function SessionModal({ session, onClose, onSaved }) {
             <div className="flex flex-wrap gap-2">
               {YEAR_GROUPS.map(y => (
                 <button key={y} type="button" onClick={() => toggleYear(y)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                  className={`px-3 py-1.5 md:py-1 rounded-full text-xs font-semibold border transition ${
                     form.year_groups.includes(y)
                       ? 'bg-[#325099] text-white border-[#325099]'
                       : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -185,7 +185,7 @@ function SessionModal({ session, onClose, onSaved }) {
                 {REPEAT_OPTIONS.map(o => (
                   <button key={o.value} type="button"
                     onClick={() => setForm(f => ({ ...f, repeat: o.value }))}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                    className={`px-3 py-1.5 md:py-1 rounded-full text-xs font-semibold border transition ${
                       form.repeat === o.value
                         ? 'bg-[#325099] text-white border-[#325099]'
                         : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -213,7 +213,7 @@ function SessionModal({ session, onClose, onSaved }) {
               <div className="flex flex-wrap gap-2">
                 {[['one', 'Just this session'], ['future', 'This and all later']].map(([v, label]) => (
                   <button key={v} type="button" onClick={() => setScope(v)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                    className={`px-3 py-1.5 md:py-1 rounded-full text-xs font-semibold border transition ${
                       scope === v
                         ? 'bg-[#325099] text-white border-[#325099]'
                         : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -233,7 +233,7 @@ function SessionModal({ session, onClose, onSaved }) {
             <div className="flex flex-wrap gap-2">
               {SUBJECTS.map(s => (
                 <button key={s} type="button" onClick={() => toggleSubject(s)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                  className={`px-3 py-1.5 md:py-1 rounded-full text-xs font-semibold border transition ${
                     form.subjects.includes(s)
                       ? 'bg-[#325099] text-white border-[#325099]'
                       : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -249,7 +249,7 @@ function SessionModal({ session, onClose, onSaved }) {
               <div className="flex flex-wrap gap-2">
                 {tutorsList.map(t => (
                   <button key={t.id} type="button" onClick={() => toggleTutor(t.full_name)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                    className={`px-3 py-1.5 md:py-1 rounded-full text-xs font-semibold border transition ${
                       form.tutors.includes(t.full_name)
                         ? 'bg-[#325099] text-white border-[#325099]'
                         : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -265,11 +265,11 @@ function SessionModal({ session, onClose, onSaved }) {
           </div>
           {err && <p className="text-xs text-red-500">{err}</p>}
         </form>
-        <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+        <div className="px-4 md:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4 border-t border-[#F0F4FF] flex justify-end gap-2">
           <button type="button" onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+            className="flex-1 md:flex-none px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving}
-            className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+            className="flex-1 md:flex-none px-4 py-2.5 md:py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Session'}
           </button>
         </div>
@@ -301,13 +301,13 @@ function AddSigninModal({ sessionId, existingSignins, allStudents, onClose, onAd
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm flex flex-col max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#F0F4FF]">
           <h2 className="text-sm font-bold text-[#062E63]">Add Student to Session</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
         </div>
-        <div className="px-6 py-5 flex flex-col gap-4">
+        <div className="px-4 md:px-6 py-5 flex flex-col gap-4">
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Student</label>
             <select value={studentId} onChange={e => setStudentId(e.target.value)} className={INP}>
@@ -331,11 +331,11 @@ function AddSigninModal({ sessionId, existingSignins, allStudents, onClose, onAd
           </div>
           {err && <p className="text-xs text-red-500">{err}</p>}
         </div>
-        <div className="px-6 pb-5 flex justify-end gap-2">
+        <div className="px-4 md:px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-5 flex justify-end gap-2">
           <button onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+            className="flex-1 md:flex-none px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving}
-            className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+            className="flex-1 md:flex-none px-4 py-2.5 md:py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Adding…' : 'Add Student'}
           </button>
         </div>
@@ -435,20 +435,20 @@ export default function DropinPage() {
 
       {/* Header */}
       <div className="bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Drop-in Sessions</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">Create and manage drop-in tutoring sessions</p>
           </div>
           <button onClick={() => setShowAddSession(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition">
+            className="flex items-center justify-center gap-2 px-4 py-2.5 md:py-2 bg-[#325099] text-white text-sm font-semibold rounded-xl hover:bg-[#062E63] transition">
             <span className="text-base leading-none">+</span> New Session
           </button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 md:px-10 py-8">
+      <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-8">
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <p className="text-[#325099] text-sm font-semibold tracking-[0.2em] uppercase animate-pulse">Loading…</p>
@@ -482,7 +482,7 @@ export default function DropinPage() {
               return (
                 <div key={session.id} className="bg-white rounded-2xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-shadow">
                   {/* Header */}
-                  <div className="px-5 pt-5 pb-4 border-b border-[#F0F4FF]">
+                  <div className="px-4 md:px-5 pt-4 md:pt-5 pb-4 border-b border-[#F0F4FF]">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-[#062E63]">{fmtDate(session.session_date)}</p>
@@ -519,17 +519,17 @@ export default function DropinPage() {
                     {session.notes && (
                       <p className="mt-1.5 text-[10px] text-[#2A2035]/40 italic">{session.notes}</p>
                     )}
-                    <div className="mt-3 flex gap-3">
+                    <div className="mt-3 flex items-center gap-3">
                       <button onClick={() => setEditingSession(session)}
-                        className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                        className="py-1 md:py-0 text-xs md:text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
                       <span className="text-[#2A2035]/20">·</span>
                       <button onClick={() => setDeleteSessionId(session.id)}
-                        className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
+                        className="py-1 md:py-0 text-xs md:text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
                     </div>
                   </div>
 
                   {/* Signins */}
-                  <div className="px-5 py-3 flex flex-col gap-1.5 flex-1">
+                  <div className="px-4 md:px-5 py-3 flex flex-col gap-1.5 flex-1">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-[#325099]/60 mb-1">
                       Attendees {session.signins.length > 0 ? `(${session.signins.length})` : ''}
                     </p>
@@ -554,16 +554,16 @@ export default function DropinPage() {
                             {si.question && <p className="text-[10px] text-[#2A2035]/40 mt-0.5 truncate">{si.question}</p>}
                           </div>
                           <button onClick={() => handleRemoveSignin(session.id, si.id)}
-                            className="text-[#2A2035]/25 hover:text-red-400 transition text-sm leading-none shrink-0 pt-0.5">×</button>
+                            className="text-[#2A2035]/25 hover:text-red-400 transition text-lg md:text-sm leading-none shrink-0 px-1 -mr-1 md:px-0 md:mr-0 pt-0.5">×</button>
                         </div>
                       )
                     })}
                   </div>
 
                   {/* Add student footer */}
-                  <div className="px-5 pb-5 pt-2">
+                  <div className="px-4 md:px-5 pb-4 md:pb-5 pt-2">
                     <button onClick={() => setAddSigninFor(session.id)} disabled={isFull}
-                      className="w-full py-2 rounded-xl border border-dashed border-[#DEE7FF] text-[11px] font-semibold text-[#325099]/60 hover:border-[#325099] hover:text-[#325099] hover:bg-[#F8FAFF] transition disabled:opacity-30 disabled:cursor-not-allowed">
+                      className="w-full py-2.5 md:py-2 rounded-xl border border-dashed border-[#DEE7FF] text-[11px] font-semibold text-[#325099]/60 hover:border-[#325099] hover:text-[#325099] hover:bg-[#F8FAFF] transition disabled:opacity-30 disabled:cursor-not-allowed">
                       {isFull ? 'Session full' : '+ Add student'}
                     </button>
                   </div>
@@ -593,7 +593,7 @@ export default function DropinPage() {
                       : 'text-[#065F46] bg-[#D1FAE5]'
                     return (
                       <div key={session.id} className="bg-white rounded-2xl border border-[#E8EDF8] shadow-sm flex flex-col overflow-hidden">
-                        <div className="px-5 pt-5 pb-4 border-b border-[#F0F4FF]">
+                        <div className="px-4 md:px-5 pt-4 md:pt-5 pb-4 border-b border-[#F0F4FF]">
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold text-[#062E63]">{fmtDate(session.session_date)}</p>
@@ -619,13 +619,13 @@ export default function DropinPage() {
                               {session.tutors.join(', ')}
                             </p>
                           )}
-                          <div className="mt-3 flex gap-3">
-                            <button onClick={() => setEditingSession(session)} className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                          <div className="mt-3 flex items-center gap-3">
+                            <button onClick={() => setEditingSession(session)} className="py-1 md:py-0 text-xs md:text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
                             <span className="text-[#2A2035]/20">·</span>
-                            <button onClick={() => setDeleteSessionId(session.id)} className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
+                            <button onClick={() => setDeleteSessionId(session.id)} className="py-1 md:py-0 text-xs md:text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
                           </div>
                         </div>
-                        <div className="px-5 py-3 flex flex-col gap-1.5 flex-1">
+                        <div className="px-4 md:px-5 py-3 flex flex-col gap-1.5 flex-1">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-[#325099]/60 mb-1">
                             Attendees {session.signins.length > 0 ? `(${session.signins.length})` : ''}
                           </p>
@@ -690,9 +690,9 @@ export default function DropinPage() {
         const bookedHere  = target?.signins?.length || 0
         const bookedLater = later.reduce((n, x) => n + (x.signins?.length || 0), 0)
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-96 border border-[#DEE7FF]">
-              <div className="px-6 py-5">
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm">
+            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full md:w-96 max-h-[90dvh] overflow-y-auto border border-[#DEE7FF]">
+              <div className="px-5 md:px-6 py-5">
                 <p className="text-sm font-bold text-[#062E63] mb-2">Delete this session?</p>
                 <p className="text-xs text-[#2A2035]/60 leading-relaxed">
                   This will also remove all student sign-ins. This cannot be undone.
@@ -709,17 +709,17 @@ export default function DropinPage() {
                   </p>
                 )}
               </div>
-              <div className="px-6 pb-5 flex flex-wrap gap-2 justify-end">
+              <div className="px-5 md:px-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-5 flex flex-wrap gap-2 justify-end">
                 <button onClick={() => setDeleteSessionId(null)}
-                  className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+                  className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
                 {later.length > 1 && (
                   <button onClick={() => handleDeleteSession(deleteSessionId, true)}
-                    className="px-4 py-2 text-xs font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition">
+                    className="px-4 py-2.5 md:py-2 text-xs font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition">
                     Delete all {later.length}
                   </button>
                 )}
                 <button onClick={() => handleDeleteSession(deleteSessionId, false)}
-                  className="px-4 py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                  className="px-4 py-2.5 md:py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
                   {later.length > 1 ? 'Just this one' : 'Delete'}
                 </button>
               </div>

@@ -304,7 +304,7 @@ export default function DropinSessionPage() {
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role === 'admin'} />
 
       <section className="bg-gradient-to-r from-[#F8FAFF] via-[#EEF4FF] to-[#BFD1FF] border-b border-[#DEE7FF]">
-        <div className="max-w-4xl mx-auto px-6 md:px-10 py-8">
+        <div className="max-w-4xl mx-auto px-4 md:px-10 py-6 md:py-8">
           <button onClick={() => router.back()} className="text-[#325099] text-sm hover:underline mb-2">← Back</button>
           <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold mb-1">
             Drop-in{session?.location ? ` · ${session.location}` : ''}
@@ -318,7 +318,7 @@ export default function DropinSessionPage() {
         </div>
       </section>
 
-      <section className="max-w-4xl mx-auto px-6 md:px-10 py-8">
+      <section className="max-w-4xl mx-auto px-4 md:px-10 py-5 md:py-8">
         {loading ? (
           <p className="text-sm text-[#2A2035]/60">Loading…</p>
         ) : error ? (
@@ -327,7 +327,7 @@ export default function DropinSessionPage() {
           <div className="space-y-6">
             {/* Who booked in */}
             <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-              <div className="px-5 py-3 border-b border-[#EEF2FF] flex items-center justify-between gap-3">
+              <div className="px-4 md:px-5 py-3 border-b border-[#EEF2FF] flex items-center justify-between gap-3">
                 <p className="text-sm font-bold text-[#062E63]">Booked in</p>
                 <div className="flex items-center gap-3">
                   <span className="text-[11px] font-semibold text-[#325099]/70 tabular-nums">
@@ -345,7 +345,7 @@ export default function DropinSessionPage() {
                 const booked = new Set(signins.map(x => x.student_id))
                 const available = roster.filter(r => !booked.has(r.id))
                 return (
-                  <div className="px-5 py-3 bg-[#F8FAFF] border-b border-[#EEF2FF] flex flex-wrap items-end gap-2">
+                  <div className="px-4 md:px-5 py-3 bg-[#F8FAFF] border-b border-[#EEF2FF] flex flex-wrap items-end gap-2">
                     <label className="flex-1 min-w-[190px]">
                       <span className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Student</span>
                       <select value={addId} onChange={e => setAddId(e.target.value)}
@@ -358,7 +358,7 @@ export default function DropinSessionPage() {
                         ))}
                       </select>
                     </label>
-                    <label className="min-w-[140px]">
+                    <label className="flex-1 md:flex-none min-w-[140px]">
                       <span className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Subject</span>
                       <select value={addSubject} onChange={e => setAddSubject(e.target.value)}
                         className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-sm text-[#062E63] bg-white focus:outline-none focus:border-[#325099]">
@@ -367,7 +367,7 @@ export default function DropinSessionPage() {
                       </select>
                     </label>
                     <button onClick={addStudent} disabled={addBusy || !addId}
-                      className="text-[11px] font-bold px-4 py-2 rounded-full bg-[#062E63] text-white hover:bg-[#325099] transition disabled:opacity-40">
+                      className="text-[11px] font-bold px-5 md:px-4 py-2.5 md:py-2 rounded-full bg-[#062E63] text-white hover:bg-[#325099] transition disabled:opacity-40">
                       {addBusy ? 'Adding…' : 'Add'}
                     </button>
                     {available.length === 0 && (
@@ -378,17 +378,17 @@ export default function DropinSessionPage() {
                 )
               })()}
               {signins.length === 0 ? (
-                <p className="px-5 py-6 text-sm text-[#2A2035]/50">No one has booked in yet.</p>
+                <p className="px-4 md:px-5 py-6 text-sm text-[#2A2035]/50">No one has booked in yet.</p>
               ) : (
                 <ul className="divide-y divide-[#EEF2FF]">
                   {signins.map(s => {
                     const mine = studentFiles[s.student_id] || []
                     const busy = stuUploading === s.student_id
                     return (
-                      <li key={s.id} className="px-5 py-3">
+                      <li key={s.id} className="px-4 md:px-5 py-3">
                         <div className="flex items-start gap-3">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-[#2A2035]">
+                            <p className="text-sm font-semibold text-[#2A2035] break-words">
                               {s.students?.full_name || 'Student'}
                               {s.students?.year && <span className="text-[#325099]/60 font-normal"> · Y{s.students.year}</span>}
                               {s.subject && <span className="text-[#325099]/60 font-normal"> · {s.subject}</span>}
@@ -396,7 +396,7 @@ export default function DropinSessionPage() {
                             {s.question && <p className="text-xs text-[#2A2035]/60 mt-1 whitespace-pre-wrap">{s.question}</p>}
                           </div>
                           {/* This student's own work, kept against their name */}
-                          <label className={`text-[11px] font-bold px-2.5 py-1 rounded-full cursor-pointer shrink-0 transition ${busy ? 'bg-[#EEF0F4] text-[#868D9C]' : 'bg-[#EEF4FF] text-[#325099] hover:bg-[#DEE7FF]'}`}
+                          <label className={`text-[11px] font-bold px-3 py-1.5 md:px-2.5 md:py-1 rounded-full cursor-pointer shrink-0 transition ${busy ? 'bg-[#EEF0F4] text-[#868D9C]' : 'bg-[#EEF4FF] text-[#325099] hover:bg-[#DEE7FF]'}`}
                             title={`Upload files for ${s.students?.full_name || 'this student'}`}>
                             {busy ? 'Uploading…' : '⬆ File'}
                             <input type="file" multiple accept={FILES_ACCEPT} className="hidden"
@@ -404,7 +404,7 @@ export default function DropinSessionPage() {
                           </label>
                           <button onClick={() => removeSignin(s.id, s.students?.full_name)}
                             title="Remove this student from the session"
-                            className="text-[#2A2035]/25 hover:text-[#B23A3A] text-sm shrink-0 leading-none pt-1">✕</button>
+                            className="text-[#2A2035]/25 hover:text-[#B23A3A] text-sm shrink-0 leading-none pt-1 px-1.5 -mx-1 md:px-0 md:mx-0">✕</button>
                         </div>
                         {mine.length > 0 && (
                           <ul className="mt-2 pl-3 border-l-2 border-[#EEF2FF] space-y-1">
@@ -416,7 +416,7 @@ export default function DropinSessionPage() {
                                 </a>
                                 <span className="text-[10px] text-[#2A2035]/40 tabular-nums shrink-0">{fmtSize(f.size)}</span>
                                 <button onClick={() => removeStudentFile(s.student_id, f.name)} title="Delete file"
-                                  className="text-[#2A2035]/25 hover:text-[#B23A3A] text-xs shrink-0">✕</button>
+                                  className="text-[#2A2035]/25 hover:text-[#B23A3A] text-xs shrink-0 p-1 -m-1 md:p-0 md:m-0">✕</button>
                               </li>
                             ))}
                           </ul>
@@ -430,7 +430,7 @@ export default function DropinSessionPage() {
 
             {/* Files kept with this session */}
             <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-              <div className="px-5 py-3 border-b border-[#EEF2FF] flex items-center justify-between gap-3">
+              <div className="px-4 md:px-5 py-3 border-b border-[#EEF2FF] flex items-center justify-between gap-3">
                 <p className="text-sm font-bold text-[#062E63]">Files</p>
                 <label className={`text-[11px] font-bold px-3 py-1.5 rounded-full cursor-pointer transition ${uploading ? 'bg-[#EEF0F4] text-[#868D9C]' : 'bg-[#062E63] text-white hover:bg-[#325099]'}`}>
                   {uploading ? 'Uploading…' : '⬆ Upload'}
@@ -439,20 +439,20 @@ export default function DropinSessionPage() {
                 </label>
               </div>
               {files.length === 0 ? (
-                <p className="px-5 py-5 text-sm text-[#2A2035]/50">
+                <p className="px-4 md:px-5 py-5 text-sm text-[#2A2035]/50">
                   Nothing here yet — worksheets used, photos of working, anything worth keeping with this session.
                 </p>
               ) : (
                 <ul className="divide-y divide-[#EEF2FF]">
                   {files.map(f => (
-                    <li key={f.name} className="px-5 py-2.5 flex items-center gap-3">
+                    <li key={f.name} className="px-4 md:px-5 py-2.5 flex items-center gap-3">
                       <a href={f.url || '#'} target="_blank" rel="noopener noreferrer"
                         className={`flex-1 min-w-0 text-sm font-semibold truncate ${f.url ? 'text-[#325099] hover:underline' : 'text-[#2A2035]/50 cursor-default'}`}>
                         📄 {displayName(f.name)}
                       </a>
                       <span className="text-[11px] text-[#2A2035]/40 tabular-nums shrink-0">{fmtSize(f.size)}</span>
                       <button onClick={() => removeFile(f.name)} title="Delete file"
-                        className="text-[#2A2035]/30 hover:text-[#B23A3A] text-sm shrink-0">✕</button>
+                        className="text-[#2A2035]/30 hover:text-[#B23A3A] text-sm shrink-0 p-1.5 -m-1.5 md:p-0 md:m-0">✕</button>
                     </li>
                   ))}
                 </ul>
@@ -462,14 +462,14 @@ export default function DropinSessionPage() {
 
             {/* The shift */}
             <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-              <div className="px-5 py-3 border-b border-[#EEF2FF] flex items-center justify-between gap-3">
+              <div className="px-4 md:px-5 py-3 border-b border-[#EEF2FF] flex items-center justify-between gap-3">
                 <p className="text-sm font-bold text-[#062E63]">My shift</p>
                 {badge && (
                   <span className="text-[9px] font-bold tracking-wide uppercase px-2 py-0.5 rounded-full"
                     style={{ background: badge.bg, color: badge.fg }}>{badge.label}</span>
                 )}
               </div>
-              <div className="px-5 py-4">
+              <div className="px-4 md:px-5 py-4">
                 {!rostered ? (
                   <>
                     <p className="text-sm text-[#2A2035]/60">

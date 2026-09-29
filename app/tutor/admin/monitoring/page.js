@@ -46,8 +46,8 @@ export default function MonitoringHub() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={true} />
-      <div className="max-w-5xl mx-auto px-6 pt-10 pb-16">
-        <div className="rounded-2xl px-7 py-6 mb-8 border bg-[#EEF3FF] border-[#DEE7FF]">
+      <div className="max-w-5xl mx-auto px-4 pt-5 pb-16 md:px-6 md:pt-10">
+        <div className="rounded-2xl px-5 py-5 md:px-7 md:py-6 mb-5 md:mb-8 border bg-[#EEF3FF] border-[#DEE7FF]">
           <div className="flex items-center gap-3">
             <span className="text-3xl">📶</span>
             <div>
@@ -62,7 +62,7 @@ export default function MonitoringHub() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {AREAS.map((a) => (
             <Link key={a.label} href={a.href}
-              className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">
+              className="group bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5 hover:shadow-md transition hover:-translate-y-0.5">
               <div className="flex items-center gap-2.5 mb-2">
                 <span className="w-9 h-9 rounded-xl flex items-center justify-center text-lg bg-[#EEF3FF]">{a.icon}</span>
                 <span className="text-sm font-bold text-[#062E63] group-hover:underline">{a.label}</span>

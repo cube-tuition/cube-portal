@@ -460,7 +460,7 @@ export default function TransitionPage() {
       <TutorNav staffName={profile?.full_name} isAdmin />
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="max-w-4xl mx-auto px-6 pt-10 pb-4">
+      <div className="max-w-4xl mx-auto px-4 md:px-6 pt-6 md:pt-10 pb-4">
         <h1 className="text-2xl font-bold text-[#062E63]">Term Transition</h1>
         <p className="text-sm text-[#325099]/60 mt-1">
           {fromTerm && toTerm
@@ -470,7 +470,7 @@ export default function TransitionPage() {
       </div>
 
       {/* ── Step progress bar ─────────────────────────────────────────────── */}
-      <div className="max-w-4xl mx-auto px-6 mb-8">
+      <div className="max-w-4xl mx-auto px-4 md:px-6 mb-6 md:mb-8">
         <div className="flex items-center">
           {STEPS.map((s, i) => (
             <div key={s.id} className="flex items-center flex-1 min-w-0">
@@ -490,7 +490,7 @@ export default function TransitionPage() {
                 }`}>
                   {step > s.id ? '✓' : s.icon}
                 </div>
-                <span className="text-[10px] font-semibold text-[#062E63]/60 hidden sm:block truncate">{s.label}</span>
+                <span className="block max-w-full text-[10px] font-semibold text-[#062E63]/60 truncate">{s.label}</span>
               </button>
               {i < STEPS.length - 1 && (
                 <div className={`h-px flex-1 mx-1 transition-colors ${step > s.id ? 'bg-[#10b981]' : 'bg-[#DEE7FF]'}`} />
@@ -500,12 +500,12 @@ export default function TransitionPage() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 pb-24">
+      <div className="max-w-4xl mx-auto px-4 md:px-6 pb-24">
 
         {/* ═══ STEP 1: Setup ═══════════════════════════════════════════════ */}
         {step === 1 && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-8">
-            <h2 className="text-lg font-bold text-[#062E63] mb-6">Choose terms</h2>
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5 md:p-8">
+            <h2 className="text-lg font-bold text-[#062E63] mb-4 md:mb-6">Choose terms</h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
               {[
@@ -528,7 +528,7 @@ export default function TransitionPage() {
 
             {/* Term date ranges */}
             {fromTerm && toTerm && (
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 mb-6">
                 {[fromTerm, toTerm].map((t, i) => (
                   <div key={t.id} className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-4 py-3">
                     <div className="text-[11px] font-semibold text-[#325099]/60 mb-0.5">{i === 0 ? 'From' : 'To'} · {t.name}</div>
@@ -542,16 +542,16 @@ export default function TransitionPage() {
 
             {/* Stats */}
             {termStats && fromTerm && (
-              <div className="grid grid-cols-3 gap-4 mb-8">
+              <div className="grid grid-cols-3 gap-2 md:gap-4 mb-6 md:mb-8">
                 {[
                   { label: 'Classes',    value: termStats.classes },
                   { label: 'Enrolments', value: termStats.enrolments },
                   { label: 'Students',   value: termStats.students },
                 ].map(s => (
-                  <div key={s.label} className="bg-[#EEF3FF] rounded-xl p-4 text-center">
-                    <div className="text-2xl font-bold text-[#062E63]">{s.value}</div>
-                    <div className="text-xs text-[#325099]/60 font-semibold mt-0.5">{s.label}</div>
-                    <div className="text-[10px] text-[#325099]/40 mt-0.5">in {fromTerm.name}</div>
+                  <div key={s.label} className="bg-[#EEF3FF] rounded-xl p-3 md:p-4 text-center min-w-0">
+                    <div className="text-xl md:text-2xl font-bold text-[#062E63] tabular-nums">{s.value}</div>
+                    <div className="text-xs text-[#325099]/60 font-semibold mt-0.5 truncate">{s.label}</div>
+                    <div className="text-[10px] text-[#325099]/40 mt-0.5 truncate">in {fromTerm.name}</div>
                   </div>
                 ))}
               </div>
@@ -561,7 +561,7 @@ export default function TransitionPage() {
               <button
                 onClick={() => goTo(2)}
                 disabled={!fromTermId || !toTermId || fromTermId === toTermId}
-                className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
+                className="w-full md:w-auto bg-[#062E63] text-white text-sm font-semibold px-7 py-3 md:py-2.5 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
               >
                 Next: Review enrolments →
               </button>
@@ -571,8 +571,8 @@ export default function TransitionPage() {
 
         {/* ═══ STEP 2: Enrolments ══════════════════════════════════════════ */}
         {step === 2 && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-8">
-            <div className="flex items-start justify-between mb-2 gap-4">
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5 md:p-8">
+            <div className="flex flex-col md:flex-row items-start justify-between mb-2 gap-2 md:gap-4">
               <div>
                 <h2 className="text-lg font-bold text-[#062E63]">Review enrolments</h2>
                 <p className="text-sm text-[#325099]/60 mt-0.5">
@@ -580,7 +580,7 @@ export default function TransitionPage() {
                   disenrol students who aren&apos;t continuing — or add new ones — directly in the new term.
                 </p>
               </div>
-              <div className="flex-shrink-0 flex gap-2 text-xs font-semibold pt-1">
+              <div className="flex-shrink-0 flex gap-2 text-xs font-semibold md:pt-1">
                 <span className="bg-[#EEF3FF] text-[#325099] px-2.5 py-1 rounded-full">{enrolments.length} rolling over</span>
               </div>
             </div>
@@ -606,10 +606,10 @@ export default function TransitionPage() {
                       className="flex-1 bg-transparent text-xs text-[#062E63] placeholder-[#325099]/40 focus:outline-none"
                     />
                     {enrolmentSearch && (
-                      <button onClick={() => setEnrolmentSearch('')} className="text-[#325099]/40 hover:text-[#325099] text-xs">✕</button>
+                      <button onClick={() => setEnrolmentSearch('')} className="p-1 md:p-0 text-[#325099]/40 hover:text-[#325099] text-xs">✕</button>
                     )}
                   </div>
-                  <table className="w-full text-sm min-w-[480px]">
+                  <table className="phone-cards w-full text-sm md:min-w-[480px] p-2 md:p-0">
                     <thead>
                       <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
                         <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-[#325099]/60">Student</th>
@@ -629,10 +629,10 @@ export default function TransitionPage() {
                         })
                         .map((e, i) => (
                           <tr key={e.id} className={`border-b border-[#DEE7FF] last:border-0 ${i % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'}`}>
-                            <td className="px-4 py-2.5 font-medium text-[#062E63]">{e.student_name}</td>
-                            <td className="px-4 py-2.5 text-[#325099]/60 text-xs">Y{e.year}</td>
-                            <td className="px-4 py-2.5 text-[#325099]/80 text-xs">{e.class_name}</td>
-                            <td className="px-4 py-2.5">
+                            <td data-label="" className="px-4 py-2.5 font-medium text-[#062E63]">{e.student_name}</td>
+                            <td data-label="Year" className="px-4 py-2.5 text-[#325099]/60 text-xs">Y{e.year}</td>
+                            <td data-label="Class" className="px-4 py-2.5 text-[#325099]/80 text-xs">{e.class_name}</td>
+                            <td data-label="Status" className="px-4 py-2.5">
                               {e.status === 'trial'
                                 ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">Trial</span>
                                 : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#D1FAE5] text-[#065F46]">Active</span>}
@@ -653,9 +653,9 @@ export default function TransitionPage() {
               )}
             </div>
 
-<div className="flex justify-between">
-              <button onClick={() => setStep(1)} className="text-sm text-[#325099]/60 hover:text-[#062E63] px-4 py-2 rounded-full transition">← Back</button>
-              <button onClick={() => goTo(3)} className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full hover:bg-[#325099] transition">
+<div className="flex flex-col-reverse md:flex-row gap-2 md:gap-0 justify-between">
+              <button onClick={() => setStep(1)} className="text-sm text-[#325099]/60 hover:text-[#062E63] px-4 py-2.5 md:py-2 rounded-full transition">← Back</button>
+              <button onClick={() => goTo(3)} className="bg-[#062E63] text-white text-sm font-semibold px-7 py-3 md:py-2.5 rounded-full hover:bg-[#325099] transition">
                 Next: Class rollover →
               </button>
             </div>
@@ -664,9 +664,9 @@ export default function TransitionPage() {
 
         {/* ═══ STEP 3: Classes ═════════════════════════════════════════════ */}
         {step === 3 && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-8">
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5 md:p-8">
             <h2 className="text-lg font-bold text-[#062E63] mb-1.5">Roll over classes</h2>
-            <p className="text-sm text-[#325099]/60 mb-6">
+            <p className="text-sm text-[#325099]/60 mb-5 md:mb-6">
               Choose which classes to copy to {toTerm?.name}. Classes that already exist in the target term are automatically skipped.
             </p>
 
@@ -686,7 +686,7 @@ export default function TransitionPage() {
                 </div>
               </label>
               {copyEnrolments && (
-                <label className="flex items-center gap-2 shrink-0">
+                <label className="flex flex-wrap md:flex-nowrap items-center gap-2 md:shrink-0">
                   <span className="text-xs font-semibold text-[#062E63]">Fee increase</span>
                   <input
                     type="number"
@@ -695,7 +695,7 @@ export default function TransitionPage() {
                     max="100"
                     value={feeIncreasePct}
                     onChange={e => setFeeIncreasePct(e.target.value)}
-                    className="w-20 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm text-right text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+                    className="w-20 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm text-right tabular-nums text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
                   />
                   <span className="text-xs font-semibold text-[#325099]/60">%</span>
                   {parseFloat(feeIncreasePct) > 0 && (
@@ -761,13 +761,13 @@ export default function TransitionPage() {
 
             {/* Class list */}
             <div className="border border-[#DEE7FF] rounded-xl overflow-hidden mb-6">
-              <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-2.5 flex items-center justify-between">
+              <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-2.5 flex items-center justify-between gap-3">
                 <span className="text-xs font-semibold text-[#325099]/60">
                   {selectedCount} / {classes.length} classes selected
                 </span>
                 <button
                   onClick={() => setSelectedClasses(Object.fromEntries(classes.map(c => [c.id, !allSelected])))}
-                  className="text-xs font-semibold text-[#325099] hover:text-[#062E63] transition"
+                  className="py-1 md:py-0 text-xs font-semibold text-[#325099] hover:text-[#062E63] transition"
                 >
                   {allSelected ? 'Deselect all' : 'Select all'}
                 </button>
@@ -779,7 +779,7 @@ export default function TransitionPage() {
                 return (
                   <label
                     key={c.id}
-                    className={`flex items-center gap-4 px-4 py-3 border-b border-[#DEE7FF] last:border-0 hover:bg-[#FAFBFF] cursor-pointer ${
+                    className={`flex items-center gap-3 md:gap-4 px-4 py-3 border-b border-[#DEE7FF] last:border-0 hover:bg-[#FAFBFF] cursor-pointer ${
                       i % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'
                     }`}
                   >
@@ -809,7 +809,7 @@ export default function TransitionPage() {
 
             {/* Rollover result */}
             {rolloverDone && rolloverResult && (
-              <div className="bg-[#D1FAE5] border border-[#34D399] rounded-xl px-4 py-3.5 mb-6 flex items-start justify-between gap-4">
+              <div className="bg-[#D1FAE5] border border-[#34D399] rounded-xl px-4 py-3.5 mb-6 flex flex-col md:flex-row items-start justify-between gap-3 md:gap-4">
                 <div>
                   <p className="text-sm font-semibold text-[#065F46]">
                     ✓ Rollover complete — {rolloverResult.createdClasses} classes and {rolloverResult.createdEnrolments} enrolments created in {toTerm?.name}
@@ -835,7 +835,7 @@ export default function TransitionPage() {
                 <button
                   onClick={resetRollover}
                   disabled={saving}
-                  className="flex-shrink-0 text-xs font-semibold text-red-600 border border-red-200 bg-white hover:bg-red-50 px-3 py-1.5 rounded-full transition disabled:opacity-40"
+                  className="flex-shrink-0 text-xs font-semibold text-red-600 border border-red-200 bg-white hover:bg-red-50 px-3 py-2 md:py-1.5 rounded-full transition disabled:opacity-40"
                 >
                   {saving ? 'Resetting…' : '↩ Reset rollover'}
                 </button>
@@ -853,9 +853,9 @@ export default function TransitionPage() {
               * beside it in the same weight read as the next step and took
               * people to a "complete" screen having created nothing.
               */}
-            <div className="flex justify-between items-center">
-              <button onClick={() => setStep(2)} className="text-sm text-[#325099]/60 hover:text-[#062E63] px-4 py-2 rounded-full transition">← Back</button>
-              <div className="flex items-center gap-3">
+            <div className="flex flex-col-reverse md:flex-row gap-2 md:gap-0 justify-between md:items-center">
+              <button onClick={() => setStep(2)} className="text-sm text-[#325099]/60 hover:text-[#062E63] px-4 py-2.5 md:py-2 rounded-full transition">← Back</button>
+              <div className="flex flex-col-reverse md:flex-row md:items-center gap-2 md:gap-3">
                 {!rolloverDone ? (
                   <>
                     {/* Still reachable for a term rolled over in an earlier
@@ -869,7 +869,7 @@ export default function TransitionPage() {
                     <button
                       onClick={executeRollover}
                       disabled={saving || !Object.values(selectedClasses).some(Boolean)}
-                      className="bg-[#325099] text-white text-sm font-semibold px-6 py-2.5 rounded-full disabled:opacity-40 hover:bg-[#062E63] transition"
+                      className="bg-[#325099] text-white text-sm font-semibold px-6 py-3 md:py-2.5 rounded-full disabled:opacity-40 hover:bg-[#062E63] transition"
                     >
                       {saving
                         ? 'Rolling over…'
@@ -879,7 +879,7 @@ export default function TransitionPage() {
                 ) : (
                   <button
                     onClick={() => goTo(4)}
-                    className="bg-[#062E63] text-white text-sm font-semibold px-7 py-2.5 rounded-full hover:bg-[#325099] transition"
+                    className="bg-[#062E63] text-white text-sm font-semibold px-7 py-3 md:py-2.5 rounded-full hover:bg-[#325099] transition"
                   >
                     Finish →
                   </button>
@@ -897,23 +897,23 @@ export default function TransitionPage() {
           * still empty.
           */}
         {step === 4 && !rolloverResult && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-10 text-center">
             <div className="text-5xl mb-5">⏭</div>
             <h2 className="text-xl font-bold text-[#062E63] mb-1">Nothing was rolled over</h2>
-            <p className="text-sm text-[#325099]/60 mb-8 max-w-md mx-auto">
+            <p className="text-sm text-[#325099]/60 mb-6 md:mb-8 max-w-md mx-auto">
               You skipped the rollover, so no classes or enrolments were created in {toTerm?.name || 'the new term'}.
               If you ran it in an earlier session, they are already there — check the classes list.
             </p>
-            <div className="flex justify-center gap-3 flex-wrap">
+            <div className="flex flex-col md:flex-row justify-center gap-2 md:gap-3 md:flex-wrap">
               <button
                 onClick={() => goTo(3)}
-                className="bg-[#062E63] text-white text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#325099] transition"
+                className="bg-[#062E63] text-white text-sm font-semibold px-6 py-3 md:py-2.5 rounded-full hover:bg-[#325099] transition"
               >
                 ← Back to classes
               </button>
               <Link
                 href="/tutor/classes"
-                className="border border-[#DEE7FF] text-[#325099] text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
+                className="border border-[#DEE7FF] text-[#325099] text-sm font-semibold px-6 py-3 md:py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
               >
                 View {toTerm?.name} classes
               </Link>
@@ -922,34 +922,34 @@ export default function TransitionPage() {
         )}
 
         {step === 4 && rolloverResult && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-10 text-center">
             <div className="text-5xl mb-5">✅</div>
             <h2 className="text-xl font-bold text-[#062E63] mb-1">Transition complete</h2>
             <p className="text-sm text-[#325099]/60 mb-8">{fromTerm?.name} → {toTerm?.name}</p>
 
-            <div className="grid grid-cols-2 gap-4 mb-10 text-left max-w-sm mx-auto">
+            <div className="grid grid-cols-2 gap-3 md:gap-4 mb-8 md:mb-10 text-left max-w-sm mx-auto">
               {[
                 { label: 'Classes created',  value: rolloverResult?.createdClasses    ?? '—', icon: '📚' },
                 { label: 'Students enrolled', value: rolloverResult?.createdEnrolments ?? '—', icon: '👥' },
               ].map(s => (
                 <div key={s.label} className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl p-4">
                   <div className="text-2xl mb-1">{s.icon}</div>
-                  <div className="text-2xl font-bold text-[#062E63]">{s.value}</div>
+                  <div className="text-2xl font-bold text-[#062E63] tabular-nums">{s.value}</div>
                   <div className="text-xs text-[#325099]/60 font-semibold mt-0.5">{s.label}</div>
                 </div>
               ))}
             </div>
 
-            <div className="flex justify-center gap-3 flex-wrap">
+            <div className="flex flex-col md:flex-row justify-center gap-2 md:gap-3 md:flex-wrap">
               <Link
                 href={`/tutor/emails/term-start?termId=${toTermId}`}
-                className="bg-[#062E63] text-white text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#325099] transition"
+                className="bg-[#062E63] text-white text-sm font-semibold px-6 py-3 md:py-2.5 rounded-full hover:bg-[#325099] transition"
               >
                 ✉ Send Term Start emails →
               </Link>
               <Link
                 href="/tutor/classes"
-                className="border border-[#DEE7FF] text-[#325099] text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
+                className="border border-[#DEE7FF] text-[#325099] text-sm font-semibold px-6 py-3 md:py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
               >
                 View {toTerm?.name} classes
               </Link>
@@ -958,7 +958,7 @@ export default function TransitionPage() {
                   setStep(1); setDataLoaded(false); setRolloverDone(false)
                   setRolloverResult(null); setEnrolments([])
                 }}
-                className="border border-[#DEE7FF] text-[#325099]/60 text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
+                className="border border-[#DEE7FF] text-[#325099]/60 text-sm font-semibold px-6 py-3 md:py-2.5 rounded-full hover:bg-[#F0F4FF] transition"
               >
                 Start new transition
               </button>
@@ -1050,17 +1050,17 @@ function RevertPanel({ terms }) {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 pb-16">
+    <div className="max-w-4xl mx-auto px-4 md:px-6 pb-16">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 text-sm text-[#325099]/50 hover:text-[#325099] transition"
+        className="flex items-center gap-2 py-2 md:py-0 text-sm text-[#325099]/50 hover:text-[#325099] transition"
       >
         <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         Revert a transition
       </button>
 
       {open && (
-        <div className="mt-4 bg-white border border-red-100 rounded-2xl p-6">
+        <div className="mt-4 bg-white border border-red-100 rounded-2xl p-4 md:p-6">
           <h3 className="text-sm font-bold text-red-700 mb-1">Revert a term transition</h3>
           <p className="text-xs text-[#325099]/60 mb-5">
             Deletes all classes and enrolments in the selected term, and restores any students that were marked as not continuing. This cannot be undone.
@@ -1104,7 +1104,7 @@ function RevertPanel({ terms }) {
                   <span>Enrolments deleted</span>
                   <span className="font-bold text-red-600">{preview.enrolments}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-3">
                   <span>Disenrolled students restored to active</span>
                   <span className="font-bold text-[#065F46]">{preview.disenrolled.length}</span>
                 </div>
@@ -1117,17 +1117,17 @@ function RevertPanel({ terms }) {
 
           {preview && preview.classes.length > 0 && !done && (
             confirm ? (
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-red-600 font-semibold">Are you sure? This cannot be undone.</span>
+              <div className="flex flex-wrap md:flex-nowrap items-center gap-3">
+                <span className="w-full md:w-auto text-xs text-red-600 font-semibold">Are you sure? This cannot be undone.</span>
                 <button onClick={executeRevert} disabled={reverting}
-                  className="text-xs font-semibold bg-red-600 text-white px-4 py-1.5 rounded-full hover:bg-red-700 transition disabled:opacity-40">
+                  className="text-xs font-semibold bg-red-600 text-white px-4 py-2.5 md:py-1.5 rounded-full hover:bg-red-700 transition disabled:opacity-40">
                   {reverting ? 'Reverting…' : 'Yes, revert'}
                 </button>
-                <button onClick={() => setConfirm(false)} className="text-xs text-[#325099]/60 hover:text-[#325099]">Cancel</button>
+                <button onClick={() => setConfirm(false)} className="px-2 py-2.5 md:p-0 text-xs text-[#325099]/60 hover:text-[#325099]">Cancel</button>
               </div>
             ) : (
               <button onClick={() => setConfirm(true)}
-                className="text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 px-5 py-2 rounded-full transition">
+                className="text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 px-5 py-2.5 md:py-2 rounded-full transition">
                 ↩ Revert this transition
               </button>
             )

@@ -14,11 +14,11 @@ export function ReferralModal({ students, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 max-h-[90dvh] overflow-y-auto p-5 md:p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-[#2A2035] text-sm">Log Referral</h3>
-          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
+          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none p-2 -m-2 md:p-0 md:m-0">✕</button>
         </div>
         <p className="text-xs text-[#2A2035]/60 -mt-2">Both families receive <strong>$50 off</strong>. The referred family gets it immediately; the referring family gets it on their next invoice.</p>
         <div>
@@ -44,9 +44,9 @@ export function ReferralModal({ students, onClose, onSave }) {
           </div>
         )}
         <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving || !referringId || !referredId || referringId === referredId}
-            className="px-5 py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40">
+            className="px-5 py-2.5 md:py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40">
             {saving ? 'Logging…' : 'Log Referral'}
           </button>
         </div>

@@ -208,15 +208,15 @@ export default function DataQualityPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF] flex flex-col">
       <TutorNav staffName={staff.full_name} isAdmin={true} />
-      <main className="flex-1 max-w-4xl w-full mx-auto px-6 py-8">
-        <div className="flex items-center justify-between gap-4 mb-1">
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-5 md:px-6 md:py-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-1">
           <div>
             <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold">Admin · Database</p>
             <h1 className="text-xl font-bold text-[#2A2035] font-display">Data Quality</h1>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => router.push('/tutor/database')} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">← Explorer</button>
-            <button onClick={runChecks} disabled={running} className="px-4 py-1.5 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+            <button onClick={() => router.push('/tutor/database')} className="flex-1 md:flex-none min-h-[40px] md:min-h-0 px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">← Explorer</button>
+            <button onClick={runChecks} disabled={running} className="flex-1 md:flex-none min-h-[40px] md:min-h-0 px-4 py-1.5 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
               {running ? 'Running…' : ranAt ? '↻ Re-run checks' : '▶ Run checks'}
             </button>
           </div>
@@ -229,7 +229,7 @@ export default function DataQualityPage() {
         {error && <div className="mb-4 px-4 py-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-medium">{error}</div>}
 
         {ranAt && !running && (
-          <div className="flex items-center gap-3 mb-5 text-xs">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-5 text-xs">
             <span className="text-[#2A2035]/40">Checked {ranAt.toLocaleTimeString()} —</span>
             {issues.length === 0
               ? <span className="font-semibold text-emerald-700">No issues found 🎉</span>
@@ -250,8 +250,8 @@ export default function DataQualityPage() {
                 <div key={idx} className={`flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs ${SEVERITY_STYLE[i.severity]}`}>
                   <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${SEVERITY_DOT[i.severity]}`} />
                   <div className="min-w-0">
-                    <p className="font-medium">{i.message}</p>
-                    {i.detail && <p className="opacity-60 font-mono text-[10px] mt-0.5">{i.detail}</p>}
+                    <p className="font-medium break-words">{i.message}</p>
+                    {i.detail && <p className="opacity-60 font-mono text-[10px] mt-0.5 break-all">{i.detail}</p>}
                   </div>
                 </div>
               ))}
@@ -260,7 +260,7 @@ export default function DataQualityPage() {
         ))}
 
         {!ranAt && !running && (
-          <div className="border border-dashed border-[#DEE7FF] rounded-2xl px-6 py-12 text-center text-xs text-[#2A2035]/40">
+          <div className="border border-dashed border-[#DEE7FF] rounded-2xl px-5 py-10 md:px-6 md:py-12 text-center text-xs text-[#2A2035]/40">
             Press <span className="font-semibold text-[#325099]">Run checks</span> to scan students, guardians, classes, enrolments, invoices and trial enquiries.
           </div>
         )}

@@ -706,7 +706,7 @@ export default function PayrollPage() {
 
       {/* HERO */}
       <section className="bg-gradient-to-r from-[#F8FAFF] via-[#EEF4FF] to-[#BFD1FF] border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-10 md:py-12">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-6 md:py-12">
           <div className="flex items-center gap-3 mb-2">
             <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display">
               Payroll · Admin
@@ -721,7 +721,7 @@ export default function PayrollPage() {
           </div>
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
             <div className="min-w-0">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[#2A2035] font-display">
+              <h1 className="text-2xl md:text-4xl font-bold tracking-tight text-[#2A2035] font-display">
                 {fortnightLabel(fortnight) || '—'}
               </h1>
               {run && (
@@ -765,7 +765,7 @@ export default function PayrollPage() {
           </div>
 
           {/* Fortnight tabs */}
-          <div className="flex items-center gap-1 mt-6 overflow-x-auto -mx-1 px-1 no-scrollbar">
+          <div className="flex items-center gap-1 mt-5 md:mt-6 overflow-x-auto whitespace-nowrap -mx-1 px-1 no-scrollbar">
             {!isHolidayTerm(activeTerm) && FORTNIGHT_LABELS.map((label, i) => {
               const idx = i + 1
               const active = idx === fortnight
@@ -815,24 +815,24 @@ export default function PayrollPage() {
           </div>
 
           {/* Stat strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-8">
-            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-5 py-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 md:mt-8">
+            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-4 md:px-5 py-3 md:py-4 min-w-0">
               <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold mb-1">Tutors</p>
-              <p className="text-2xl md:text-3xl font-bold text-[#2A2035] font-display">{totals.tutorCount}</p>
+              <p className="text-xl md:text-3xl font-bold text-[#2A2035] font-display tabular-nums">{totals.tutorCount}</p>
             </div>
-            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-5 py-4">
+            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-4 md:px-5 py-3 md:py-4 min-w-0">
               <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold mb-1">Shifts</p>
-              <p className="text-2xl md:text-3xl font-bold text-[#2A2035] font-display">{totals.shiftCount}</p>
+              <p className="text-xl md:text-3xl font-bold text-[#2A2035] font-display tabular-nums">{totals.shiftCount}</p>
             </div>
-            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-5 py-4">
+            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-4 md:px-5 py-3 md:py-4 min-w-0">
               <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold mb-1">Hours</p>
-              <p className="text-2xl md:text-3xl font-bold text-[#2A2035] font-display">
+              <p className="text-xl md:text-3xl font-bold text-[#2A2035] font-display tabular-nums">
                 {totals.hours.toFixed(2)}
               </p>
             </div>
-            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-5 py-4">
+            <div className="bg-white/70 backdrop-blur rounded-2xl border border-[#DEE7FF] px-4 md:px-5 py-3 md:py-4 min-w-0">
               <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold mb-1">Total</p>
-              <p className="text-2xl md:text-3xl font-bold text-[#2A2035] font-display">{fmtMoney(totals.amount)}</p>
+              <p className="text-xl md:text-3xl font-bold text-[#2A2035] font-display tabular-nums">{fmtMoney(totals.amount)}</p>
             </div>
           </div>
 
@@ -841,12 +841,12 @@ export default function PayrollPage() {
             {run && !['exported', 'paid'].includes(run.status) && pendingShifts.some(s => s.rate_snapshot != null) && (
               <button onClick={approveAllShifts} disabled={approving}
                 title="Approve every pending shift. The run stays open until you finalise it."
-                className="text-sm font-semibold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] border border-[#6EE7B7] px-4 py-2 rounded-full transition disabled:opacity-50">
+                className="text-sm font-semibold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] border border-[#6EE7B7] px-4 py-2.5 md:py-2 rounded-full transition disabled:opacity-50">
                 {approving ? 'Approving…' : `✓ Approve all ${pendingShifts.filter(s => s.rate_snapshot != null).length} pending`}
               </button>
             )}
             {totals.missingRate > 0 && (
-              <div className="inline-flex items-center gap-2 text-xs font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FCD34D] px-3 py-2 rounded-full">
+              <div className="inline-flex items-center gap-2 text-xs font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FCD34D] px-3 py-2 rounded-2xl md:rounded-full">
                 ⚠ {totals.missingRate} shift{totals.missingRate === 1 ? '' : 's'} missing a rate — set them inline below before approving.
               </div>
             )}
@@ -855,7 +855,7 @@ export default function PayrollPage() {
       </section>
 
       {/* BODY */}
-      <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
+      <section className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-10">
         {loading && (
           <p className="text-sm text-[#2A2035]/60">Loading shifts…</p>
         )}
@@ -866,7 +866,7 @@ export default function PayrollPage() {
         )}
 
         {!loading && shifts.length === 0 && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center">
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-10 text-center">
             <div className="text-4xl mb-2">🗓️</div>
             <p className="text-sm font-semibold text-[#2A2035]">No shifts in this period yet.</p>
             <p className="text-xs text-[#2A2035]/50 mt-1">
@@ -882,7 +882,7 @@ export default function PayrollPage() {
               <button
                 key={g.id}
                 onClick={() => setPayTab(g.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition ${
+                className={`w-full md:w-auto flex items-center justify-between md:justify-start gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition ${
                   (payGroups.find(x => x.id === payTab) ?? payGroups[0]).id === g.id
                     ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]'
                     : g.id === 'unset'
@@ -891,7 +891,7 @@ export default function PayrollPage() {
                 }`}
               >
                 {g.icon} {g.title}
-                <span className="text-[10px] font-bold opacity-70">{g.tutors.length} tutor{g.tutors.length === 1 ? '' : 's'} · {fmtMoney(g.sub.a)}</span>
+                <span className="text-[10px] font-bold opacity-70 tabular-nums">{g.tutors.length} tutor{g.tutors.length === 1 ? '' : 's'} · {fmtMoney(g.sub.a)}</span>
               </button>
             ))}
           </div>
@@ -902,16 +902,16 @@ export default function PayrollPage() {
         {[payGroups.find(g => g.id === payTab) ?? payGroups[0]].filter(Boolean).map(group => (
           <div key={group.id} className="mb-8">
             {/* Pay-method group header */}
-            <div className={`flex items-center justify-between px-5 py-3 rounded-2xl mb-4 border ${group.id === 'unset' ? 'bg-[#FFFBEB] border-[#FDE68A]' : 'bg-[#EEF4FF] border-[#BACBFF]'}`}>
+            <div className={`flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-0 px-4 md:px-5 py-3 rounded-2xl mb-4 border ${group.id === 'unset' ? 'bg-[#FFFBEB] border-[#FDE68A]' : 'bg-[#EEF4FF] border-[#BACBFF]'}`}>
               <div>
                 <p className={`text-sm font-bold ${group.id === 'unset' ? 'text-[#92400E]' : 'text-[#062E63]'}`}>{group.icon} {group.title}</p>
                 <p className={`text-[10px] ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-[#325099]/60'}`}>{group.note}</p>
               </div>
-              <div className="text-right">
+              <div className="md:text-right">
                 <p className={`text-[10px] tracking-[0.2em] uppercase font-semibold ${group.id === 'unset' ? 'text-[#92400E]/70' : 'text-[#325099]/60'}`}>
                   {group.tutors.length} tutor{group.tutors.length === 1 ? '' : 's'} · {group.sub.n} shift{group.sub.n === 1 ? '' : 's'} · {group.sub.h.toFixed(2)}h
                 </p>
-                <p className={`text-lg font-bold font-display ${group.id === 'unset' ? 'text-[#92400E]' : 'text-[#062E63]'}`}>{fmtMoney(group.sub.a)}</p>
+                <p className={`text-lg font-bold font-display tabular-nums ${group.id === 'unset' ? 'text-[#92400E]' : 'text-[#062E63]'}`}>{fmtMoney(group.sub.a)}</p>
               </div>
             </div>
 
@@ -923,18 +923,18 @@ export default function PayrollPage() {
           return (
             <div key={name} className="bg-white rounded-2xl border border-[#DEE7FF] mb-5 overflow-hidden">
               {/* Tutor header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF]">
-                <div>
+              <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF]">
+                <div className="min-w-0">
                   <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold font-display">
                     Tutor
                   </p>
-                  <h2 className="text-lg font-semibold text-[#2A2035] font-display">{name}</h2>
+                  <h2 className="text-lg font-semibold text-[#2A2035] font-display truncate">{name}</h2>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <p className="text-[10px] tracking-[0.25em] uppercase text-[#325099] font-semibold">
                     {rows.length} shift{rows.length === 1 ? '' : 's'} · {sub.h.toFixed(2)}h
                   </p>
-                  <p className="text-lg font-semibold text-[#2A2035] font-display">{fmtMoney(sub.a)}</p>
+                  <p className="text-lg font-semibold text-[#2A2035] font-display tabular-nums">{fmtMoney(sub.a)}</p>
                 </div>
               </div>
 
@@ -968,7 +968,7 @@ export default function PayrollPage() {
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 mt-5">
             {!addOpen ? (
               <button onClick={() => { setAddOpen(true); setAddForm(f => ({ ...f, work_date: f.work_date || (run?.period_start || '') })) }}
-                className="text-sm font-semibold text-[#325099] hover:text-[#062E63]">＋ Add a shift</button>
+                className="text-sm font-semibold text-[#325099] hover:text-[#062E63] py-1.5 md:py-0">＋ Add a shift</button>
             ) : (
               <div className="space-y-3">
                 <p className="text-xs font-bold text-[#062E63]">Add a manual shift</p>
@@ -1005,13 +1005,13 @@ export default function PayrollPage() {
                       placeholder="e.g. extra tutoring" className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white" />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
                   <button onClick={addShift} disabled={adding}
-                    className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2 rounded-full disabled:opacity-50">
+                    className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-5 md:px-4 py-2.5 md:py-2 rounded-full disabled:opacity-50">
                     {adding ? 'Adding…' : 'Add shift'}</button>
                   <button onClick={() => setAddOpen(false)} disabled={adding}
-                    className="text-sm font-semibold text-[#325099] px-3 py-2">Cancel</button>
-                  <span className="text-[11px] text-[#2A2035]/45">Date must fall within this fortnight to appear in the run.</span>
+                    className="text-sm font-semibold text-[#325099] px-3 py-2.5 md:py-2">Cancel</button>
+                  <span className="w-full md:w-auto text-[11px] text-[#2A2035]/45">Date must fall within this fortnight to appear in the run.</span>
                 </div>
               </div>
             )}
@@ -1020,12 +1020,12 @@ export default function PayrollPage() {
 
         {/* Footer actions */}
         {!loading && shifts.length > 0 && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 mt-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-6 mt-6 flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold font-display mb-1">
                 Pay run total
               </p>
-              <p className="text-2xl font-bold text-[#2A2035] font-display">
+              <p className="text-2xl font-bold text-[#2A2035] font-display tabular-nums">
                 {fmtMoney(totals.amount)}
                 <span className="text-sm font-medium text-[#2A2035]/50 ml-2">
                   / {totals.hours.toFixed(2)}h
@@ -1102,7 +1102,7 @@ export default function PayrollPage() {
       </section>
 
       <footer className="border-t border-[#DEE7FF] bg-white mt-10">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-5 text-center">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 text-center">
           <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099]/70 font-semibold">
             © CUBE Tuition · Chatswood
           </p>
@@ -1112,23 +1112,23 @@ export default function PayrollPage() {
       {previewOpen && byTutor[previewIdx] && (() => {
         const data = payslipDataFor(byTutor[previewIdx])
         return (
-          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={closePreview}>
-            <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[#DEE7FF]">
-                <div className="flex items-center gap-3 min-w-0">
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center p-3 md:p-4" onClick={closePreview}>
+            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-3xl max-h-[90dvh] md:max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between gap-3 px-4 md:px-5 py-3 border-b border-[#DEE7FF]">
+                <div className="flex items-center gap-2 md:gap-3 min-w-0">
                   <p className="text-sm font-bold text-[#062E63] shrink-0">Payslip preview</p>
                   <select value={previewIdx}
                     onChange={e => { const i = Number(e.target.value); setPreviewIdx(i); loadPreview(i) }}
-                    className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm bg-white max-w-[200px]">
+                    className="min-w-0 flex-1 md:flex-initial border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm bg-white max-w-[200px]">
                     {byTutor.map((g, i) => <option key={i} value={i}>{g.name}</option>)}
                   </select>
                   <span className="text-xs text-[#2A2035]/45 truncate hidden sm:inline">
                     {data.email || 'no email'} · {fmtMoney(data.total)}
                   </span>
                 </div>
-                <button onClick={closePreview} className="text-[#325099]/40 hover:text-[#325099] text-xl leading-none">✕</button>
+                <button onClick={closePreview} className="shrink-0 -mr-2 md:mr-0 p-2 md:p-0 text-[#325099]/40 hover:text-[#325099] text-xl leading-none">✕</button>
               </div>
-              <div className="overflow-y-auto p-4 space-y-4">
+              <div className="overflow-y-auto p-3 md:p-4 space-y-4">
                 <div>
                   <p className="text-[10px] uppercase tracking-wider text-[#325099]/60 font-semibold mb-1">PDF payslip (attached)</p>
                   {previewBusy ? (
@@ -1185,7 +1185,7 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
   const linkClass = url ? 'group cursor-pointer hover:bg-[#F0F4FF] transition' : ''
 
   return (
-    <div key={rowKey} className={`relative grid grid-cols-12 gap-3 items-center px-6 py-3 text-sm ${missingRate ? 'bg-[#FFFBEB]' : ''} ${linkClass}`}
+    <div key={rowKey} className={`relative grid grid-cols-12 gap-x-3 gap-y-2 md:gap-3 items-center px-4 md:px-6 py-3 text-sm ${missingRate ? 'bg-[#FFFBEB]' : ''} ${linkClass}`}
       onClick={url && !editable ? () => window.open(url, '_blank') : undefined}
     >
       {editable && onDelete && (
@@ -1193,15 +1193,15 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
           onClick={e => { e.stopPropagation(); onDelete() }}
           disabled={saving}
           title="Remove this shift from the pay run"
-          className="absolute top-1.5 right-2 text-[#B23A3A]/40 hover:text-[#B23A3A] text-sm leading-none disabled:opacity-30"
+          className="absolute top-1 right-1 md:top-1.5 md:right-2 p-2 md:p-0 text-[#B23A3A]/40 hover:text-[#B23A3A] text-sm leading-none disabled:opacity-30"
         >✕</button>
       )}
       {/* date */}
-      <div className="col-span-3 md:col-span-2">
+      <div className="col-span-12 md:col-span-2 pr-8 md:pr-0">
         <p className={`font-semibold ${url ? 'text-[#325099] group-hover:text-[#062E63]' : 'text-[#2A2035]'} transition`}>{fmtDateLong(shift.work_date)}</p>
       </div>
       {/* class name + time */}
-      <div className="col-span-9 md:col-span-4">
+      <div className="col-span-12 md:col-span-4 min-w-0">
         <p className="font-medium text-[#2A2035] truncate flex items-center gap-1">
           {shift.notes?.replace(/^Auto:\s*/, '') || `(${shift.kind})`}
           {url && <span className="text-[#325099]/30 group-hover:text-[#325099] transition text-xs">↗</span>}
@@ -1222,7 +1222,7 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
             defaultValue={String(shift.hours)}
             onBlur={e => commitHours(e.target.value)}
             disabled={saving}
-            className="w-full text-sm font-semibold text-[#2A2035] bg-transparent border-b border-[#DEE7FF] focus:border-[#325099] focus:outline-none py-1"
+            className="w-full text-sm font-semibold tabular-nums text-[#2A2035] bg-transparent border-b border-[#DEE7FF] focus:border-[#325099] focus:outline-none py-1"
           />
         ) : (
           <p className="text-sm font-semibold text-[#2A2035]">{Number(shift.hours).toFixed(2)}</p>
@@ -1240,7 +1240,7 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
             defaultValue={shift.rate_snapshot == null ? '' : String(shift.rate_snapshot)}
             onBlur={e => commitRate(e.target.value)}
             disabled={saving}
-            className={`w-full text-sm font-semibold bg-transparent border-b focus:outline-none py-1 ${
+            className={`w-full text-sm font-semibold tabular-nums bg-transparent border-b focus:outline-none py-1 ${
               missingRate ? 'border-[#FCD34D] text-[#92400E]' : 'border-[#DEE7FF] text-[#2A2035] focus:border-[#325099]'
             }`}
           />
@@ -1251,7 +1251,7 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
       {/* amount + per-shift approval */}
       <div className="col-span-4 md:col-span-2 text-right">
         <label className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold block">Amount</label>
-        <p className="text-sm font-bold text-[#062E63] font-display">{fmtMoney(amount)}</p>
+        <p className="text-sm font-bold text-[#062E63] font-display tabular-nums">{fmtMoney(amount)}</p>
         {approval && (
           shift.status === 'approved' ? (
             <p className="text-[10px] font-bold text-[#065F46] mt-0.5">
@@ -1260,7 +1260,7 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
                 <button
                   onClick={e => { e.stopPropagation(); approval.onUndo() }}
                   disabled={approval.acting}
-                  className="ml-1.5 font-semibold text-[#2A2035]/40 hover:text-[#B23A3A] disabled:opacity-40"
+                  className="ml-1.5 py-1 md:py-0 font-semibold text-[#2A2035]/40 hover:text-[#B23A3A] disabled:opacity-40"
                 >{approval.acting ? '…' : 'Undo'}</button>
               )}
             </p>
@@ -1269,7 +1269,7 @@ function ShiftRow({ shift, editable, saving, onUpdate, onDelete, approval = null
               onClick={e => { e.stopPropagation(); approval.onApprove() }}
               disabled={approval.acting || missingRate}
               title={missingRate ? 'Set a rate before approving' : 'Approve just this shift'}
-              className="mt-0.5 text-[10px] font-bold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] rounded-full px-2 py-0.5 transition disabled:opacity-40"
+              className="mt-1 md:mt-0.5 text-xs md:text-[10px] font-bold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] rounded-full px-3 py-1.5 md:px-2 md:py-0.5 transition disabled:opacity-40"
             >{approval.acting ? 'Approving…' : 'Approve'}</button>
           ) : (
             <p className="text-[10px] font-semibold text-[#92400E] mt-0.5">Pending</p>
@@ -1310,7 +1310,7 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, balances = {},
   }
   return (
     <div className="mb-6 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-      <div className="px-5 py-3 bg-[#F8FAFF] border-b border-[#DEE7FF]">
+      <div className="px-4 md:px-5 py-3 bg-[#F8FAFF] border-b border-[#DEE7FF]">
         <p className="text-sm font-bold text-[#062E63]">🗓 Cash pay schedule</p>
         <p className="text-[11px] text-[#325099]/60">Pick the weekday each cash teacher is paid. When you hand over the cash, hit <span className="font-semibold">Mark paid</span> — it records the outflow in the Cash Log automatically. Marking unpaid removes that log row. A director who owes CUBE can instead <span className="font-semibold">Offset</span> some or all of a run against that balance — no cash changes hands, and the balance comes down.</p>
       </div>
@@ -1326,27 +1326,28 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, balances = {},
             const balance = balances[t.id] || 0
             const busy    = busyId === t.id
             return (
-            <div key={t.id} className="flex items-center gap-3 px-5 py-2.5">
+            <div key={t.id} className="flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-2 md:gap-3 px-4 md:px-5 py-3 md:py-2.5">
               <span className="flex-1 min-w-0">
                 <span className="block text-sm font-medium text-[#2A2035] truncate">{t.full_name}</span>
                 {balance > 0 && <span className="block text-[10px] text-[#92400E]">owes CUBE {fmtMoney(balance)}</span>}
               </span>
-              <span className="text-[11px] text-[#2A2035]/45 w-44 text-right tabular-nums" title={retainerOf[t.id] ? `${fmtMoney(amt[t.id] || 0)} shifts + ${fmtMoney(retainerOf[t.id])} retainer` : undefined}>
+              <span className="shrink-0 md:shrink text-[11px] text-[#2A2035]/45 md:w-44 text-right tabular-nums" title={retainerOf[t.id] ? `${fmtMoney(amt[t.id] || 0)} shifts + ${fmtMoney(retainerOf[t.id])} retainer` : undefined}>
                 {owed ? `${fmtMoney(owed)} this run${retainerOf[t.id] ? ' *' : ''}` : '—'}
                 {partial && <span className="block text-[10px] text-[#065F46]">{fmtMoney(settled)} settled · {fmtMoney(owed - settled)} to go</span>}
               </span>
+              <div className="flex w-full items-center gap-2 md:contents">
               {balance > 0 && !isPaid && owed > 0 && (
                 <button
                   onClick={async () => { setBusyId(t.id); try { await onOffset?.(t, owed) } finally { setBusyId(null) } }}
                   disabled={busy || !canPay}
                   title="Settle some or all of this run against what they owe CUBE — no cash changes hands"
-                  className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:bg-[#FEF3C7] transition disabled:opacity-40"
+                  className="shrink-0 text-xs font-semibold px-3 py-2 md:py-1.5 rounded-full border bg-[#FFFBEB] text-[#92400E] border-[#FDE68A] hover:bg-[#FEF3C7] transition disabled:opacity-40"
                 >
                   ⚖ Offset
                 </button>
               )}
               <select value={t.cash_pay_weekday ?? ''} onChange={e => setDay(t.id, e.target.value)}
-                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#325099]">
+                className="min-w-0 flex-1 md:flex-initial text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#325099]">
                 <option value="">No pay day set</option>
                 {WEEKDAYS.map(d => <option key={d.v} value={d.v}>{d.l}</option>)}
               </select>
@@ -1354,7 +1355,7 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, balances = {},
                 onClick={() => togglePaid(t)}
                 disabled={busy || !canPay || (!isPaid && owed <= 0)}
                 title={isPaid ? 'Remove the cash log entry and mark unpaid' : owed <= 0 ? 'Nothing owed this run' : 'Record this cash payment in the Cash Log'}
-                className={`w-32 shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                className={`w-32 shrink-0 text-xs font-semibold px-3 py-2 md:py-1.5 rounded-full border transition disabled:opacity-40 disabled:cursor-not-allowed ${
                   isPaid
                     ? 'bg-[#D1FAE5] text-[#065F46] border-[#A7F3D0] hover:bg-[#FEE2E2] hover:text-[#991B1B] hover:border-[#FCA5A5]'
                     : 'bg-[#062E63] text-white border-[#062E63] hover:bg-[#325099]'
@@ -1362,6 +1363,7 @@ function CashSchedulePanel({ tutors, shifts, onChange, paid = {}, balances = {},
               >
                 {busy ? '…' : isPaid ? '✓ Paid · undo' : partial ? `💵 Pay ${fmtMoney(owed - settled)}` : '💵 Mark paid'}
               </button>
+              </div>
             </div>
             )
           })}

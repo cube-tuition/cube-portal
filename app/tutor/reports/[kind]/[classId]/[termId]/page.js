@@ -325,22 +325,22 @@ export default function ReportPage() {
     <div className="min-h-screen bg-[#F8FAFF] print:bg-white">
       {/* Action bar — hidden when printing */}
       <div className="print:hidden sticky top-0 z-50 bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
-          <Link href={`/tutor/reports/${kind.slug}`} className="text-xs font-semibold text-[#325099] hover:text-[#062E63]">
+        <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex flex-wrap md:flex-nowrap items-center justify-between gap-x-3 gap-y-2">
+          <Link href={`/tutor/reports/${kind.slug}`} className="shrink-0 text-xs font-semibold text-[#325099] hover:text-[#062E63]">
             ← {kind.label} reports
           </Link>
-          <div className="text-sm font-semibold text-[#2A2035]">
+          <div className="w-full md:w-auto min-w-0 text-sm font-semibold text-[#2A2035]">
             {cls.class_name} · {term ? formatTermLabel(term) : '—'} · {roster.length} student{roster.length === 1 ? '' : 's'}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full md:w-auto items-center gap-2 overflow-x-auto md:overflow-visible">
             {saveComplete && (
-              <span className="text-xs font-semibold text-[#10b981]">✓ {savedCount} reports saved</span>
+              <span className="shrink-0 text-xs font-semibold text-[#10b981]">✓ {savedCount} reports saved</span>
             )}
             <button
               type="button"
               onClick={previewPdf}
               disabled={building || roster.length === 0}
-              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap text-xs font-semibold text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2.5 md:py-2 rounded-full transition disabled:opacity-40"
             >
               {building ? 'Building…' : '👁 Preview PDF'}
             </button>
@@ -348,14 +348,14 @@ export default function ReportPage() {
               type="button"
               onClick={saveAllToStorage}
               disabled={savingPDFs || roster.length === 0}
-              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-40"
+              className="shrink-0 whitespace-nowrap text-xs font-semibold text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF] px-4 py-2.5 md:py-2 rounded-full transition disabled:opacity-40"
             >
               {savingPDFs ? `Saving ${savedCount}/${roster.length}…` : '☁ Save to Storage'}
             </button>
             <button
               type="button"
               onClick={() => window.print()}
-              className="text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2 rounded-full transition"
+              className="shrink-0 whitespace-nowrap text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-4 py-2.5 md:py-2 rounded-full transition"
             >
               Print / Save as PDF
             </button>

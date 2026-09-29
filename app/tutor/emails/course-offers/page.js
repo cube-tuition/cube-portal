@@ -202,12 +202,12 @@ export default function CourseOffersPage() {
   const canSend = draft.email_subject.trim() && draft.body.trim() && selected.length > 0
 
   // ── Render ───────────────────────────────────────────────────────────────────
-  const pill = (active) => `text-xs font-semibold px-2.5 py-1 rounded-full border transition ${active ? 'bg-[#062E63] text-white border-[#062E63]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`
+  const pill = (active) => `text-xs font-semibold px-3 py-1.5 md:px-2.5 md:py-1 rounded-full border transition ${active ? 'bg-[#062E63] text-white border-[#062E63]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`
 
   return (
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
-      <div className="max-w-[1400px] mx-auto px-6 py-8">
+      <div className="max-w-[1400px] mx-auto px-4 py-5 md:px-6 md:py-8">
         <div className="flex items-center gap-3 mb-1">
           <Link href="/tutor/emails" className="text-sm text-[#325099] hover:underline">← Emails</Link>
         </div>
@@ -219,7 +219,7 @@ export default function CourseOffersPage() {
         {/* Offer picker */}
         <div className="flex items-center gap-2 mb-5 flex-wrap">
           <select value={currentId} onChange={e => { const o = offers.find(x => x.id === e.target.value); if (o) loadOfferIntoDraft(o) }}
-            className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white max-w-[280px]">
+            className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white md:max-w-[280px]">
             {offers.length === 0 && <option value="">No offers yet</option>}
             {offers.map(o => <option key={o.id} value={o.id}>{o.name || 'Untitled offer'}</option>)}
           </select>
@@ -246,7 +246,7 @@ export default function CourseOffersPage() {
             {/* Left: definition */}
             <div className="space-y-5">
               {/* Audience */}
-              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Audience</p>
                 <label className="block text-[11px] font-semibold text-[#325099] mb-1">Offer name (internal)</label>
                 <input value={draft.name} onChange={e => setField('name', e.target.value)}
@@ -275,7 +275,7 @@ export default function CourseOffersPage() {
               </section>
 
               {/* Content */}
-              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Email content</p>
                 <label className="block text-[11px] font-semibold text-[#325099] mb-1">Special Offer <span className="font-normal text-[#325099]/50">— shown in a callout box · supports **bold**</span></label>
                 <input value={draft.offer_highlight} onChange={e => setField('offer_highlight', e.target.value)}
@@ -312,12 +312,12 @@ export default function CourseOffersPage() {
             {/* Right: recipients + preview + send */}
             <div className="space-y-5">
               <section className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-                <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 flex items-center justify-between">
+                <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 flex items-center justify-between gap-3">
                   <p className="text-xs font-bold text-[#062E63]">Recipients — {selected.length} of {matchingFamilies.length}</p>
                   {matchingFamilies.length > 0 && (
                     <div className="flex gap-2 text-[10px] font-semibold">
-                      <button onClick={() => setUnchecked(new Set())} className="text-[#325099] hover:underline">All</button>
-                      <button onClick={() => setUnchecked(new Set(matchingFamilies.map(f => f.key)))} className="text-[#325099] hover:underline">None</button>
+                      <button onClick={() => setUnchecked(new Set())} className="px-1.5 py-1 -my-1 md:p-0 md:my-0 text-[#325099] hover:underline">All</button>
+                      <button onClick={() => setUnchecked(new Set(matchingFamilies.map(f => f.key)))} className="px-1.5 py-1 -my-1 md:p-0 md:my-0 text-[#325099] hover:underline">None</button>
                     </div>
                   )}
                 </div>
@@ -325,7 +325,7 @@ export default function CourseOffersPage() {
                   {matchingFamilies.length === 0 ? (
                     <p className="text-center text-xs text-[#2A2035]/40 py-8">No students match this audience.</p>
                   ) : matchingFamilies.map(f => (
-                    <label key={f.key} className={`flex items-start gap-2.5 px-4 py-2 cursor-pointer ${!f.parent_email ? 'opacity-50' : ''}`}>
+                    <label key={f.key} className={`flex items-start gap-2.5 px-4 py-2.5 md:py-2 cursor-pointer ${!f.parent_email ? 'opacity-50' : ''}`}>
                       <input type="checkbox" disabled={!f.parent_email} checked={!!f.parent_email && !unchecked.has(f.key)}
                         onChange={() => setUnchecked(prev => { const n = new Set(prev); n.has(f.key) ? n.delete(f.key) : n.add(f.key); return n })}
                         className="mt-0.5" />
@@ -373,14 +373,14 @@ export default function CourseOffersPage() {
       </div>
 
       {confirmSend && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setConfirmSend(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[24rem]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-end md:items-center justify-center md:p-4" onClick={() => setConfirmSend(false)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:p-6 w-full md:w-[24rem] max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <p className="text-lg font-bold text-[#062E63] mb-2">Send course offer?</p>
             <p className="text-sm text-[#2A2035]/70 mb-1">“{draft.name}” will email <strong>{selected.length}</strong> famil{selected.length === 1 ? 'y' : 'ies'}.</p>
-            <p className="text-xs text-[#2A2035]/50 mb-5">Subject: {draft.email_subject || '(none)'}</p>
+            <p className="text-xs text-[#2A2035]/50 mb-5 break-words">Subject: {draft.email_subject || '(none)'}</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmSend(false)} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 border border-[#DEE7FF] text-[#325099]">Cancel</button>
-              <button onClick={sendAll} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 bg-[#062E63] text-white hover:bg-[#325099]">Send now</button>
+              <button onClick={() => setConfirmSend(false)} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border border-[#DEE7FF] text-[#325099]">Cancel</button>
+              <button onClick={sendAll} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 bg-[#062E63] text-white hover:bg-[#325099]">Send now</button>
             </div>
           </div>
         </div>

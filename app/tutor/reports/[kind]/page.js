@@ -147,11 +147,11 @@ export default function ReportsLandingPage() {
       <TutorNav staffName={staff.full_name} isAdmin={true} />
 
       <section className="bg-gradient-to-r from-[#F8FAFF] via-[#EEF4FF] to-[#BFD1FF] border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-10 md:py-12">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-7 md:py-12">
           <Link href="/tutor/reports" className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold font-display mb-2 inline-block hover:text-[#062E63]">
             ← Reports · Admin
           </Link>
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[#2A2035] font-display">
+          <h1 className="text-2xl md:text-4xl font-bold tracking-tight text-[#2A2035] font-display">
             {kind.icon} {kind.title}
           </h1>
           <p className="text-sm md:text-base text-[#2A2035]/70 mt-2 max-w-2xl">
@@ -159,12 +159,12 @@ export default function ReportsLandingPage() {
           </p>
 
           {/* Term selector */}
-          <div className="mt-6 inline-flex items-center gap-2 bg-white border border-[#DEE7FF] rounded-full px-3 py-1.5">
-            <label className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/80 font-semibold">Term:</label>
+          <div className="mt-5 md:mt-6 inline-flex max-w-full items-center gap-2 bg-white border border-[#DEE7FF] rounded-full px-3 py-1.5">
+            <label className="shrink-0 text-[10px] tracking-[0.2em] uppercase text-[#325099]/80 font-semibold">Term:</label>
             <select
               value={termId || ''}
               onChange={e => setTermId(e.target.value)}
-              className="text-sm font-semibold text-[#062E63] bg-transparent focus:outline-none cursor-pointer"
+              className="min-w-0 text-sm font-semibold text-[#062E63] bg-transparent focus:outline-none cursor-pointer"
             >
               {terms.map(t => (
                 <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>
@@ -185,7 +185,7 @@ export default function ReportsLandingPage() {
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-6 md:px-10 py-10">
+      <section className="max-w-7xl mx-auto px-4 md:px-10 py-6 md:py-10">
         {loading ? (
           <p className="text-sm text-[#2A2035]/60">Loading classes…</p>
         ) : ordered.length === 0 ? (
@@ -239,7 +239,7 @@ export default function ReportsLandingPage() {
       </section>
 
       <footer className="border-t border-[#DEE7FF] bg-white mt-10">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-5 text-center">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 text-center">
           <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099]/70 font-semibold">
             © CUBE Tuition · Chatswood
           </p>

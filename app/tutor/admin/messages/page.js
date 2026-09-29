@@ -82,7 +82,7 @@ function MessagesInner() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
-      <div className="max-w-6xl mx-auto px-6 pt-8 pb-12">
+      <div className="max-w-6xl mx-auto px-4 pt-5 pb-12 md:px-6 md:pt-8">
         <div className="flex items-end justify-between gap-4 flex-wrap mb-5">
           <div>
             <Link href="/tutor" className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#325099]/70 hover:text-[#062E63] mb-1.5">
@@ -94,17 +94,17 @@ function MessagesInner() {
           <div className="flex items-center gap-2 flex-wrap">
             <PushEnable />
             <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
-              <button onClick={() => setTab('texts')} className={`px-3 py-1.5 font-semibold ${tab === 'texts' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Texts</button>
-              <button onClick={() => setTab('calls')} className={`px-3 py-1.5 font-semibold border-l border-[#DEE7FF] ${tab === 'calls' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Calls{missedCount ? ` (${missedCount} missed)` : ''}</button>
+              <button onClick={() => setTab('texts')} className={`px-3 py-2 md:py-1.5 font-semibold ${tab === 'texts' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Texts</button>
+              <button onClick={() => setTab('calls')} className={`px-3 py-2 md:py-1.5 font-semibold border-l border-[#DEE7FF] ${tab === 'calls' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Calls{missedCount ? ` (${missedCount} missed)` : ''}</button>
             </div>
             {tab === 'texts' && <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
-              <button onClick={() => setFilter('all')} className={`px-3 py-1.5 font-semibold ${filter === 'all' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>All</button>
-              <button onClick={() => setFilter('unanswered')} className={`px-3 py-1.5 font-semibold border-l border-[#DEE7FF] ${filter === 'unanswered' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
+              <button onClick={() => setFilter('all')} className={`px-3 py-2 md:py-1.5 font-semibold ${filter === 'all' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>All</button>
+              <button onClick={() => setFilter('unanswered')} className={`px-3 py-2 md:py-1.5 font-semibold border-l border-[#DEE7FF] ${filter === 'unanswered' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
                 Unanswered{threads.filter((t) => t.unanswered).length ? ` (${threads.filter((t) => t.unanswered).length})` : ''}
               </button>
             </div>}
             <button onClick={(e) => setNewPop(e.currentTarget.getBoundingClientRect())}
-              className="px-3.5 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New text</button>
+              className="px-3.5 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New text</button>
           </div>
         </div>
 
@@ -113,7 +113,7 @@ function MessagesInner() {
         )}
         {tab === 'texts' && <div className="grid md:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
           {/* Threads */}
-          <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
+          <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden max-md:max-h-[45dvh] max-md:overflow-y-auto">
             {shown.length === 0 ? (
               <p className="text-sm text-[#2A2035]/45 px-5 py-10 text-center">{filter === 'unanswered' ? 'Nothing waiting for a reply.' : 'No texts yet. When a family texts the office number it appears here.'}</p>
             ) : shown.map((t) => {
@@ -139,15 +139,15 @@ function MessagesInner() {
               <p className="text-sm text-[#2A2035]/45 px-6 py-16 text-center">Pick a conversation, or start a new text.</p>
             ) : (
               <>
-                <div className="px-5 py-3 border-b border-[#F0F4FF]">
-                  <p className="text-sm font-bold text-[#062E63]">{who(thread.phone)?.label || formatPhone(thread.phone)}</p>
+                <div className="px-4 md:px-5 py-3 border-b border-[#F0F4FF]">
+                  <p className="text-sm font-bold text-[#062E63] break-words">{who(thread.phone)?.label || formatPhone(thread.phone)}</p>
                   <p className="text-[11px] text-[#2A2035]/45">{who(thread.phone)?.sub ? `${who(thread.phone).sub} · ` : ''}{formatPhone(thread.phone)}</p>
                 </div>
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2" style={{ maxHeight: 'calc(100vh - 340px)' }}>
+                <div className="flex-1 overflow-y-auto px-4 md:px-5 py-4 space-y-2" style={{ maxHeight: 'calc(100vh - 340px)' }}>
                   {thread.list.length === 0 && <p className="text-xs text-[#2A2035]/40 text-center py-6">No messages yet with this number.</p>}
                   {thread.list.map((m) => (
                     <div key={m.id} className={`flex ${m.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap ${m.direction === 'out' ? 'bg-[#325099] text-white rounded-br-md' : 'bg-[#F0F4FF] text-[#2A2035] rounded-bl-md'}`}>
+                      <div className={`max-w-[85%] md:max-w-[75%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap break-words ${m.direction === 'out' ? 'bg-[#325099] text-white rounded-br-md' : 'bg-[#F0F4FF] text-[#2A2035] rounded-bl-md'}`}>
                         {m.body}
                         <div className={`text-[10px] mt-1 ${m.direction === 'out' ? 'text-white/65' : 'text-[#2A2035]/40'}`}>
                           {fmtTime(m.created_at)}{m.direction === 'out' && m.sent_by ? ` · ${m.sent_by}` : ''}
@@ -159,14 +159,14 @@ function MessagesInner() {
                   ))}
                   <div ref={endRef} />
                 </div>
-                <div className="border-t border-[#F0F4FF] px-4 py-3">
+                <div className="border-t border-[#F0F4FF] px-3 md:px-4 py-3">
                   {error && <p className="text-xs text-[#DC2626] mb-2">{error}</p>}
                   <div className="flex gap-2 items-end">
                     <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} placeholder="Type a text…"
                       onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send() }}
                       className="flex-1 border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099] resize-none" />
                     <button onClick={send} disabled={sending || !draft.trim()}
-                      className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">{sending ? 'Sending…' : 'Send'}</button>
+                      className="px-4 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">{sending ? 'Sending…' : 'Send'}</button>
                   </div>
                   <p className="text-[10px] text-[#2A2035]/35 mt-1.5">Sent from the office number as {profile?.full_name}. ⌘↵ to send.</p>
                 </div>
@@ -178,7 +178,7 @@ function MessagesInner() {
 
       {newPop && (
         <div className="fixed inset-0 z-40" onMouseDown={() => setNewPop(null)}>
-          <div className="fixed bg-white border border-[#BACBFF] rounded-xl shadow-2xl p-3 w-[320px]" style={{ top: newPop.bottom + 6, left: Math.max(8, newPop.right - 320) }} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="fixed bg-white border border-[#BACBFF] rounded-xl shadow-2xl p-3 w-[320px] max-w-[calc(100vw-16px)]" style={{ top: newPop.bottom + 6, left: Math.max(8, newPop.right - 320) }} onMouseDown={(e) => e.stopPropagation()}>
             <p className="text-[11px] font-semibold text-[#2A2035]/50 mb-1.5">Text a number</p>
             <div className="flex gap-1.5">
               <input value={newNumber} onChange={(e) => setNewNumber(e.target.value)} placeholder="04xx xxx xxx" autoFocus
@@ -216,7 +216,7 @@ const CALL_STYLE = {
 
 function CallsPanel({ calls, who, onText }) {
   if (!calls.length) return (
-    <div className="bg-white rounded-2xl border border-[#F0F4FF] px-6 py-14 text-center text-sm text-[#2A2035]/45">
+    <div className="bg-white rounded-2xl border border-[#F0F4FF] px-5 md:px-6 py-14 text-center text-sm text-[#2A2035]/45">
       No calls yet. Calls to the office number are forwarded to the office mobile and logged here, with voicemails when nobody answers.
     </div>
   )
@@ -226,9 +226,9 @@ function CallsPanel({ calls, who, onText }) {
         const st = CALL_STYLE[c.status] || CALL_STYLE.ringing
         const contact = who(c.phone)
         return (
-          <div key={c.id} className="px-5 py-3.5">
+          <div key={c.id} className="px-4 md:px-5 py-3.5">
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: st.bg, color: st.fg }}>{st.label}</span>
+              <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: st.bg, color: st.fg }}>{st.label}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[#062E63] truncate">{contact?.label || formatPhone(c.phone)}</p>
                 <p className="text-[11px] text-[#2A2035]/45 truncate">{contact?.sub ? `${contact.sub} · ` : ''}{formatPhone(c.phone)}</p>
@@ -239,9 +239,9 @@ function CallsPanel({ calls, who, onText }) {
                 {c.status === 'voicemail' && c.recording_s != null ? ` · ${fmtDur(c.recording_s)} message` : ''}
               </span>
               {c.recording_sid && <VoicemailPlayer sid={c.recording_sid} />}
-              <button onClick={() => onText(c.phone)} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1 hover:border-[#325099]">Text back</button>
+              <button onClick={() => onText(c.phone)} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-2 md:px-2.5 md:py-1 hover:border-[#325099]">Text back</button>
             </div>
-            {c.transcript && <p className="mt-2 text-sm text-[#2A2035]/80 bg-[#F8FAFF] rounded-xl px-3.5 py-2 italic">“{c.transcript}”</p>}
+            {c.transcript && <p className="mt-2 text-sm text-[#2A2035]/80 bg-[#F8FAFF] rounded-xl px-3.5 py-2 italic break-words">“{c.transcript}”</p>}
             {c.status === 'voicemail' && !c.transcript && <p className="mt-1.5 text-[11px] text-[#2A2035]/40">Transcript on its way — usually a minute or two.</p>}
           </div>
         )
@@ -264,9 +264,9 @@ function VoicemailPlayer({ sid }) {
       setUrl(URL.createObjectURL(await res.blob()))
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
-  if (url) return <audio controls autoPlay src={url} className="h-8" />
+  if (url) return <audio controls autoPlay src={url} className="h-8 max-w-full" />
   return (
-    <button onClick={load} disabled={busy} className="text-[11px] font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1 hover:bg-[#062E63] disabled:opacity-50">
+    <button onClick={load} disabled={busy} className="text-[11px] font-semibold text-white bg-[#325099] rounded-lg px-3 py-2 md:px-2.5 md:py-1 hover:bg-[#062E63] disabled:opacity-50">
       {busy ? 'Loading…' : err ? `▶ ${err}` : '▶ Play'}
     </button>
   )

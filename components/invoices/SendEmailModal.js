@@ -102,30 +102,30 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#DEE7FF]">
-          <div>
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm md:px-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90dvh] md:max-h-[90vh]">
+        <div className="flex items-start md:items-center justify-between gap-3 px-4 md:px-6 pt-5 pb-4 border-b border-[#DEE7FF]">
+          <div className="min-w-0">
             <h3 className="font-bold text-[#062E63] text-sm">{reminder ? 'Send Overdue Reminder' : 'Send Invoice'}</h3>
             <p className="text-[11px] text-[#325099]/50 mt-0.5">
               To: <span className="font-semibold text-[#325099]">{inv.parent_name}</span>
-              {' · '}<span className="text-blue-600">{inv.parent_email || 'no email'}</span>
+              {' · '}<span className="text-blue-600 break-all md:break-normal">{inv.parent_email || 'no email'}</span>
               {' · '}{inv.invoice_number}
             </p>
           </div>
-          <button onClick={onClose} className="text-[#325099]/40 hover:text-[#325099] text-lg">✕</button>
+          <button onClick={onClose} className="shrink-0 text-[#325099]/40 hover:text-[#325099] text-lg p-2 -m-2 md:p-0 md:m-0">✕</button>
         </div>
 
-        <div className="flex gap-1 px-6 pt-3">
+        <div className="flex gap-1 px-4 md:px-6 pt-3">
           {['edit', 'preview'].map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition capitalize ${tab === t ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
+              className={`text-xs font-semibold px-4 py-2 md:py-1.5 rounded-lg transition capitalize ${tab === t ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
               {t === 'edit' ? 'Edit' : 'Preview'}
             </button>
           ))}
         </div>
 
-        <div className="px-6 py-4 flex-1 overflow-y-auto space-y-3">
+        <div className="px-4 md:px-6 py-4 flex-1 overflow-y-auto space-y-3">
           {tab === 'edit' ? (
             <>
               <div>
@@ -148,13 +148,13 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
             </>
           ) : (
             <div className="border border-[#DEE7FF] rounded-xl overflow-hidden">
-              <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 space-y-1">
+              <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 space-y-1 break-words">
                 <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">From:</span> CUBE Tuition &lt;admin@cubetuition.com.au&gt;</p>
                 <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">To:</span> {inv.parent_name} &lt;{inv.parent_email}&gt;</p>
                 <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">Subject:</span> {subject}</p>
                 <p className="text-[11px] text-[#325099]/50"><span className="font-semibold">Attachment:</span> 📎 {inv.invoice_number || 'invoice'}.pdf</p>
               </div>
-              <div className="bg-white px-5 py-4">
+              <div className="bg-white px-4 md:px-5 py-4 break-words">
                 <div className="text-xs text-[#1a1a2e] font-sans leading-relaxed whitespace-pre-wrap"
                   dangerouslySetInnerHTML={{ __html:
                     body
@@ -173,17 +173,17 @@ export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate,
           {testNote && <p className="text-xs font-semibold text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2">🧪 {testNote}</p>}
         </div>
 
-        <div className="px-6 py-4 border-t border-[#DEE7FF] flex justify-end gap-2">
-          <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2 rounded-full hover:border-[#325099] transition">
+        <div className="px-4 md:px-6 py-4 border-t border-[#DEE7FF] flex flex-wrap md:flex-nowrap justify-end gap-2">
+          <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2.5 md:py-2 rounded-full hover:border-[#325099] transition">
             Cancel
           </button>
           <button onClick={() => handleSend(true)} disabled={sending || testing || !inv.parent_email}
             title="Send this exact email to CUBE staff only (marked TEST)"
-            className="text-xs font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 rounded-full hover:bg-[#FEF3C7] transition disabled:opacity-40">
+            className="text-xs font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2.5 md:py-2 rounded-full hover:bg-[#FEF3C7] transition disabled:opacity-40">
             {testing ? 'Testing…' : '🧪 Test'}
           </button>
           <button onClick={() => handleSend(false)} disabled={sending || testing || !inv.parent_email}
-            className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+            className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2.5 md:py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
             {sending ? 'Sending…' : (reminder ? '✉ Send Reminder' : '✉ Send Invoice')}
           </button>
         </div>

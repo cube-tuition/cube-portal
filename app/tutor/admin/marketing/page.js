@@ -96,10 +96,10 @@ function StrategiesSection() {
   if (!cats) return null
   const totals = cats.flatMap(c => c.items).reduce((m, i) => ({ ...m, [i.status || 'idea']: (m[i.status || 'idea'] || 0) + 1 }), {})
   return (
-    <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+    <section className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         <p className="text-xs font-bold text-[#062E63]">🗂 Strategies by channel</p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] text-[#2A2035]/45">{totals.active || 0} active · {totals.idea || 0} ideas · {totals.paused || 0} paused</span>
           <button onClick={addCategory} className="text-[11px] font-semibold text-[#325099] hover:underline">+ Category</button>
           {status && (
@@ -116,7 +116,7 @@ function StrategiesSection() {
               <span className="text-lg leading-none">{c.icon}</span>
               <button onClick={() => renameCategory(c)} className="text-xs font-bold text-[#062E63] hover:underline text-left flex-1 truncate" title="Rename">{c.category}</button>
               <span className="text-[10px] text-[#2A2035]/40">{c.items.filter(i => i.status === 'active').length}/{c.items.length}</span>
-              <button onClick={() => removeCategory(c)} title="Remove category" className="text-[11px] text-[#2A2035]/25 hover:text-[#DC2626]">✕</button>
+              <button onClick={() => removeCategory(c)} title="Remove category" className="p-1 -m-1 md:p-0 md:m-0 text-[11px] text-[#2A2035]/25 hover:text-[#DC2626]">✕</button>
             </div>
             <ul className="p-2 space-y-1.5 flex-1">
               {c.items.map(i => {
@@ -143,7 +143,7 @@ function StrategiesSection() {
                             ? <a href={i.href} target="_blank" rel="noreferrer" className="text-[10px] text-[#325099] hover:underline">↗ open</a>
                             : <Link href={i.href} className="text-[10px] text-[#325099] hover:underline">open →</Link>)}
                         </span>
-                        <button onClick={() => cycleStatus(c.id, i)} title="Click to change status" className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${st.cls}`}>{st.label}</button>
+                        <button onClick={() => cycleStatus(c.id, i)} title="Click to change status" className={`shrink-0 text-[9px] font-bold px-2 py-1 md:px-1.5 md:py-0.5 rounded-full border ${st.cls}`}>{st.label}</button>
                       </div>
                     )}
                   </li>
@@ -220,8 +220,8 @@ export default function MarketingPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
-      <div className="max-w-6xl mx-auto px-6 pt-10 pb-16 space-y-6">
-        <div className="rounded-2xl px-7 py-6 border bg-[#EEF3FF] border-[#DEE7FF]">
+      <div className="max-w-6xl mx-auto px-4 pt-5 pb-16 md:px-6 md:pt-10 space-y-4 md:space-y-6">
+        <div className="rounded-2xl px-5 py-5 md:px-7 md:py-6 border bg-[#EEF3FF] border-[#DEE7FF]">
           <div className="flex items-center gap-3">
             <span className="text-3xl">📣</span>
             <div>
@@ -234,15 +234,15 @@ export default function MarketingPage() {
         <StrategiesSection />
 
           {/* ── Channels ───────────────────────────────────────────────── */}
-          <section className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+          <section className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
             <p className="text-xs font-bold text-[#062E63] mb-1">📡 Where enquiries come from</p>
             <p className="text-[11px] text-[#2A2035]/45 mb-4">Each trial request&apos;s “how did you hear about us”, and how many of them enrolled.</p>
             {channels.length === 0 ? <p className="text-xs text-[#2A2035]/40">No trial requests in this range.</p> : (
               <div className="space-y-2">
                 {channels.map(c => (
                   <div key={c.label}>
-                    <div className="flex items-center justify-between text-[11px] mb-0.5">
-                      <span className="font-semibold text-[#2A2035]">{c.label}</span>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 text-[11px] mb-0.5">
+                      <span className="min-w-0 break-words font-semibold text-[#2A2035]">{c.label}</span>
                       <span className="text-[#2A2035]/50 tabular-nums">{c.n} enquir{c.n === 1 ? 'y' : 'ies'} · {c.enrolled} enrolled · {fmtPct(c.enrolled, c.n)}</span>
                     </div>
                     <div className="h-2.5 rounded-full bg-[#F0F4FF] overflow-hidden">
@@ -254,7 +254,7 @@ export default function MarketingPage() {
             )}
             <div className="mt-5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] p-3.5">
               <p className="text-[11px] font-bold text-[#062E63] mb-2">🎁 Referral programme</p>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-3 gap-2 text-center break-words">
                 <div><p className="text-lg font-bold text-[#062E63] tabular-nums">{funnel.referred}</p><p className="text-[10px] text-[#2A2035]/50">referred enquiries</p></div>
                 <div><p className="text-lg font-bold text-[#062E63] tabular-nums">{referral.issued}</p><p className="text-[10px] text-[#2A2035]/50">credits issued · ${referral.issuedTotal.toLocaleString('en-AU')}</p></div>
                 <div><p className={`text-lg font-bold tabular-nums ${referral.owed ? 'text-[#B23A3A]' : 'text-[#047857]'}`}>{referral.owed}</p><p className="text-[10px] text-[#2A2035]/50">credits still to issue</p></div>

@@ -106,7 +106,7 @@ export default function LoginsPanel() {
 
   return (
     <section className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-      <div className="px-5 py-4 border-b border-[#EEF2FF] flex flex-wrap items-center gap-3">
+      <div className="px-4 md:px-5 py-4 border-b border-[#EEF2FF] flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-bold text-[#062E63]">Portal logins</h2>
           <p className="text-[12px] text-[#2A2035]/70 mt-0.5">
@@ -120,10 +120,10 @@ export default function LoginsPanel() {
             {stats.unreachable > 0 && <span className="text-[#B45309]"> · {stats.unreachable} with no address to send to</span>}
           </p>
         </div>
-        <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+        <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden overflow-x-auto max-w-full shrink-0">
           {[['todo', 'Needs attention'], ['not-sent', `Not sent ${stats.notSent}`], ['sent', `Sent ${stats.sent}`], ['all', `All ${stats.total}`]].map(([v, label]) => (
             <button key={v} onClick={() => setFilter(v)}
-              className={`px-3 py-1.5 text-xs font-semibold transition ${filter === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
+              className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${filter === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
               {label}
             </button>
           ))}
@@ -135,8 +135,8 @@ export default function LoginsPanel() {
       {shown.length === 0 ? (
         <p className="px-5 py-10 text-center text-sm text-[#2A2035]/45">Everyone has their login and has signed in.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
+        <div className="overflow-x-auto px-3 pt-3 md:p-0">
+          <table className="phone-cards w-full text-left">
             <thead className="bg-[#F8FAFF] text-[10px] uppercase tracking-wider text-[#325099]">
               <tr>
                 <th className="px-5 py-2.5 font-bold">Student</th>
@@ -153,42 +153,42 @@ export default function LoginsPanel() {
                 const st = statusOf(r)
                 return (
                   <tr key={r.id} className={`hover:bg-[#FAFBFF] ${r.sentAt ? '' : 'bg-[#FFFDF7]'}`}>
-                    <td className="px-5 py-2.5">
+                    <td data-label="" className="px-5 py-2.5">
                       <span className="text-sm font-semibold text-[#062E63]">{r.name}</span>
                       {r.year && <span className="ml-1.5 text-[11px] text-[#2A2035]/40">Y{r.year}</span>}
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td data-label="Status" className="px-3 py-2.5">
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border whitespace-nowrap"
                         style={{ color: st.fg, background: st.bg, borderColor: st.bd }}>{st.label}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-xs">
+                    <td data-label="Login sent" className="px-3 py-2.5 text-xs">
                       {r.sentAt ? (
-                        <>
+                        <div className="min-w-0">
                           <span className="block text-[#2A2035] break-all">{r.sentTo || CHANNEL[r.sentChannel]}</span>
                           <span className="block text-[10px] text-[#2A2035]/45">
                             {fmt(r.sentAt)} · {ago(r.sentAt)}
                             {r.sentChannel === 'guardian' && ' · parent'}
                             {r.sentBy ? ` · by ${r.sentBy.split(' ')[0]}` : ''}
                           </span>
-                        </>
+                        </div>
                       ) : (
                         <span className="text-[#B45309] font-semibold">Not sent yet</span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-[#2A2035]/70">
+                    <td data-label="Username" className="px-3 py-2.5 text-xs text-[#2A2035]/70">
                       {r.hasLogin
-                        ? <>
+                        ? <div className="min-w-0">
                             <span className="break-all">{r.username}</span>
                             {!r.deliverable && <span className="ml-1.5 text-[10px] font-bold text-[#B45309]" title="No mailbox — this address cannot receive email">no mailbox</span>}
-                          </>
+                          </div>
                         : <span className="text-[10px] font-bold text-[#B23A3A] bg-[#FEF2F2] border border-[#FECACA] px-1.5 py-0.5 rounded">no login</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-xs">
+                    <td data-label="Signed in" className="px-3 py-2.5 text-xs">
                       {r.lastSignInAt
                         ? <span className="text-[#065F46]">{fmt(r.lastSignInAt)}</span>
                         : <span className="text-[#B45309] font-semibold">never</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-right">
+                    <td data-label="" className="px-3 py-2.5 text-right">
                       {!r.hasLogin ? (
                         <span className="text-[11px] text-[#2A2035]/40" title="Create the login first, in Database → Students">create login first</span>
                       ) : !target ? (
@@ -199,7 +199,7 @@ export default function LoginsPanel() {
                         // pull the eye like one still waiting.
                         <button onClick={() => send(r)} disabled={busy === r.id}
                           title={`Sends the username and a set-password link to ${target}`}
-                          className={`text-xs font-semibold rounded-full px-3 py-1.5 transition disabled:opacity-40 ${
+                          className={`w-full md:w-auto text-xs font-semibold rounded-full px-3 py-2.5 md:py-1.5 transition disabled:opacity-40 ${
                             r.sentAt
                               ? 'text-[#325099] bg-white border border-[#DEE7FF] hover:border-[#325099] hover:bg-[#F0F4FF]'
                               : 'text-white bg-[#325099] border border-[#325099] hover:bg-[#062E63]'}`}>
@@ -214,7 +214,7 @@ export default function LoginsPanel() {
           </table>
         </div>
       )}
-      <p className="px-5 py-3 text-[11px] text-[#2A2035]/45 border-t border-[#EEF2FF]">
+      <p className="px-4 md:px-5 py-3 text-[11px] text-[#2A2035]/45 border-t border-[#EEF2FF]">
         The email carries the username and a single-use link for choosing a password — never a password itself.
         Where a login has no mailbox, it goes to the parent on file.
       </p>

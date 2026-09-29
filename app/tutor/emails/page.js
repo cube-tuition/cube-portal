@@ -107,15 +107,15 @@ export default function EmailsHub() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
 
-      <div className="max-w-4xl mx-auto px-6 pt-10 pb-24">
-        <div className="mb-8">
+      <div className="max-w-4xl mx-auto px-4 pt-5 pb-24 md:px-6 md:pt-10">
+        <div className="mb-6 md:mb-8">
           <h1 className="text-2xl font-bold text-[#062E63]">Emails</h1>
           <p className="text-sm text-[#325099]/60 mt-1">Send bulk emails to families using portal data.</p>
         </div>
 
         {/* ── Send cadence (editable, persisted in portal_settings) ──────── */}
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 mb-8">
-          <div className="flex items-center justify-between mb-3">
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5 mb-6 md:mb-8">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h2 className="text-sm font-bold text-[#062E63]">📅 Send cadence — per 10-week term</h2>
             {!editing ? (
               <button onClick={() => { setDraft(cadence); setEditing(true) }} className="text-xs font-semibold text-[#325099] hover:underline">✏️ Edit</button>
@@ -142,9 +142,9 @@ export default function EmailsHub() {
           ) : (
             <div className="divide-y divide-[#F0F4FF]">
               {cadenceRows.map((row, i) => (
-                <div key={i} className="flex items-start gap-3 py-2">
-                  <span className="text-[11px] font-bold text-[#325099] w-32 shrink-0 pt-0.5">{row[0] || ''}</span>
-                  <span className="text-xs font-semibold text-[#062E63] w-40 shrink-0 pt-0.5">{row[1] || ''}</span>
+                <div key={i} className="flex flex-col md:flex-row md:items-start gap-0.5 md:gap-3 py-2">
+                  <span className="text-[11px] font-bold text-[#325099] md:w-32 shrink-0 pt-0.5">{row[0] || ''}</span>
+                  <span className="text-xs font-semibold text-[#062E63] md:w-40 shrink-0 pt-0.5">{row[1] || ''}</span>
                   <span className="text-xs text-[#2A2035]/60 leading-relaxed flex-1">{row[2] || ''}</span>
                 </div>
               ))}
@@ -157,7 +157,7 @@ export default function EmailsHub() {
             <Link
               key={c.href}
               href={c.href}
-              className="group bg-white border border-[#DEE7FF] rounded-2xl p-6 hover:border-[#325099]/40 hover:shadow-md transition"
+              className="group bg-white border border-[#DEE7FF] rounded-2xl p-5 md:p-6 hover:border-[#325099]/40 hover:shadow-md transition"
             >
               <div className="flex items-start justify-between mb-3">
                 <span className="text-3xl">{c.icon}</span>

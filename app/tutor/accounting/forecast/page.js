@@ -174,12 +174,12 @@ function SummaryCard({ label, value, sub, color = '#062E63' }) {
 function ClassTable({ rows, editable = false, onChange, hideStudents = false }) {
   const headers = ['Class', ...(!hideStudents ? ['Students'] : []), 'Term Fee', 'Term Income', 'Teacher', 'Rate ($/hr)', 'Hours', 'Super?', 'Weekly Pay', 'Termly Cost (inc. Super)', 'Profit']
   return (
-    <div className="overflow-x-auto rounded-2xl border border-[#DEE7FF]">
+    <div className="overflow-x-auto rounded-2xl border border-[#DEE7FF] max-md:bg-white">
       <table className="w-full text-xs">
         <thead>
           <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
-            {headers.map(h => (
-              <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider whitespace-nowrap">{h}</th>
+            {headers.map((h, hi) => (
+              <th key={h} className={`px-3 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider whitespace-nowrap ${hi === 0 ? 'max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-[#F8FAFF] max-md:shadow-[1px_0_0_#DEE7FF]' : ''}`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -188,7 +188,7 @@ function ClassTable({ rows, editable = false, onChange, hideStudents = false }) 
             const profit = c.termProfit ?? (c.termIncome - c.totalTeacherCost)
             return (
               <tr key={c.id ?? i} className={`hover:bg-[#F8FAFF] transition ${profit < 0 ? 'bg-red-50' : ''}`}>
-                <td className="px-3 py-2 font-medium text-[#062E63] whitespace-nowrap">
+                <td className={`px-3 py-2 font-medium text-[#062E63] whitespace-nowrap max-md:sticky max-md:left-0 max-md:z-10 max-md:whitespace-normal max-md:min-w-[8rem] max-md:max-w-[10rem] max-md:shadow-[1px_0_0_#DEE7FF] ${profit < 0 ? 'max-md:bg-red-50' : 'max-md:bg-white'}`}>
                   {c.class_name}
                   {c.studentName && <span className="ml-1.5 text-[#325099]/50 font-normal">· {c.studentName}</span>}
                 </td>
@@ -206,7 +206,7 @@ function ClassTable({ rows, editable = false, onChange, hideStudents = false }) 
                       className="w-16 border border-[#DEE7FF] rounded px-1 py-0.5 text-xs" />
                   ) : fmt(c.termFee)}
                 </td>
-                <td className="px-3 py-2 font-semibold text-[#062E63]">{fmt(c.termIncome)}</td>
+                <td className="px-3 py-2 font-semibold text-[#062E63] whitespace-nowrap">{fmt(c.termIncome)}</td>
                 <td className="px-3 py-2 text-[#325099]/70">{c.teacher || '—'}</td>
                 <td className="px-3 py-2">
                   {editable ? (
@@ -233,9 +233,9 @@ function ClassTable({ rows, editable = false, onChange, hideStudents = false }) 
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-2">{c.weeklyTeacherFee ? fmt(c.weeklyTeacherFee) : '—'}</td>
-                <td className="px-3 py-2">{c.totalTeacherCost ? fmt(c.totalTeacherCost) : '—'}</td>
-                <td className={`px-3 py-2 font-bold ${profit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                <td className="px-3 py-2 whitespace-nowrap">{c.weeklyTeacherFee ? fmt(c.weeklyTeacherFee) : '—'}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{c.totalTeacherCost ? fmt(c.totalTeacherCost) : '—'}</td>
+                <td className={`px-3 py-2 font-bold whitespace-nowrap ${profit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                   {fmt(profit)}
                 </td>
               </tr>
@@ -251,7 +251,7 @@ function ClassTable({ rows, editable = false, onChange, hideStudents = false }) 
 function SummaryGrid({ s, yearly = false }) {
   const m = yearly ? 4 : 1
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
       {/* Income */}
       <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 space-y-2">
         <p className="text-[10px] font-bold text-[#325099]/50 uppercase tracking-wider">Total Income</p>
@@ -917,25 +917,25 @@ export default function ForecastPage() {
   return (
     <div className="min-h-screen bg-[#F0F4FF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 py-5 md:py-8 space-y-5 md:space-y-6">
 
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 md:gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Financial Forecast</h1>
             <p className="text-sm text-[#325099]/60 mt-0.5">Live projections based on current enrolments</p>
           </div>
           <select value={termId} onChange={e => setTermId(e.target.value)}
-            className="border border-[#DEE7FF] rounded-xl px-4 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30">
+            className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-4 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30">
             {terms.map(t => <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>)}
           </select>
         </div>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
+        <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit max-w-full overflow-x-auto whitespace-nowrap">
           {[{ id: 'overview', label: '🧭 Overview' }, { id: 'live', label: '📈 Live Forecast' }, { id: 'costs', label: '⚙️ Fixed Costs' }, { id: 'play', label: '🎮 Play Around' }, { id: 'cashlog', label: '💵 Cash Log' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
+              className={`shrink-0 text-xs font-semibold px-3.5 md:px-4 py-2 md:py-1.5 rounded-lg transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
               {t.label}
             </button>
           ))}
@@ -964,9 +964,9 @@ export default function ForecastPage() {
                   ['Empty seats', String(emptySeats), 'across group classes (cap 7)', emptySeats > 8 ? '#92400E' : '#062E63'],
                 ]
                 return kpis.map(([label, value, sub, color]) => (
-                  <div key={label} className="bg-white border border-[#DEE7FF] rounded-2xl px-4 py-3.5 shadow-sm">
+                  <div key={label} className="min-w-0 bg-white border border-[#DEE7FF] rounded-2xl px-3.5 md:px-4 py-3 md:py-3.5 shadow-sm">
                     <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{label}</p>
-                    <p className="text-xl font-bold mt-1 leading-tight" style={{ color }}>{value}</p>
+                    <p className="text-lg md:text-xl font-bold mt-1 leading-tight tabular-nums break-words" style={{ color }}>{value}</p>
                     <p className="text-[10px] text-[#2A2035]/45 mt-0.5">{sub}</p>
                   </div>
                 ))
@@ -975,16 +975,16 @@ export default function ForecastPage() {
 
             {/* Recommendations */}
             <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-[#F0F4FF] bg-[#F8FAFF] flex items-center justify-between">
+              <div className="px-4 md:px-5 py-3.5 border-b border-[#F0F4FF] bg-[#F8FAFF] flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
                 <p className="text-sm font-bold text-[#062E63]">💡 Recommendations</p>
                 <span className="text-[10px] text-[#2A2035]/40">{insights.length} insight{insights.length === 1 ? '' : 's'} · computed live from this term&rsquo;s data</span>
               </div>
               {insights.length === 0 ? (
-                <p className="px-5 py-6 text-xs text-[#2A2035]/40">Nothing to flag — every class is profitable with healthy margins.</p>
+                <p className="px-4 md:px-5 py-6 text-xs text-[#2A2035]/40">Nothing to flag — every class is profitable with healthy margins.</p>
               ) : (
                 <div className="divide-y divide-[#F0F4FF]">
                   {insights.map((ins, i) => (
-                    <div key={i} className="flex items-start gap-3 px-5 py-3">
+                    <div key={i} className="flex items-start gap-2.5 md:gap-3 px-4 md:px-5 py-3">
                       <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${ins.severity === 'red' ? 'bg-rose-500' : ins.severity === 'amber' ? 'bg-amber-400' : 'bg-blue-400'}`} />
                       <span className="text-base shrink-0">{ins.icon}</span>
                       <span className="min-w-0">
@@ -998,8 +998,8 @@ export default function ForecastPage() {
             </div>
 
             {/* Charts row: trend + waterfall */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
                 <h3 className="text-xs font-bold text-[#062E63] mb-1">Revenue by term</h3>
                 <p className="text-[11px] text-[#325099]/50 mb-4">Active-enrolment income per term · current term highlighted</p>
                 {trend.rows.length === 0 ? (
@@ -1018,10 +1018,15 @@ export default function ForecastPage() {
                   </ResponsiveContainer>
                 )}
               </div>
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
                 <h3 className="text-xs font-bold text-[#062E63] mb-1">Where the money goes</h3>
                 <p className="text-[11px] text-[#325099]/50 mb-4">Income → costs → profit waterfall for this term</p>
-                <WaterfallChart s={summary} />
+                {/* Five labelled steps need ~30rem; phones scroll the chart sideways */}
+                <div className="phone-scroll">
+                  <div className="min-w-[30rem] md:min-w-0">
+                    <WaterfallChart s={summary} />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1076,18 +1081,18 @@ export default function ForecastPage() {
 
               return (
                 <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-                  <div className="px-5 py-3.5 border-b border-[#F0F4FF] bg-[#F8FAFF] flex items-center justify-between">
+                  <div className="px-4 md:px-5 py-3.5 border-b border-[#F0F4FF] bg-[#F8FAFF] flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
                     <p className="text-sm font-bold text-[#062E63]">🧾 Expense analysis</p>
                     <span className="text-[10px] text-[#2A2035]/40">forecast {fmt(summary.totalExpenses)}/term</span>
                   </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 md:p-5">
                     {/* Left: category breakdown */}
                     <div>
                       <p className="text-[10px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold mb-3">Where it goes</p>
                       <div className="space-y-2">
                         {cats.map(c => (
-                          <div key={c.label} className="flex items-center gap-2">
-                            <span className="text-[11px] text-[#2A2035]/70 w-44 shrink-0 truncate" title={c.label}>{c.label}</span>
+                          <div key={c.label} className="flex flex-wrap md:flex-nowrap items-center gap-x-2 gap-y-0.5">
+                            <span className="text-[11px] text-[#2A2035]/70 w-full md:w-44 shrink-0 truncate" title={c.label}>{c.label}</span>
                             <div className="flex-1 h-3.5 bg-[#F0F4FF] rounded-full overflow-hidden">
                               <div className="h-full rounded-full" style={{ width: `${(c.amount / maxCat) * 100}%`, background: c.color, minWidth: 4 }} />
                             </div>
@@ -1097,7 +1102,7 @@ export default function ForecastPage() {
                         ))}
                       </div>
                       {/* Unit economics */}
-                      <div className="grid grid-cols-3 gap-2 mt-5">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-5">
                         {[
                           ['Cost / student', studentCount ? fmt(total / studentCount) : '—', `${studentCount} enrolled`],
                           ['Wages / lesson-hr', lessonHours ? fmt((groupWages + oneWages + superTotal) / lessonHours) : '—', `${Math.round(lessonHours)} hrs/term`],
@@ -1105,7 +1110,7 @@ export default function ForecastPage() {
                         ].map(([l, v, sub]) => (
                           <div key={l} className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3 py-2">
                             <p className="text-[8px] tracking-[0.14em] uppercase text-[#325099]/60 font-bold">{l}</p>
-                            <p className="text-sm font-bold text-[#062E63]">{v}</p>
+                            <p className="text-sm font-bold text-[#062E63] tabular-nums">{v}</p>
                             <p className="text-[9px] text-[#2A2035]/40">{sub}</p>
                           </div>
                         ))}
@@ -1115,13 +1120,15 @@ export default function ForecastPage() {
                     <div>
                       <p className="text-[10px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold mb-3">Wage bill by tutor <span className="normal-case font-normal">(incl. super)</span></p>
                       <div className="border border-[#DEE7FF] rounded-xl overflow-hidden mb-5">
-                        <div className="grid grid-cols-[1fr_3rem_4.5rem_5rem_2.5rem] gap-2 bg-[#F8FAFF] border-b border-[#DEE7FF] px-3 py-1.5">
+                        <div className="phone-scroll">
+                        <div className="min-w-[22rem] md:min-w-0">
+                        <div className="grid grid-cols-[1fr_3rem_4.5rem_5rem_2.5rem] gap-1.5 md:gap-2 bg-[#F8FAFF] border-b border-[#DEE7FF] px-3 py-1.5">
                           {['Tutor', 'Classes', 'Hrs/term', 'Cost/term', '%'].map(h => (
                             <span key={h} className="text-[8px] tracking-[0.12em] uppercase font-bold text-[#325099] last:text-right">{h}</span>
                           ))}
                         </div>
                         {tutorRows.map(t => (
-                          <div key={t.name} className="grid grid-cols-[1fr_3rem_4.5rem_5rem_2.5rem] gap-2 items-center px-3 py-1.5 border-b last:border-0 border-[#F0F4FF]">
+                          <div key={t.name} className="grid grid-cols-[1fr_3rem_4.5rem_5rem_2.5rem] gap-1.5 md:gap-2 items-center px-3 py-1.5 border-b last:border-0 border-[#F0F4FF]">
                             <span className="text-[11px] font-semibold text-[#2A2035] truncate">{t.name}</span>
                             <span className="text-[11px] text-[#2A2035]/60 tabular-nums">{t.classes}</span>
                             <span className="text-[11px] text-[#2A2035]/60 tabular-nums">{Math.round(t.hours)}</span>
@@ -1129,14 +1136,16 @@ export default function ForecastPage() {
                             <span className="text-[10px] text-[#2A2035]/40 text-right">{Math.round((t.cost / wageBill) * 100)}%</span>
                           </div>
                         ))}
+                        </div>
+                        </div>
                       </div>
                       <p className="text-[10px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold mb-2">Actual spend vs forecast</p>
                       {actualOut === 0 ? (
                         <p className="text-[11px] text-[#2A2035]/40">No outflows recorded in the cash log for this term yet — add entries in the Cash Log tab to track actuals against the {fmt(summary.totalExpenses)} forecast.</p>
                       ) : (
                         <div className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-3.5 py-3">
-                          <div className="flex items-baseline justify-between mb-1.5">
-                            <span className="text-sm font-bold text-[#062E63]">{fmt(actualOut)} spent</span>
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-2 mb-1.5">
+                            <span className="text-sm font-bold text-[#062E63] tabular-nums">{fmt(actualOut)} spent</span>
                             <span className="text-[10px] text-[#2A2035]/45">{Math.round((actualOut / total) * 100)}% of {fmt(summary.totalExpenses)} forecast</span>
                           </div>
                           <div className="h-2 bg-[#DEE7FF] rounded-full overflow-hidden mb-2">
@@ -1156,7 +1165,7 @@ export default function ForecastPage() {
             })()}
 
             {/* Leaders & laggards */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
               {(() => {
                 const groups = classMetrics.filter(c => !c.is1on1 && c.termIncome > 0)
                   .map(c => ({ ...c, marginPct: Math.round((c.termProfit / c.termIncome) * 100) }))
@@ -1164,12 +1173,12 @@ export default function ForecastPage() {
                 const bottom = [...groups].sort((a, b) => a.termProfit - b.termProfit).slice(0, 3)
                 const Tbl = ({ title, rows, good }) => (
                   <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-                    <p className="px-5 py-3 text-xs font-bold text-[#062E63] bg-[#F8FAFF] border-b border-[#F0F4FF]">{title}</p>
+                    <p className="px-4 md:px-5 py-3 text-xs font-bold text-[#062E63] bg-[#F8FAFF] border-b border-[#F0F4FF]">{title}</p>
                     <div className="divide-y divide-[#F0F4FF]">
                       {rows.map(c => (
-                        <div key={c.id} className="flex items-center gap-3 px-5 py-2.5">
-                          <span className="text-xs font-semibold text-[#2A2035] flex-1 truncate">{c.class_name}</span>
-                          <span className="text-[10px] text-[#2A2035]/45">{c.studentCount}/{CLASS_CAP} seats</span>
+                        <div key={c.id} className="flex items-center gap-2 md:gap-3 px-4 md:px-5 py-2.5">
+                          <span className="text-xs font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{c.class_name}</span>
+                          <span className="text-[10px] text-[#2A2035]/45 shrink-0">{c.studentCount}/{CLASS_CAP} seats</span>
                           <span className={`text-xs font-bold tabular-nums ${good ? 'text-emerald-700' : c.termProfit < 0 ? 'text-rose-600' : 'text-[#92400E]'}`}>{fmt(c.termProfit)}</span>
                           <span className="text-[10px] text-[#2A2035]/45 w-10 text-right">{c.marginPct}%</span>
                         </div>
@@ -1191,7 +1200,7 @@ export default function ForecastPage() {
 
         {/* ── LIVE FORECAST TAB ─────────────────────────────────────────────── */}
         {tab === 'live' && (
-          <div className="space-y-8">
+          <div className="space-y-6 md:space-y-8">
             {loading ? (
               <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /></div>
             ) : (
@@ -1203,13 +1212,13 @@ export default function ForecastPage() {
                 </div>
 
                 {/* Charts */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                  <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
                     <h3 className="text-xs font-bold text-[#062E63] mb-1">Profit by Class — Group</h3>
                     <p className="text-[11px] text-[#325099]/50 mb-4">Term profit per group class after teacher costs</p>
                     <ClassProfitChart rows={classMetrics.filter(c => !c.is1on1)} />
                   </div>
-                  <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+                  <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
                     <h3 className="text-xs font-bold text-[#062E63] mb-1">Profit by Class — 1-on-1</h3>
                     <p className="text-[11px] text-[#325099]/50 mb-4">Term profit per 1-on-1 session after teacher costs</p>
                     <ClassProfitChart rows={classMetrics.filter(c => c.is1on1)} />
@@ -1226,7 +1235,7 @@ export default function ForecastPage() {
                 <div className="space-y-6">
                   <h2 className="text-sm font-bold text-[#062E63]">Class-by-Class Analysis</h2>
                   {classMetrics.length === 0 ? (
-                    <div className="bg-white border border-[#DEE7FF] rounded-2xl p-12 text-center text-[#325099]/40 text-sm">No classes found for this term.</div>
+                    <div className="bg-white border border-[#DEE7FF] rounded-2xl p-8 md:p-12 text-center text-[#325099]/40 text-sm">No classes found for this term.</div>
                   ) : (
                     <>
                       {classMetrics.filter(c => !c.is1on1).length > 0 && (
@@ -1249,8 +1258,8 @@ export default function ForecastPage() {
                 <div className="space-y-3">
                   <h2 className="text-sm font-bold text-[#062E63]">Teacher Payment Method</h2>
                   <p className="text-xs text-[#325099]/60">Bank-paid teachers attract 12% superannuation. Cash-paid teachers do not.</p>
-                  <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-                    <table className="w-full text-sm">
+                  <div className="md:bg-white md:border md:border-[#DEE7FF] md:rounded-2xl md:overflow-hidden">
+                    <table className="w-full text-sm phone-cards">
                       <thead>
                         <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
                           <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider">Teacher</th>
@@ -1261,15 +1270,15 @@ export default function ForecastPage() {
                       <tbody className="divide-y divide-[#F0F4FF]">
                         {tutors.map(t => (
                           <tr key={t.id} className="hover:bg-[#F8FAFF]">
-                            <td className="px-4 py-2.5 font-medium text-[#062E63]">{t.full_name}</td>
-                            <td className="px-4 py-2.5">
+                            <td data-label="" className="px-4 py-2.5 font-medium text-[#062E63]">{t.full_name}</td>
+                            <td data-label="Pay method" className="px-4 py-2.5">
                               <select value={t.pay_method || 'bank'} onChange={e => handleTutorPayMethod(t.id, e.target.value)}
                                 className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs bg-white focus:outline-none">
                                 <option value="bank">Bank</option>
                                 <option value="cash">Cash</option>
                               </select>
                             </td>
-                            <td className="px-4 py-2.5">
+                            <td data-label="Super?" className="px-4 py-2.5">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${t.pay_method !== 'cash' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
                                 {t.pay_method !== 'cash' ? '+12%' : 'None'}
                               </span>
@@ -1294,15 +1303,15 @@ export default function ForecastPage() {
             </div>
 
             {/* Add cost form */}
-            <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
+            <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5 space-y-4">
               <p className="text-xs font-semibold text-[#062E63]">Add New Cost</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <input placeholder="Name (e.g. Rent)" value={costDraft.name}
                   onChange={e => setCostDraft(d => ({ ...d, name: e.target.value }))}
-                  className="col-span-3 md:col-span-1 border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#325099]/30" />
+                  className="col-span-2 md:col-span-1 border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#325099]/30" />
                 <input type="number" placeholder="Amount ($)" value={costDraft.amount}
                   onChange={e => setCostDraft(d => ({ ...d, amount: e.target.value }))}
-                  className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#325099]/30" />
+                  className="min-w-0 border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#325099]/30" />
                 <select value={costDraft.frequency} onChange={e => setCostDraft(d => ({ ...d, frequency: e.target.value }))}
                   className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30">
                   <option value="monthly">Monthly</option>
@@ -1310,17 +1319,17 @@ export default function ForecastPage() {
                 </select>
               </div>
               <button onClick={handleAddCost} disabled={costSaving || !costDraft.name || !costDraft.amount}
-                className="px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                className="w-full md:w-auto px-4 py-2.5 md:py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
                 {costSaving ? 'Saving…' : '+ Add Cost'}
               </button>
             </div>
 
             {/* Cost list */}
             {fixedCosts.length === 0 ? (
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-10 text-center text-[#325099]/40 text-sm">No fixed costs added yet.</div>
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-8 md:p-10 text-center text-[#325099]/40 text-sm">No fixed costs added yet.</div>
             ) : (
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="md:bg-white md:border md:border-[#DEE7FF] md:rounded-2xl md:overflow-hidden">
+                <table className="w-full text-sm phone-cards">
                   <thead>
                     <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
                       <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider">Name</th>
@@ -1335,26 +1344,28 @@ export default function ForecastPage() {
                       const perTerm = fc.frequency === 'monthly' ? Number(fc.amount) * 3 : Number(fc.amount) / 4
                       return (
                         <tr key={fc.id} className="hover:bg-[#F8FAFF]">
-                          <td className="px-4 py-2.5">
+                          <td data-label="" className="px-4 py-2.5">
                             <input value={fc.name} onChange={e => handleEditCost(fc.id, 'name', e.target.value)}
                               onBlur={e => handleSaveCost(fc.id, 'name', e.target.value)}
-                              className="border border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-2 py-0.5 text-sm w-full focus:outline-none" />
+                              className="border border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-0 md:px-2 py-0.5 text-sm font-semibold md:font-normal text-[#062E63] md:text-inherit w-full focus:outline-none" />
                           </td>
-                          <td className="px-4 py-2.5">
+                          <td data-label="Amount" className="px-4 py-2.5">
                             <input type="number" value={fc.amount} onChange={e => handleEditCost(fc.id, 'amount', e.target.value)}
                               onBlur={e => handleSaveCost(fc.id, 'amount', e.target.value)}
-                              className="border border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-2 py-0.5 text-sm w-24 focus:outline-none" />
+                              className="border border-[#DEE7FF] md:border-transparent hover:border-[#DEE7FF] focus:border-[#DEE7FF] rounded px-2 py-0.5 text-sm w-28 md:w-24 text-right md:text-left focus:outline-none" />
                           </td>
-                          <td className="px-4 py-2.5">
+                          <td data-label="Frequency" className="px-4 py-2.5">
                             <select value={fc.frequency} onChange={e => handleUpdateCost(fc.id, 'frequency', e.target.value)}
                               className="border border-[#DEE7FF] rounded px-2 py-0.5 text-xs bg-white focus:outline-none">
                               <option value="monthly">Monthly</option>
                               <option value="yearly">Yearly</option>
                             </select>
                           </td>
-                          <td className="px-4 py-2.5 text-[#325099]/70 text-xs">{fmt(perTerm)}</td>
-                          <td className="px-4 py-2.5">
-                            <button onClick={() => handleDeleteCost(fc.id)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                          <td data-label="Per term" className="px-4 py-2.5 text-[#325099]/70 text-xs tabular-nums">{fmt(perTerm)}</td>
+                          <td data-label="" className="px-4 py-2.5">
+                            <div className="flex justify-end md:block">
+                              <button onClick={() => handleDeleteCost(fc.id)} className="text-red-400 hover:text-red-600 text-xs max-md:border max-md:border-red-200 max-md:rounded-lg max-md:px-3 max-md:py-2">✕<span className="md:hidden"> Remove</span></button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -1366,7 +1377,7 @@ export default function ForecastPage() {
 
             {/* Totals */}
             {fixedCosts.length > 0 && (
-              <div className="flex gap-4 text-sm">
+              <div className="flex flex-wrap gap-3 md:gap-4 text-sm">
                 <div className="bg-white border border-[#DEE7FF] rounded-xl px-4 py-3">
                   <span className="text-[#325099]/60 text-xs">Per Term </span>
                   <span className="font-bold text-[#062E63]">{fmt(summary.fixedTermly)}</span>
@@ -1382,14 +1393,14 @@ export default function ForecastPage() {
 
         {/* ── PLAY AROUND TAB ───────────────────────────────────────────────── */}
         {tab === 'play' && (
-          <div className="space-y-8">
-            <div className="flex items-center justify-between">
+          <div className="space-y-6 md:space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0">
               <div>
                 <h2 className="text-sm font-bold text-[#062E63]">Play Around</h2>
                 <p className="text-xs text-[#325099]/60 mt-0.5">Edit any value freely — nothing is saved. Reset to reload from live data.</p>
               </div>
               <button type="button" onClick={handleResetPlay}
-                className="text-xs px-3 py-1.5 border border-[#DEE7FF] rounded-lg text-[#325099] hover:bg-[#F0F4FF] transition">
+                className="self-start md:self-auto shrink-0 bg-white md:bg-transparent text-xs px-4 md:px-3 py-2.5 md:py-1.5 border border-[#DEE7FF] rounded-lg text-[#325099] hover:bg-[#F0F4FF] transition">
                 ↺ Reset to live
               </button>
             </div>
@@ -1424,8 +1435,8 @@ export default function ForecastPage() {
             {/* Play fixed costs */}
             <div className="space-y-3 max-w-lg">
               <h2 className="text-sm font-bold text-[#062E63]">Fixed Costs</h2>
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="md:bg-white md:border md:border-[#DEE7FF] md:rounded-2xl md:overflow-hidden">
+                <table className="w-full text-sm phone-cards">
                   <thead>
                     <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
                       <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider">Name</th>
@@ -1436,13 +1447,13 @@ export default function ForecastPage() {
                   <tbody className="divide-y divide-[#F0F4FF]">
                     {playFixedCosts.map((fc, i) => (
                       <tr key={fc.id ?? i}>
-                        <td className="px-4 py-2">{fc.name}</td>
-                        <td className="px-4 py-2">
+                        <td data-label="" className="px-4 py-2 max-md:font-semibold max-md:text-[#062E63]">{fc.name}</td>
+                        <td data-label="Amount" className="px-4 py-2">
                           <input type="number" value={fc.amount}
                             onChange={e => setPlayFixedCosts(prev => prev.map((c, idx) => idx === i ? { ...c, amount: parseFloat(e.target.value) || 0 } : c))}
                             className="w-24 border border-[#DEE7FF] rounded px-2 py-0.5 text-xs focus:outline-none" />
                         </td>
-                        <td className="px-4 py-2">
+                        <td data-label="Frequency" className="px-4 py-2">
                           <select value={fc.frequency}
                             onChange={e => setPlayFixedCosts(prev => prev.map((c, idx) => idx === i ? { ...c, frequency: e.target.value } : c))}
                             className="border border-[#DEE7FF] rounded px-2 py-0.5 text-xs bg-white focus:outline-none">
@@ -1453,7 +1464,7 @@ export default function ForecastPage() {
                       </tr>
                     ))}
                     {playFixedCosts.length === 0 && (
-                      <tr><td colSpan={3} className="px-4 py-6 text-center text-[#325099]/40 text-xs">No fixed costs. Add some in the Fixed Costs tab first.</td></tr>
+                      <tr><td colSpan={3} data-label="" className="px-4 py-6 text-center text-[#325099]/40 text-xs">No fixed costs. Add some in the Fixed Costs tab first.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -1485,20 +1496,20 @@ export default function ForecastPage() {
                 </div>
                 <div className="flex gap-2">
                   <button onClick={openAddEntry}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
+                    className="flex items-center gap-1.5 px-4 md:px-3 py-2.5 md:py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
                     + Add Entry
                   </button>
                 </div>
               </div>
 
               {/* Filters */}
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
+              <div className="flex flex-wrap items-center gap-3 md:gap-4">
+                <label className="flex items-center gap-2 cursor-pointer select-none py-1 md:py-0">
                   <input type="checkbox" checked={clShowAll} onChange={e => setClShowAll(e.target.checked)} className="accent-[#325099] w-3.5 h-3.5" />
                   <span className="text-xs font-semibold text-[#325099]">Show all time</span>
                 </label>
                 {!clShowAll && (
-                  <div className="flex items-center gap-1.5 text-xs text-[#325099]/60">
+                  <div className="flex flex-wrap md:flex-nowrap items-center gap-1.5 text-xs text-[#325099]/60">
                     <span className="font-semibold">From</span>
                     <input type="date" value={clDateFrom} onChange={e => setClDateFrom(e.target.value)}
                       className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] focus:outline-none" />
@@ -1517,8 +1528,8 @@ export default function ForecastPage() {
               {cashLogLoading ? (
                 <div className="flex justify-center py-12"><div className="w-5 h-5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /></div>
               ) : (
-                <div className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-                  <table className="w-full text-xs">
+                <div className="md:bg-white md:border md:border-[#DEE7FF] md:rounded-2xl md:overflow-hidden">
+                  <table className="w-full text-xs phone-cards">
                     <thead>
                       <tr className="bg-[#F8FAFF] border-b border-[#DEE7FF]">
                         {['Date', 'Flow', 'Type', 'Description', 'Amount', 'Balance', ''].map(h => (
@@ -1528,20 +1539,21 @@ export default function ForecastPage() {
                     </thead>
                     <tbody className="divide-y divide-[#F0F4FF]">
                       {rows.length === 0 && (
-                        <tr><td colSpan={7} className="px-4 py-10 text-center text-[#325099]/40">No entries yet.</td></tr>
+                        <tr><td colSpan={7} data-label="" className="px-4 py-10 text-center text-[#325099]/40">No entries yet.</td></tr>
                       )}
                       {rows.map(e => (
                         <tr key={e.id} className="hover:bg-[#F8FAFF] transition">
-                          <td className="px-4 py-2.5 text-[#325099]/70 whitespace-nowrap">
+                          <td data-label="Date" className="px-4 py-2.5 text-[#325099]/70 whitespace-nowrap">
                             {new Date(e.date + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
                           </td>
-                          <td className="px-4 py-2.5">
+                          <td data-label="Flow" className="px-4 py-2.5">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${e.direction === 'inflow' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'}`}>
                               {e.direction === 'inflow' ? '↑ In' : '↓ Out'}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-[#325099]/70 capitalize">{e.type}</td>
-                          <td className="px-4 py-2.5 text-[#062E63] max-w-xs truncate">
+                          <td data-label="Type" className="px-4 py-2.5 text-[#325099]/70 capitalize">{e.type}</td>
+                          <td data-label="Description" className="px-4 py-2.5 text-[#062E63] max-w-xs truncate max-md:max-w-none max-md:whitespace-normal">
+                            <span className="min-w-0">
                             {e.description || '—'}
                             {/* Booked by the invoice being marked paid, not typed
                                 in — deleting it here won't un-pay the invoice. */}
@@ -1549,30 +1561,33 @@ export default function ForecastPage() {
                               <span title="Added automatically when this cash invoice was marked paid"
                                 className="ml-1.5 align-middle text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#EEF4FF] text-[#325099]">auto</span>
                             )}
+                            </span>
                           </td>
-                          <td className={`px-4 py-2.5 font-semibold tabular-nums ${Number(e.amount) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                          <td data-label="Amount" className={`px-4 py-2.5 font-semibold tabular-nums ${Number(e.amount) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
                             {Number(e.amount) >= 0 ? '+' : ''}{fmt(Number(e.amount))}
                           </td>
-                          <td className={`px-4 py-2.5 font-semibold tabular-nums ${e.running >= 0 ? 'text-[#062E63]' : 'text-red-600'}`}>
+                          <td data-label="Balance" className={`px-4 py-2.5 font-semibold tabular-nums ${e.running >= 0 ? 'text-[#062E63]' : 'text-red-600'}`}>
                             {fmt(e.running)}
                           </td>
-                          <td className="px-4 py-2.5 whitespace-nowrap">
-                            <button onClick={() => openEditEntry(e)} title="Edit this entry"
-                              className="text-[#325099]/40 hover:text-[#325099] transition mr-2">✎</button>
-                            <button onClick={() => handleDeleteEntry(e.id)} title="Delete this entry"
-                              className="text-red-400 hover:text-red-600 transition">✕</button>
+                          <td data-label="" className="px-4 py-2.5 whitespace-nowrap">
+                            <div className="flex justify-end gap-2 md:block">
+                              <button onClick={() => openEditEntry(e)} title="Edit this entry"
+                                className="text-[#325099]/40 hover:text-[#325099] transition md:mr-2 max-md:text-[#325099] max-md:border max-md:border-[#DEE7FF] max-md:rounded-lg max-md:px-3 max-md:py-2">✎<span className="md:hidden"> Edit</span></button>
+                              <button onClick={() => handleDeleteEntry(e.id)} title="Delete this entry"
+                                className="text-red-400 hover:text-red-600 transition max-md:border max-md:border-red-200 max-md:rounded-lg max-md:px-3 max-md:py-2">✕<span className="md:hidden"> Delete</span></button>
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                     {rows.length > 0 && (
-                      <tfoot>
-                        <tr className="bg-[#F8FAFF] border-t-2 border-[#DEE7FF]">
+                      <tfoot className="max-md:block">
+                        <tr className="bg-[#F8FAFF] border-t-2 border-[#DEE7FF] max-md:flex max-md:items-center max-md:justify-between max-md:border-2 max-md:rounded-[14px]">
                           <td colSpan={4} className="px-4 py-3 text-xs font-bold text-[#062E63]">Net Total</td>
                           <td colSpan={2} className={`px-4 py-3 text-sm font-bold tabular-nums ${net >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
                             {net >= 0 ? '+' : ''}{fmt(net)}
                           </td>
-                          <td />
+                          <td className="max-md:hidden" />
                         </tr>
                       </tfoot>
                     )}
@@ -1590,11 +1605,11 @@ export default function ForecastPage() {
           const isNew = entryModal === 'new'
           const linked = !isNew && cashLog.find(e => e.id === entryModal)?.invoice_id
           return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4">
+              <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-5 md:p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-bold text-[#062E63]">{isNew ? 'Add Cash Entry' : 'Edit Cash Entry'}</h2>
-                  <button onClick={() => setEntryModal(null)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
+                  <button onClick={() => setEntryModal(null)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none p-2 -m-2 md:p-0 md:m-0">✕</button>
                 </div>
                 {linked && (
                   <p className="text-[11px] text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2 leading-relaxed">
@@ -1636,9 +1651,9 @@ export default function ForecastPage() {
                   <p className="text-[10px] text-[#325099]/40">Enter as a positive number — direction is set above</p>
                 </div>
                 <div className="flex gap-2 pt-1">
-                  <button onClick={() => setEntryModal(null)} className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+                  <button onClick={() => setEntryModal(null)} className="flex-1 px-4 py-2.5 md:py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
                   <button onClick={handleSaveEntry} disabled={entrySaving || !canSave}
-                    className="flex-1 px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                    className="flex-1 px-4 py-2.5 md:py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
                     {entrySaving ? 'Saving…' : isNew ? 'Add Entry' : 'Save Changes'}
                   </button>
                 </div>

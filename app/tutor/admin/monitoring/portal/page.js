@@ -46,7 +46,7 @@ function CrashStrip({ crashes, students }) {
   const rows = Object.values(groups).sort((a, b) => b.latest.localeCompare(a.latest))
   const fmt = (iso) => new Date(iso).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
   return (
-    <div className="max-w-7xl mx-auto px-6 md:px-10 pt-4">
+    <div className="max-w-7xl mx-auto px-4 md:px-10 pt-4">
       <div className="bg-white rounded-2xl border border-[#FDE68A] overflow-hidden">
         <p className="px-4 py-2.5 text-xs font-bold text-[#92400E] bg-[#FFFBEB] border-b border-[#FDE68A]">
           ⚠ Portal crashes · last 14 days · {crashes.length} report{crashes.length === 1 ? '' : 's'}
@@ -55,9 +55,9 @@ function CrashStrip({ crashes, students }) {
           {rows.slice(0, 8).map((g, i) => (
             <div key={i} className="px-4 py-2.5 text-xs flex items-baseline gap-3 flex-wrap">
               <span className="font-bold text-[#B23A3A] tabular-nums shrink-0">{g.n}×</span>
-              <code className="text-[#062E63] font-semibold">{g.route}</code>
-              <span className="text-[#2A2035]/70 flex-1 min-w-[200px]">{g.message}{g.global ? ' (root layout)' : ''}</span>
-              <span className="text-[#2A2035]/40 shrink-0">
+              <code className="text-[#062E63] font-semibold break-all">{g.route}</code>
+              <span className="text-[#2A2035]/70 flex-1 min-w-0 basis-full md:basis-0 md:min-w-[200px] break-words">{g.message}{g.global ? ' (root layout)' : ''}</span>
+              <span className="text-[#2A2035]/40 md:shrink-0">
                 {g.who.size ? `${[...g.who].slice(0, 3).join(', ')}${g.who.size > 3 ? ` +${g.who.size - 3}` : ''} · ` : ''}latest {fmt(g.latest)}
               </span>
             </div>
@@ -132,7 +132,7 @@ export default function MonitoringPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={staff.full_name} isAdmin />
-      <div className="max-w-7xl mx-auto px-6 md:px-10 pt-8 pb-2">
+      <div className="max-w-7xl mx-auto px-4 md:px-10 pt-5 md:pt-8 pb-2">
         <h1 className="text-2xl font-bold font-display text-[#062E63]">Portal Analytics</h1>
         <p className="text-sm text-[#325099]/60 mt-1 mb-1">
           Monitor student activity, feature adoption and engagement across the CUBE Student Portal.
@@ -140,9 +140,9 @@ export default function MonitoringPage() {
         </p>
       </div>
       {error ? (
-        <p className="max-w-7xl mx-auto px-6 md:px-10 py-6 text-sm text-[#B23A3A]">{error}</p>
+        <p className="max-w-7xl mx-auto px-4 md:px-10 py-6 text-sm text-[#B23A3A]">{error}</p>
       ) : !data ? (
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 space-y-4 animate-pulse">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-6 space-y-4 animate-pulse">
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 bg-white rounded-2xl border border-[#DEE7FF]" />)}
           </div>
@@ -153,7 +153,7 @@ export default function MonitoringPage() {
         <>
           <CrashStrip crashes={data.crashes} students={data.students} />
           <AnalyticsDashboard {...data} />
-          <div className="max-w-7xl mx-auto px-6 md:px-10 pb-10">
+          <div className="max-w-7xl mx-auto px-4 md:px-10 pb-10">
             <LoginsPanel />
           </div>
         </>

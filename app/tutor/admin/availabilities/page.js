@@ -41,11 +41,11 @@ function EditModal({ day, slot, tutors, avail, onClose, onToggle }) {
 
   return (
     <div
-      className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center"
+      className="fixed inset-0 bg-black/30 z-50 flex items-end md:items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-80 max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:p-6 w-full md:w-80 max-h-[90dvh] md:max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-5">
@@ -58,7 +58,7 @@ function EditModal({ day, slot, tutors, avail, onClose, onToggle }) {
           </div>
           <button
             onClick={onClose}
-            className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none mt-1"
+            className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none -mr-2 -mt-1 w-10 h-10 md:w-auto md:h-auto md:mr-0 md:mt-1"
           >
             ✕
           </button>
@@ -84,7 +84,7 @@ function EditModal({ day, slot, tutors, avail, onClose, onToggle }) {
                 >
                   {initials(t.full_name)}
                 </div>
-                <span className="text-sm font-semibold text-[#062E63] flex-1">{t.full_name}</span>
+                <span className="text-sm font-semibold text-[#062E63] flex-1 min-w-0 truncate">{t.full_name}</span>
                 <span className={`text-[10px] font-bold flex-shrink-0 ${isOn ? 'text-emerald-600' : 'text-[#325099]/25'}`}>
                   {isOn ? '✓ Available' : '—'}
                 </span>
@@ -116,10 +116,10 @@ function AvailCell({ day, slot, tutors, avail, filter, colorOf, onClick }) {
 
   if (ids.length === 0) {
     return (
-      <td className="px-2 py-1.5 border-r border-b border-[#DEE7FF] last:border-r-0 min-w-[100px]">
+      <td className="px-1.5 md:px-2 py-1.5 border-r border-b border-[#DEE7FF] last:border-r-0 min-w-[100px]">
         <button
           onClick={onClick}
-          className="w-full h-9 rounded-xl bg-[#F8FAFF] hover:bg-[#EEF4FF] border border-transparent hover:border-[#C7D5F8] transition-all"
+          className="w-full h-10 md:h-9 rounded-xl bg-[#F8FAFF] hover:bg-[#EEF4FF] border border-transparent hover:border-[#C7D5F8] transition-all"
           title="Click to edit"
         />
       </td>
@@ -127,11 +127,11 @@ function AvailCell({ day, slot, tutors, avail, filter, colorOf, onClick }) {
   }
 
   return (
-    <td className="px-2 py-1.5 border-r border-b border-[#DEE7FF] last:border-r-0 min-w-[100px]">
+    <td className="px-1.5 md:px-2 py-1.5 border-r border-b border-[#DEE7FF] last:border-r-0 min-w-[100px]">
       <button
         onClick={onClick}
         title={tooltip}
-        className="w-full h-9 rounded-xl flex items-center justify-center hover:brightness-95 transition-all"
+        className="w-full h-10 md:h-9 rounded-xl flex items-center justify-center hover:brightness-95 transition-all"
         style={{ background: `rgba(6,46,99,${0.05 + heat * 0.1})` }}
       >
         <div className="flex -space-x-1.5">
@@ -167,11 +167,11 @@ function ScheduleTable({ days, slots, tutors, avail, filter, colorOf, onCellClic
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
+    <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto phone-scroll">
       <table className="w-full border-collapse">
         <thead>
           <tr>
-            <th className="w-20 px-4 py-3 text-left text-[10px] font-semibold text-[#325099]/50 uppercase tracking-wider border-b border-r border-[#DEE7FF] bg-[#F8FAFF]">
+            <th className="w-16 md:w-20 px-2.5 md:px-4 py-3 text-left text-[10px] font-semibold text-[#325099]/50 uppercase tracking-wider border-b border-r border-[#DEE7FF] bg-[#F8FAFF] max-md:sticky max-md:left-0 max-md:z-10">
               Time
             </th>
             {days.map(day => {
@@ -195,7 +195,7 @@ function ScheduleTable({ days, slots, tutors, avail, filter, colorOf, onCellClic
         <tbody>
           {slots.map((slot, si) => (
             <tr key={slot} className={si % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'}>
-              <td className="px-4 py-1.5 text-xs font-semibold text-[#325099]/60 border-r border-b border-[#DEE7FF] whitespace-nowrap">
+              <td className="px-2.5 md:px-4 py-1.5 text-xs font-semibold text-[#325099]/60 border-r border-b border-[#DEE7FF] whitespace-nowrap max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-inherit">
                 {fmtSlot(slot)}
               </td>
               {days.map(day => (
@@ -234,7 +234,7 @@ function TutorCard({ tutor, color, avail, onCellClick }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5 hover:border-[#C7D5F8] transition-colors">
+    <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5 hover:border-[#C7D5F8] transition-colors">
       <div className="flex items-center gap-3 mb-4">
         <div
           className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
@@ -242,8 +242,8 @@ function TutorCard({ tutor, color, avail, onCellClick }) {
         >
           {initials(tutor.full_name)}
         </div>
-        <div>
-          <p className="font-bold text-[#062E63] text-sm leading-tight">{tutor.full_name}</p>
+        <div className="min-w-0">
+          <p className="font-bold text-[#062E63] text-sm leading-tight truncate">{tutor.full_name}</p>
           <p className="text-xs text-[#325099]/50 mt-0.5">
             {mySlots.length === 0 ? 'No availability set' : `${mySlots.length} slot${mySlots.length !== 1 ? 's' : ''} available`}
           </p>
@@ -269,7 +269,7 @@ function TutorCard({ tutor, color, avail, onCellClick }) {
                   <button
                     key={slot}
                     onClick={() => onCellClick(day, slot)}
-                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full border transition hover:opacity-75"
+                    className="text-[11px] md:text-[10px] font-semibold px-2.5 py-1 md:px-2 md:py-0.5 rounded-full border transition hover:opacity-75"
                     style={{ background: color.bg, color: color.text, borderColor: color.border }}
                   >
                     {fmtSlot(slot)}
@@ -375,9 +375,9 @@ export default function AllAvailabilitiesPage() {
         />
       )}
 
-      <div className="max-w-6xl mx-auto px-6 pt-10 pb-24">
+      <div className="max-w-6xl mx-auto px-4 pt-5 md:px-6 md:pt-10 pb-24">
         {/* Header */}
-        <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
+        <div className="flex items-start justify-between mb-5 md:mb-6 flex-wrap gap-3 md:gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Teacher Availabilities</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
@@ -390,7 +390,7 @@ export default function AllAvailabilitiesPage() {
               <button
                 key={v}
                 onClick={() => setView(v)}
-                className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition ${
+                className={`text-xs font-semibold px-4 py-2 md:py-1.5 rounded-lg transition ${
                   view === v
                     ? 'bg-white text-[#062E63] shadow-sm'
                     : 'text-[#325099]/60 hover:text-[#325099]'
@@ -410,10 +410,10 @@ export default function AllAvailabilitiesPage() {
           <>
             {/* Filter chips — grid view only */}
             {view === 'grid' && (
-              <div className="flex flex-wrap items-center gap-2 mb-5">
+              <div className="flex flex-nowrap md:flex-wrap items-center gap-2 mb-5 overflow-x-auto md:overflow-visible whitespace-nowrap -mx-4 px-4 py-1 md:mx-0 md:px-0 md:py-0">
                 <button
                   onClick={() => setFilter('')}
-                  className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
+                  className={`shrink-0 text-xs font-semibold px-3 py-2 md:py-1.5 rounded-full border transition ${
                     filter === ''
                       ? 'bg-[#062E63] text-white border-[#062E63]'
                       : 'bg-white text-[#325099]/60 border-[#DEE7FF] hover:border-[#325099]/40'
@@ -429,7 +429,7 @@ export default function AllAvailabilitiesPage() {
                       key={t.id}
                       onClick={() => setFilter(f => f === t.id ? '' : t.id)}
                       title={`${t.full_name} — ${availabilityUpdatedLabel(t)}`}
-                      className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
+                      className={`shrink-0 text-xs font-semibold px-3 py-2 md:py-1.5 rounded-full border transition ${
                         active ? 'ring-2 ring-offset-1' : 'hover:opacity-80'
                       }`}
                       style={{ background: col.bg, color: col.text, borderColor: col.border }}

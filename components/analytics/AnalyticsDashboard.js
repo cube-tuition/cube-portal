@@ -69,7 +69,7 @@ function Delta({ now, prev, suffix = '', invert = false }) {
 
 function Kpi({ label, value, sub, delta, title }) {
   return (
-    <div className="bg-white rounded-2xl border border-[#DEE7FF] px-5 py-4" title={title}>
+    <div className="bg-white rounded-2xl border border-[#DEE7FF] px-4 md:px-5 py-4" title={title}>
       <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{label}</p>
       <p className="text-[26px] leading-8 font-bold mt-1 font-display tabular-nums" style={{ color: NAVY }}>{value}</p>
       <div className="mt-0.5 min-h-[16px]">
@@ -99,7 +99,7 @@ function SectionTitle({ title, sub, right }) {
     <div className="flex items-baseline gap-3 mb-3 flex-wrap">
       <h2 className="text-base font-bold font-display" style={{ color: NAVY }}>{title}</h2>
       {sub && <span className="text-[11px] text-[#2A2035]/45">{sub}</span>}
-      {right && <div className="ml-auto">{right}</div>}
+      {right && <div className="w-full md:w-auto md:ml-auto">{right}</div>}
     </div>
   )
 }
@@ -462,25 +462,25 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
   )
 
   return (
-    <div className="max-w-7xl mx-auto px-6 md:px-10 pb-20">
+    <div className="max-w-7xl mx-auto px-4 md:px-10 pb-20">
 
       {/* ── Filters ── */}
       <div className="flex items-center gap-2 flex-wrap mb-6">
-        <div className="inline-flex rounded-lg border border-[#DEE7FF] overflow-hidden text-xs font-semibold bg-white">
+        <div className="inline-flex max-w-full rounded-lg border border-[#DEE7FF] overflow-hidden overflow-x-auto text-xs font-semibold bg-white">
           {[['week', 'This week'], ['7d', '7 days'], ['30d', '30 days'], ['term', 'This term'], ['custom', 'Custom']].map(([v, l]) => (
             <button key={v} onClick={() => setRange(v)}
-              className={`px-3 py-1.5 transition ${range === v ? 'bg-[#325099] text-white' : 'text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>{l}</button>
+              className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 transition ${range === v ? 'bg-[#325099] text-white' : 'text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>{l}</button>
           ))}
         </div>
         {range === 'custom' && (
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex flex-wrap items-center gap-1">
             <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className={sel} />
             <span className="text-xs text-[#2A2035]/40">→</span>
             <input type="date" value={customTo} max={today} onChange={e => setCustomTo(e.target.value)} className={sel} />
           </span>
         )}
         <span className="text-[11px] text-[#2A2035]/40">{from} → {to}</span>
-        <div className="ml-auto flex items-center gap-2 flex-wrap">
+        <div className="w-full md:w-auto md:ml-auto grid grid-cols-2 gap-2 [&>select]:min-w-0 md:flex md:items-center md:flex-wrap">
           <select value={fYear} onChange={e => setFYear(e.target.value)} className={sel}>
             <option value="all">All years</option>
             {yearOptions.map(y => <option key={y} value={y}>Year {y}</option>)}
@@ -519,10 +519,10 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
       </div>
 
       {/* ── Trend ── */}
-      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5 mb-8">
+      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5 mb-8">
         <SectionTitle title="Portal engagement" sub={compare ? 'solid = this period · dashed = previous' : null}
           right={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px] font-semibold">
                 {[['active', 'Active students'], ['views', 'Page views'], ['sessions', 'Sessions']].map(([v, l]) => (
                   <button key={v} onClick={() => setTrendMetric(v)}
@@ -565,16 +565,16 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
         <div className="bg-white rounded-2xl border border-[#DEE7FF] divide-y divide-[#F4F7FF]">
           {features.map(f => (
             <div key={f.key}>
-              <button className="w-full grid grid-cols-[1.2fr_2fr_auto_auto_auto] items-center gap-4 px-5 py-3 text-left hover:bg-[#FAFBFF] transition"
+              <button className="w-full grid grid-cols-[minmax(0,1fr)_auto_auto] md:grid-cols-[1.2fr_2fr_auto_auto_auto] items-center gap-x-3 gap-y-1.5 md:gap-4 px-4 md:px-5 py-3 text-left hover:bg-[#FAFBFF] transition"
                 onClick={() => setFeatureOpen(o => o === f.key ? null : f.key)}>
                 <span className="text-sm font-semibold" style={{ color: INK }}>{f.label}</span>
-                <Bar pct={maxFeatureVisits ? (f.visits / maxFeatureVisits) * 100 : 0} />
-                <span className="text-xs tabular-nums text-[#2A2035]/70 w-24 text-right">{f.users} student{f.users === 1 ? '' : 's'} · {f.rate}%</span>
-                <span className="text-xs tabular-nums font-semibold w-16 text-right" style={{ color: NAVY }}>{f.visits}</span>
+                <div className="order-4 col-span-3 md:order-none md:col-span-1"><Bar pct={maxFeatureVisits ? (f.visits / maxFeatureVisits) * 100 : 0} /></div>
+                <span className="order-5 col-span-3 md:order-none md:col-span-1 text-xs tabular-nums text-[#2A2035]/70 md:w-24 md:text-right">{f.users} student{f.users === 1 ? '' : 's'} · {f.rate}%</span>
+                <span className="text-xs tabular-nums font-semibold md:w-16 text-right" style={{ color: NAVY }}>{f.visits}</span>
                 <span className="text-[#325099]/40 text-xs">{featureOpen === f.key ? '▾' : '▸'}</span>
               </button>
               {featureOpen === f.key && (
-                <div className="px-5 pb-4 pt-1 grid md:grid-cols-[1fr_2fr] gap-4">
+                <div className="px-4 md:px-5 pb-4 pt-1 grid md:grid-cols-[1fr_2fr] gap-4">
                   <div className="text-xs text-[#2A2035]/70 space-y-1">
                     <p><span className="font-semibold" style={{ color: NAVY }}>{f.users}</span> unique students ({f.rate}% of view)</p>
                     <p><span className="font-semibold" style={{ color: NAVY }}>{f.visits}</span> visits this period · {f.prevVisits} previous</p>
@@ -606,13 +606,13 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
             ['never', attn.never.length, 'have never opened the portal'],
             ['declining', attn.declining.length, 'activity dropped sharply mid-period'],
           ].map(([key, n, blurb]) => (
-            <div key={key} className={`bg-white rounded-2xl border px-5 py-4 ${n ? 'border-[#F3D9A4]' : 'border-[#DEE7FF]'}`}>
+            <div key={key} className={`bg-white rounded-2xl border px-4 md:px-5 py-4 ${n ? 'border-[#F3D9A4]' : 'border-[#DEE7FF]'}`}>
               <p className="text-[22px] font-bold font-display tabular-nums" style={{ color: n ? '#B45309' : NAVY }}>
                 {n} <span className="text-xs font-semibold text-[#2A2035]/50">student{n === 1 ? '' : 's'}</span>
               </p>
               <p className="text-[11px] text-[#2A2035]/55 mt-0.5 min-h-[28px]">{blurb}</p>
               <button onClick={() => jumpToTable(key)} disabled={!n}
-                className="text-[11px] font-bold text-[#325099] hover:text-[#062E63] disabled:opacity-30 mt-1">
+                className="py-1 md:py-0 text-[11px] font-bold text-[#325099] hover:text-[#062E63] disabled:opacity-30 mt-1">
                 View students →
               </button>
             </div>
@@ -623,8 +623,8 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
       {/* ── Engagement by class ── */}
       <div className="mb-8">
         <SectionTitle title="Engagement by class" sub="sorted highest → lowest · click a class to filter" />
-        <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
-          <table className="w-full text-sm min-w-[760px]">
+        <div className="md:bg-white md:rounded-2xl md:border md:border-[#DEE7FF] overflow-x-auto">
+          <table className="phone-cards w-full text-sm md:min-w-[760px]">
             <thead>
               <tr className="text-left text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 border-b border-[#EEF2FB]">
                 <th className="px-4 py-2.5 font-bold">Class</th>
@@ -640,21 +640,21 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
               {classRows.map(c => (
                 <tr key={c.id} onClick={() => { setFClass(String(c.id)); setAttention(null) }}
                   className={`border-b border-[#F4F7FF] last:border-0 cursor-pointer transition hover:bg-[#FAFBFF] ${String(fClass) === String(c.id) ? 'bg-[#F3F7FF]' : ''}`}>
-                  <td className="px-4 py-2.5 font-semibold" style={{ color: INK }}>{c.name}</td>
-                  <td className="px-3 py-2.5 text-xs text-[#2A2035]/60">{c.teacher}</td>
-                  <td className="px-3 py-2.5 tabular-nums text-xs">{c.active}/{c.total}</td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
+                  <td data-label="" className="px-4 py-2.5 font-semibold" style={{ color: INK }}>{c.name}</td>
+                  <td data-label="Teacher" className="px-3 py-2.5 text-xs text-[#2A2035]/60">{c.teacher}</td>
+                  <td data-label="Active" className="px-3 py-2.5 tabular-nums text-xs">{c.active}/{c.total}</td>
+                  <td data-label="Engagement" className="px-3 py-2.5">
+                    <div className="flex flex-1 min-w-0 items-center gap-2">
                       <div className="flex-1"><Bar pct={c.engagement} color={c.engagement >= 60 ? '#0E7490' : c.engagement >= 40 ? BLUE : '#B45309'} /></div>
                       <span className="text-xs tabular-nums font-semibold w-8" style={{ color: NAVY }}>{c.engagement}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-2.5 tabular-nums text-xs">{c.avgDays.toFixed(1)}</td>
-                  <td className="px-3 py-2.5 tabular-nums text-xs">{c.hw == null ? <span className="text-[#2A2035]/30">—</span> : `${c.hw}%`}</td>
-                  <td className="px-3 py-2.5 tabular-nums text-xs">{c.rq}%</td>
+                  <td data-label="Avg days" className="px-3 py-2.5 tabular-nums text-xs">{c.avgDays.toFixed(1)}</td>
+                  <td data-label="Homework" className="px-3 py-2.5 tabular-nums text-xs">{c.hw == null ? <span className="text-[#2A2035]/30">—</span> : `${c.hw}%`}</td>
+                  <td data-label="Quizzes" className="px-3 py-2.5 tabular-nums text-xs">{c.rq}%</td>
                 </tr>
               ))}
-              {classRows.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">No classes match the filters.</td></tr>}
+              {classRows.length === 0 && <tr><td data-label="" colSpan={7} className="px-4 py-8 text-center text-xs text-[#2A2035]/40">No classes match the filters.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -665,14 +665,14 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
         <SectionTitle title="Student engagement"
           sub={`score = portal engagement over the last ${daysBetween(scoreFrom, to) + 1} days, not academic ability`}
           right={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {attention && (
                 <button onClick={() => setAttention(null)}
                   className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#FEF3C7] text-[#B45309] border border-[#F3D9A4]">
                   {{ inactive: 'Inactive 14+d', never: 'Never seen', quietWeek: 'Quiet this period', declining: 'Declining' }[attention]} ✕
                 </button>
               )}
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search students…" className={`${sel} w-44`} />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search students…" className={`${sel} w-full md:w-44`} />
               <select value={fStatus} onChange={e => setFStatus(e.target.value)} className={sel}>
                 <option value="all">All statuses</option>
                 <option value="high">Highly engaged</option>
@@ -690,7 +690,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
           <table className="w-full text-sm min-w-[860px]">
             <thead>
               <tr className="text-left text-[9px] tracking-[0.16em] uppercase text-[#325099]/60 border-b border-[#EEF2FB]">
-                {sortHead('name', 'Student', 'px-4')}
+                {sortHead('name', 'Student', 'px-4 max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-white')}
                 {sortHead('year', 'Year')}
                 <th className="px-3 py-2.5 font-bold">Classes</th>
                 {sortHead('last', 'Last active')}
@@ -705,7 +705,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
               {tableRows.map(r => (
                 <tr key={r.s.id} onClick={() => setDrawerId(r.s.id)}
                   className="border-b border-[#F4F7FF] last:border-0 cursor-pointer hover:bg-[#FAFBFF] transition">
-                  <td className="px-4 py-2.5 font-semibold whitespace-nowrap" style={{ color: INK }}>{r.s.full_name}</td>
+                  <td className="px-4 py-2.5 font-semibold whitespace-nowrap max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-white" style={{ color: INK }}>{r.s.full_name}</td>
                   <td className="px-3 py-2.5 text-xs tabular-nums">{r.s.year ?? '—'}</td>
                   <td className="px-3 py-2.5 text-[11px] text-[#2A2035]/55 max-w-[180px] truncate">
                     {r.rec.classes.map(c => c.class_name).join(', ') || '—'}
@@ -739,7 +739,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
 
       {/* ── Event-stream sections ── */}
       <div className="grid lg:grid-cols-2 gap-4 mb-8">
-        <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+        <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
           <SectionTitle title="Usage heatmap" sub="sessions by day and time (Sydney)" />
           {studentEvents.length === 0 ? <AccruingNote /> : (
             <div className="grid" style={{ gridTemplateColumns: 'auto repeat(7, 1fr)', gap: 4 }}>
@@ -758,7 +758,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
             </div>
           )}
         </div>
-        <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+        <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
           <SectionTitle title="After the dashboard" sub="where students go next" />
           {journeys.total === 0 ? <AccruingNote /> : (
             <div className="space-y-2">
@@ -776,15 +776,15 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
       </div>
 
       {/* ── Recent activity ── */}
-      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
         <SectionTitle title="Recent activity" sub="latest student page opens" />
         {feed.length === 0 ? <AccruingNote /> : (
           <ul className="divide-y divide-[#F4F7FF]">
             {feed.map(e => (
-              <li key={e.id} className="py-1.5 flex items-baseline gap-3 text-xs">
+              <li key={e.id} className="py-1.5 flex flex-wrap md:flex-nowrap items-baseline gap-x-3 text-xs">
                 <span className="text-[#2A2035]/40 tabular-nums w-24 shrink-0">{sydTime(e.ts)}</span>
                 <span className="font-semibold" style={{ color: INK }}>{firstName(nameById.get(e.user_id) || 'Student')}</span>
-                <span className="text-[#2A2035]/60">opened {featureOf(e.path)?.label || e.path}</span>
+                <span className="min-w-0 break-words text-[#2A2035]/60">opened {featureOf(e.path)?.label || e.path}</span>
               </li>
             ))}
           </ul>
@@ -796,7 +796,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
         <div className="fixed inset-0 z-50" onMouseDown={(e) => { if (e.target === e.currentTarget) setDrawerId(null) }}>
           <div className="absolute inset-0 bg-[#062E63]/30 backdrop-blur-[2px]" onMouseDown={() => setDrawerId(null)} />
           <aside className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl overflow-y-auto">
-            <div className="px-6 py-5 border-b border-[#F0F4FF] bg-[#F8FAFF] sticky top-0">
+            <div className="px-4 md:px-6 py-5 border-b border-[#F0F4FF] bg-[#F8FAFF] sticky top-0">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-bold font-display" style={{ color: NAVY }}>{drawer.s.full_name}</h3>
@@ -804,9 +804,9 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
                     {drawer.s.year ? `Year ${drawer.s.year} · ` : ''}{drawer.rec.classes.map(c => c.class_name).join(' · ') || 'No classes'}
                   </p>
                 </div>
-                <button onClick={() => setDrawerId(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
+                <button onClick={() => setDrawerId(null)} className="shrink-0 p-1.5 -m-1.5 md:p-0 md:m-0 text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
               </div>
-              <div className="flex items-center gap-4 mt-3">
+              <div className="flex flex-wrap md:flex-nowrap items-center gap-x-4 gap-y-2 mt-3">
                 <div>
                   <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">Engagement</p>
                   <p className="text-2xl font-bold font-display tabular-nums" style={{ color: NAVY }}>{drawer.score}<span className="text-xs text-[#2A2035]/40"> /100</span></p>
@@ -823,7 +823,7 @@ export default function AnalyticsDashboard({ students, classes, enrolments, view
               </div>
             </div>
 
-            <div className="px-6 py-5 space-y-6">
+            <div className="px-4 md:px-6 py-5 space-y-6">
               <section>
                 <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-bold mb-2">What builds the score</p>
                 <div className="space-y-2">

@@ -257,7 +257,7 @@ export default function HolidayCoursesEmailPage() {
   const canSend = contentOk && selected.length > 0
 
   // ── Render ───────────────────────────────────────────────────────────────────
-  const pill = (active) => `text-xs font-semibold px-2.5 py-1 rounded-full border transition ${active ? 'bg-[#062E63] text-white border-[#062E63]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`
+  const pill = (active) => `text-xs font-semibold px-3 py-1.5 md:px-2.5 md:py-1 rounded-full border transition ${active ? 'bg-[#062E63] text-white border-[#062E63]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`
   const input = 'w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]'
   const label = 'block text-[11px] font-semibold text-[#325099] mb-1'
   const hint = 'font-normal text-[#325099]/50'
@@ -265,7 +265,7 @@ export default function HolidayCoursesEmailPage() {
   return (
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
-      <div className="max-w-[1400px] mx-auto px-6 py-8">
+      <div className="max-w-[1400px] mx-auto px-4 py-5 md:px-6 md:py-8">
         <div className="flex items-center gap-3 mb-1">
           <Link href="/tutor/emails" className="text-sm text-[#325099] hover:underline">← Emails</Link>
         </div>
@@ -276,7 +276,7 @@ export default function HolidayCoursesEmailPage() {
 
         <div className="flex items-center gap-2 mb-5 flex-wrap">
           <select value={currentId} onChange={e => { const t = templates.find(x => x.id === e.target.value); if (t) loadIntoDraft(t) }}
-            className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white max-w-[280px]">
+            className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white md:max-w-[280px]">
             {templates.length === 0 && <option value="">No templates yet</option>}
             {templates.map(t => <option key={t.id} value={t.id}>{t.name || 'Untitled template'}</option>)}
           </select>
@@ -302,7 +302,7 @@ export default function HolidayCoursesEmailPage() {
           <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] gap-5">
             {/* Left: template */}
             <div className="space-y-5">
-              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Email</p>
                 <label className={label}>Template name (internal)</label>
                 <input value={draft.name} onChange={e => setField('name', e.target.value)} className={`${input} mb-4`} />
@@ -315,7 +315,7 @@ export default function HolidayCoursesEmailPage() {
                 <input value={draft.dates_line} onChange={e => setField('dates_line', e.target.value)} className={input} />
               </section>
 
-              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-bold text-[#062E63]">Subjects</p>
                   <button onClick={addCourse} className="text-[11px] font-semibold text-[#325099] hover:underline">+ Add subject</button>
@@ -323,10 +323,10 @@ export default function HolidayCoursesEmailPage() {
                 {draft.courses.length === 0 && <p className="text-xs text-[#2A2035]/40 mb-2">No subject blocks yet.</p>}
                 <div className="space-y-4">
                   {draft.courses.map((c, i) => (
-                    <div key={i} className="border border-[#EEF2FB] rounded-xl p-4 bg-[#FBFCFF]">
+                    <div key={i} className="border border-[#EEF2FB] rounded-xl p-3 md:p-4 bg-[#FBFCFF]">
                       <div className="flex items-center gap-2 mb-3">
                         <select value={c.class_id || ''} onChange={e => fillFromClass(i, e.target.value ? Number(e.target.value) : null)}
-                          className="flex-1 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white">
+                          className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white">
                           <option value="">Not linked to a holiday class (free text)</option>
                           {holidayTerms.map(t => (
                             <optgroup key={t.id} label={t.name}>
@@ -337,7 +337,7 @@ export default function HolidayCoursesEmailPage() {
                         {c.class_id && holidayClassById[c.class_id] && (
                           <button onClick={() => fillFromClass(i, c.class_id)} title="Refill the title and times from the class" className="text-[11px] font-semibold text-[#325099] hover:underline whitespace-nowrap">↻ Refill</button>
                         )}
-                        <button onClick={() => removeCourse(i)} title="Remove this subject" className="text-[12px] text-[#2A2035]/30 hover:text-[#DC2626]">✕</button>
+                        <button onClick={() => removeCourse(i)} title="Remove this subject" className="shrink-0 p-1.5 -m-1.5 md:p-0 md:m-0 text-[12px] text-[#2A2035]/30 hover:text-[#DC2626]">✕</button>
                       </div>
                       <label className={label}>Title</label>
                       <input value={c.title} onChange={e => setCourse(i, { title: e.target.value })} className={`${input} mb-3`} placeholder="e.g. Mathematics: Head Start on Algebra" />
@@ -353,7 +353,7 @@ export default function HolidayCoursesEmailPage() {
                 )}
               </section>
 
-              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Fees, closing and sign-up</p>
                 <label className={label}>Course fees <span className={hint}>· one line per fee</span></label>
                 <textarea value={draft.fees} onChange={e => setField('fees', e.target.value)} rows={3} className={`${input} leading-relaxed resize-y mb-4`} />
@@ -374,7 +374,7 @@ export default function HolidayCoursesEmailPage() {
                 <textarea value={draft.signoff} onChange={e => setField('signoff', e.target.value)} rows={2} className={`${input} leading-relaxed resize-y`} />
               </section>
 
-              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+              <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Audience</p>
                 <p className="text-[11px] font-semibold text-[#325099] mb-1.5">Student status <span className={hint}>(none = every status)</span></p>
                 <div className="flex flex-wrap gap-1.5 mb-4">
@@ -399,12 +399,12 @@ export default function HolidayCoursesEmailPage() {
             {/* Right: recipients + preview + send */}
             <div className="space-y-5">
               <section className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-                <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 flex items-center justify-between">
+                <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 flex items-center justify-between gap-3">
                   <p className="text-xs font-bold text-[#062E63]">Recipients — {selected.length} of {matchingFamilies.length}</p>
                   {matchingFamilies.length > 0 && (
                     <div className="flex gap-2 text-[10px] font-semibold">
-                      <button onClick={() => setUnchecked(new Set())} className="text-[#325099] hover:underline">All</button>
-                      <button onClick={() => setUnchecked(new Set(matchingFamilies.map(f => f.key)))} className="text-[#325099] hover:underline">None</button>
+                      <button onClick={() => setUnchecked(new Set())} className="px-1.5 py-1 -my-1 md:p-0 md:my-0 text-[#325099] hover:underline">All</button>
+                      <button onClick={() => setUnchecked(new Set(matchingFamilies.map(f => f.key)))} className="px-1.5 py-1 -my-1 md:p-0 md:my-0 text-[#325099] hover:underline">None</button>
                     </div>
                   )}
                 </div>
@@ -412,7 +412,7 @@ export default function HolidayCoursesEmailPage() {
                   {matchingFamilies.length === 0 ? (
                     <p className="text-center text-xs text-[#2A2035]/40 py-8">No students match this audience.</p>
                   ) : matchingFamilies.map(f => (
-                    <label key={f.key} className={`flex items-start gap-2.5 px-4 py-2 cursor-pointer ${!f.parent_email ? 'opacity-50' : ''}`}>
+                    <label key={f.key} className={`flex items-start gap-2.5 px-4 py-2.5 md:py-2 cursor-pointer ${!f.parent_email ? 'opacity-50' : ''}`}>
                       <input type="checkbox" disabled={!f.parent_email} checked={!!f.parent_email && !unchecked.has(f.key)}
                         onChange={() => setUnchecked(prev => { const n = new Set(prev); n.has(f.key) ? n.delete(f.key) : n.add(f.key); return n })}
                         className="mt-0.5" />
@@ -460,14 +460,14 @@ export default function HolidayCoursesEmailPage() {
       </div>
 
       {confirmSend && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setConfirmSend(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[24rem]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-end md:items-center justify-center md:p-4" onClick={() => setConfirmSend(false)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:p-6 w-full md:w-[24rem] max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <p className="text-lg font-bold text-[#062E63] mb-2">Send holiday course email?</p>
             <p className="text-sm text-[#2A2035]/70 mb-1">“{draft.name}” will email <strong>{selected.length}</strong> famil{selected.length === 1 ? 'y' : 'ies'}.</p>
-            <p className="text-xs text-[#2A2035]/50 mb-5">Subject: {draft.email_subject || '(none)'}</p>
+            <p className="text-xs text-[#2A2035]/50 mb-5 break-words">Subject: {draft.email_subject || '(none)'}</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmSend(false)} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 border border-[#DEE7FF] text-[#325099]">Cancel</button>
-              <button onClick={sendAll} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 bg-[#062E63] text-white hover:bg-[#325099]">Send now</button>
+              <button onClick={() => setConfirmSend(false)} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border border-[#DEE7FF] text-[#325099]">Cancel</button>
+              <button onClick={sendAll} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 bg-[#062E63] text-white hover:bg-[#325099]">Send now</button>
             </div>
           </div>
         </div>

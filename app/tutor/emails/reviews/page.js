@@ -163,7 +163,7 @@ export default function ReviewEmailPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile.full_name} isAdmin />
-      <div className="max-w-6xl mx-auto px-6 pt-8 pb-20">
+      <div className="max-w-6xl mx-auto px-4 pt-5 pb-20 md:px-6 md:pt-8">
         <Link href="/tutor/emails" className="text-xs text-[#325099] hover:underline">← Emails</Link>
         <div className="mt-1 mb-4">
           <h1 className="text-2xl font-bold text-[#062E63]">⭐ Review Requests</h1>
@@ -180,7 +180,7 @@ export default function ReviewEmailPage() {
               className={`${INP} flex-1 min-w-[16rem]`} />
             {linkOk && <a href={content.reviewUrl} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-[#325099] hover:underline">Test link ↗</a>}
             <button onClick={saveContent} disabled={savingContent}
-              className="px-3 py-1.5 rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#062E63] disabled:opacity-50">
+              className="px-4 py-2.5 md:px-3 md:py-1.5 rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#062E63] disabled:opacity-50">
               {savingContent ? 'Saving…' : 'Save'}
             </button>
           </div>
@@ -188,9 +188,9 @@ export default function ReviewEmailPage() {
 
         {/* Editable content */}
         <div className="bg-white border border-[#DEE7FF] rounded-2xl mb-6 overflow-hidden">
-          <button onClick={() => setEditOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#F8FAFF] transition">
+          <button onClick={() => setEditOpen(o => !o)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-[#F8FAFF] transition">
             <span className="text-xs font-bold text-[#062E63]">✏️ Edit email text <span className="font-normal text-[#2A2035]/40">— {'{{parent_name}}'}, {'{{student_names}}'} · **bold** · [label](https://…) · previews live</span></span>
-            <span className="text-[#325099] text-xs">{editOpen ? '▲ Collapse' : '▼ Expand'}</span>
+            <span className="shrink-0 text-[#325099] text-xs">{editOpen ? '▲ Collapse' : '▼ Expand'}</span>
           </button>
           {editOpen && (
             <div className="border-t border-[#DEE7FF] p-4">
@@ -204,7 +204,7 @@ export default function ReviewEmailPage() {
                   </div>
                 ))}
               </div>
-              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#F0F4FF]">
+              <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[#F0F4FF]">
                 <button onClick={saveContent} disabled={savingContent}
                   className="px-4 py-2 rounded-xl bg-[#325099] text-white text-xs font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
                   {savingContent ? 'Saving…' : 'Save text'}
@@ -226,12 +226,12 @@ export default function ReviewEmailPage() {
         <div className="grid lg:grid-cols-2 gap-6">
           <div>
             <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF]">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-4 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF]">
                 <p className="text-xs font-bold text-[#062E63]">Recipients — {selected.length} of {families.length} families</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setChecked(defaultSelection(families, log))} className="text-[10px] font-semibold text-[#325099] hover:underline">Not asked yet</button>
-                  <button onClick={() => setChecked(Object.fromEntries(families.map(f => [f.key, !!f.parent_email])))} className="text-[10px] font-semibold text-[#325099] hover:underline">All</button>
-                  <button onClick={() => setChecked({})} className="text-[10px] font-semibold text-[#325099] hover:underline">None</button>
+                  <button onClick={() => setChecked(defaultSelection(families, log))} className="px-1.5 py-1 -my-1 md:p-0 md:my-0 text-[10px] font-semibold text-[#325099] hover:underline">Not asked yet</button>
+                  <button onClick={() => setChecked(Object.fromEntries(families.map(f => [f.key, !!f.parent_email])))} className="px-1.5 py-1 -my-1 md:p-0 md:my-0 text-[10px] font-semibold text-[#325099] hover:underline">All</button>
+                  <button onClick={() => setChecked({})} className="px-1.5 py-1 -my-1 md:p-0 md:my-0 text-[10px] font-semibold text-[#325099] hover:underline">None</button>
                 </div>
               </div>
               <div className="max-h-[440px] overflow-y-auto divide-y divide-[#F0F4FF]">
@@ -239,7 +239,7 @@ export default function ReviewEmailPage() {
                   : families.map(f => {
                     const lg = logOf(f)
                     return (
-                      <label key={f.key} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-[#F8FAFF] transition ${!f.parent_email ? 'opacity-50' : ''}`}>
+                      <label key={f.key} className={`flex items-center gap-3 px-4 py-3 md:py-2.5 cursor-pointer hover:bg-[#F8FAFF] transition ${!f.parent_email ? 'opacity-50' : ''}`}>
                         <input type="checkbox" disabled={!f.parent_email} checked={!!checked[f.key]} onChange={e => setChecked(prev => ({ ...prev, [f.key]: e.target.checked }))} />
                         <span className="flex-1 min-w-0">
                           <span className="block text-xs font-semibold text-[#2A2035] truncate">{f.parent_name || <em className="text-[#2A2035]/40">No guardian email on file</em>}</span>
@@ -270,13 +270,13 @@ export default function ReviewEmailPage() {
                 {!confirmSend ? (
                   <button onClick={() => setConfirmSend(true)} disabled={!linkOk || !selected.length || sending}
                     title={!linkOk ? 'Set the Google review link first' : ''}
-                    className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
+                    className="px-4 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
                     Send to {selected.length} famil{selected.length === 1 ? 'y' : 'ies'}
                   </button>
                 ) : (
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold text-[#92400E]">Really send {selected.length} email{selected.length === 1 ? '' : 's'}?</span>
-                    <button onClick={sendAll} className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition">Yes, send</button>
+                    <button onClick={sendAll} className="px-4 py-2.5 md:py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition">Yes, send</button>
                     <button onClick={() => setConfirmSend(false)} className="px-3 py-2 text-xs font-semibold text-[#2A2035]/50 hover:text-[#2A2035]">Cancel</button>
                   </span>
                 )}

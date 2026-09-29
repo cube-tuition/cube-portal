@@ -556,13 +556,13 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
 
-      <div className="max-w-4xl mx-auto px-6 pt-10 pb-24">
+      <div className="max-w-4xl mx-auto px-4 pt-5 pb-24 md:px-6 md:pt-10">
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <Link href="/tutor/emails" className="text-sm text-[#325099]/50 hover:text-[#325099] transition">← Emails</Link>
         </div>
-        <div className="flex items-start justify-between mb-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">{kind.emailTitle}</h1>
             <p className="text-sm text-[#325099]/60 mt-1">Upload student reports and send personalised emails to families.</p>
@@ -571,7 +571,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
           <select
             value={termId}
             onChange={e => { setTermId(e.target.value); setStudents([]); setUploads({}) }}
-            className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/25"
+            className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/25"
           >
             <option value="">Select term…</option>
             {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -580,13 +580,13 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
 
         {/* Stats bar */}
         {students.length > 0 && (
-          <div className="flex gap-4 mb-6">
+          <div className="grid grid-cols-2 gap-3 md:flex md:gap-4 mb-6">
             {[
               { label: 'Students',  value: students.length },
               { label: 'Families',  value: familiesWithEmail.length },
               { label: 'PDFs ready', value: `${uploadedCount} / ${students.length}` },
             ].map(s => (
-              <div key={s.label} className="bg-white border border-[#DEE7FF] rounded-xl px-4 py-3 flex-1 text-center">
+              <div key={s.label} className="bg-white border border-[#DEE7FF] rounded-xl px-4 py-3 flex-1 text-center last:col-span-2">
                 <div className="text-xl font-bold text-[#062E63]">{s.value}</div>
                 <div className="text-xs text-[#325099]/60 font-semibold mt-0.5">{s.label}</div>
               </div>
@@ -599,10 +599,10 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
+        <div className="flex gap-1 mb-6 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit max-w-full overflow-x-auto">
           {[{ id: 'preview', label: '① Preview & Send' }, { id: 'template', label: '② Email template' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#062E63]'}`}>
+              className={`shrink-0 whitespace-nowrap px-4 py-2 md:py-1.5 rounded-lg text-sm font-semibold transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#062E63]'}`}>
               {t.label}
             </button>
           ))}
@@ -610,7 +610,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
 
         {/* ── Email template ──────────────────────────────────────────────── */}
         {tab === 'template' && (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
+          <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-6">
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-sm font-bold text-[#062E63]">Subject line</h2>
               <button
@@ -661,7 +661,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                 </div>
               ) : (
                 <div className="bg-white rounded-2xl border border-[#FED7AA] overflow-hidden">
-                  <div className="bg-[#FFF7ED] border-b border-[#FED7AA] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="bg-[#FFF7ED] border-b border-[#FED7AA] px-4 md:px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
                     <span className="text-xs font-bold text-[#9A3412]">⚠ Reports not yet sent · {unsentStudents.length} student{unsentStudents.length > 1 ? 's' : ''}</span>
                     <span className="text-[11px] text-[#9A3412]/70">Per student — catches anyone with no family / parent email</span>
                   </div>
@@ -674,10 +674,10 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                           ? { t: 'PDF missing', c: 'bg-[#FEF3C7] text-[#92400E]' }
                           : { t: 'Not sent yet', c: 'bg-[#EEF3FF] text-[#325099]' }
                       return (
-                        <div key={`${s.student_id}_${s.class_id}`} className="px-5 py-2.5 flex items-center justify-between gap-3">
+                        <div key={`${s.student_id}_${s.class_id}`} className="px-4 md:px-5 py-2.5 flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <span className="font-medium text-sm text-[#062E63]">{s.student_name}</span>
-                            <span className="text-xs text-[#325099]/50 ml-2">Y{s.year} · {s.class_name}{s.parent_email ? ` · ${s.parent_email}` : ''}</span>
+                            <span className="text-xs text-[#325099]/50 ml-2 break-all">Y{s.year} · {s.class_name}{s.parent_email ? ` · ${s.parent_email}` : ''}</span>
                           </div>
                           <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0 ${reason.c}`}>{reason.t}</span>
                         </div>
@@ -690,7 +690,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
 
             {/* Family preview cards */}
             <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-              <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-3">
+              <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 md:px-5 py-3">
                 <span className="text-xs font-semibold text-[#325099]/60">
                   {familiesWithEmail.length} {familiesWithEmail.length === 1 ? 'family' : 'families'} · siblings grouped into one email
                 </span>
@@ -720,10 +720,10 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                       ? `${firstNamesStr} ${lastNames[0]}'s family`
                       : `${firstNamesStr}'s family`
                     return (
-                      <div key={i} className={`px-5 py-4 flex items-start justify-between gap-4 transition ${sentResult?.success ? 'bg-[#F0FDF4]' : ''}`}>
+                      <div key={i} className={`px-4 md:px-5 py-4 flex flex-col md:flex-row md:items-start md:justify-between gap-3 md:gap-4 transition ${sentResult?.success ? 'bg-[#F0FDF4]' : ''}`}>
                         <div className="min-w-0">
                           <div className={`font-semibold text-sm ${sentResult?.success ? 'text-[#166534]' : 'text-[#062E63]'}`}>{familyLabel}</div>
-                          <div className="text-xs text-[#325099]/50 mt-0.5">{f.parent_email}</div>
+                          <div className="text-xs text-[#325099]/50 mt-0.5 break-all">{f.parent_email}</div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {f.students.map(s => {
                               const pdfReady = uploads[`${s.student_id}_${s.class_id}`]?.exists
@@ -733,7 +733,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                                   key={`${s.student_id}_${s.class_id}`}
                                   onClick={() => toggleReport(s)}
                                   title={excluded ? 'Excluded — click to include this report in the email' : 'Included — click to leave this report out of the email'}
-                                  className={`text-[11px] font-medium px-2 py-0.5 rounded-full border transition ${
+                                  className={`text-[11px] font-medium px-2.5 py-1 md:px-2 md:py-0.5 rounded-full border transition ${
                                     excluded
                                       ? 'bg-[#F3F4F6] text-[#9CA3AF] border-[#E5E7EB] line-through'
                                       : pdfReady
@@ -750,12 +750,12 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                             <p className="text-[11px] text-[#9A3412] mt-1.5">All reports excluded — this family won’t be emailed.</p>
                           )}
                         </div>
-                        <div className="flex-shrink-0 flex flex-col items-end gap-2">
+                        <div className="flex-shrink-0 flex flex-col items-start md:items-end gap-2">
                           {sentResult ? (
                             sentResult.success ? (
                               <span className="text-xs font-semibold text-[#10b981] bg-[#D1FAE5] px-3 py-1 rounded-full">✓ Sent</span>
                             ) : (
-                              <div className="text-right">
+                              <div className="md:text-right">
                                 <span className="text-xs font-semibold text-red-600 bg-red-50 px-3 py-1 rounded-full">✗ Failed</span>
                                 {sentResult.error && (
                                   <p className="text-[10px] text-red-500 mt-1 max-w-[180px] leading-tight">{sentResult.error}</p>
@@ -773,7 +773,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                               {noneIncluded ? 'No reports selected' : allPDFs ? `${included.length} PDF${included.length > 1 ? 's' : ''} ready` : 'PDFs missing'}
                             </span>
                           )}
-                          <div className="flex gap-1.5">
+                          <div className="flex flex-wrap gap-1.5">
                             {overrides[familyKey(f)] && (
                               <span title="This family has a personalised email" className="text-[11px] font-semibold text-[#6D28D9] border border-[#DDD6FE] bg-[#F5F3FF] px-2.5 py-1 rounded-full self-center">
                                 ✦ Personalised
@@ -781,13 +781,13 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                             )}
                             <button
                               onClick={() => setPreviewFamily(f)}
-                              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1 rounded-full transition"
+                              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 md:py-1 rounded-full transition"
                             >
                               👁 Preview
                             </button>
                             <button
                               onClick={() => openEditor(f)}
-                              className="text-[11px] font-semibold text-[#6D28D9] border border-[#DDD6FE] bg-white hover:bg-[#F5F3FF] px-3 py-1 rounded-full transition"
+                              className="text-[11px] font-semibold text-[#6D28D9] border border-[#DDD6FE] bg-white hover:bg-[#F5F3FF] px-3 py-1.5 md:py-1 rounded-full transition"
                             >
                               ✎ Edit
                             </button>
@@ -795,14 +795,14 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                               onClick={() => handleTestOne(f)}
                               disabled={testingFamily === f.parent_email || isSendingThis || sending || noneIncluded}
                               title="Send this exact email to CUBE staff only (marked TEST)"
-                              className="text-[11px] font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] hover:bg-[#FEF3C7] px-3 py-1 rounded-full transition disabled:opacity-40"
+                              className="text-[11px] font-semibold text-[#92400E] border border-[#FDE68A] bg-[#FFFBEB] hover:bg-[#FEF3C7] px-3 py-1.5 md:py-1 rounded-full transition disabled:opacity-40"
                             >
                               {testingFamily === f.parent_email ? 'Testing…' : '🧪 Test'}
                             </button>
                             <button
                               onClick={() => handleSendOne(f)}
                               disabled={isSendingThis || sending || noneIncluded}
-                              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1 rounded-full transition disabled:opacity-40"
+                              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 md:py-1 rounded-full transition disabled:opacity-40"
                             >
                               {isSendingThis ? 'Sending…' : sentResult?.success ? '↺ Resend' : '✉ Send'}
                             </button>
@@ -847,14 +847,14 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
             {(() => {
               const unsentFamilies = familiesWithEmail.filter(f => !results.find(r => r.email === f.parent_email && r.success))
               return (
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col-reverse items-stretch gap-2 md:flex-row md:items-center md:justify-between">
                   {unsentFamilies.length < familiesWithEmail.length && familiesWithEmail.length > 0 ? (
                     <span className="text-xs text-[#325099]/50">{familiesWithEmail.length - unsentFamilies.length} already sent</span>
                   ) : <span />}
                   <button
                     onClick={handleSend}
                     disabled={sending || unsentFamilies.length === 0}
-                    className="bg-[#062E63] text-white text-sm font-semibold px-8 py-3 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
+                    className="w-full md:w-auto bg-[#062E63] text-white text-sm font-semibold px-8 py-3 rounded-full disabled:opacity-40 hover:bg-[#325099] transition"
                   >
                     {sending ? 'Sending…' : unsentFamilies.length === 0 ? '✓ All sent' : `✉ Send to ${unsentFamilies.length} unsent ${unsentFamilies.length === 1 ? 'family' : 'families'}`}
                   </button>
@@ -868,8 +868,8 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
 
       {/* ── Send confirmation modal ─────────────────────────────────────────── */}
       {confirmSend && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-sm p-6">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm md:px-4">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-sm max-h-[90dvh] overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:p-6">
             <div className="w-11 h-11 rounded-2xl bg-[#FEF9C3] flex items-center justify-center text-2xl mb-4">✉️</div>
             <h2 className="text-base font-bold text-[#062E63] mb-1">Confirm send</h2>
             <p className="text-sm text-[#325099]/70 mb-1">
@@ -882,13 +882,13 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setConfirmSend(null)}
-                className="text-sm font-semibold text-[#325099] px-4 py-2 rounded-full border border-[#DEE7FF] hover:bg-[#F0F4FF] transition"
+                className="flex-1 md:flex-none text-sm font-semibold text-[#325099] px-4 py-2.5 md:py-2 rounded-full border border-[#DEE7FF] hover:bg-[#F0F4FF] transition"
               >
                 Cancel
               </button>
               <button
                 onClick={() => executeSend(confirmSend)}
-                className="text-sm font-semibold bg-[#062E63] text-white px-5 py-2 rounded-full hover:bg-[#325099] transition"
+                className="flex-1 md:flex-none text-sm font-semibold bg-[#062E63] text-white px-5 py-2.5 md:py-2 rounded-full hover:bg-[#325099] transition"
               >
                 Yes, send
               </button>
@@ -900,19 +900,19 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
       {/* ── Email preview modal ─────────────────────────────────────────────── */}
       {previewFamily && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm md:px-4"
           onClick={e => e.target === e.currentTarget && setPreviewFamily(null)}
         >
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-2xl max-h-[90dvh] flex flex-col overflow-hidden">
             {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
-              <div>
+            <div className="flex items-center justify-between gap-3 px-4 md:px-5 py-3.5 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+              <div className="min-w-0">
                 <p className="text-xs font-bold text-[#325099] tracking-wider uppercase">Email Preview</p>
-                <p className="text-sm font-semibold text-[#062E63] mt-0.5">To: {previewFamily.parent_email}</p>
+                <p className="text-sm font-semibold text-[#062E63] mt-0.5 break-all">To: {previewFamily.parent_email}</p>
               </div>
               <button
                 onClick={() => setPreviewFamily(null)}
-                className="text-[#325099]/50 hover:text-[#062E63] text-xl leading-none transition"
+                className="shrink-0 p-1 -m-1 text-[#325099]/50 hover:text-[#062E63] text-xl leading-none transition"
               >
                 ✕
               </button>
@@ -927,7 +927,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
               />
             </div>
             {/* Footer */}
-            <div className="px-5 py-3 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2 shrink-0">
+            <div className="px-4 md:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2 shrink-0">
               <button
                 onClick={() => setPreviewFamily(null)}
                 className="text-sm font-semibold text-[#325099] px-4 py-2 rounded-full border border-[#DEE7FF] hover:bg-[#F0F4FF] transition"
@@ -949,11 +949,11 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
       {/* ── Per-family email editor ── */}
       {editFamily && (
         <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center md:p-4"
           onClick={e => e.target === e.currentTarget && !savingOverride && setEditFamily(null)}
         >
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-            <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4 border-b border-[#EEF1F9]">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] flex flex-col">
+            <div className="flex items-start justify-between gap-4 px-4 md:px-6 pt-5 md:pt-6 pb-4 border-b border-[#EEF1F9]">
               <div className="min-w-0">
                 <h2 className="text-base font-bold text-[#062E63]">Personalise email</h2>
                 <p className="text-sm font-semibold text-[#2A2035] mt-0.5 truncate">
@@ -964,7 +964,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
               </div>
               <button onClick={() => !savingOverride && setEditFamily(null)} className="text-[#325099]/50 hover:text-[#325099] text-xl leading-none shrink-0">✕</button>
             </div>
-            <div className="px-6 py-4 overflow-y-auto">
+            <div className="px-4 md:px-6 py-4 overflow-y-auto">
               <textarea
                 value={editBody}
                 onChange={e => setEditBody(e.target.value)}
@@ -972,7 +972,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
                 className="w-full border border-[#DEE7FF] rounded-xl px-4 py-3 text-sm leading-relaxed text-[#2A2035] focus:outline-none focus:border-[#325099] resize-y font-mono"
               />
             </div>
-            <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-[#EEF1F9]">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 md:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4 border-t border-[#EEF1F9]">
               <button
                 onClick={resetEditor}
                 disabled={savingOverride || !overrides[familyKey(editFamily)]}
@@ -981,7 +981,7 @@ export default function ReportEmailPage({ kind: kindKey = 'end_of_term' }) {
               >
                 ↺ Reset to template
               </button>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   onClick={() => setEditBody(resolvedBody(template, { ...editFamily, students: includedStudents(editFamily) }, term?.name || ''))}
                   disabled={savingOverride}

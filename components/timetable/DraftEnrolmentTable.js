@@ -158,16 +158,16 @@ export default function DraftEnrolmentTable({
             <span className="text-[#325099]/40"> · this draft only — real enrolments change on “Apply to live”</span>
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap text-xs">
+        <div className="flex items-center gap-2 flex-wrap text-xs w-full md:w-auto">
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search student, class, note…"
-            className="border border-[#DEE7FF] rounded-full px-3 py-1.5 w-52 focus:outline-none focus:border-[#325099]" />
+            className="border border-[#DEE7FF] rounded-full px-3 py-2 md:py-1.5 w-full md:w-52 focus:outline-none focus:border-[#325099]" />
           <select value={year} onChange={e => setYear(e.target.value)}
-            className="border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#325099] font-semibold focus:outline-none">
+            className="border border-[#DEE7FF] rounded-full px-3 py-2 md:py-1.5 bg-white text-[#325099] font-semibold focus:outline-none">
             <option value="">All years</option>
             {years.map(y => <option key={y} value={y}>Year {y}</option>)}
           </select>
           <select value={show} onChange={e => setShow(e.target.value)}
-            className="border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#325099] font-semibold focus:outline-none">
+            className="border border-[#DEE7FF] rounded-full px-3 py-2 md:py-1.5 bg-white min-w-0 flex-1 md:flex-initial text-[#325099] font-semibold focus:outline-none">
             <option value="all">All rows</option>
             <option value="changes">Changes only</option>
             <option value="parent">Not confirmed with parent</option>
@@ -176,8 +176,8 @@ export default function DraftEnrolmentTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+      <div className="overflow-x-auto p-3 md:p-0">
+        <table className="w-full text-xs phone-cards">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wide text-[#325099]/50 border-b border-[#EEF2FB]">
               <th className={`${CELL} w-10`}>Yr</th>
@@ -195,7 +195,7 @@ export default function DraftEnrolmentTable({
           </thead>
           <tbody>
             {shown.length === 0 && (
-              <tr><td colSpan={11} className="px-4 py-6 text-center text-[#325099]/40 italic">
+              <tr><td colSpan={11} data-label="" className="px-4 py-6 max-md:text-center! text-center text-[#325099]/40 italic">
                 {rows.length ? 'No rows match these filters.' : 'No students in this draft yet.'}
               </td></tr>
             )}
@@ -206,19 +206,21 @@ export default function DraftEnrolmentTable({
               const newYear = i > 0 && yearNum(studentsById[prev.sid]?.year) !== yearNum(st?.year)
               return (
                 <tr key={r.key}
-                  className={`border-b border-[#E9ECF2] ${newYear ? 'border-t-2 border-t-[#DEE7FF]' : ''} ${r.removed ? 'bg-red-50/60 text-[#325099]/45' : band[i] % 2 ? 'bg-[#E4E7EC] hover:bg-[#D9DDE4]' : 'bg-white hover:bg-[#F8FAFF]'}`}>
-                  <td className={`${CELL} font-semibold text-[#325099]/70`}>{st?.year || '—'}</td>
-                  <td className={`${CELL} font-semibold whitespace-nowrap ${r.removed ? 'line-through' : 'text-[#062E63]'}`}>
-                    {st?.full_name || 'Unknown student'}
-                    {st?.status === 'trial' && <span className="ml-1 text-[10px] font-semibold text-amber-600 no-underline">trial</span>}
+                  className={`border-b border-[#E9ECF2] ${newYear ? 'border-t-2 border-t-[#DEE7FF]' : ''} ${r.removed ? 'bg-red-50/60 max-md:bg-red-50! text-[#325099]/45' : band[i] % 2 ? 'bg-[#E4E7EC] hover:bg-[#D9DDE4]' : 'bg-white hover:bg-[#F8FAFF]'}`}>
+                  <td data-label="Year" className={`${CELL} font-semibold text-[#325099]/70`}>{st?.year || '—'}</td>
+                  <td data-label="Student" className={`${CELL} font-semibold whitespace-nowrap max-md:whitespace-normal ${r.removed ? 'line-through' : 'text-[#062E63]'}`}>
+                    <span>
+                      {st?.full_name || 'Unknown student'}
+                      {st?.status === 'trial' && <span className="ml-1 text-[10px] font-semibold text-amber-600 no-underline">trial</span>}
+                    </span>
                   </td>
-                  <td className={CELL}>
+                  <td data-label="Class" className={CELL}>
                     {r.removed ? (
                       <span className="line-through">{r.entry.class_name || 'Class'}</span>
                     ) : (
                       <select value={String(r.entry.id)} onChange={e => onMove(r.sid, r.entry.id, e.target.value)}
                         title="Move to another class"
-                        className="border border-transparent hover:border-[#DEE7FF] rounded-lg px-1 py-0.5 bg-transparent text-[#325099] max-w-[12rem] focus:outline-none focus:border-[#325099]">
+                        className="border border-transparent max-md:border-[#DEE7FF] hover:border-[#DEE7FF] rounded-lg px-1 py-1 md:py-0.5 bg-transparent text-[#325099] min-w-0 max-w-full md:max-w-[12rem] focus:outline-none focus:border-[#325099]">
                         {classOptions.map(c => (
                           <option key={c.id} value={String(c.id)}
                             disabled={String(c.id) !== String(r.entry.id) && (c.student_ids || []).includes(r.sid)}>
@@ -228,27 +230,29 @@ export default function DraftEnrolmentTable({
                       </select>
                     )}
                   </td>
-                  <td className={`${CELL} whitespace-nowrap ${r.removed ? 'line-through' : ''}`}>{courseName(r.entry.course_id) || '—'}</td>
+                  <td data-label="Course" className={`${CELL} whitespace-nowrap max-md:whitespace-normal ${r.removed ? 'line-through' : ''}`}>{courseName(r.entry.course_id) || '—'}</td>
                   {r.removed ? (
                     <>
-                      <td className={`${CELL} whitespace-nowrap line-through`}>{whenOf(r.entry) || '—'}</td>
-                      <td className={`${CELL} line-through`}>{teacherOf(r.entry) || '—'}</td>
+                      <td data-label="Day / time" className={`${CELL} whitespace-nowrap line-through`}>{whenOf(r.entry) || '—'}</td>
+                      <td data-label="Teacher" className={`${CELL} line-through`}>{teacherOf(r.entry) || '—'}</td>
                     </>
                   ) : (
                     <>
-                      <td className={`${CELL} whitespace-nowrap`} title={CLASS_WIDE}>
-                        <select value={r.entry.day_of_week || ''} onChange={e => onEditClass(r.entry.id, { day_of_week: e.target.value || null })}
-                          className={`${INLINE} w-[4.2rem]`}>
-                          <option value="">—</option>
-                          {DAYS.map(d => <option key={d} value={d}>{d.slice(0, 3)}</option>)}
-                        </select>
-                        <input type="time" value={timeToInput(r.entry.start_time)} onChange={e => e.target.value && setStart(r.entry, e.target.value)}
-                          className={`${INLINE} w-[6.2rem]`} />
-                        <span className="text-[#325099]/40">–</span>
-                        <input type="time" value={timeToInput(r.entry.end_time)} onChange={e => e.target.value && onEditClass(r.entry.id, { end_time: e.target.value })}
-                          className={`${INLINE} w-[6.2rem]`} />
+                      <td data-label="Day / time" className={`${CELL} whitespace-nowrap`} title={CLASS_WIDE}>
+                        <span className="flex flex-wrap items-center justify-end gap-1 md:inline">
+                          <select value={r.entry.day_of_week || ''} onChange={e => onEditClass(r.entry.id, { day_of_week: e.target.value || null })}
+                            className={`${INLINE} max-md:border-[#DEE7FF] w-[4.8rem] md:w-[4.2rem]`}>
+                            <option value="">—</option>
+                            {DAYS.map(d => <option key={d} value={d}>{d.slice(0, 3)}</option>)}
+                          </select>
+                          <input type="time" value={timeToInput(r.entry.start_time)} onChange={e => e.target.value && setStart(r.entry, e.target.value)}
+                            className={`${INLINE} max-md:border-[#DEE7FF] w-[7rem] md:w-[6.2rem]`} />
+                          <span className="text-[#325099]/40">–</span>
+                          <input type="time" value={timeToInput(r.entry.end_time)} onChange={e => e.target.value && onEditClass(r.entry.id, { end_time: e.target.value })}
+                            className={`${INLINE} max-md:border-[#DEE7FF] w-[7rem] md:w-[6.2rem]`} />
+                        </span>
                       </td>
-                      <td className={CELL} title={CLASS_WIDE}>
+                      <td data-label="Teacher" className={CELL} title={CLASS_WIDE}>
                         {(() => {
                           const tid = teacherIdOf(r.entry)
                           return (
@@ -257,7 +261,7 @@ export default function DraftEnrolmentTable({
                                 if (e.target.value === '_raw') return
                                 onEditClass(r.entry.id, { teacher: tutors.find(t => String(t.id) === e.target.value)?.full_name || null })
                               }}
-                              className={`${INLINE} max-w-[9rem]`}>
+                              className={`${INLINE} max-md:border-[#DEE7FF] max-w-[12rem] md:max-w-[9rem]`}>
                               <option value="">— none —</option>
                               {!tid && r.entry.teacher && <option value="_raw">{r.entry.teacher}</option>}
                               {tutors.map(t => <option key={t.id} value={String(t.id)}>{t.full_name}</option>)}
@@ -267,7 +271,8 @@ export default function DraftEnrolmentTable({
                       </td>
                     </>
                   )}
-                  <td className={`${CELL} whitespace-nowrap`}>
+                  <td data-label="Change" className={`${CELL} whitespace-nowrap max-md:whitespace-normal`}>
+                    <span>
                     {r.removed && (
                       <span className="text-red-600 font-semibold" title="Apply to live will disenrol them from this class">
                         ✕ {r.classGone ? 'class removed' : 'removed'}
@@ -284,38 +289,39 @@ export default function DraftEnrolmentTable({
                       <span className="ml-1.5 px-1.5 py-px rounded bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold cursor-help"
                         title={`Not enrolled in this course — ${enrolledSummary(r.sid)}`}>⚠ not enrolled</span>
                     )}
+                    </span>
                   </td>
-                  <td className={`${CELL} text-center`}>
+                  <td data-label="Parent ✓" className={`${CELL} text-center`}>
                     {!r.removed && (
                       <input type="checkbox" checked={!!m.parent} onChange={e => onMeta(r.key, { parent: e.target.checked })}
-                        className="w-4 h-4 accent-emerald-600 cursor-pointer" title="Confirmed with parent" />
+                        className="w-5 h-5 md:w-4 md:h-4 accent-emerald-600 cursor-pointer" title="Confirmed with parent" />
                     )}
                   </td>
-                  <td className={`${CELL} text-center`}>
+                  <td data-label="Teacher ✓" className={`${CELL} text-center`}>
                     {!r.removed && (
                       <input type="checkbox" checked={!!m.teacher} onChange={e => onMeta(r.key, { teacher: e.target.checked })}
-                        className="w-4 h-4 accent-emerald-600 cursor-pointer" title="Confirmed with teacher" />
+                        className="w-5 h-5 md:w-4 md:h-4 accent-emerald-600 cursor-pointer" title="Confirmed with teacher" />
                     )}
                   </td>
-                  <td className={CELL}>
+                  <td data-label="Notes" className={CELL}>
                     <input
                       key={`${draftId}|${r.key}|${m.note || ''}`}
                       defaultValue={m.note || ''}
                       onBlur={e => { if ((e.target.value || '') !== (m.note || '')) onMeta(r.key, { note: e.target.value }) }}
                       onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
                       placeholder="—"
-                      className="w-full border border-transparent hover:border-[#DEE7FF] rounded-lg px-1.5 py-0.5 bg-transparent text-[#062E63] placeholder:text-[#325099]/25 focus:outline-none focus:border-[#325099] focus:bg-white"
+                      className="w-full min-w-0 border border-transparent max-md:border-[#DEE7FF] hover:border-[#DEE7FF] rounded-lg px-1.5 py-1 md:py-0.5 bg-transparent text-[#062E63] placeholder:text-[#325099]/25 focus:outline-none focus:border-[#325099] focus:bg-white"
                     />
                   </td>
-                  <td className={`${CELL} text-center`}>
+                  <td data-label="" className={`${CELL} text-center max-md:text-right!`}>
                     {r.removed ? (
                       !r.classGone && (
                         <button onClick={() => onAdd(r.entry.id, r.sid)} title="Put them back in this class"
-                          className="text-[#325099]/60 hover:text-[#325099] font-bold">↺</button>
+                          className="text-[#325099]/60 hover:text-[#325099] font-bold max-md:text-xs max-md:px-3 max-md:py-2 max-md:rounded-lg max-md:border max-md:border-[#DEE7FF]">↺<span className="md:hidden"> Put back</span></button>
                       )
                     ) : (
                       <button onClick={() => onRemove(r.entry.id, r.sid)} title="Remove from this class (draft only)"
-                        className="text-red-300 hover:text-red-600">✕</button>
+                        className="text-red-300 hover:text-red-600 max-md:text-red-600 max-md:text-xs max-md:font-semibold max-md:px-3 max-md:py-2 max-md:rounded-lg max-md:border max-md:border-red-200">✕<span className="md:hidden"> Remove</span></button>
                     )}
                   </td>
                 </tr>
@@ -327,19 +333,19 @@ export default function DraftEnrolmentTable({
 
       {/* Add an enrolment to the draft */}
       <div className="px-4 py-3 border-t border-[#EEF2FB] flex items-center gap-2 flex-wrap text-xs">
-        <span className="font-semibold text-[#062E63]">+ Add enrolment</span>
-        <div className="relative">
+        <span className="font-semibold text-[#062E63] w-full md:w-auto">+ Add enrolment</span>
+        <div className="relative w-full md:w-auto">
           <input
             value={addQuery}
             onChange={e => { setAddQuery(e.target.value); setAddSid('') }}
             placeholder="Student name…"
-            className={`border rounded-lg px-2.5 py-1.5 w-52 focus:outline-none focus:border-[#325099] ${addSid ? 'border-emerald-300 bg-emerald-50/40' : 'border-[#DEE7FF]'}`}
+            className={`border rounded-lg px-2.5 py-2 md:py-1.5 w-full md:w-52 focus:outline-none focus:border-[#325099] ${addSid ? 'border-emerald-300 bg-emerald-50/40' : 'border-[#DEE7FF]'}`}
           />
           {addMatches.length > 0 && (
             <div className="absolute z-20 bottom-full mb-1 left-0 w-64 bg-white border border-[#DEE7FF] rounded-xl shadow-lg max-h-56 overflow-y-auto">
               {addMatches.map(s => (
                 <button key={s.id} onClick={() => { setAddSid(s.id); setAddQuery(s.full_name || '') }}
-                  className="w-full text-left px-3 py-1.5 text-[#325099] hover:bg-[#F0F4FF]">
+                  className="w-full text-left px-3 py-2.5 md:py-1.5 text-[#325099] hover:bg-[#F0F4FF]">
                   {s.full_name}{s.year ? ` · ${s.year}` : ''}
                   {pickerStatus(s) && <span className="ml-1.5 text-[10px] font-semibold text-[#325099]/45">{pickerStatus(s)}</span>}
                 </button>
@@ -349,12 +355,12 @@ export default function DraftEnrolmentTable({
         </div>
         <span className="text-[#325099]/40">into</span>
         <select value={addClass} onChange={e => setAddClass(e.target.value)}
-          className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 bg-white text-[#325099] max-w-[16rem] focus:outline-none focus:border-[#325099]">
+          className="border border-[#DEE7FF] rounded-lg px-2 py-2 md:py-1.5 bg-white text-[#325099] min-w-0 flex-1 md:flex-initial md:max-w-[16rem] focus:outline-none focus:border-[#325099]">
           <option value="">Choose a class…</option>
           {classOptions.map(c => <option key={c.id} value={String(c.id)}>{classLabel(c)}</option>)}
         </select>
         <button onClick={submitAdd} disabled={!addSid || !addTarget || addDup}
-          className="font-semibold rounded-lg px-3 py-1.5 bg-[#325099] text-white hover:bg-[#062E63] disabled:opacity-40">Add</button>
+          className="font-semibold rounded-lg px-4 py-2.5 md:px-3 md:py-1.5 bg-[#325099] text-white hover:bg-[#062E63] disabled:opacity-40">Add</button>
         {addDup && <span className="text-[#325099]/50">Already in that class.</span>}
         {!addDup && addSid && addTarget && isOffCourse(addSid, addTarget.course_id, addTarget.id) && (
           <span className="text-amber-700" title={enrolledSummary(addSid)}>⚠ not enrolled in this course — {enrolledSummary(addSid)}</span>

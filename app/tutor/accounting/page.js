@@ -97,13 +97,13 @@ function AlertRow({ item, onTask }) {
       <div className="flex items-center gap-1.5 shrink-0">
         {item.markDone && (
           <button onClick={item.markDone} title="Mark done for this period"
-            className="text-[9px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-0.5 rounded-full hover:bg-emerald-100 transition opacity-0 group-hover:opacity-100">
+            className="text-[9px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-0.5 rounded-full hover:bg-emerald-100 transition md:opacity-0 md:group-hover:opacity-100">
             ✓ Done
           </button>
         )}
         {onTask && (
           <button onClick={() => onTask(item)} title="Create a director task from this"
-            className="text-[9px] font-bold text-[#325099] border border-[#DEE7FF] px-2 py-0.5 rounded-full hover:bg-[#F0F4FF] transition opacity-0 group-hover:opacity-100">
+            className="text-[9px] font-bold text-[#325099] border border-[#DEE7FF] px-2 py-0.5 rounded-full hover:bg-[#F0F4FF] transition md:opacity-0 md:group-hover:opacity-100">
             + Task
           </button>
         )}
@@ -449,18 +449,18 @@ export default function AccountingDashboard() {
   return (
     <div className="min-h-screen bg-[#F0F4FF]">
       <TutorNav staffName={profile.full_name} isAdmin />
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-5">
+      <div className="max-w-7xl mx-auto px-4 py-5 md:py-8 space-y-4 md:space-y-5">
 
         {/* Header + money strip */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-end justify-between gap-3 md:gap-4">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-[#062E63]">🧮 Accounting Dashboard</h1>
             <p className="text-sm text-[#325099]/60 mt-0.5">
               Daily command centre · {term ? formatTermLabel(term) : ''}
               {checkedAt && <span className="text-[#2A2035]/35"> · checked {checkedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}</span>}
             </p>
           </div>
-          <button onClick={load} disabled={loading} className="text-xs font-semibold text-white bg-[#062E63] px-3.5 py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-50">
+          <button onClick={load} disabled={loading} className="text-xs font-semibold text-white bg-[#062E63] px-4 md:px-3.5 py-2.5 md:py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-50">
             {loading ? 'Checking…' : '↻ Refresh'}
           </button>
         </div>
@@ -472,9 +472,9 @@ export default function AccountingDashboard() {
             ['Amount paid', fmtMoney(board.paidTotal), `${board.paidCount} invoice${board.paidCount === 1 ? '' : 's'} paid this term`, '#047857'],
             ['Next deadline', nextDeadline ? `${daysUntil(nextDeadline.due)}d` : '—', nextDeadline ? `${nextDeadline.label} · ${fmtD(nextDeadline.due)}` : 'all clear', '#062E63'],
           ].map(([l, v, sub, color]) => (
-            <div key={l} className="bg-white border border-[#DEE7FF] rounded-2xl px-4 py-3.5">
+            <div key={l} className="bg-white border border-[#DEE7FF] rounded-2xl px-3.5 md:px-4 py-3 md:py-3.5 min-w-0">
               <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{l}</p>
-              <p className="text-xl font-bold mt-0.5" style={{ color }}>{v}</p>
+              <p className="text-lg md:text-xl font-bold mt-0.5 tabular-nums truncate" style={{ color }}>{v}</p>
               <p className="text-[10px] text-[#2A2035]/45">{sub}</p>
             </div>
           ))}
@@ -483,15 +483,15 @@ export default function AccountingDashboard() {
         {/* Overdue pay — a kanban column per staff member: what we owe them,
             and which pay run each amount comes from */}
         {unpaidPay.rows.length > 0 && (
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-bold text-[#062E63]">🧾 Overdue pay</p>
             <Link href="/tutor/payroll" className="text-[11px] font-semibold text-[#325099] hover:underline">Open payroll →</Link>
           </div>
 
-          <div className="flex gap-3 overflow-x-auto pb-1">
+          <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0">
             {unpaidPay.rows.map(r => (
-              <div key={r.id} className="w-60 shrink-0 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] flex flex-col">
+              <div key={r.id} className="w-60 max-w-[80vw] md:max-w-none shrink-0 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] flex flex-col">
                 {/* Column header: who, and how much we owe them */}
                 <div className="px-3.5 pt-3 pb-2.5 border-b border-[#E4EAFB]">
                   <p className="text-xs font-bold text-[#2A2035] truncate">
@@ -561,12 +561,12 @@ export default function AccountingDashboard() {
           const retainerTotal = retainers.reduce((s, r) => s + r.total, 0)
           const cashExpenses = cashTeacherPay.total + retainerTotal
           return (
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-3">
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-3">
             <p className="text-xs font-bold text-[#062E63]">💵 Term cash snapshot{term ? ` · ${formatTermLabel(term)}` : ''}</p>
             <Link href="/tutor/accounting/forecast" className="text-[11px] font-semibold text-[#325099] hover:underline">Full forecast →</Link>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3">
             {[
               ['Cash income', fmtMoney(cashIncome), 'cash-marked invoices this term', '#047857'],
               ['Cash expenses', fmtMoney(cashExpenses), 'teacher pay + retainers (cash, full term)', '#B23A3A'],
@@ -574,7 +574,7 @@ export default function AccountingDashboard() {
             ].map(([l, v, sub, color]) => (
               <div key={l} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-4 py-3">
                 <p className="text-[9px] tracking-[0.18em] uppercase text-[#325099]/60 font-bold">{l}</p>
-                <p className="text-xl font-bold mt-0.5" style={{ color }}>{v}</p>
+                <p className="text-xl font-bold mt-0.5 tabular-nums" style={{ color }}>{v}</p>
                 <p className="text-[10px] text-[#2A2035]/45">{sub}</p>
               </div>
             ))}
@@ -626,13 +626,13 @@ export default function AccountingDashboard() {
               .filter(d => !d.done)   // done items disappear from the calendar entirely
               .sort((a, b) => a.due.localeCompare(b.due))
               .map(d => (
-                <div key={d.label} className={`flex items-center gap-3 px-4 py-2.5 ${d.done ? 'opacity-45' : ''}`}>
+                <div key={d.label} className={`flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-1.5 px-4 py-3 md:py-2.5 ${d.done ? 'opacity-45' : ''}`}>
                   <span className="text-base shrink-0">{d.icon}</span>
-                  <span className="flex-1 min-w-0">
+                  <span className="flex-1 min-w-[calc(100%-2.25rem)] md:min-w-0">
                     <span className={`block text-xs font-semibold text-[#2A2035] ${d.done ? 'line-through' : ''}`}>{d.label}</span>
                     <span className="block text-[10px] text-[#2A2035]/45 truncate">{d.description}{d.note ? ` · ${d.note}` : ''}</span>
                   </span>
-                  <a href={d.ato} target="_blank" rel="noreferrer" className="text-[9px] font-semibold text-[#325099] hover:underline shrink-0">ATO ↗</a>
+                  <a href={d.ato} target="_blank" rel="noreferrer" className="ml-8 md:ml-0 text-[9px] font-semibold text-[#325099] hover:underline shrink-0">ATO ↗</a>
                   <span className="text-[11px] text-[#2A2035]/60 tabular-nums w-16 text-right shrink-0">{fmtD(d.due)}</span>
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full w-20 text-center shrink-0 ${
                     d.done ? 'bg-emerald-100 text-emerald-700'
@@ -644,7 +644,7 @@ export default function AccountingDashboard() {
                     {d.done ? '✓ done' : d.days < 0 ? `${-d.days}d overdue` : d.days === 0 ? 'today' : `${d.days}d`}
                   </span>
                   {!d.done ? (
-                    <button onClick={() => markComplianceDone(d.label)} className="text-[9px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-0.5 rounded-full hover:bg-emerald-100 transition shrink-0">✓ Done</button>
+                    <button onClick={() => markComplianceDone(d.label)} className="ml-auto md:ml-0 text-[9px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 px-2.5 md:px-2 py-1.5 md:py-0.5 rounded-full hover:bg-emerald-100 transition shrink-0">✓ Done</button>
                   ) : <span className="w-12 shrink-0" />}
                 </div>
               ))}
@@ -684,8 +684,8 @@ function DirectorBalancesPanel({ directors, ledger, staffName, onChanged }) {
   }
   if (!directors.length) return null
   return (
-    <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-1">
+    <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-1">
         <p className="text-xs font-bold text-[#062E63]">⚖ Director balances</p>
         <Link href="/tutor/payroll" className="text-[11px] font-semibold text-[#325099] hover:underline">Offset pay on the cash schedule →</Link>
       </div>
@@ -696,23 +696,23 @@ function DirectorBalancesPanel({ directors, ledger, staffName, onChanged }) {
           const bal = balances[d.id] || 0
           return (
             <div key={d.id} className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] overflow-hidden">
-              <div className="px-4 pt-3 pb-2.5 border-b border-[#E4EAFB] flex items-end justify-between gap-2">
-                <div>
+              <div className="px-4 pt-3 pb-2.5 border-b border-[#E4EAFB] flex flex-wrap md:flex-nowrap items-end justify-between gap-2">
+                <div className="min-w-0">
                   <p className="text-xs font-bold text-[#2A2035]">{d.full_name}</p>
                   <p className="text-xl font-bold tabular-nums" style={{ color: bal > 0 ? '#B23A3A' : '#047857' }}>{bal > 0 ? `owes ${fmtMoney(bal)}` : 'nothing owing'}</p>
                 </div>
                 <div className="flex gap-1.5 pb-1">
-                  <button onClick={() => setForm({ staff: d, kind: 'debt', amount: '', description: '', date: new Date().toISOString().slice(0, 10) })} className="text-[10px] font-semibold px-2 py-1 rounded-full border border-[#FCA5A5] bg-white text-[#991B1B] hover:bg-[#FEF2F2]">+ Debt</button>
-                  <button onClick={() => setForm({ staff: d, kind: 'repayment', amount: '', description: '', date: new Date().toISOString().slice(0, 10) })} className="text-[10px] font-semibold px-2 py-1 rounded-full border border-[#BACBFF] bg-white text-[#062E63] hover:bg-[#EEF4FF]">+ Cash repaid</button>
+                  <button onClick={() => setForm({ staff: d, kind: 'debt', amount: '', description: '', date: new Date().toISOString().slice(0, 10) })} className="text-[10px] font-semibold px-3 md:px-2 py-2 md:py-1 rounded-full border border-[#FCA5A5] bg-white text-[#991B1B] hover:bg-[#FEF2F2]">+ Debt</button>
+                  <button onClick={() => setForm({ staff: d, kind: 'repayment', amount: '', description: '', date: new Date().toISOString().slice(0, 10) })} className="text-[10px] font-semibold px-3 md:px-2 py-2 md:py-1 rounded-full border border-[#BACBFF] bg-white text-[#062E63] hover:bg-[#EEF4FF]">+ Cash repaid</button>
                 </div>
               </div>
               {form && form.staff.id === d.id && (
                 <div className="px-4 py-3 border-b border-[#E4EAFB] bg-white flex flex-wrap items-end gap-2">
-                  <label className="text-[10px] font-semibold text-[#325099]">Amount<input type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="block w-28 border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs mt-0.5" autoFocus /></label>
+                  <label className="text-[10px] font-semibold text-[#325099]">Amount<input type="number" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} className="block w-32 md:w-28 border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs mt-0.5" autoFocus /></label>
                   <label className="text-[10px] font-semibold text-[#325099]">Date<input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="block border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs mt-0.5" /></label>
                   <label className="text-[10px] font-semibold text-[#325099] flex-1 min-w-[140px]">{form.kind === 'debt' ? 'What for' : 'Note'}<input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="block w-full border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs mt-0.5" placeholder={form.kind === 'debt' ? 'e.g. Personal expenses' : 'e.g. Cash returned to the box'} /></label>
-                  <button onClick={save} disabled={busy || !Number(form.amount)} className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-[#062E63] text-white disabled:opacity-40">{busy ? '…' : form.kind === 'debt' ? 'Add debt' : 'Record repayment'}</button>
-                  <button onClick={() => setForm(null)} className="text-[11px] font-semibold text-[#2A2035]/50">Cancel</button>
+                  <button onClick={save} disabled={busy || !Number(form.amount)} className="text-[11px] font-semibold px-4 md:px-3 py-2.5 md:py-1.5 rounded-lg bg-[#062E63] text-white disabled:opacity-40">{busy ? '…' : form.kind === 'debt' ? 'Add debt' : 'Record repayment'}</button>
+                  <button onClick={() => setForm(null)} className="text-[11px] font-semibold text-[#2A2035]/50 px-2 md:px-0 py-2.5 md:py-0">Cancel</button>
                 </div>
               )}
               <div className="max-h-56 overflow-y-auto divide-y divide-[#EEF2FB]">
@@ -725,7 +725,7 @@ function DirectorBalancesPanel({ directors, ledger, staffName, onChanged }) {
                       <span className="block text-[10px] text-[#2A2035]/45">{fmtD(r.date)} · balance after {fmtMoney(r.running)}</span>
                     </span>
                     <span className="text-xs font-bold tabular-nums shrink-0" style={{ color: r.kind === 'debt' ? '#B23A3A' : '#047857' }}>{r.kind === 'debt' ? '+' : '−'}{fmtMoney(r.amount)}</span>
-                    <button onClick={() => remove(r)} disabled={busy} title={r.kind === 'offset' ? 'Undo this offset' : 'Delete'} className="text-[11px] text-[#2A2035]/30 hover:text-[#DC2626] shrink-0">✕</button>
+                    <button onClick={() => remove(r)} disabled={busy} title={r.kind === 'offset' ? 'Undo this offset' : 'Delete'} className="text-[11px] text-[#2A2035]/30 hover:text-[#DC2626] shrink-0 -mr-2 md:mr-0 p-2 md:p-0">✕</button>
                   </div>
                 ))}
               </div>

@@ -85,8 +85,8 @@ export default function EnrolmentTrend() {
   const last = rows[rows.length - 1]
 
   return (
-    <div className="bg-white rounded-2xl border border-[#F0F4FF] p-5 mb-4">
-      <div className="flex items-baseline justify-between gap-3 mb-4">
+    <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5 mb-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-4">
         <h2 className="text-sm font-bold text-[#062E63]">Enrolments over recent terms</h2>
         <p className="text-[11px] text-[#2A2035]/45">Current term: {last.label}</p>
       </div>

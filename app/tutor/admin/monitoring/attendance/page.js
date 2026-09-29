@@ -40,7 +40,7 @@ const rateColour = (r) =>
 
 function Kpi({ label, value, sub }) {
   return (
-    <div className="bg-white rounded-2xl border border-[#F0F4FF] px-5 py-4">
+    <div className="bg-white rounded-2xl border border-[#F0F4FF] px-4 py-3.5 md:px-5 md:py-4">
       <p className="text-[11px] font-semibold tracking-wide uppercase text-[#325099]/60">{label}</p>
       <p className="text-2xl font-bold text-[#062E63] mt-1 tabular-nums">{value}</p>
       {sub && <p className="text-[11px] text-[#2A2035]/45 mt-0.5">{sub}</p>}
@@ -133,7 +133,7 @@ export default function AttendancePage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={staff?.full_name} isAdmin={true} />
-      <div className="max-w-6xl mx-auto px-6 pt-8 pb-16">
+      <div className="max-w-6xl mx-auto px-4 pt-5 pb-16 md:px-6 md:pt-8">
         <Link href="/tutor/admin/monitoring" className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] transition">← Monitoring</Link>
         <div className="flex items-end justify-between gap-4 mt-1 mb-6 flex-wrap">
           <div>
@@ -143,7 +143,7 @@ export default function AttendancePage() {
             </p>
           </div>
           <select value={termId} onChange={(e) => setTermId(e.target.value)}
-            className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+            className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
             {terms.map(t => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
           </select>
         </div>
@@ -155,29 +155,29 @@ export default function AttendancePage() {
           <p className="text-sm text-[#2A2035]/40 italic py-10 text-center">No attendance has been marked for this term yet.</p>
         ) : (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 md:mb-8">
               <Kpi label="Attendance rate" value={`${stats.rate}%`} sub={`${stats.counted} sessions counted`} />
               <Kpi label="Absences" value={stats.absent} sub="marked absent or moved to a makeup" />
               <Kpi label="Late arrivals" value={stats.late} sub="counted as attending" />
               <Kpi label="Cancelled" value={stats.cancelled} sub="excluded from the rate" />
             </div>
 
-            <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden mb-8">
-              <div className="px-5 py-3 border-b border-[#F0F4FF] flex items-baseline justify-between gap-3">
+            <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden mb-6 md:mb-8">
+              <div className="px-4 md:px-5 py-3 border-b border-[#F0F4FF] flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                 <p className="text-sm font-bold text-[#062E63]">Students to look at</p>
                 <p className="text-[11px] text-[#2A2035]/45">below {Math.round(CONCERN * 100)}%, with at least 3 sessions marked</p>
               </div>
               {stats.concern.length === 0 ? (
-                <p className="px-5 py-6 text-xs text-[#2A2035]/40 italic">No student is below {Math.round(CONCERN * 100)}% this term.</p>
+                <p className="px-4 md:px-5 py-6 text-xs text-[#2A2035]/40 italic">No student is below {Math.round(CONCERN * 100)}% this term.</p>
               ) : (
                 <div className="divide-y divide-[#F4F7FF]">
                   {stats.concern.map(s => (
-                    <div key={s.id} className="px-5 py-2.5 flex items-center gap-3 text-xs">
-                      <span className="font-semibold text-[#062E63] flex-1 min-w-0 truncate">
+                    <div key={s.id} className="px-4 md:px-5 py-2.5 flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-0.5 text-xs">
+                      <span className="font-semibold text-[#062E63] flex-1 basis-full md:basis-0 min-w-0 truncate">
                         {students[s.id]?.full_name || 'Unknown student'}
                         {students[s.id]?.year != null && <span className="text-[#2A2035]/40 font-normal"> · Year {students[s.id].year}</span>}
                       </span>
-                      <span className="text-[#2A2035]/50 tabular-nums shrink-0">
+                      <span className="text-[#2A2035]/50 tabular-nums flex-1 min-w-0 md:flex-none md:shrink-0">
                         {s.present + s.late}/{s.total} attended
                         {s.absent ? ` · ${s.absent} absent` : ''}{s.makeup ? ` · ${s.makeup} makeup` : ''}
                       </span>
@@ -190,10 +190,10 @@ export default function AttendancePage() {
 
             <div className="grid lg:grid-cols-2 gap-4">
               <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
-                <p className="px-5 py-3 border-b border-[#F0F4FF] text-sm font-bold text-[#062E63]">By class</p>
+                <p className="px-4 md:px-5 py-3 border-b border-[#F0F4FF] text-sm font-bold text-[#062E63]">By class</p>
                 <div className="divide-y divide-[#F4F7FF] max-h-[420px] overflow-y-auto">
                   {stats.classRows.map(c => (
-                    <div key={c.id} className="px-5 py-2.5 flex items-center gap-3 text-xs">
+                    <div key={c.id} className="px-4 md:px-5 py-2.5 flex items-center gap-3 text-xs">
                       <span className="font-semibold text-[#062E63] flex-1 min-w-0 truncate">{classes[c.id] || `Class ${c.id}`}</span>
                       <span className="text-[#2A2035]/45 tabular-nums shrink-0">{c.attended}/{c.total}</span>
                       <span className="font-bold tabular-nums shrink-0 w-14 text-right" style={{ color: rateColour(c.rate) }}>{c.rate}%</span>
@@ -203,13 +203,13 @@ export default function AttendancePage() {
               </div>
 
               <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
-                <p className="px-5 py-3 border-b border-[#F0F4FF] text-sm font-bold text-[#062E63]">Most recent absences and lates</p>
+                <p className="px-4 md:px-5 py-3 border-b border-[#F0F4FF] text-sm font-bold text-[#062E63]">Most recent absences and lates</p>
                 {stats.recent.length === 0 ? (
-                  <p className="px-5 py-6 text-xs text-[#2A2035]/40 italic">Nothing recorded.</p>
+                  <p className="px-4 md:px-5 py-6 text-xs text-[#2A2035]/40 italic">Nothing recorded.</p>
                 ) : (
                   <div className="divide-y divide-[#F4F7FF] max-h-[420px] overflow-y-auto">
                     {stats.recent.map((r, i) => (
-                      <div key={i} className="px-5 py-2.5 text-xs">
+                      <div key={i} className="px-4 md:px-5 py-2.5 text-xs">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full shrink-0 ${
                             r.status === 'absent' ? 'bg-[#FEE2E2] text-[#B91C1C]' : 'bg-[#FEF3C7] text-[#92400E]'}`}>{r.status}</span>

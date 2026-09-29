@@ -13,7 +13,7 @@ import { authedFetch } from '../../lib/authedFetch'
  * teacher → Xero employee matching).
  */
 
-const BTN = 'text-sm font-semibold px-4 py-2 rounded-full transition disabled:opacity-50'
+const BTN = 'text-sm font-semibold px-4 py-2.5 md:py-2 rounded-full transition disabled:opacity-50'
 
 // "@ $60/h" for one rate, "8h @ $60/h + 6h @ $50/h" when the fortnight mixed
 // rates — each becomes its own earnings line on the Xero payslip.
@@ -162,13 +162,13 @@ function SetupModal({ onClose }) {
   const SEL = 'w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:border-[#325099]'
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end md:items-center justify-center p-3 md:p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] w-full max-w-2xl max-h-[90dvh] md:max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#DEE7FF]">
           <p className="text-sm font-bold text-[#062E63]">Xero Payroll setup</p>
-          <button onClick={onClose} className="text-[#325099]/40 hover:text-[#325099] text-xl leading-none">✕</button>
+          <button onClick={onClose} className="-mr-2 md:mr-0 p-2 md:p-0 text-[#325099]/40 hover:text-[#325099] text-xl leading-none">✕</button>
         </div>
-        <div className="overflow-y-auto p-5 space-y-5">
+        <div className="overflow-y-auto p-4 md:p-5 space-y-5">
           {!cfg && !err && <p className="text-sm text-[#2A2035]/50 animate-pulse">Loading from Xero…</p>}
           {err && <p className="text-xs text-rose-600 font-semibold">{err}</p>}
           {cfg?.needsReconnect && (
@@ -178,7 +178,7 @@ function SetupModal({ onClose }) {
           )}
           {cfg && !cfg.needsReconnect && (
             <>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className={L}>Pay calendar (fortnightly cycle)</label>
                   <select className={SEL} value={settings.payroll_calendar_id}
@@ -201,7 +201,7 @@ function SetupModal({ onClose }) {
                 earnings line per rate on the payslip, so mixed-rate teachers are paid correctly;
                 Xero’s pay-template rate is used only for a shift with no rate on it.
               </p>
-              <div className="w-56">
+              <div className="w-full md:w-56">
                 <label className={L}>Push hours from (cutover date)</label>
                 <input type="date" className={SEL} value={settings.payroll_from || ''}
                   onChange={e => setSettings(s => ({ ...s, payroll_from: e.target.value }))} />
@@ -212,7 +212,7 @@ function SetupModal({ onClose }) {
                 <p className="text-[10px] uppercase tracking-wider text-[#325099]/70 font-semibold mb-2">Match teachers to Xero employees</p>
                 <div className="space-y-1.5">
                   {(cfg.staff || []).map(s => (
-                    <div key={s.id} className="grid grid-cols-[1fr_260px] gap-3 items-center">
+                    <div key={s.id} className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-1 md:gap-3 items-center">
                       <span className="text-sm text-[#2A2035] truncate">{s.full_name} <span className="text-[10px] text-[#2A2035]/40">({s.staff_table === 'directors' ? 'director' : 'tutor'}{s.active === false ? ' · inactive' : ''})</span></span>
                       <select className={SEL} value={map[s.id] || ''}
                         onChange={e => setMap(m => ({ ...m, [s.id]: e.target.value }))}>
@@ -235,10 +235,10 @@ function SetupModal({ onClose }) {
             </>
           )}
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[#DEE7FF]">
-          <button onClick={onClose} className="text-sm font-semibold text-[#325099] px-3 py-2">Close</button>
+        <div className="flex items-center justify-end gap-2 px-4 md:px-5 py-3 border-t border-[#DEE7FF]">
+          <button onClick={onClose} className="text-sm font-semibold text-[#325099] px-3 py-2.5 md:py-2">Close</button>
           <button onClick={save} disabled={saving || !cfg || cfg.needsReconnect}
-            className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2 rounded-full disabled:opacity-40">
+            className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2.5 md:py-2 rounded-full disabled:opacity-40">
             {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save setup'}
           </button>
         </div>

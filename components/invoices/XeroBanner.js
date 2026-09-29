@@ -129,8 +129,8 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
 
   return (
     <div className="bg-white border border-[#DEE7FF] rounded-xl mb-5 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 md:gap-0 px-4 py-3">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-1">
           <div className={`w-2 h-2 rounded-full ${xeroConnected === null ? 'bg-gray-300 animate-pulse' : xeroConnected ? 'bg-[#10b981]' : 'bg-red-400'}`} />
           <span className="text-sm text-[#062E63] font-semibold">
             Xero {xeroConnected === null ? 'checking…' : xeroConnected ? 'connected' : 'not connected'}
@@ -154,16 +154,16 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
           {xeroConnected && termId && (
             <button onClick={onSync} disabled={xeroSyncing}
-              className="text-xs font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#A7F3D0] hover:bg-[#D1FAE5] px-4 py-1.5 rounded-full transition disabled:opacity-40">
+              className="text-xs font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#A7F3D0] hover:bg-[#D1FAE5] px-4 py-2 md:py-1.5 rounded-full transition disabled:opacity-40">
               {xeroSyncing ? 'Syncing…' : '↑ Sync to Xero'}
             </button>
           )}
           {xeroConnected && termId && onResetXero && (
             resetInfo ? (
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap md:flex-nowrap items-center gap-1.5">
                 <span className="text-[11px] text-[#325099]/70">
                   {resetInfo.loading ? 'Checking…'
                     : resetInfo.error ? `Couldn't check: ${resetInfo.error}`
@@ -192,20 +192,20 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
             ) : (
               <button onClick={askReset} disabled={xeroSyncing}
                 title="Clears the Xero link so these invoices can be pushed again — use after deleting them in Xero"
-                className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full transition disabled:opacity-40">
+                className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] border border-[#DEE7FF] px-3 py-2 md:py-1.5 rounded-full transition disabled:opacity-40">
                 ⟲ Reset Xero link
               </button>
             )
           )}
           {xeroConnected && (
             <button onClick={showSettings ? () => setShowSettings(false) : openSettings}
-              className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full transition">
+              className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] border border-[#DEE7FF] px-3 py-2 md:py-1.5 rounded-full transition">
               {showSettings ? '✕ Close' : '⚙ Account mapping'}
             </button>
           )}
           {xeroConnected === false && (
             <a href="/api/xero/auth"
-              className="text-xs font-semibold text-white bg-[#1ab5ea] hover:bg-[#0ea5d9] px-4 py-1.5 rounded-full transition">
+              className="text-xs font-semibold text-white bg-[#1ab5ea] hover:bg-[#0ea5d9] px-4 py-2 md:py-1.5 rounded-full transition">
               Connect Xero
             </a>
           )}
@@ -276,13 +276,13 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
             </div>
           ) : accounts.length === 0 ? null : (
             <>
-              <div className="flex border-b border-[#DEE7FF] px-4">
+              <div className="flex border-b border-[#DEE7FF] px-4 overflow-x-auto whitespace-nowrap">
                 {[
                   { id: 'global', label: 'Global defaults' },
                   { id: 'items',  label: 'Course → item mapping' + (allCourseNames.length ? ' (' + allCourseNames.length + ')' : '') },
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                    className={`text-xs font-semibold px-4 py-2.5 border-b-2 -mb-px transition ${
+                    className={`shrink-0 text-xs font-semibold px-4 py-2.5 border-b-2 -mb-px transition ${
                       activeTab === tab.id
                         ? 'border-[#062E63] text-[#062E63]'
                         : 'border-transparent text-[#325099]/50 hover:text-[#325099]'
@@ -297,7 +297,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                   <p className="text-[11px] text-[#325099]/50 mb-3">
                     Fallback account codes for line items with no Xero item mapping (discounts, credits, or unmapped courses).
                   </p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                     {/* Classes and 1:1s post to different revenue accounts in
                         Xero. Leave the 1:1 one blank to send both to the class
                         account, as before. */}
@@ -317,7 +317,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                       Choose the bank account that money lands in — Xero requires one, so until it is
                       set nothing is marked paid there.
                     </p>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                       <div>
                         <label className="block text-[10px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-1">Payments land in</label>
                         <select
@@ -340,7 +340,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                   </div>
                   <div className="flex justify-end mt-4">
                     <button onClick={handleSaveGlobal} disabled={saving}
-                      className="text-xs font-semibold bg-[#062E63] text-white px-5 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+                      className="text-xs font-semibold bg-[#062E63] text-white px-5 py-2 md:py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
                       {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save defaults'}
                     </button>
                   </div>
@@ -371,7 +371,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      <div className="grid grid-cols-[1fr_260px] gap-3 px-1">
+                      <div className="hidden md:grid grid-cols-[1fr_260px] gap-3 px-1">
                         <span className="text-[10px] font-semibold text-[#325099]/50 uppercase tracking-wider">Portal course</span>
                         <span className="text-[10px] font-semibold text-[#325099]/50 uppercase tracking-wider">Xero item (Product &amp; Service)</span>
                       </div>
@@ -380,7 +380,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                         const isMapped = !!current.item_code
                         const mappedItem = xeroItems.find(i => i.code === current.item_code)
                         return (
-                          <div key={name} className="grid grid-cols-[1fr_260px] gap-3 items-center bg-white border border-[#DEE7FF] rounded-lg px-3 py-2">
+                          <div key={name} className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-2 md:gap-3 items-center bg-white border border-[#DEE7FF] rounded-lg px-3 py-2">
                             <div className="flex items-center gap-2 min-w-0">
                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isMapped ? 'bg-[#10b981]' : 'bg-[#DEE7FF]'}`} />
                               <div className="min-w-0">
@@ -412,7 +412,7 @@ export function XeroBanner({ xeroConnected, xeroResult, xeroSyncing, termId, onS
                   {allCourseNames.length > 0 && (
                     <div className="flex justify-end mt-4">
                       <button onClick={handleSaveItems} disabled={savingItems}
-                        className="text-xs font-semibold bg-[#062E63] text-white px-5 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+                        className="text-xs font-semibold bg-[#062E63] text-white px-5 py-2 md:py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
                         {savingItems ? 'Saving…' : savedItems ? '✓ Saved' : 'Save item mappings'}
                       </button>
                     </div>

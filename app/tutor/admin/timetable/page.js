@@ -133,14 +133,14 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
   }, [entry.id, draftMode])
 
   return (
-    <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/30 z-50 flex items-end md:items-center justify-center" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[26rem] max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:p-6 w-full md:w-[26rem] max-h-[90dvh] md:max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-5">
           <p className="text-lg font-bold text-[#062E63]">{isNew ? 'New class' : 'Edit class'}</p>
-          <button onClick={onClose} className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none">✕</button>
+          <button onClick={onClose} className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none w-10 h-10 -mr-2 -mt-2 md:w-auto md:h-auto md:m-0">✕</button>
         </div>
 
         {isNew && !draftMode && (
@@ -265,14 +265,14 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
                         <select
                           value=""
                           onChange={e => { if (e.target.value) onMoveStudent(s.id, e.target.value) }}
-                          className="text-[11px] border border-[#DEE7FF] rounded-lg px-1.5 py-0.5 bg-white text-[#325099] max-w-[8rem]"
+                          className="text-[11px] border border-[#DEE7FF] rounded-lg px-1.5 py-1 md:py-0.5 bg-white text-[#325099] max-w-[7rem] md:max-w-[8rem] max-md:shrink-0"
                           title="Move to another class"
                         >
                           <option value="">Move to…</option>
                           {otherClasses.map(c => <option key={c.id} value={c.id}>{c.class_name}</option>)}
                         </select>
                       )}
-                      <button onClick={() => removeStudent(s.id)} className="text-red-400 hover:text-red-600" title="Remove from class">✕</button>
+                      <button onClick={() => removeStudent(s.id)} className="text-red-400 hover:text-red-600 w-8 h-8 md:w-auto md:h-auto shrink-0" title="Remove from class">✕</button>
                     </div>
                   ))}
                 </div>
@@ -288,7 +288,7 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
                   value={stuQuery}
                   onChange={e => setStuQuery(e.target.value)}
                   placeholder="+ Add student — type a name, or a year (e.g. 9)"
-                  className="w-full border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]"
+                  className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 md:py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]"
                 />
                 {matches.length > 0 && (
                   <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-[#DEE7FF] rounded-xl shadow-lg max-h-44 overflow-y-auto">
@@ -296,7 +296,7 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
                       <button
                         key={s.id}
                         onClick={() => { addStudent(s.id); if (!yearQ) setStuQuery('') }}
-                        className="w-full text-left px-3 py-1.5 text-xs text-[#325099] hover:bg-[#F0F4FF]"
+                        className="w-full text-left px-3 py-2.5 md:py-1.5 text-xs text-[#325099] hover:bg-[#F0F4FF]"
                       >
                         {s.full_name}{s.year ? ` · ${s.year}` : ''}
                         {pickerStatus(s) && <span className="ml-1.5 text-[10px] font-semibold text-[#325099]/45">{pickerStatus(s)}</span>}
@@ -343,7 +343,7 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
         <div className="mt-6 space-y-2">
           <button
             onClick={() => onSave(form, pending)}
-            className="w-full bg-[#062E63] text-white text-sm font-semibold rounded-xl py-2.5 hover:bg-[#0a3d82] transition"
+            className="w-full bg-[#062E63] text-white text-sm font-semibold rounded-xl py-3 md:py-2.5 hover:bg-[#0a3d82] transition"
           >
             {isNew ? (draftMode ? `Add to draft${pending.length ? ` with ${pending.length} student${pending.length === 1 ? '' : 's'}` : ''}` : 'Create class') : 'Save changes'}
           </button>
@@ -351,14 +351,14 @@ function ClassModal({ entry, courses, tutors, rooms = [], onClose, onSave, onRem
             <div className="flex items-center gap-2">
               <button
                 onClick={onRemove}
-                className="flex-1 text-sm font-semibold text-[#325099] border border-[#DEE7FF] rounded-xl py-2 hover:border-[#325099] transition"
+                className="flex-1 text-sm font-semibold text-[#325099] border border-[#DEE7FF] rounded-xl py-2.5 md:py-2 hover:border-[#325099] transition"
                 title="Unschedule — keeps the class but returns it to the Add list"
               >
                 Remove from timetable
               </button>
               <button
                 onClick={onDelete}
-                className="px-4 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition"
+                className="px-4 py-2.5 md:py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition"
                 title="Delete the class from the database"
               >
                 Delete
@@ -1234,30 +1234,30 @@ export default function TimetablePage() {
       })()}
 
       {showUnassigned && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowUnassigned(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-[28rem] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between px-6 pt-5 pb-3 border-b border-[#EEF2FB]">
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-end md:items-center justify-center md:p-4" onClick={() => setShowUnassigned(false)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] w-full md:w-[28rem] max-h-[90dvh] md:max-h-[85vh] flex flex-col pb-[env(safe-area-inset-bottom)] md:pb-0" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 px-4 md:px-6 pt-5 pb-3 border-b border-[#EEF2FB]">
               <div>
                 <p className="text-lg font-bold text-[#062E63]">Unassigned enrolments</p>
                 <p className="text-xs text-[#325099]/60 mt-0.5">
                   {unassignedEnrolments.length} enrolment{unassignedEnrolments.length === 1 ? '' : 's'} not yet placed in this draft
                 </p>
               </div>
-              <button onClick={() => setShowUnassigned(false)} className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none">✕</button>
+              <button onClick={() => setShowUnassigned(false)} className="text-[#325099]/30 hover:text-[#325099] text-xl leading-none w-10 h-10 -mr-2 -mt-2 shrink-0 md:w-auto md:h-auto md:m-0">✕</button>
             </div>
             {unassignedEnrolments.length === 0 ? (
-              <p className="text-sm text-emerald-700 px-6 py-10 text-center">✓ Every enrolment is placed in a class.</p>
+              <p className="text-sm text-emerald-700 px-4 md:px-6 py-10 text-center">✓ Every enrolment is placed in a class.</p>
             ) : (
               <>
-                <div className="px-6 py-3 border-b border-[#EEF2FB]">
+                <div className="px-4 md:px-6 py-3 border-b border-[#EEF2FB]">
                   <input
                     value={unassignedQuery}
                     onChange={e => setUnassignedQuery(e.target.value)}
                     placeholder="Search by student or course…"
-                    className="w-full border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:border-[#325099]"
+                    className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:border-[#325099]"
                   />
                 </div>
-                <div className="overflow-y-auto px-6 py-3">
+                <div className="overflow-y-auto px-4 md:px-6 py-3">
                   {(() => {
                     const q = unassignedQuery.trim().toLowerCase()
                     const list = q
@@ -1297,9 +1297,9 @@ export default function TimetablePage() {
         </div>
       )}
 
-      <div className="max-w-[1400px] mx-auto px-6 pt-10 pb-24">
+      <div className="max-w-[1400px] mx-auto px-4 pt-5 md:px-6 md:pt-10 pb-24">
         {/* Header */}
-        <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
+        <div className="flex items-start justify-between mb-5 md:mb-6 flex-wrap gap-3 md:gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Timetable Planner</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
@@ -1312,7 +1312,7 @@ export default function TimetablePage() {
             <select
               value={termId}
               onChange={e => setTermId(e.target.value)}
-              className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+              className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2.5 md:py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
             >
               {terms.map(t => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
             </select>
@@ -1322,7 +1322,7 @@ export default function TimetablePage() {
               <button
                 onClick={() => enterDraft()}
                 title="Open a saved draft plan (or start one). Edits never touch the live timetable."
-                className="text-sm font-semibold rounded-xl px-4 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition"
+                className="text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition"
               >
                 ✏️ Drafts
               </button>
@@ -1332,31 +1332,31 @@ export default function TimetablePage() {
                   value={draftId}
                   onChange={e => switchDraft(e.target.value)}
                   title="Choose a draft plan"
-                  className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] max-w-[260px]"
+                  className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2.5 md:py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] md:max-w-[260px]"
                 >
                   {drafts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
                 <button onClick={newDraft} title="New draft (seeded from the live timetable)"
-                  className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition">+ New</button>
+                  className="text-sm font-semibold rounded-xl px-3 py-2.5 md:py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition">+ New</button>
                 {liveMissing.length > 0 && (
                   <button onClick={importLive}
                     title="Add every live class this draft doesn't have yet, with its current students"
-                    className={`text-sm font-semibold rounded-xl px-3 py-2 border transition ${entries.length === 0 ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
+                    className={`text-sm font-semibold rounded-xl px-3 py-2.5 md:py-2 border transition ${entries.length === 0 ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
                     ⤓ Import {liveMissing.length} live class{liveMissing.length === 1 ? '' : 'es'}
                   </button>
                 )}
                 <button onClick={renameDraftNow} title="Rename this draft" aria-label="Rename this draft"
-                  className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition whitespace-nowrap">✎ Rename</button>
+                  className="text-sm font-semibold rounded-xl px-3 py-2.5 md:py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition whitespace-nowrap">✎ Rename</button>
                 {hiddenIds.size > 0 && (
                   <button onClick={() => { setHiddenIds(new Set()); setDraftDirty(true) }}
                     title="Show all cards hidden in this draft"
-                    className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition">
+                    className="text-sm font-semibold rounded-xl px-3 py-2.5 md:py-2 border bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099] transition">
                     Show {hiddenIds.size} hidden
                   </button>
                 )}
                 <button onClick={() => setShowUnassigned(true)}
                   title="Enrolments this draft hasn't placed — each subject a student takes counts separately"
-                  className={`text-sm font-semibold rounded-xl px-3 py-2 border transition ${
+                  className={`text-sm font-semibold rounded-xl px-3 py-2.5 md:py-2 border transition ${
                     unassignedEnrolments.length
                       ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
                       : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
@@ -1364,18 +1364,18 @@ export default function TimetablePage() {
                   {unassignedEnrolments.length ? `⚠ ${unassignedEnrolments.length} unassigned` : '✓ All placed'}
                 </button>
                 <button onClick={saveDraftNow} disabled={savingDraft || !draftDirty}
-                  className="text-sm font-semibold rounded-xl px-4 py-2 border bg-[#325099] text-white border-[#325099] hover:bg-[#062E63] transition disabled:opacity-50">
+                  className="text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border bg-[#325099] text-white border-[#325099] hover:bg-[#062E63] transition disabled:opacity-50">
                   {savingDraft ? 'Saving…' : draftDirty ? 'Save draft' : 'Saved ✓'}
                 </button>
                 <button onClick={applyToLive} disabled={applying}
                   title="Push this draft onto the live timetable"
-                  className="text-sm font-semibold rounded-xl px-4 py-2 border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 transition disabled:opacity-50">
+                  className="text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 transition disabled:opacity-50">
                   {applying ? 'Applying…' : 'Apply to live'}
                 </button>
                 <button onClick={removeDraft} title="Delete this draft plan"
-                  className="text-sm font-semibold rounded-xl px-3 py-2 border bg-white text-[#B23A3A] border-[#F3C0C0] hover:bg-[#FFF5F5] transition">Delete</button>
+                  className="text-sm font-semibold rounded-xl px-3 py-2.5 md:py-2 border bg-white text-[#B23A3A] border-[#F3C0C0] hover:bg-[#FFF5F5] transition">Delete</button>
                 <button onClick={exitDraft} title="Leave drafts and return to the live timetable"
-                  className="text-sm font-semibold rounded-xl px-4 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition">Exit</button>
+                  className="text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition">Exit</button>
               </>
             )}
 
@@ -1383,7 +1383,7 @@ export default function TimetablePage() {
               <button
                 onClick={openPdfModal}
                 title="Download the timetable as a PDF — pick which classes are in it"
-                className="text-sm font-semibold rounded-xl px-4 py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition"
+                className="text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099] transition"
               >
                 ↓ Download PDF
               </button>
@@ -1392,7 +1392,7 @@ export default function TimetablePage() {
               <button
                 onClick={togglePublish}
                 title="Show this term's timetable on the public website"
-                className={`text-sm font-semibold rounded-xl px-4 py-2 border transition ${
+                className={`text-sm font-semibold rounded-xl px-4 py-2.5 md:py-2 border transition ${
                   selectedTerm?.published_on_website
                     ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
                     : 'bg-white text-[#062E63] border-[#DEE7FF] hover:border-[#325099]'
@@ -1444,28 +1444,28 @@ export default function TimetablePage() {
             { k: 'teacher', label: 'All teachers', opts: filterOptions.teachers.map(t => ({ v: t.id, l: t.full_name })) },
           ].map(f => (
             <select key={f.k} value={filters[f.k]} onChange={e => setFilters(prev => ({ ...prev, [f.k]: e.target.value }))}
-              className={`border rounded-full px-3 py-1.5 font-semibold bg-white focus:outline-none focus:border-[#325099] ${filters[f.k] ? 'border-[#325099] text-[#062E63]' : 'border-[#DEE7FF] text-[#325099]'}`}>
+              className={`border rounded-full px-3 py-2 md:py-1.5 font-semibold bg-white focus:outline-none focus:border-[#325099] ${filters[f.k] ? 'border-[#325099] text-[#062E63]' : 'border-[#DEE7FF] text-[#325099]'}`}>
               <option value="">{f.label}</option>
               {f.opts.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
             </select>
           ))}
           {filtersOn && (
             <>
-              <button onClick={() => setFilters({ year: '', subject: '', teacher: '' })} className="font-semibold text-[#325099] hover:underline">Clear</button>
+              <button onClick={() => setFilters({ year: '', subject: '', teacher: '' })} className="font-semibold text-[#325099] hover:underline py-2 md:py-0">Clear</button>
               <span className="text-[#325099]/40">{shownRows.length} of {decorated.rows.length} shown</span>
             </>
           )}
         </div>
 
         {/* Teacher colour legend + weekly hours tally */}
-        <div className="flex items-center gap-x-2.5 gap-y-1.5 mb-4 flex-wrap">
+        <div className="flex items-center gap-x-2.5 gap-y-1.5 mb-4 flex-nowrap md:flex-wrap overflow-x-auto md:overflow-visible whitespace-nowrap -mx-4 px-4 md:mx-0 md:px-0">
           {tutors.map((t) => {
             const c = colorForTutor(t.id)
             const mins = hoursByTutor[t.id] || 0
             return (
               <span
                 key={t.id}
-                className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full border"
+                className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full border"
                 style={{ background: c.bg, color: c.text, borderColor: c.border, opacity: mins ? 1 : 0.5 }}
               >
                 {t.full_name.split(' ')[0]}
@@ -1474,7 +1474,7 @@ export default function TimetablePage() {
             )
           })}
           {hoursByTutor._none > 0 && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full border"
+            <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full border"
               style={{ background: GREY.bg, color: GREY.text, borderColor: GREY.border }}>
               Unassigned <span className="font-bold">{fmtHours(hoursByTutor._none)}</span>
             </span>
@@ -1482,7 +1482,7 @@ export default function TimetablePage() {
         </div>
 
         {draftMode && !loading && entries.length === 0 && (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 flex items-center justify-between gap-3 flex-wrap">
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 md:px-5 py-4 text-sm text-amber-800 flex items-center justify-between gap-3 flex-wrap">
             <span>This draft is empty — it was created before this term had classes. Import the live timetable to start from the real layout, or double-click a slot to add classes from scratch.</span>
             {liveMissing.length > 0 && (
               <button onClick={importLive} className="text-sm font-semibold rounded-xl px-4 py-2 bg-amber-600 text-white hover:bg-amber-700 transition shrink-0">
@@ -1497,7 +1497,77 @@ export default function TimetablePage() {
             <div className="w-6 h-6 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
+          <>
+          {/* Phones: the week as a day-by-day list (the drag grid needs a wide screen) */}
+          <div className="md:hidden space-y-3">
+            <button
+              onClick={() => setEditing({ day_of_week: 'Monday', start_time: '16:00', end_time: '17:00' })}
+              className="w-full text-sm font-semibold rounded-xl py-2.5 border border-dashed border-[#C7D5F8] bg-white text-[#325099] active:bg-[#F3F6FF]"
+            >
+              + New class
+            </button>
+            {DAYS.filter(day => layoutForDay(day).length).length === 0 && (
+              <p className="bg-white rounded-2xl border border-[#DEE7FF] px-4 py-8 text-center text-sm text-[#325099]/50">
+                No classes on the timetable{filtersOn ? ' match these filters' : ' yet'}.
+              </p>
+            )}
+            {DAYS.map(day => {
+              const evs = layoutForDay(day)
+              if (!evs.length) return null
+              return (
+                <section key={day} className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-[#F8FAFF] border-b border-[#DEE7FF]">
+                    <p className="text-xs font-bold text-[#062E63] uppercase tracking-wider">{day}</p>
+                    <span className="text-[11px] font-semibold text-[#325099]/50">{evs.length} class{evs.length === 1 ? '' : 'es'}</span>
+                  </div>
+                  <div className="divide-y divide-[#F0F4FF]">
+                    {evs.map(ev => {
+                      const col = colorForTutor(ev.tutor_id)
+                      const isClash = decorated.clash.has(ev.id)
+                      const isOff = decorated.offAvail.has(ev.id)
+                      const title = ev.class_name || courseLabel(ev.course_id) || 'Class'
+                      return (
+                        <div key={ev.id} className="flex items-stretch">
+                          <button onClick={() => openEdit(ev)} className="flex-1 min-w-0 flex items-start gap-3 px-4 py-3 text-left active:bg-[#F8FAFF]">
+                            <span className="w-1 self-stretch rounded-full shrink-0"
+                              style={{ background: isClash ? '#ef4444' : isOff ? '#f59e0b' : col.text }} />
+                            <span className="w-16 shrink-0 text-xs font-semibold text-[#062E63] tabular-nums leading-snug">
+                              {fmtTime(ev.s)}<span className="block text-[11px] font-normal text-[#325099]/50">{fmtTime(ev.e)}</span>
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-sm font-semibold leading-snug break-words" style={{ color: col.text }}>
+                                {isClash && '⚠ '}{isDraftNew(ev.id) && '✦ '}{title}
+                              </span>
+                              {(ev.teacher || ev.room) && (
+                                <span className="block text-xs text-[#2A2035]/60 truncate">
+                                  {isOff && '◷ '}{teacherShort(ev)}{ev.teacher && ev.room ? ' · ' : ''}{ev.room || ''}
+                                </span>
+                              )}
+                              {offCourseByEntry[ev.id] && (
+                                <span className="inline-block mt-1 px-1.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                  ⚠ {offCourseByEntry[ev.id].size} not enrolled
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                          {draftMode && (
+                            <button
+                              onClick={() => { setHiddenIds(prev => { const n = new Set(prev); n.add(ev.id); return n }); setDraftDirty(true) }}
+                              title="Hide from this draft (doesn’t delete the class)"
+                              aria-label="Hide from this draft"
+                              className="w-11 shrink-0 flex items-center justify-center text-lg text-[#5B6477]/60 active:text-[#B23A3A]"
+                            >×</button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+
+          <div className="hidden md:block bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
             <div className="min-w-[900px]">
               {/* Day headers */}
               <div className="flex border-b border-[#DEE7FF] sticky top-0 bg-white z-10">
@@ -1611,6 +1681,7 @@ export default function TimetablePage() {
               </div>
             </div>
           </div>
+          </>
         )}
 
         {draftMode && !loading && (
@@ -1642,22 +1713,22 @@ export default function TimetablePage() {
         )}
 
         {pdfModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm md:p-4"
             onClick={(e) => { if (e.target === e.currentTarget) setPdfModal(false) }}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
-              <div className="px-6 py-4 border-b border-[#F0F4FF] flex items-start justify-between gap-3">
+            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90dvh] md:max-h-[85vh]">
+              <div className="px-4 md:px-6 py-4 border-b border-[#F0F4FF] flex items-start justify-between gap-3">
                 <div>
                   <p className="text-base font-bold text-[#062E63]">Download timetable PDF</p>
                   <p className="text-[11px] text-[#2A2035]/50 mt-0.5">Untick anything that shouldn&rsquo;t be on the sheet.</p>
                 </div>
                 <button onClick={() => setPdfModal(false)}
-                  className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+                  className="w-10 h-10 md:w-8 md:h-8 shrink-0 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
               </div>
-              <div className="px-6 py-2 border-b border-[#F0F4FF] flex items-center gap-3 text-[11px]">
+              <div className="px-4 md:px-6 py-2 border-b border-[#F0F4FF] flex items-center gap-3 text-[11px]">
                 <button onClick={() => setPdfSel(new Set(decorated.rows.map(r => r.id)))}
-                  className="font-semibold text-[#325099] hover:underline">Select all</button>
+                  className="font-semibold text-[#325099] hover:underline py-1.5 md:py-0">Select all</button>
                 <button onClick={() => setPdfSel(new Set())}
-                  className="font-semibold text-[#325099] hover:underline">Select none</button>
+                  className="font-semibold text-[#325099] hover:underline py-1.5 md:py-0">Select none</button>
                 <span className="ml-auto text-[#2A2035]/40 tabular-nums">{pdfSel.size} of {decorated.rows.length}</span>
               </div>
               <div className="overflow-y-auto flex-1 px-3 py-2">
@@ -1668,7 +1739,7 @@ export default function TimetablePage() {
                       const on = pdfSel.has(r.id)
                       const c = colorForTutor(r.tutor_id)
                       return (
-                        <label key={r.id} className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-[#F8FAFF] cursor-pointer">
+                        <label key={r.id} className="flex items-center gap-2.5 px-3 py-2.5 md:py-1.5 rounded-lg hover:bg-[#F8FAFF] cursor-pointer">
                           <input type="checkbox" checked={on} onChange={() => togglePdfRow(r.id)} className="accent-[#325099]" />
                           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.text }} />
                           <span className="text-xs font-semibold text-[#2A2035] flex-1 min-w-0 truncate">
@@ -1683,11 +1754,11 @@ export default function TimetablePage() {
                   </div>
                 ))}
               </div>
-              <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+              <div className="px-4 md:px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
                 <button onClick={() => setPdfModal(false)}
-                  className="text-xs font-semibold text-[#2A2035]/50 px-4 py-2 rounded-full hover:bg-[#F8FAFF] transition">Cancel</button>
+                  className="text-xs font-semibold text-[#2A2035]/50 px-4 py-2.5 md:py-2 rounded-full hover:bg-[#F8FAFF] transition">Cancel</button>
                 <button onClick={doPdfDownload} disabled={pdfBusy || pdfSel.size === 0}
-                  className="text-xs font-bold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2 rounded-full transition disabled:opacity-40">
+                  className="text-xs font-bold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2.5 md:py-2 rounded-full transition disabled:opacity-40">
                   {pdfBusy ? 'Building…' : `↓ Download (${pdfSel.size})`}
                 </button>
               </div>
@@ -1695,7 +1766,7 @@ export default function TimetablePage() {
           </div>
         )}
 
-        <p className="text-[11px] text-[#325099]/40 mt-4 text-center">
+        <p className="hidden md:block text-[11px] text-[#325099]/40 mt-4 text-center">
           {draftMode
             ? 'Draft plan — double-click an empty slot to add a class, drag to move, click a card to edit and allocate students, × to hide. Save draft to keep it; Apply to live creates the new classes, enrols their students and pushes every change onto the real timetable.'
             : 'Double-click an empty slot to create a class · drag cards to reschedule · click a card to edit · changes save to the class instantly'}

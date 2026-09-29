@@ -141,13 +141,13 @@ export default function FormsAdminPage() {
   const subCols = useMemo(() => (current?.fields || []), [current])
   const input = 'w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099] bg-white'
   const label = 'block text-[11px] font-semibold text-[#325099] mb-1'
-  const small = 'text-xs font-semibold rounded-lg px-2.5 py-1.5 border'
+  const small = 'text-xs font-semibold rounded-lg px-3 py-2 md:px-2.5 md:py-1.5 border'
 
   return (
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
-      <div className="max-w-[1400px] mx-auto px-6 py-8">
-        <h1 className="text-2xl font-bold text-[#062E63] mb-6">Forms</h1>
+      <div className="max-w-[1400px] mx-auto px-4 py-5 md:px-6 md:py-8">
+        <h1 className="text-2xl font-bold text-[#062E63] mb-4 md:mb-6">Forms</h1>
         {error && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl px-4 py-2">{error}</div>}
 
         {loading ? <p className="text-sm text-[#2A2035]/40 py-12 text-center animate-pulse">Loading…</p> : (
@@ -157,7 +157,7 @@ export default function FormsAdminPage() {
               <section className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
                 <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 flex items-center justify-between">
                   <p className="text-xs font-bold text-[#062E63]">Portal forms</p>
-                  <button onClick={newForm} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New form</button>
+                  <button onClick={newForm} className="text-[11px] font-semibold text-[#325099] hover:underline py-2 -my-2 md:py-0 md:my-0">+ New form</button>
                 </div>
                 <div className="divide-y divide-[#F0F4FF]">
                   {forms.length === 0 && <p className="text-center text-xs text-[#2A2035]/40 py-8">No forms yet.</p>}
@@ -166,7 +166,7 @@ export default function FormsAdminPage() {
                     return (
                       <div key={f.id} className={`px-4 py-3 ${f.id === currentId ? 'bg-[#F3F6FF]' : ''}`}>
                         <div className="flex items-start justify-between gap-2">
-                          <button onClick={() => openForm(f, mode)} className="text-left min-w-0">
+                          <button onClick={() => openForm(f, mode)} className="text-left min-w-0 flex-1 md:flex-initial">
                             <span className="block text-sm font-semibold text-[#062E63] truncate">{f.title}</span>
                             <span className="block text-[11px] text-[#2A2035]/45 truncate">{publicFormUrl(f.slug)}</span>
                           </button>
@@ -190,7 +190,7 @@ export default function FormsAdminPage() {
                 <div className="divide-y divide-[#F0F4FF]">
                   {WEBSITE_FORMS.map(w => (
                     <div key={w.url} className="px-4 py-3">
-                      <span className="block text-sm font-semibold text-[#062E63]">{w.title}</span>
+                      <span className="block text-sm font-semibold text-[#062E63] break-words">{w.title}</span>
                       <a href={w.url} target="_blank" rel="noreferrer" className="block text-[11px] text-[#325099] hover:underline truncate">{w.url}</a>
                       <p className="text-[11px] text-[#2A2035]/45 mt-1">{w.note} {w.href && <Link href={w.href} className="text-[#325099] hover:underline">Open Trials →</Link>}</p>
                     </div>
@@ -207,10 +207,10 @@ export default function FormsAdminPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex rounded-xl border border-[#DEE7FF] overflow-hidden bg-white">
                     {['edit', 'submissions'].map(m => (
-                      <button key={m} onClick={() => setMode(m)} className={`text-xs font-semibold px-4 py-2 ${mode === m ? 'bg-[#062E63] text-white' : 'text-[#325099] hover:bg-[#F3F6FF]'}`}>{m === 'edit' ? 'Edit form' : 'Submissions'}</button>
+                      <button key={m} onClick={() => setMode(m)} className={`text-xs font-semibold px-4 py-2.5 md:py-2 ${mode === m ? 'bg-[#062E63] text-white' : 'text-[#325099] hover:bg-[#F3F6FF]'}`}>{m === 'edit' ? 'Edit form' : 'Submissions'}</button>
                     ))}
                   </div>
-                  <span className="text-sm font-bold text-[#062E63] ml-2 truncate">{current?.title}</span>
+                  <span className="order-first md:order-none w-full md:w-auto min-w-0 text-base md:text-sm font-bold text-[#062E63] md:ml-2 truncate">{current?.title}</span>
                   <div className="ml-auto flex items-center gap-2">
                     <button onClick={() => toggleActive(current)} className={`${small} bg-white border-[#DEE7FF] hover:border-[#325099] ${current?.active ? 'text-[#B23A3A]' : 'text-emerald-700'}`}>{current?.active ? 'Close form' : 'Open form'}</button>
                     <button onClick={deleteForm} className={`${small} bg-white text-[#B23A3A] border-[#F3C0C0] hover:bg-[#FFF5F5]`}>Delete</button>
@@ -219,7 +219,7 @@ export default function FormsAdminPage() {
 
                 {mode === 'edit' ? (
                   <>
-                    <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+                    <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                       <div className="grid sm:grid-cols-2 gap-4 mb-4">
                         <div>
                           <label className={label}>Title</label>
@@ -244,10 +244,10 @@ export default function FormsAdminPage() {
                       </div>
                     </section>
 
-                    <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+                    <section className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
                       <div className="flex items-center justify-between mb-3">
                         <p className="text-xs font-bold text-[#062E63]">Fields</p>
-                        <button onClick={() => setField('fields', [...draft.fields, blankField()])} className="text-[11px] font-semibold text-[#325099] hover:underline">+ Add field</button>
+                        <button onClick={() => setField('fields', [...draft.fields, blankField()])} className="text-[11px] font-semibold text-[#325099] hover:underline py-2 -my-2 md:py-0 md:my-0">+ Add field</button>
                       </div>
                       <div className="space-y-3">
                         {draft.fields.map((f, i) => (
@@ -267,11 +267,11 @@ export default function FormsAdminPage() {
                                   </svg>
                                 </button>
                               </div>
-                              <div className="flex items-center gap-2 pb-2">
-                                <label className="flex items-center gap-1 text-[11px] font-semibold text-[#325099] cursor-pointer"><input type="checkbox" checked={!!f.required} onChange={e => setF(i, { required: e.target.checked })} className="accent-[#325099]" />Required</label>
-                                <button onClick={() => moveF(i, -1)} disabled={i === 0} className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
-                                <button onClick={() => moveF(i, 1)} disabled={i === draft.fields.length - 1} className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
-                                <button onClick={() => setField('fields', draft.fields.filter((_, j) => j !== i))} className="text-[12px] text-[#2A2035]/30 hover:text-[#DC2626]">✕</button>
+                              <div className="flex items-center gap-1 md:gap-2 pb-0 md:pb-2">
+                                <label className="flex items-center gap-1 text-[11px] font-semibold text-[#325099] cursor-pointer mr-auto md:mr-0"><input type="checkbox" checked={!!f.required} onChange={e => setF(i, { required: e.target.checked })} className="accent-[#325099]" />Required</label>
+                                <button onClick={() => moveF(i, -1)} disabled={i === 0} className="w-9 h-9 md:w-auto md:h-auto text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
+                                <button onClick={() => moveF(i, 1)} disabled={i === draft.fields.length - 1} className="w-9 h-9 md:w-auto md:h-auto text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
+                                <button onClick={() => setField('fields', draft.fields.filter((_, j) => j !== i))} className="w-9 h-9 md:w-auto md:h-auto text-[12px] text-[#2A2035]/30 hover:text-[#DC2626]">✕</button>
                               </div>
                             </div>
                             <div className="grid sm:grid-cols-2 gap-2 mt-2">
@@ -292,7 +292,7 @@ export default function FormsAdminPage() {
                       </div>
                     </section>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <button onClick={saveForm} disabled={saving || !dirty}
                         className="text-sm font-semibold rounded-xl px-5 py-2.5 bg-[#325099] text-white hover:bg-[#062E63] disabled:opacity-50">
                         {saving ? 'Saving…' : dirty ? 'Save form' : 'Saved ✓'}
@@ -305,11 +305,11 @@ export default function FormsAdminPage() {
                   <section className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
                     <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 py-3 flex items-center justify-between">
                       <p className="text-xs font-bold text-[#062E63]">{subs.length} submission{subs.length === 1 ? '' : 's'}</p>
-                      <button onClick={exportCsv} disabled={!subs.length} className="text-[11px] font-semibold text-[#325099] hover:underline disabled:opacity-40">⬇ Export CSV</button>
+                      <button onClick={exportCsv} disabled={!subs.length} className="text-[11px] font-semibold text-[#325099] hover:underline disabled:opacity-40 py-2 -my-2 md:py-0 md:my-0">⬇ Export CSV</button>
                     </div>
                     {subs.length === 0 ? <p className="text-center text-xs text-[#2A2035]/40 py-10">Nothing submitted yet.</p> : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
+                      <div className="overflow-x-auto p-3 md:p-0">
+                        <table className="w-full text-xs phone-cards">
                           <thead className="bg-[#FBFCFF] text-[10px] uppercase tracking-wider text-[#325099]/70">
                             <tr>
                               <th className="text-left px-3 py-2 whitespace-nowrap">Submitted</th>
@@ -319,12 +319,12 @@ export default function FormsAdminPage() {
                           </thead>
                           <tbody className="divide-y divide-[#F0F4FF]">
                             {subs.map(s => (
-                              <tr key={s.id} className={s.status === 'new' ? 'bg-[#FFFBEB]/60' : ''}>
-                                <td className="px-3 py-2 whitespace-nowrap text-[#2A2035]/70">{fmtWhen(s.submitted_at)}{s.status === 'new' && <span className="ml-1.5 text-[9px] font-bold uppercase text-[#B23A3A]">new</span>}</td>
-                                {subCols.map(c => <td key={c.key} className="px-3 py-2 text-[#2A2035] max-w-[220px] truncate" title={formatValue(s.data?.[c.key])}>{formatValue(s.data?.[c.key])}</td>)}
-                                <td className="px-3 py-2 whitespace-nowrap text-right">
-                                  <button onClick={() => setStatus(s, s.status === 'new' ? 'handled' : 'new')} className="text-[11px] font-semibold text-[#325099] hover:underline mr-3">{s.status === 'new' ? 'Mark handled' : 'Mark new'}</button>
-                                  <button onClick={() => deleteSub(s)} className="text-[11px] text-[#2A2035]/40 hover:text-[#DC2626]">Delete</button>
+                              <tr key={s.id} className={s.status === 'new' ? 'bg-[#FFFBEB]/60 max-md:bg-[#FFFBEB]!' : ''}>
+                                <td data-label="Submitted" className="px-3 py-2 whitespace-nowrap text-[#2A2035]/70">{fmtWhen(s.submitted_at)}{s.status === 'new' && <span className="ml-1.5 text-[9px] font-bold uppercase text-[#B23A3A]">new</span>}</td>
+                                {subCols.map(c => <td key={c.key} data-label={c.label} className="px-3 py-2 text-[#2A2035] break-words md:max-w-[220px] md:truncate" title={formatValue(s.data?.[c.key])}>{formatValue(s.data?.[c.key])}</td>)}
+                                <td data-label="" className="px-3 py-2 whitespace-nowrap text-right">
+                                  <button onClick={() => setStatus(s, s.status === 'new' ? 'handled' : 'new')} className="text-[11px] font-semibold text-[#325099] hover:underline mr-3 py-2 md:py-0">{s.status === 'new' ? 'Mark handled' : 'Mark new'}</button>
+                                  <button onClick={() => deleteSub(s)} className="text-[11px] text-[#2A2035]/40 hover:text-[#DC2626] py-2 md:py-0">Delete</button>
                                 </td>
                               </tr>
                             ))}

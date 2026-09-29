@@ -832,24 +832,24 @@ function InvoiceDashboardInner() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
 
-      <div className="max-w-6xl mx-auto px-6 pt-10 pb-24">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-5 md:pt-10 pb-24">
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <Link href="/tutor/payroll" className="text-sm text-[#325099]/50 hover:text-[#325099] transition">← Accounting</Link>
         </div>
-        <div className="flex items-start justify-between mb-6">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 md:gap-0 mb-5 md:mb-6">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Invoices</h1>
             <p className="text-sm text-[#325099]/60 mt-1">Generate, approve, and manage term invoices.</p>
           </div>
           {mainTab === 'invoices' && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
             {termId && (
               <button
                 onClick={handleRegenerateAllPdfs}
                 disabled={regenAll}
-                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-2 rounded-full transition disabled:opacity-50"
+                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-2.5 md:py-2 rounded-full transition disabled:opacity-50"
               >
                 {regenAll
                   ? `↻ Regenerating… (${regenProgress.done}/${regenProgress.total})`
@@ -858,14 +858,14 @@ function InvoiceDashboardInner() {
             )}
             <button
               onClick={() => setReferralModal(true)}
-              className="text-xs font-semibold text-[#7C3AED] border border-[#EDE9FE] bg-white hover:bg-[#F5F3FF] px-4 py-2 rounded-full transition"
+              className="text-xs font-semibold text-[#7C3AED] border border-[#EDE9FE] bg-white hover:bg-[#F5F3FF] px-4 py-2.5 md:py-2 rounded-full transition"
             >
               🤝 Log Referral
             </button>
             <select
               value={termId}
               onChange={e => { setTermId(e.target.value); setInvoices([]) }}
-              className="border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/25"
+              className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/25"
             >
               <option value="">Select term…</option>
               {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -875,10 +875,10 @@ function InvoiceDashboardInner() {
         </div>
 
         {/* Main tabs */}
-        <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 mb-6 w-fit">
+        <div className="flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-xl p-1 mb-5 md:mb-6 w-fit max-w-full overflow-x-auto whitespace-nowrap">
           {[{ id: 'invoices', label: 'Invoices' }, { id: 'credits', label: '💳 Credit Balances' }, { id: 'template', label: '✉ Email Template' }].map(t => (
             <button key={t.id} onClick={() => setMainTab(t.id)}
-              className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition ${mainTab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
+              className={`shrink-0 text-xs font-semibold px-3.5 md:px-4 py-2 md:py-1.5 rounded-lg transition ${mainTab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099]/60 hover:text-[#325099]'}`}>
               {t.label}
             </button>
           ))}
@@ -903,7 +903,7 @@ function InvoiceDashboardInner() {
         {termId && (
           <>
             {/* Stats / filter tabs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+            <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 md:gap-3 mb-5 md:mb-6">
               {[
                 { id: 'all',      label: 'Total',    value: stats.total,    cls: 'text-[#062E63]' },
                 { id: 'draft',    label: 'Draft',    value: stats.draft,    cls: 'text-[#325099]' },
@@ -917,19 +917,19 @@ function InvoiceDashboardInner() {
                 <button
                   key={s.id}
                   onClick={() => !s.noFilter && setFilterTab(f => f === s.id ? 'all' : s.id)}
-                  className={`bg-white border rounded-xl px-3 py-3 text-center transition ${
+                  className={`min-w-0 bg-white border rounded-xl px-1 md:px-3 py-2.5 md:py-3 text-center transition ${
                     !s.noFilter ? 'hover:border-[#325099]/40 cursor-pointer' : 'cursor-default'
                   } ${filterTab === s.id ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}
                 >
-                  <div className={`text-lg font-bold ${s.cls}`}>{s.value}</div>
-                  <div className="text-[10px] text-[#325099]/60 font-semibold mt-0.5 uppercase tracking-wider">{s.label}</div>
+                  <div className={`text-base md:text-lg font-bold tabular-nums truncate ${s.cls}`}>{s.value}</div>
+                  <div className="text-[9px] md:text-[10px] text-[#325099]/60 font-semibold mt-0.5 uppercase tracking-wide md:tracking-wider truncate">{s.label}</div>
                 </button>
               ))}
             </div>
 
             {/* Generate button */}
             {invoices.length === 0 && !loading && (
-              <div className="bg-white rounded-2xl border border-[#DEE7FF] p-10 text-center mb-6">
+              <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-10 text-center mb-6">
                 <p className="text-4xl mb-4">📄</p>
                 <p className="text-sm font-semibold text-[#062E63] mb-1">No invoices for {term?.name}</p>
                 <p className="text-xs text-[#325099]/60 mb-6">Generate draft invoices from active enrolments to get started.</p>
@@ -954,20 +954,20 @@ function InvoiceDashboardInner() {
                 : invoices
               return <>
             {/* eslint-disable-next-line no-unused-vars */}
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-[#325099]/60">
                     {filteredInvoices.length}{filteredInvoices.length !== invoices.length ? ` of ${invoices.length}` : ''} invoice{invoices.length !== 1 ? 's' : ''}
                     {filterTab !== 'all' && <span className="ml-1.5 text-xs font-semibold text-[#325099] bg-[#EEF4FF] px-2 py-0.5 rounded-full capitalize">{filterTab}</span>}
                   </span>
                   {filterTab !== 'all' && (
-                    <button onClick={() => setFilterTab('all')} className="text-[10px] text-[#325099]/50 hover:text-[#325099] transition">✕ Clear filter</button>
+                    <button onClick={() => setFilterTab('all')} className="text-[10px] text-[#325099]/50 hover:text-[#325099] transition py-2 md:py-0">✕ Clear filter</button>
                   )}
                 </div>
                 <button
                   onClick={handleGenerate}
                   disabled={generating}
-                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:bg-[#F0F4FF] transition disabled:opacity-40"
+                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-2 md:py-1.5 rounded-full hover:bg-[#F0F4FF] transition disabled:opacity-40"
                 >
                   {generating ? 'Generating…' : '+ Generate new drafts'}
                 </button>
@@ -1000,16 +1000,16 @@ function InvoiceDashboardInner() {
                   const lineActions = (l) => editable ? (
                     <td className="py-1.5 pl-2 text-right whitespace-nowrap w-12">
                       <button onClick={() => setLineModal({ invoiceId: inv.id, index: l._idx, type: l.type, cash: isCashDiscountLine(l), reason: l.type === 'enrolment' ? (l.class_name || '') : (l.reason || ''), amount: Math.abs(Number(l.amount) || 0) })}
-                        title="Edit this line" className="text-[#325099]/40 hover:text-[#325099] px-1">✎</button>
+                        title="Edit this line" className="text-[#325099]/40 hover:text-[#325099] px-1.5 md:px-1 py-1 md:py-0">✎</button>
                       <button onClick={() => removeLine(inv, l._idx)}
-                        title="Remove this line" className="text-[#325099]/40 hover:text-[#DC2626] px-1">✕</button>
+                        title="Remove this line" className="text-[#325099]/40 hover:text-[#DC2626] px-1.5 md:px-1 py-1 md:py-0">✕</button>
                     </td>
                   ) : null
 
                   return (
                     <div key={inv.id} className={`bg-white rounded-2xl border overflow-hidden transition ${warnings.length ? 'border-[#FDE047]' : 'border-[#DEE7FF]'}`}>
                       {/* Invoice header */}
-                      <div className="px-5 py-4 flex items-start justify-between gap-4 border-b border-[#DEE7FF]">
+                      <div className="px-4 md:px-5 py-4 flex items-start justify-between gap-3 md:gap-4 border-b border-[#DEE7FF]">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-sm text-[#062E63]">{inv.invoice_number || `#${inv.id}`}</span>
@@ -1046,13 +1046,13 @@ function InvoiceDashboardInner() {
                             {warnings.map(w => <Warning key={w} text={w} />)}
                           </div>
                           <p className="text-sm font-semibold text-[#2A2035] mt-0.5">{inv.parent_name}</p>
-                          <p className="text-xs text-[#325099]/50">{inv.parent_email || 'no email'}</p>
+                          <p className="text-xs text-[#325099]/50 break-all md:break-normal">{inv.parent_email || 'no email'}</p>
                           {inv.student_names?.length > 0 && (
                             <p className="text-xs text-[#325099]/70 mt-0.5">{inv.student_names.join(', ')}</p>
                           )}
                         </div>
                         <div className="shrink-0 text-right space-y-1.5">
-                          <p className="text-lg font-bold text-[#062E63]">{fmtMoney(total)}</p>
+                          <p className="text-base md:text-lg font-bold text-[#062E63] tabular-nums">{fmtMoney(total)}</p>
                           <p className="text-[10px] text-[#325099]/50">inc GST · due {fmtDate(inv.due_date)}</p>
                           {/* Payment method — inherited from the family (set per student
                               in the database). Read-only here to keep one source of truth. */}
@@ -1070,14 +1070,14 @@ function InvoiceDashboardInner() {
                       </div>
 
                       {/* Line items */}
-                      <div className="px-5 py-3">
+                      <div className="px-4 md:px-5 py-3">
                         <table className="w-full text-xs">
                           <tbody>
                             {enrolLines.map((l, i) => (
                               <tr key={i} className="border-b border-[#F0F4FF] last:border-0">
                                 <td className="py-1.5 font-medium text-[#062E63]">{l.student_name}</td>
-                                <td className="py-1.5 text-[#325099]/70">{l.class_name}</td>
-                                <td className="py-1.5 text-right text-[#325099]">{fmtMoney(l.amount)}</td>
+                                <td className="py-1.5 pl-2 md:pl-0 text-[#325099]/70">{l.class_name}</td>
+                                <td className="py-1.5 pl-2 md:pl-0 text-right text-[#325099] tabular-nums whitespace-nowrap">{fmtMoney(l.amount)}</td>
                                 {lineActions(l)}
                               </tr>
                             ))}
@@ -1097,21 +1097,21 @@ function InvoiceDashboardInner() {
                                     </>
                                   )}
                                 </td>
-                                <td className="py-1.5 text-right text-[#7C3AED]">({fmtMoney(Math.abs(l.amount))})</td>
+                                <td className="py-1.5 pl-2 md:pl-0 text-right text-[#7C3AED] tabular-nums whitespace-nowrap">({fmtMoney(Math.abs(l.amount))})</td>
                                 {lineActions(l)}
                               </tr>
                             ))}
                             {creditLines.map((l, i) => (
                               <tr key={`c${i}`} className="border-b border-[#F0F4FF] last:border-0">
                                 <td className="py-1.5 text-[#065F46] italic" colSpan={2}>Credit: {(l.reason || '').replace(/^credit\s*[-–:]\s*/i, '')}</td>
-                                <td className="py-1.5 text-right text-[#065F46]">({fmtMoney(Math.abs(l.amount))})</td>
+                                <td className="py-1.5 pl-2 md:pl-0 text-right text-[#065F46] tabular-nums whitespace-nowrap">({fmtMoney(Math.abs(l.amount))})</td>
                                 {lineActions(l)}
                               </tr>
                             ))}
                             {otherLines.map((l, i) => (
                               <tr key={`o${i}`} className="border-b border-[#F0F4FF] last:border-0">
                                 <td className="py-1.5 text-[#2A2035]/70 italic" colSpan={2}>{l.reason || 'Adjustment'}</td>
-                                <td className={`py-1.5 text-right ${Number(l.amount) < 0 ? 'text-[#7C3AED]' : 'text-[#325099]'}`}>
+                                <td className={`py-1.5 pl-2 md:pl-0 text-right tabular-nums whitespace-nowrap ${Number(l.amount) < 0 ? 'text-[#7C3AED]' : 'text-[#325099]'}`}>
                                   {Number(l.amount) < 0 ? `(${fmtMoney(Math.abs(l.amount))})` : fmtMoney(l.amount)}
                                 </td>
                                 {lineActions(l)}
@@ -1122,45 +1122,45 @@ function InvoiceDashboardInner() {
                         {editable && (
                           <button
                             onClick={() => setLineModal({ invoiceId: inv.id, index: null, type: 'adjustment', reason: '', amount: '' })}
-                            className="mt-1.5 text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099] transition"
+                            className="mt-1.5 py-1.5 md:py-0 text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099] transition"
                           >+ Add line</button>
                         )}
 
                         {/* Totals row */}
-                        <div className="mt-2 pt-2 border-t border-[#DEE7FF] flex justify-end gap-6 text-xs text-[#325099]/70">
+                        <div className="mt-2 pt-2 border-t border-[#DEE7FF] flex flex-wrap justify-end gap-x-6 gap-y-1 text-xs text-[#325099]/70 tabular-nums">
                           {!inv.is_legacy && <span>GST included <strong className="text-[#2A2035]">{fmtMoney(gst)}</strong></span>}
                           <span className="font-bold text-[#062E63]">Total {fmtMoney(total)}</span>
                         </div>
                       </div>
 
                       {/* Actions */}
-                      <div className="px-5 py-3 bg-[#F8FAFF] border-t border-[#DEE7FF] flex items-center gap-2 flex-wrap">
+                      <div className="px-4 md:px-5 py-3 bg-[#F8FAFF] border-t border-[#DEE7FF] flex items-center gap-2 flex-wrap">
                         {/* Refresh re-syncs prices AND the cash-discount state from the
                             live student flags — allowed on unpaid approved invoices too
                             (e.g. a family flips to cash after approval). */}
                         {(inv.status === 'draft' || (inv.status === 'approved' && inv.payment_status !== 'paid')) && (
                           <button onClick={() => handleRefresh(inv)} disabled={refreshingId === inv.id}
-                            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
+                            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-2 md:py-1.5 rounded-full transition disabled:opacity-40">
                             {refreshingId === inv.id ? 'Refreshing…' : '↻ Refresh'}
                           </button>
                         )}
                         {inv.status === 'draft' && (
                           <button onClick={() => handleApprove(inv)} disabled={isApproving || warnings.length > 0}
                             title={warnings.length > 0 ? `Resolve ${warnings.length} warning${warnings.length > 1 ? 's' : ''} before approving` : ''}
-                            className="text-xs font-semibold bg-[#062E63] text-white px-4 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+                            className="text-xs font-semibold bg-[#062E63] text-white px-4 py-2 md:py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
                             {isApproving ? 'Approving…' : '✓ Approve'}
                           </button>
                         )}
                         {['approved', 'synced_to_xero'].includes(inv.status) && (
                           <button onClick={() => handleGeneratePdf(inv)} disabled={isGenPdf}
-                            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition disabled:opacity-40">
+                            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-2 md:py-1.5 rounded-full transition disabled:opacity-40">
                             {isGenPdf ? 'Generating…' : inv.pdf_path ? '↻ PDF' : '📄 Generate PDF'}
                           </button>
                         )}
                         {inv.pdf_path && (
                           <a href={supabase.storage.from('invoices').getPublicUrl(inv.pdf_path).data.publicUrl}
                             target="_blank" rel="noopener noreferrer"
-                            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-1.5 rounded-full transition">
+                            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-4 py-2 md:py-1.5 rounded-full transition">
                             ↗ View PDF
                           </a>
                         )}
@@ -1175,18 +1175,18 @@ function InvoiceDashboardInner() {
                           ).values()]
                           return (
                             <button onClick={() => setCreditModal({ invoiceId: inv.id, members })}
-                              className="text-xs font-semibold text-[#065F46] border border-[#A7F3D0] bg-white hover:bg-[#F0FDF4] px-4 py-1.5 rounded-full transition">
+                              className="text-xs font-semibold text-[#065F46] border border-[#A7F3D0] bg-white hover:bg-[#F0FDF4] px-4 py-2 md:py-1.5 rounded-full transition">
                               + Credit
                             </button>
                           )
                         })()}
                         {/* Three status dropdowns */}
-                        <div className="ml-auto flex gap-1.5">
+                        <div className="w-full md:w-auto md:ml-auto flex flex-wrap md:flex-nowrap gap-1.5">
                           <select
                             value={inv.status}
                             disabled={statusEditing === inv.id}
                             onChange={e => handleStatusChange(inv.id, 'status', e.target.value)}
-                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${STAGE_SELECT_CLS[inv.status] || STAGE_SELECT_CLS.draft}`}
+                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 focus:outline-none disabled:opacity-40 transition-colors ${STAGE_SELECT_CLS[inv.status] || STAGE_SELECT_CLS.draft}`}
                           >
                             <option value="draft">Draft</option>
                             <option value="approved">Approved</option>
@@ -1199,18 +1199,18 @@ function InvoiceDashboardInner() {
                                 <span className="text-[11px] text-[#325099]/60">Mark unsent?</span>
                                 <button
                                   onClick={() => { handleStatusChange(inv.id, 'delivery_status', 'unsent'); setConfirmUnsentId(null) }}
-                                  className="text-[11px] font-semibold bg-red-500 text-white px-2.5 py-1 rounded-full hover:bg-red-600 transition"
+                                  className="text-[11px] font-semibold bg-red-500 text-white px-2.5 py-1.5 md:py-1 rounded-full hover:bg-red-600 transition"
                                 >Yes</button>
                                 <button
                                   onClick={() => setConfirmUnsentId(null)}
-                                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] px-1.5 py-1"
+                                  className="text-[11px] text-[#325099]/50 hover:text-[#325099] px-1.5 py-1.5 md:py-1"
                                 >Cancel</button>
                               </div>
                             ) : (
                               <span
                                 title="Click to mark as unsent"
                                 onClick={() => setConfirmUnsentId(inv.id)}
-                                className="cursor-pointer text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7] hover:opacity-70"
+                                className="cursor-pointer text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 transition-colors bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7] hover:opacity-70"
                               >
                                 ✉ Sent
                               </span>
@@ -1220,7 +1220,7 @@ function InvoiceDashboardInner() {
                               onClick={() => setSendModalInv(inv)}
                               disabled={statusEditing === inv.id || !inv.parent_email || inv.status === 'draft' || inv.status === 'voided'}
                               title={inv.status === 'draft' ? 'Approve invoice before sending' : inv.status === 'voided' ? 'Invoice is voided' : !inv.parent_email ? 'No email on file' : 'Send invoice by email'}
-                              className="text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#F0F4FF] text-[#325099] border-[#C7D5F8] hover:bg-[#DEE7FF] disabled:opacity-40"
+                              className="text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 transition-colors bg-[#F0F4FF] text-[#325099] border-[#C7D5F8] hover:bg-[#DEE7FF] disabled:opacity-40"
                             >
                               ✉ Send
                             </button>
@@ -1233,7 +1233,7 @@ function InvoiceDashboardInner() {
                               if (val === 'paid') { setConfirmPaidDate(new Date().toISOString().slice(0, 10)); setConfirmPaidInv(inv); return }
                               handleStatusChange(inv.id, 'payment_status', val)
                             }}
-                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1 focus:outline-none disabled:opacity-40 transition-colors ${PAYMENT_SELECT_CLS[inv.payment_status || ''] || PAYMENT_SELECT_CLS['']}`}
+                            className={`text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 focus:outline-none disabled:opacity-40 transition-colors ${PAYMENT_SELECT_CLS[inv.payment_status || ''] || PAYMENT_SELECT_CLS['']}`}
                           >
                             <option value="">— Payment</option>
                             <option value="unpaid">Unpaid</option>
@@ -1246,7 +1246,7 @@ function InvoiceDashboardInner() {
                                 onClick={() => setReceiptModalInv(inv)}
                                 disabled={!inv.parent_email || inv.status === 'draft' || inv.status === 'voided'}
                                 title={!inv.parent_email ? 'No email on file' : inv.status === 'draft' ? 'Approve invoice first' : 'Email the family a payment receipt'}
-                                className="text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0] hover:bg-[#D1FAE5] disabled:opacity-40"
+                                className="text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 transition-colors bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0] hover:bg-[#D1FAE5] disabled:opacity-40"
                               >
                                 🧾 {inv.receipt_sent_at ? 'Resend receipt' : 'Send receipt'}
                               </button>
@@ -1263,7 +1263,7 @@ function InvoiceDashboardInner() {
                                 onClick={() => setReminderModalInv(inv)}
                                 disabled={!inv.parent_email || inv.status === 'draft' || inv.status === 'voided'}
                                 title={!inv.parent_email ? 'No email on file' : inv.status === 'draft' ? 'Approve invoice first' : 'Send an overdue-payment reminder'}
-                                className="text-[11px] font-semibold border rounded-full px-2.5 py-1 transition-colors bg-[#FEF3C7] text-[#92400E] border-[#FCD34D] hover:bg-[#FDE68A] disabled:opacity-40"
+                                className="text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 transition-colors bg-[#FEF3C7] text-[#92400E] border-[#FCD34D] hover:bg-[#FDE68A] disabled:opacity-40"
                               >
                                 ⏰ {inv.reminder_sent_at ? 'Remind again' : 'Send reminder'}
                               </button>
@@ -1296,13 +1296,13 @@ function InvoiceDashboardInner() {
         {/* Credit balances tab */}
         {mainTab === 'credits' && (
           <div className="max-w-3xl space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0">
               <div>
                 <h2 className="text-sm font-bold text-[#062E63]">Held credit balances</h2>
                 <p className="text-xs text-[#325099]/60 mt-0.5">Credits awaiting application to the next invoice. These are applied automatically when the next term's invoices are generated.</p>
               </div>
               <button onClick={() => { setAddCreditModal(true); setAddCreditForm({ studentId: '', amount: '', reason: '' }); setAddCreditSearch('') }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
+                className="self-start md:self-auto shrink-0 flex items-center gap-1.5 px-4 md:px-3 py-2.5 md:py-1.5 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition">
                 + Add Credit Balance
               </button>
             </div>
@@ -1310,7 +1310,7 @@ function InvoiceDashboardInner() {
             {creditsLoading ? (
               <div className="flex justify-center py-12"><div className="w-5 h-5 border-2 border-[#325099] border-t-transparent rounded-full animate-spin" /></div>
             ) : heldCredits.length === 0 ? (
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-12 text-center text-[#325099]/40 text-sm">No pending credits.</div>
+              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-8 md:p-12 text-center text-[#325099]/40 text-sm">No pending credits.</div>
             ) : (() => {
               const byStudent = {}
               for (const c of heldCredits) {
@@ -1323,25 +1323,25 @@ function InvoiceDashboardInner() {
                     const total = credits.reduce((s, c) => s + Number(c.amount), 0)
                     return (
                       <div key={sid} className="bg-white border border-[#DEE7FF] rounded-2xl overflow-hidden">
-                        <div className="px-5 py-3 flex items-center justify-between border-b border-[#DEE7FF]">
-                          <div>
+                        <div className="px-4 md:px-5 py-3 flex items-center justify-between gap-3 border-b border-[#DEE7FF]">
+                          <div className="min-w-0">
                             <p className="font-semibold text-sm text-[#062E63]">{student?.full_name || '—'}</p>
                             <p className="text-[11px] text-[#325099]/50">Year {student?.year || '?'} · {student?.school || '—'}</p>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm font-bold text-emerald-700">${total.toFixed(2)}</p>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-bold text-emerald-700 tabular-nums">${total.toFixed(2)}</p>
                             <p className="text-[10px] text-[#325099]/40">{credits.length} credit{credits.length > 1 ? 's' : ''} held</p>
                           </div>
                         </div>
                         <div className="divide-y divide-[#F0F4FF]">
                           {credits.map(c => (
-                            <div key={c.id} className="px-5 py-2.5 flex items-center justify-between gap-4">
+                            <div key={c.id} className="px-4 md:px-5 py-2.5 flex items-center justify-between gap-3 md:gap-4">
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs text-[#325099]/80 truncate">{c.reason}</p>
                                 {c.notes && <p className="text-[11px] text-[#325099]/50 truncate">{c.notes}</p>}
                               </div>
                               <div className="flex items-center gap-3 flex-shrink-0">
-                                <span className="text-xs font-semibold text-emerald-700">${Number(c.amount).toFixed(2)}</span>
+                                <span className="text-xs font-semibold text-emerald-700 tabular-nums">${Number(c.amount).toFixed(2)}</span>
                                 <span className="text-[10px] text-[#325099]/40">{new Date(c.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</span>
                                 <button
                                   onClick={async () => {
@@ -1349,7 +1349,7 @@ function InvoiceDashboardInner() {
                                     await supabase.from('student_credits').delete().eq('id', c.id)
                                     setHeldCredits(prev => prev.filter(x => x.id !== c.id))
                                   }}
-                                  className="text-red-400 hover:text-red-600 transition text-xs leading-none"
+                                  className="text-red-400 hover:text-red-600 transition text-xs leading-none p-2 -m-2 md:p-0 md:m-0"
                                   title="Delete credit"
                                 >✕</button>
                               </div>
@@ -1370,11 +1370,11 @@ function InvoiceDashboardInner() {
           const canSave = addCreditForm.studentId && addCreditForm.amount &&
             (addCreditReasonType === 'absence' ? !!addCreditForm.reason : !!addCreditOtherReason.trim())
           return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-5">
+            <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 p-0 md:p-4">
+              <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-5 md:p-6 space-y-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-bold text-[#062E63]">Add Credit Balance</h2>
-                  <button onClick={() => setAddCreditModal(false)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none">✕</button>
+                  <button onClick={() => setAddCreditModal(false)} className="text-[#325099]/50 hover:text-[#325099] text-lg leading-none p-2 -m-2 md:p-0 md:m-0">✕</button>
                 </div>
 
                 {/* Student picker */}
@@ -1393,7 +1393,7 @@ function InvoiceDashboardInner() {
                     <div className="border border-[#DEE7FF] rounded-lg overflow-hidden max-h-40 overflow-y-auto">
                       {allStudents.filter(s => s.full_name.toLowerCase().includes(addCreditSearch.toLowerCase())).slice(0, 8).map(s => (
                         <button key={s.id} onClick={() => { setAddCreditForm(f => ({ ...f, studentId: s.id, reason: '' })); setAddCreditSearch(s.full_name); setAddCreditReasonType(''); setAddCreditSelectedLesson(null) }}
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-[#EEF4FF] text-[#062E63] border-b border-[#F0F4FF] last:border-0">
+                          className="w-full text-left px-3 py-2.5 md:py-2 text-xs hover:bg-[#EEF4FF] text-[#062E63] border-b border-[#F0F4FF] last:border-0">
                           {s.full_name}
                         </button>
                       ))}
@@ -1484,11 +1484,11 @@ function InvoiceDashboardInner() {
 
                 <div className="flex gap-2 pt-1">
                   <button onClick={() => setAddCreditModal(false)}
-                    className="flex-1 px-4 py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">
+                    className="flex-1 px-4 py-2.5 md:py-2 border border-[#DEE7FF] text-xs font-semibold text-[#325099] rounded-lg hover:bg-[#F0F4FF] transition">
                     Cancel
                   </button>
                   <button onClick={handleSaveManualCredit} disabled={addCreditSaving || !canSave}
-                    className="flex-1 px-4 py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    className="flex-1 px-4 py-2.5 md:py-2 bg-[#062E63] text-white text-xs font-semibold rounded-lg hover:bg-[#325099] transition disabled:opacity-40 disabled:cursor-not-allowed">
                     {addCreditSaving ? 'Saving…' : 'Add Credit'}
                   </button>
                 </div>
@@ -1499,14 +1499,14 @@ function InvoiceDashboardInner() {
 
         {/* Email template tab */}
         {mainTab === 'template' && (
-          <div className="bg-white border border-[#DEE7FF] rounded-2xl p-6 max-w-3xl space-y-5">
+          <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-6 max-w-3xl space-y-5">
             <div>
               <h2 className="text-sm font-bold text-[#062E63] mb-4">Invoice email template</h2>
               <div className="bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl px-4 py-3 mb-4">
                 <p className="text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider mb-2">
                   Available placeholders · use <code className="font-mono">**text**</code> for bold
                 </p>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-x-3 gap-y-2 md:gap-3">
                   {[
                     { tag: '{{guardian}}',     desc: "Guardian's first name" },
                     { tag: '{{studentNames}}', desc: 'Student name(s)' },
@@ -1550,7 +1550,7 @@ function InvoiceDashboardInner() {
                   setTimeout(() => setTmplSaved(false), 3000)
                 }}
                 disabled={tmplSaving}
-                className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40"
+                className="text-xs font-semibold bg-[#062E63] text-white px-6 py-2.5 md:py-2 rounded-full hover:bg-[#325099] transition disabled:opacity-40"
               >
                 {tmplSaving ? 'Saving…' : 'Save changes'}
               </button>
@@ -1622,8 +1622,8 @@ function InvoiceDashboardInner() {
 
       {/* ── Confirm mark as paid ─────────────────────────────────────────── */}
       {confirmPaidInv && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 max-h-[90dvh] overflow-y-auto">
             {/* Header */}
             <div className="px-6 pt-6 pb-4 border-b border-[#DEE7FF]">
               <div className="flex items-center gap-3">
@@ -1654,7 +1654,7 @@ function InvoiceDashboardInner() {
             </div>
 
             {/* Actions */}
-            <div className="px-6 pb-5 flex gap-2 justify-end">
+            <div className="px-6 pb-5 flex gap-2 justify-end [&>button]:flex-1 md:[&>button]:flex-initial">
               <button
                 onClick={() => setConfirmPaidInv(null)}
                 className="text-sm font-semibold text-[#325099]/60 hover:text-[#325099] px-4 py-2 rounded-full border border-[#DEE7FF] hover:bg-[#F8FAFF] transition"
@@ -1698,13 +1698,13 @@ function EditLineModal({ initial, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 max-h-[90dvh] overflow-y-auto p-5 md:p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-[#2A2035] text-sm">
             {isNew ? 'Add invoice line' : `Edit ${initial.type === 'enrolment' ? 'enrolment' : initial.type} line`}
           </h3>
-          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
+          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none p-2 -m-2 md:p-0 md:m-0">✕</button>
         </div>
         {isNew && (
           <div>
@@ -1712,7 +1712,7 @@ function EditLineModal({ initial, onClose, onSave }) {
             <div className="grid grid-cols-2 gap-1.5">
               {NEW_LINE_PRESETS.map(x => (
                 <button key={x.id} type="button" onClick={() => setPreset(x.id)}
-                  className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition text-left ${
+                  className={`text-[11px] font-semibold px-2.5 py-2.5 md:py-1.5 rounded-lg border transition text-left ${
                     preset === x.id
                       ? 'border-[#325099] bg-[#F0F4FF] text-[#062E63]'
                       : 'border-[#DEE7FF] text-[#2A2035]/60 hover:border-[#325099]'}`}>

@@ -194,7 +194,7 @@ function ToolbarPopover({ anchorRef, onClose, width = 380, children }) {
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key) }
   }, [onClose, anchorRef])
   return (
-    <div ref={ref} className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-[#DEE7FF] rounded-xl shadow-xl p-3" style={{ width }}>
+    <div ref={ref} className="absolute top-full mt-1.5 left-0 z-50 bg-white border border-[#DEE7FF] rounded-xl shadow-xl p-3 max-md:fixed max-md:inset-x-3 max-md:top-24 max-md:mt-0 max-md:w-auto! max-md:max-h-[70dvh] max-md:overflow-y-auto" style={{ width }}>
       {children}
     </div>
   )
@@ -243,7 +243,7 @@ function FilterPanel({ anchorRef, onClose, columns, labelOf, optionsFor, cfg, on
           const opts = optionsFor(cond.col)
           const noValue = NO_VALUE_OPS.has(cond.op)
           return (
-            <div key={i} className="flex items-center gap-1.5">
+            <div key={i} className="flex flex-wrap md:flex-nowrap items-center gap-1.5">
               <span className="w-14 shrink-0">
                 {i === 0
                   ? <span className="text-[10px] text-[#2A2035]/40 pl-1">Where</span>
@@ -253,19 +253,19 @@ function FilterPanel({ anchorRef, onClose, columns, labelOf, optionsFor, cfg, on
                       </select>
                     : <span className="text-[10px] text-[#2A2035]/40 pl-1">{cfg.conj}</span>}
               </span>
-              <select value={cond.col} onChange={e => setCond(i, { col: e.target.value })} className={`${SF_SEL} w-32 shrink-0`}>
+              <select value={cond.col} onChange={e => setCond(i, { col: e.target.value })} className={`${SF_SEL} flex-1 min-w-0 md:flex-none md:w-32 md:shrink-0`}>
                 {columns.map(c => <option key={c} value={c}>{labelOf(c)}</option>)}
               </select>
-              <select value={cond.op} onChange={e => setCond(i, { op: e.target.value })} className={`${SF_SEL} w-28 shrink-0`}>
+              <select value={cond.op} onChange={e => setCond(i, { op: e.target.value })} className={`${SF_SEL} flex-1 min-w-0 md:flex-none md:w-28 md:shrink-0`}>
                 {FILTER_OPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
-              {noValue ? <span className="flex-1" /> : opts && (cond.op === 'is' || cond.op === 'is_not') ? (
-                <select value={cond.value ?? ''} onChange={e => setCond(i, { value: e.target.value })} className={`${SF_SEL} flex-1 min-w-0`}>
+              {noValue ? <span className="hidden md:block flex-1" /> : opts && (cond.op === 'is' || cond.op === 'is_not') ? (
+                <select value={cond.value ?? ''} onChange={e => setCond(i, { value: e.target.value })} className={`${SF_SEL} flex-1 min-w-0 order-last md:order-none basis-full md:basis-auto`}>
                   <option value="">—</option>
                   {opts.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
               ) : (
-                <input type="text" value={cond.value ?? ''} onChange={e => setCond(i, { value: e.target.value })} placeholder="value…" className={`${SF_SEL} flex-1 min-w-0`} />
+                <input type="text" value={cond.value ?? ''} onChange={e => setCond(i, { value: e.target.value })} placeholder="value…" className={`${SF_SEL} flex-1 min-w-0 order-last md:order-none basis-full md:basis-auto`} />
               )}
               <button onClick={() => onChange({ ...cfg, conds: cfg.conds.filter((_, j) => j !== i) })} className="w-6 h-6 flex items-center justify-center text-[#2A2035]/30 hover:text-red-500 transition shrink-0" title="Remove">✕</button>
             </div>
@@ -383,8 +383,8 @@ function CreateTableModal({ onClose, onCreated }) {
   const previewSQL = buildSQL(tableName.trim() || 'table_name') ?? `CREATE TABLE public.${tableName.trim() || 'table_name'} ( /* add columns */ );`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-4 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-xl md:mx-4 flex flex-col max-h-[90dvh] md:max-h-[90vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF]">
           <div>
             <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#325099]">Database</p>
@@ -438,8 +438,8 @@ function CreateTableModal({ onClose, onCreated }) {
           {error && <p className="text-xs font-semibold text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         </div>
         <div className="px-6 py-4 border-t border-[#DEE7FF] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-          <button onClick={handleCreate} disabled={saving || !tableName.trim()} className="px-5 py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">{saving ? 'Creating…' : 'Create Table'}</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleCreate} disabled={saving || !tableName.trim()} className="px-5 py-2.5 md:py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">{saving ? 'Creating…' : 'Create Table'}</button>
         </div>
       </div>
     </div>
@@ -614,9 +614,9 @@ function AddStudentModal({ onClose, onAdded }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-[#DEE7FF] overflow-hidden max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm md:px-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white w-full max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] overflow-hidden max-h-[90dvh] md:max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[#DEE7FF] flex items-center justify-center text-lg">🎓</div>
             <div>
@@ -627,7 +627,7 @@ function AddStudentModal({ onClose, onAdded }) {
           <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center text-[#2A2035]/40 hover:text-[#2A2035] hover:bg-[#DEE7FF] transition text-lg">×</button>
         </div>
         <form onSubmit={handleSubmit} className="overflow-y-auto flex-1">
-          <div className="px-6 py-5 space-y-6">
+          <div className="px-4 md:px-6 py-5 space-y-6">
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-5 h-5 rounded-full bg-[#325099] text-white text-[10px] font-bold flex items-center justify-center shrink-0">1</div>
@@ -655,7 +655,7 @@ function AddStudentModal({ onClose, onAdded }) {
                     </select>
                   </SDField>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <SDField label="Student Email"><input type="email" placeholder="student@example.com" value={form.studentEmail} onChange={set('studentEmail')} className={SD_INPUT_CLS} /></SDField>
                   <SDField label="Student Phone"><input type="tel" placeholder="04XX XXX XXX" value={form.studentPhone} onChange={set('studentPhone')} className={SD_INPUT_CLS} /></SDField>
                 </div>
@@ -677,21 +677,21 @@ function AddStudentModal({ onClose, onAdded }) {
                     <option>Mother</option><option>Father</option><option>Guardian</option><option>Grandparent</option><option>Other</option>
                   </select>
                 </SDField>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <SDField label="Parent Email"><input type="email" placeholder="parent@example.com" value={form.parentEmail} onChange={set('parentEmail')} className={SD_INPUT_CLS} /></SDField>
                   <SDField label="Parent Phone"><input type="tel" placeholder="04XX XXX XXX" value={form.parentPhone} onChange={set('parentPhone')} className={SD_INPUT_CLS} /></SDField>
                 </div>
               </div>
             </div>
           </div>
-          <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] shrink-0 flex items-center justify-between gap-3">
+          <div className="px-4 md:px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3">
             {error
               ? <p className="text-xs text-rose-500 font-medium flex-1">{error}</p>
               : <p className="text-[10px] text-[#2A2035]/40 flex-1">Fields marked <span className="text-rose-400">*</span> are required</p>
             }
-            <div className="flex items-center gap-2 shrink-0">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-xl hover:bg-[#DEE7FF] transition">Cancel</button>
-              <button type="submit" disabled={saving} className="px-5 py-2 text-sm font-semibold bg-[#325099] text-white rounded-xl hover:bg-[#062E63] transition disabled:opacity-50 flex items-center gap-2">
+            <div className="flex items-center justify-end gap-2 shrink-0">
+              <button type="button" onClick={onClose} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-xl hover:bg-[#DEE7FF] transition">Cancel</button>
+              <button type="submit" disabled={saving} className="px-5 py-2.5 md:py-2 text-sm font-semibold bg-[#325099] text-white rounded-xl hover:bg-[#062E63] transition disabled:opacity-50 flex items-center gap-2">
                 {saving ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving…</> : 'Add Student'}
               </button>
             </div>
@@ -884,9 +884,9 @@ function FamiliesView() {
   const fmtMoney = v => v === null || v === undefined ? '—' : `$${Number(v).toFixed(2)}`
 
   const InvoiceRow = ({ inv, highlight }) => (
-    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-[11px] ${highlight ? 'border-[#BACBFF] bg-[#F0F4FF]' : 'border-[#E8EDF8] bg-white'}`}>
+    <div className={`flex flex-wrap md:flex-nowrap items-center gap-2 px-3 py-2 rounded-lg border text-[11px] ${highlight ? 'border-[#BACBFF] bg-[#F0F4FF]' : 'border-[#E8EDF8] bg-white'}`}>
       <span className="font-mono text-[#325099]/70 shrink-0">{inv.invoice_number ?? `#${inv.id}`}</span>
-      <span className="text-[#2A2035]/50 truncate flex-1">{termById[inv.term_id]?.name ?? ''}</span>
+      <span className="text-[#2A2035]/50 truncate flex-1 min-w-0">{termById[inv.term_id]?.name ?? ''}</span>
       <span className="font-semibold text-[#2A2035] tabular-nums">{fmtMoney(inv.total)}</span>
       <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${FAM_INV_STATUS_CLS[inv.status] ?? 'bg-gray-100 text-gray-500'}`}>{inv.status}</span>
       {inv.payment_status && <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${FAM_PAY_STATUS_CLS[inv.payment_status] ?? 'bg-gray-100 text-gray-500'}`}>{inv.payment_status}</span>}
@@ -895,20 +895,20 @@ function FamiliesView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex items-center gap-3 px-3 md:px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+        <div className="relative flex-1 min-w-0 max-w-sm">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#325099]/50 text-sm">🔍</span>
           <input type="text" placeholder="Search by guardian or student name…" value={search} onChange={e => { setSearch(e.target.value); setSelectedKey(null) }} className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-[#DEE7FF] bg-white text-[#2A2035] placeholder-[#2A2035]/40 focus:outline-none focus:border-[#BACBFF] transition" />
         </div>
         <span className="text-[10px] text-[#325099]/50 font-semibold shrink-0">{filtered.length} {q ? 'found' : 'families'}</span>
       </div>
-      <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-0 divide-x divide-[#DEE7FF]">
+      <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 max-md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-0 divide-x max-md:divide-x-0 max-md:divide-y divide-[#DEE7FF]">
         {/* Family list */}
-        <div className="overflow-y-auto p-4 space-y-2">
+        <div className="overflow-y-auto p-3 md:p-4 space-y-2">
           {filtered.map(f => (
             <button key={f.key} onClick={() => setSelectedKey(f.key)} className={`w-full text-left bg-white rounded-xl border px-4 py-3 transition shadow-sm hover:shadow-md ${selectedKey === f.key ? 'border-[#325099] ring-1 ring-[#BACBFF]' : 'border-[#E8EDF8]'}`}>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-[#2A2035] truncate">{f.head?.full_name ?? <span className="italic text-[#2A2035]/40">No guardian recorded</span>}</span>
+                <span className="text-sm font-bold text-[#2A2035] truncate min-w-0">{f.head?.full_name ?? <span className="italic text-[#2A2035]/40">No guardian recorded</span>}</span>
                 {f.familyId !== null
                   ? <span className="text-[9px] font-semibold bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full shrink-0">Family #{f.familyId}</span>
                   : <span className="text-[9px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded-full shrink-0" title="Student has no family number — link siblings via the Students table">not linked</span>}
@@ -928,7 +928,7 @@ function FamiliesView() {
           {filtered.length === 0 && <p className="text-xs text-[#2A2035]/40 text-center py-10">No families match &ldquo;{search}&rdquo;</p>}
         </div>
         {/* Detail panel */}
-        <div className="overflow-y-auto p-5 bg-[#FBFCFF]">
+        <div className="overflow-y-auto p-4 md:p-5 bg-[#FBFCFF]">
           {!sel ? (
             <div className="flex items-center justify-center h-full text-xs text-[#2A2035]/35">Select a family to see details</div>
           ) : (
@@ -939,7 +939,7 @@ function FamiliesView() {
                 {sel.head ? (
                   <div className="bg-white rounded-xl border border-[#E8EDF8] px-4 py-3">
                     <p className="text-sm font-bold text-[#2A2035]">{sel.head.full_name} {sel.head.relationship && <span className="text-[10px] font-semibold text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] px-1.5 py-0.5 rounded-full ml-1">{sel.head.relationship}</span>}</p>
-                    <div className="mt-1.5 flex flex-wrap gap-3 text-[11px]">
+                    <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] break-all">
                       {sel.head.email && <a href={`mailto:${sel.head.email}`} className="text-[#325099] hover:underline">✉ {sel.head.email}</a>}
                       {sel.head.phone && <a href={`tel:${sel.head.phone}`} className="text-[#325099] hover:underline">☎ {sel.head.phone}</a>}
                       {!sel.head.email && !sel.head.phone && <span className="text-[#2A2035]/35 italic">no contact details</span>}
@@ -947,7 +947,7 @@ function FamiliesView() {
                   </div>
                 ) : <p className="text-xs text-[#2A2035]/40 italic">No guardian recorded for this family.</p>}
                 {sel.otherGuardians.map(g => (
-                  <div key={g.id} className="mt-1.5 bg-white rounded-xl border border-[#E8EDF8] px-4 py-2.5 text-xs text-[#2A2035]">
+                  <div key={g.id} className="mt-1.5 bg-white rounded-xl border border-[#E8EDF8] px-4 py-2.5 text-xs text-[#2A2035] break-words">
                     <span className="font-semibold">{g.full_name}</span>
                     {g.relationship && <span className="text-[#2A2035]/50"> · {g.relationship}</span>}
                     {g.email && <a href={`mailto:${g.email}`} className="text-[#325099] hover:underline ml-2">✉ {g.email}</a>}
@@ -970,13 +970,13 @@ function FamiliesView() {
               {/* Payment method — family-level, drives new invoices */}
               <section>
                 <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Payment Method</p>
-                <div className="bg-white rounded-xl border border-[#E8EDF8] px-4 py-3 flex items-center gap-3">
-                  <div className="flex rounded-lg border border-[#DEE7FF] overflow-hidden">
+                <div className="bg-white rounded-xl border border-[#E8EDF8] px-4 py-3 flex flex-col md:flex-row items-start md:items-center gap-3">
+                  <div className="flex rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
                     {['bank', 'cash'].map(m => (
                       <button
                         key={m}
                         onClick={() => setFamilyPayMethod(sel, m)}
-                        className={`px-4 py-1.5 text-xs font-semibold transition ${familyPayMethod(sel) === m
+                        className={`px-4 py-2 md:py-1.5 text-xs font-semibold transition ${familyPayMethod(sel) === m
                           ? (m === 'cash' ? 'bg-emerald-600 text-white' : 'bg-[#325099] text-white')
                           : 'bg-white text-[#2A2035]/50 hover:bg-[#F8FAFF]'}`}
                       >
@@ -1085,16 +1085,16 @@ function SessionModal({ session, onClose, onSaved }) {
   const INP = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90dvh] md:max-h-[90vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <h2 className="text-sm font-bold text-[#062E63]">{isEdit ? 'Edit Session' : 'New Drop-in Session'}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
         </div>
-        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-6 py-5 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-4 md:px-6 py-5 flex flex-col gap-4">
           {/* Date + times */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="col-span-2 sm:col-span-3">
               <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Date</label>
               <input type="date" value={form.session_date} onChange={e => setForm(f => ({ ...f, session_date: e.target.value }))} required className={INP} />
             </div>
@@ -1122,7 +1122,7 @@ function SessionModal({ session, onClose, onSaved }) {
             <div className="flex flex-wrap gap-2">
               {DROPIN_SUBJECTS_LIST.map(s => (
                 <button key={s} type="button" onClick={() => toggleSubject(s)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${form.subjects.includes(s) ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
+                  className={`px-3 py-1.5 md:py-1 rounded-full text-xs font-semibold border transition ${form.subjects.includes(s) ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
                   {s}
                 </button>
               ))}
@@ -1137,7 +1137,7 @@ function SessionModal({ session, onClose, onSaved }) {
               <div className="flex flex-wrap gap-2">
                 {tutorsList.map(t => (
                   <button key={t.id} type="button" onClick={() => toggleTutor(t.full_name)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${form.tutors.includes(t.full_name) ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
+                    className={`px-3 py-1.5 md:py-1 rounded-full text-xs font-semibold border transition ${form.tutors.includes(t.full_name) ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
                     {t.full_name}
                   </button>
                 ))}
@@ -1152,8 +1152,8 @@ function SessionModal({ session, onClose, onSaved }) {
           {err && <p className="text-xs text-red-500">{err}</p>}
         </form>
         <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2.5 md:py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Session'}
           </button>
         </div>
@@ -1191,8 +1191,8 @@ function AddSigninModal({ sessionId, existingSignins, allStudents, onClose, onAd
   const INP = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm flex flex-col max-md:max-h-[90dvh] max-md:overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <h2 className="text-sm font-bold text-[#062E63]">Add Student to Session</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
@@ -1219,8 +1219,8 @@ function AddSigninModal({ sessionId, existingSignins, allStudents, onClose, onAd
           {err && <p className="text-xs text-red-500">{err}</p>}
         </div>
         <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2.5 md:py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Adding…' : 'Add Student'}
           </button>
         </div>
@@ -1287,8 +1287,8 @@ function CancelLessonModal({ row, onClose, onCancelled }) {
   const studentName = students.find(s => s.id === studentId)?.full_name
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm md:px-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md max-md:max-h-[90dvh] max-md:overflow-y-auto">
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#DEE7FF]">
           <div>
             <h3 className="font-bold text-[#062E63] text-sm">Cancel Lesson</h3>
@@ -1296,7 +1296,7 @@ function CancelLessonModal({ row, onClose, onCancelled }) {
               {row.class_label || `Class ${row.class_id}`} · {row.lesson_date}
             </p>
           </div>
-          <button onClick={onClose} className="text-[#325099]/40 hover:text-[#325099] text-lg">✕</button>
+          <button onClick={onClose} className="w-9 h-9 md:w-auto md:h-auto flex items-center justify-center shrink-0 text-[#325099]/40 hover:text-[#325099] text-lg">✕</button>
         </div>
 
         <div className="px-6 py-5 space-y-4">
@@ -1356,11 +1356,11 @@ function CancelLessonModal({ row, onClose, onCancelled }) {
         </div>
 
         <div className="px-6 pb-5 flex justify-end gap-2">
-          <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2 rounded-full hover:border-[#325099] transition">
+          <button onClick={onClose} className="text-xs text-[#325099]/60 border border-[#DEE7FF] px-4 py-2.5 md:py-2 rounded-full hover:border-[#325099] transition">
             Cancel
           </button>
           <button onClick={handleSubmit} disabled={submitting || !studentId}
-            className="text-xs font-semibold bg-red-600 text-white px-5 py-2 rounded-full hover:bg-red-700 transition disabled:opacity-40">
+            className="text-xs font-semibold bg-red-600 text-white px-5 py-2.5 md:py-2 rounded-full hover:bg-red-700 transition disabled:opacity-40">
             {submitting ? 'Cancelling…' : `Cancel${studentName ? ` ${studentName.split(' ')[0]}'s` : ''} lesson`}
           </button>
         </div>
@@ -4029,15 +4029,15 @@ export default function DatabasePage() {
         />
       )}
       {deleteSessionId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-80 flex flex-col overflow-hidden border border-[#DEE7FF]">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full md:w-80 flex flex-col overflow-hidden border border-[#DEE7FF] max-md:max-h-[90dvh] max-md:overflow-y-auto">
             <div className="px-6 py-5">
               <p className="text-sm font-bold text-[#062E63] mb-2">Delete this session?</p>
               <p className="text-xs text-[#2A2035]/60">This will also remove all student sign-ins for this session. This cannot be undone.</p>
             </div>
             <div className="px-6 pb-5 flex gap-2 justify-end">
-              <button onClick={() => setDeleteSessionId(null)} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-              <button onClick={() => handleDeleteSession(deleteSessionId)} className="px-4 py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Delete</button>
+              <button onClick={() => setDeleteSessionId(null)} className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+              <button onClick={() => handleDeleteSession(deleteSessionId)} className="px-4 py-2.5 md:py-2 text-xs font-semibold bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Delete</button>
             </div>
           </div>
         </div>
@@ -4045,8 +4045,8 @@ export default function DatabasePage() {
 
       {/* Price confirm dialog — enrolments only */}
       {priceConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] w-80 flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] w-full md:w-80 flex flex-col overflow-hidden max-md:max-h-[90dvh] max-md:overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF]">
               <span className="text-sm font-bold text-[#062E63]">Confirm Price Change</span>
               <button onClick={() => setPriceConfirm(null)} className="w-6 h-6 flex items-center justify-center rounded-full text-[#2A2035]/30 hover:text-[#2A2035] hover:bg-[#F0F4FF] transition text-base">×</button>
@@ -4069,8 +4069,8 @@ export default function DatabasePage() {
               <p className="text-[10px] text-[#2A2035]/40 leading-relaxed text-center">This will not automatically update any existing invoices.</p>
             </div>
             <div className="flex gap-2 px-5 pb-5">
-              <button onClick={() => setPriceConfirm(null)} className="flex-1 px-3 py-2 text-xs font-semibold text-[#2A2035]/60 bg-[#F4F4F4] rounded-lg hover:bg-[#E5E7EB] transition">Cancel</button>
-              <button onClick={handlePriceConfirm} disabled={saving} className="flex-1 px-3 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+              <button onClick={() => setPriceConfirm(null)} className="flex-1 px-3 py-2.5 md:py-2 text-xs font-semibold text-[#2A2035]/60 bg-[#F4F4F4] rounded-lg hover:bg-[#E5E7EB] transition">Cancel</button>
+              <button onClick={handlePriceConfirm} disabled={saving} className="flex-1 px-3 py-2.5 md:py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
                 {saving ? 'Saving…' : 'Confirm Change'}
               </button>
             </div>
@@ -4156,9 +4156,9 @@ export default function DatabasePage() {
 
       {/* ── New portal login — the password is shown here and nowhere else ───── */}
       {newLogin && (
-        <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-6"
+        <div className="fixed inset-0 z-[100] bg-black/40 flex items-end md:items-center justify-center md:p-6"
              onClick={() => setNewLogin(null)}>
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] shadow-xl max-w-md w-full p-6"
+          <div className="bg-white rounded-t-2xl md:rounded-2xl border border-[#DEE7FF] shadow-xl max-w-md w-full p-5 md:p-6 max-md:max-h-[90dvh] max-md:overflow-y-auto"
                onClick={e => e.stopPropagation()}>
             <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1">Login created</p>
             <h3 className="text-lg font-bold text-[#062E63] mb-4">{newLogin.full_name}</h3>
@@ -4181,11 +4181,11 @@ export default function DatabasePage() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => navigator.clipboard?.writeText(`${newLogin.email}\n${newLogin.password}`)}
-                className="px-3 py-2 rounded-xl text-xs font-bold border border-[#DEE7FF] text-[#325099] hover:border-[#325099] transition"
+                className="px-3 py-2.5 md:py-2 rounded-xl text-xs font-bold border border-[#DEE7FF] text-[#325099] hover:border-[#325099] transition"
               >Copy both</button>
               <button
                 onClick={() => setNewLogin(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#325099] text-white hover:bg-[#062E63] transition"
+                className="px-4 py-2.5 md:py-2 rounded-xl text-xs font-bold bg-[#325099] text-white hover:bg-[#062E63] transition"
               >Done</button>
             </div>
           </div>
@@ -4194,9 +4194,9 @@ export default function DatabasePage() {
 
       {/* ── Password reset — staff start it, the student chooses the password ── */}
       {resetTarget && (
-        <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-6"
+        <div className="fixed inset-0 z-[100] bg-black/40 flex items-end md:items-center justify-center md:p-6"
              onClick={() => setResetTarget(null)}>
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] shadow-xl max-w-md w-full p-6"
+          <div className="bg-white rounded-t-2xl md:rounded-2xl border border-[#DEE7FF] shadow-xl max-w-md w-full p-5 md:p-6 max-md:max-h-[90dvh] max-md:overflow-y-auto"
                onClick={e => e.stopPropagation()}>
             <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1">Password reset</p>
             <h3 className="text-lg font-bold text-[#062E63] mb-1">{resetTarget.options.full_name}</h3>
@@ -4288,11 +4288,11 @@ export default function DatabasePage() {
                       navigator.clipboard?.writeText(resetResult.link)
                       setLinkCopied(true)
                     }}
-                    className="px-3 py-2 rounded-xl text-xs font-bold border border-[#DEE7FF] text-[#325099] hover:border-[#325099] transition"
+                    className="px-3 py-2.5 md:py-2 rounded-xl text-xs font-bold border border-[#DEE7FF] text-[#325099] hover:border-[#325099] transition"
                   >{linkCopied ? 'Copied' : 'Copy link'}</button>
                   <button
                     onClick={() => setResetTarget(null)}
-                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#325099] text-white hover:bg-[#062E63] transition"
+                    className="px-4 py-2.5 md:py-2 rounded-xl text-xs font-bold bg-[#325099] text-white hover:bg-[#062E63] transition"
                   >Done</button>
                 </div>
               </>
@@ -4375,8 +4375,8 @@ export default function DatabasePage() {
 
 
       {dropConfirmCol && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 p-5 md:p-6 flex flex-col gap-4 max-md:max-h-[90dvh] max-md:overflow-y-auto">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0 text-xl">⚠️</div>
               <div>
@@ -4396,25 +4396,25 @@ export default function DatabasePage() {
               />
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => { setDropConfirmCol(null); setDropColInput('') }} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
-              <button onClick={execDropCol} disabled={dropColInput !== dropConfirmCol.col} className="px-5 py-2 bg-red-500 text-white text-sm font-semibold rounded-lg hover:bg-red-600 transition disabled:opacity-40">Drop Column</button>
+              <button onClick={() => { setDropConfirmCol(null); setDropColInput('') }} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+              <button onClick={execDropCol} disabled={dropColInput !== dropConfirmCol.col} className="px-5 py-2.5 md:py-2 bg-red-500 text-white text-sm font-semibold rounded-lg hover:bg-red-600 transition disabled:opacity-40">Drop Column</button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
-        <aside className="w-52 bg-[#111827] flex flex-col shrink-0 overflow-y-auto">
-          <div className="px-4 pt-5 pb-3 border-b border-white/10 shrink-0">
+        <aside className="w-full md:w-52 bg-[#111827] flex flex-col shrink-0 md:overflow-y-auto">
+          <div className="hidden md:block px-4 pt-5 pb-3 border-b border-white/10 shrink-0">
             <p className="text-[9px] tracking-[0.35em] uppercase font-bold text-white/30 mb-0.5">Admin</p>
             <p className="text-sm font-bold text-white font-display">Database</p>
           </div>
-          <div className="flex-1 py-1 overflow-y-auto">
+          <div className="flex md:block gap-3 flex-1 px-2 py-2 md:px-0 md:py-1 overflow-x-auto md:overflow-y-auto">
             {tableGroups.map(group => (
-              <div key={group.label} className="mb-1">
-                <p className="px-4 pt-3 pb-1 text-[9px] tracking-[0.3em] uppercase font-bold text-white/25">{group.label}</p>
+              <div key={group.label} className="flex md:block items-center gap-1 shrink-0 md:mb-1">
+                <p className="px-1.5 md:px-4 md:pt-3 md:pb-1 text-[9px] tracking-[0.3em] uppercase font-bold text-white/25 whitespace-nowrap">{group.label}</p>
                 {group.tables.map(t => {
                   const active     = t === selectedTable
                   const count      = rowCounts[t]
@@ -4429,7 +4429,7 @@ export default function DatabasePage() {
                   return (
                     <div
                       key={t}
-                      className="relative"
+                      className="relative shrink-0"
                       onMouseEnter={() => setHoveredTable(t)}
                       onMouseLeave={() => setHoveredTable(null)}
                       draggable={!isRenaming}
@@ -4462,11 +4462,11 @@ export default function DatabasePage() {
                       ) : (
                         <button
                           onClick={() => setSelectedTable(t)}
-                          className={`w-full text-left pl-2 pr-4 py-1.5 flex items-center justify-between gap-1.5 transition-colors ${isDragging ? 'opacity-30' : ''} ${active ? 'bg-[#325099] text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
+                          className={`md:w-full text-left px-3 py-2 md:pl-2 md:pr-4 md:py-1.5 rounded-lg md:rounded-none whitespace-nowrap flex items-center justify-between gap-1.5 transition-colors ${isDragging ? 'opacity-30' : ''} ${active ? 'bg-[#325099] text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
                         >
                           {/* Drag handle */}
                           <span
-                            className={`shrink-0 text-[11px] leading-none cursor-grab active:cursor-grabbing select-none transition-opacity ${hovered ? 'opacity-40 hover:opacity-80' : 'opacity-0'}`}
+                            className={`hidden md:inline shrink-0 text-[11px] leading-none cursor-grab active:cursor-grabbing select-none transition-opacity ${hovered ? 'opacity-40 hover:opacity-80' : 'opacity-0'}`}
                             title="Drag to reorder"
                           >⠿</span>
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -4496,7 +4496,7 @@ export default function DatabasePage() {
         <main className="flex-1 flex flex-col overflow-hidden bg-white">
 
           {/* Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 md:px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="min-w-0">
                 <p className="text-[9px] tracking-[0.25em] uppercase text-[#325099] font-bold">Table</p>
@@ -4509,21 +4509,21 @@ export default function DatabasePage() {
               {saving && <span className="text-[10px] font-semibold text-[#325099]/60 shrink-0 animate-pulse">Saving…</span>}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 justify-end">
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
               {/* Undo button removed — Ctrl/Cmd+Z (via GlobalUndo) drives handleUndo */}
               {undoing && <span className="text-[10px] font-semibold text-[#325099]/60 animate-pulse shrink-0">Undoing…</span>}
 
               {/* Rename button removed — rename via the ✏️ that appears when hovering a table name in the sidebar */}
 
               {/* Data quality (read-only checks) */}
-              <button onClick={() => router.push('/tutor/database/quality')} className="flex items-center gap-1.5 px-3 py-1.5 text-[#065F46] border border-[#A7F3D0] text-xs font-semibold rounded-lg hover:bg-[#ECFDF5] transition" title="Read-only data quality checks — duplicates, orphans, invalid emails/phones, inconsistent values">
+              <button onClick={() => router.push('/tutor/database/quality')} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-[#065F46] border border-[#A7F3D0] text-xs font-semibold rounded-lg hover:bg-[#ECFDF5] transition" title="Read-only data quality checks — duplicates, orphans, invalid emails/phones, inconsistent values">
                 ✓ Data Quality
               </button>
 
               {/* Sort */}
               <div className="relative">
                 <button ref={sortBtnRef} onClick={() => { setSortOpen(o => !o); setFilterOpen(false) }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${sortRules.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
+                  className={`flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-xs font-semibold rounded-lg border transition ${sortRules.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
                   title="Sort rows by one or more columns">
                   ⇅ Sort{sortRules.length > 0 && <span className="text-[10px] font-bold bg-[#325099] text-white rounded-full px-1.5">{sortRules.length}</span>}
                 </button>
@@ -4542,7 +4542,7 @@ export default function DatabasePage() {
               {/* Filter */}
               <div className="relative">
                 <button ref={filterBtnRef} onClick={() => { setFilterOpen(o => !o); setSortOpen(false) }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${filterCfg.conds.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
+                  className={`flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-xs font-semibold rounded-lg border transition ${filterCfg.conds.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
                   title="Filter rows by conditions">
                   ≋ Filter{filterCfg.conds.length > 0 && <span className="text-[10px] font-bold bg-[#325099] text-white rounded-full px-1.5">{filterCfg.conds.length}</span>}
                 </button>
@@ -4560,9 +4560,9 @@ export default function DatabasePage() {
               </div>
 
               {/* Search */}
-              <div className="relative">
+              <div className="relative w-full md:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#325099]/40 text-xs pointer-events-none">🔍</span>
-                <input type="text" placeholder="Search rows…" value={search} onChange={e => setSearch(e.target.value)} className="pl-7 pr-7 py-1.5 text-xs rounded-lg border border-[#DEE7FF] bg-white text-[#2A2035] placeholder-[#2A2035]/30 focus:outline-none focus:border-[#BACBFF] w-44 transition" />
+                <input type="text" placeholder="Search rows…" value={search} onChange={e => setSearch(e.target.value)} className="pl-7 pr-7 py-1.5 text-xs rounded-lg border border-[#DEE7FF] bg-white text-[#2A2035] placeholder-[#2A2035]/30 focus:outline-none focus:border-[#BACBFF] w-full md:w-44 transition" />
                 {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/60 text-xs">✕</button>}
               </div>
 
@@ -4587,13 +4587,13 @@ export default function DatabasePage() {
 
               {/* Status tabs — enrolments only */}
               {selectedTable === T_ENROLMENTS && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['pending', 'Pending'], ['trial', 'Trial'], ['disenrol', 'Disenrolled'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setEnrolStatusTab(v)}
                       title={v === 'inactive' || v === 'pending' ? `Enrolments of students marked ${v}` : undefined}
-                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${enrolStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${enrolStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
                     </button>
@@ -4603,12 +4603,12 @@ export default function DatabasePage() {
 
               {/* Active / Inactive tabs — courses only */}
               {selectedTable === T_COURSES && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setCourseStatusTab(v)}
-                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${courseStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${courseStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
                     </button>
@@ -4618,12 +4618,12 @@ export default function DatabasePage() {
 
               {/* Active / Inactive tabs — classes only */}
               {selectedTable === T_CLASSES && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setClassStatusTab(v)}
-                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${classStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${classStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
                     </button>
@@ -4633,12 +4633,12 @@ export default function DatabasePage() {
 
               {/* Active / Inactive tabs — tutors only */}
               {selectedTable === T_TUTORS && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setTutorStatusTab(v)}
-                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${tutorStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${tutorStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
                     </button>
@@ -4648,12 +4648,12 @@ export default function DatabasePage() {
 
               {/* Status tabs — students only */}
               {selectedTable === T_STUDENTS && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['pending', 'Pending'], ['trial', 'Trial'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setStudentStatusTab(v)}
-                      className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${studentStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${studentStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
                     </button>
@@ -4664,15 +4664,15 @@ export default function DatabasePage() {
               {selectedTable === 'lessons' ? (
                 <>
                   {/* Lessons / Level Tests tab toggle */}
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                    <button onClick={() => setLessonViewMode('lessons')} className={`px-3 py-1.5 text-xs font-semibold transition ${lessonViewMode === 'lessons' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Lessons</button>
-                    <button onClick={() => { setLessonViewMode('level_tests'); setLessonClassFilter('') }} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${lessonViewMode === 'level_tests' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>📝 Level Tests</button>
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setLessonViewMode('lessons')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${lessonViewMode === 'lessons' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Lessons</button>
+                    <button onClick={() => { setLessonViewMode('level_tests'); setLessonClassFilter('') }} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${lessonViewMode === 'level_tests' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>📝 Level Tests</button>
                   </div>
                   {lessonViewMode === 'lessons' && (
                   <select
                     value={lessonClassFilter}
                     onChange={e => setLessonClassFilter(e.target.value)}
-                    className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] max-w-[200px]"
+                    className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] min-w-0 max-w-[200px]"
                   >
                     <option value="">All classes</option>
                     {allClassesForFilter.map(c => (
@@ -4680,7 +4680,7 @@ export default function DatabasePage() {
                     ))}
                   </select>
                   )}
-                  <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  <button onClick={() => openAddLessonModal(lessonViewMode === 'level_tests' ? 'level_test' : 'class')} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#065F46] text-white text-xs font-semibold rounded-lg hover:bg-[#047857] transition disabled:opacity-40 disabled:cursor-not-allowed">
                     <span className="text-sm leading-none">+</span> {lessonViewMode === 'level_tests' ? 'Add Level Test' : 'Add Lesson'}
                   </button>
                   {lessonViewMode === 'lessons' && (
@@ -4688,7 +4688,7 @@ export default function DatabasePage() {
                   <button
                     onClick={() => previewLessonAction('update')}
                     disabled={generatingLessons || loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Bring UPCOMING lessons into line with the class: new time, new room, and moving a lesson off a day the class no longer runs onto a free scheduled date — the same lesson, so its notes travel with it. Past lessons are never touched, and nothing is deleted. Shows you the list before anything is saved."
                   >
                     {generatingLessons ? '⟳ Working…' : '⟳ Update Lessons'}
@@ -4696,7 +4696,7 @@ export default function DatabasePage() {
                   <button
                     onClick={() => previewLessonAction('add')}
                     disabled={generatingLessons || loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Fill in the weeks a class is missing a lesson — a new class, or a gap in an existing one. A week that already has a lesson is left alone, even if that lesson was moved to another day. Never changes or removes an existing lesson. Shows you the list before anything is saved."
                   >
                     {generatingLessons ? '⟳ Working…' : '+ Create Lessons'}
@@ -4707,64 +4707,64 @@ export default function DatabasePage() {
               ) : selectedTable === T_STUDENTS ? (
                 <>
                   {/* Data / Cards toggle */}
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                    <button onClick={() => setStudentViewMode('data')} className={`px-3 py-1.5 text-xs font-semibold transition ${studentViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
-                    <button onClick={() => setStudentViewMode('cards')} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${studentViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Directory</button>
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setStudentViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${studentViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                    <button onClick={() => setStudentViewMode('cards')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${studentViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Directory</button>
                   </div>
                   {studentViewMode === 'cards' ? (
-                    <button onClick={() => setShowAddStudentModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
+                    <button onClick={() => setShowAddStudentModal(true)} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
                       <span className="text-sm leading-none">+</span> Add Student
                     </button>
                   ) : (
-                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                       <span className="text-sm leading-none">+</span> Add Student
                     </button>
                   )}
                 </>
               ) : selectedTable === T_DROPIN_SESSIONS ? (
                 <>
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                    <button onClick={() => setDropinViewMode('data')} className={`px-3 py-1.5 text-xs font-semibold transition ${dropinViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
-                    <button onClick={() => setDropinViewMode('sessions')} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${dropinViewMode === 'sessions' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Sessions</button>
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setDropinViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${dropinViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                    <button onClick={() => setDropinViewMode('sessions')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${dropinViewMode === 'sessions' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Sessions</button>
                   </div>
                   {dropinViewMode === 'sessions' ? (
-                    <button onClick={() => setShowAddSession(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
+                    <button onClick={() => setShowAddSession(true)} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
                       <span className="text-sm leading-none">+</span> New Session
                     </button>
                   ) : (
-                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                       <span className="text-sm leading-none">+</span> Add Row
                     </button>
                   )}
                 </>
               ) : selectedTable === 'classes' ? (
                 /* Term rollovers live on the dedicated /tutor/transition page */
-                <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                <button onClick={openAddClassModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Class
                 </button>
               ) : selectedTable === T_ENROLMENTS ? (
-                <button onClick={() => setShowAddEnrolmentModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                <button onClick={() => setShowAddEnrolmentModal(true)} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Enrolment
                 </button>
               ) : selectedTable === T_COURSES ? (
-                <button onClick={openAddCourseModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                <button onClick={openAddCourseModal} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Course
                 </button>
               ) : selectedTable === T_PARENTS ? (
                 <>
                   {/* Families / Data toggle */}
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                    <button onClick={() => setGuardianViewMode('families')} className={`px-3 py-1.5 text-xs font-semibold transition ${guardianViewMode === 'families' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Families</button>
-                    <button onClick={() => setGuardianViewMode('data')} className={`px-3 py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${guardianViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setGuardianViewMode('families')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${guardianViewMode === 'families' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Families</button>
+                    <button onClick={() => setGuardianViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${guardianViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
                   </div>
                   {guardianViewMode === 'data' && (
-                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                    <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                       <span className="text-sm leading-none">+</span> Add Row
                     </button>
                   )}
                 </>
               ) : (
-                <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+                <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <span className="text-sm leading-none">+</span> Add Row
                 </button>
               )}
@@ -4773,14 +4773,14 @@ export default function DatabasePage() {
 
           {/* Hidden columns restore bar */}
           {hiddenCols.size > 0 && (
-            <div className="flex items-center gap-1.5 px-5 py-1 bg-[#F8FAFF] border-b border-[#DEE7FF] shrink-0">
-              <span className="text-[10px] text-[#325099]/40 select-none">{hiddenCols.size} hidden:</span>
+            <div className="flex items-center gap-1.5 px-3 md:px-5 py-1.5 md:py-1 bg-[#F8FAFF] border-b border-[#DEE7FF] shrink-0 overflow-x-auto whitespace-nowrap">
+              <span className="text-[10px] text-[#325099]/40 select-none shrink-0">{hiddenCols.size} hidden:</span>
               {[...hiddenCols].map(col => (
-                <button key={col} onClick={() => restoreCol(col)} className="text-[10px] px-2 py-0.5 rounded-full bg-[#EEF1F8] text-[#325099]/60 hover:bg-[#DEE7FF] hover:text-[#325099] transition font-mono">
+                <button key={col} onClick={() => restoreCol(col)} className="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-[#EEF1F8] text-[#325099]/60 hover:bg-[#DEE7FF] hover:text-[#325099] transition font-mono">
                   {col} ×
                 </button>
               ))}
-              <button onClick={restoreAllCols} className="ml-auto text-[10px] text-[#325099]/40 hover:text-[#325099] transition">
+              <button onClick={restoreAllCols} className="ml-auto shrink-0 pl-2 text-[10px] text-[#325099]/40 hover:text-[#325099] transition">
                 show all
               </button>
             </div>
@@ -4788,7 +4788,7 @@ export default function DatabasePage() {
 
           {/* Hint bar */}
           {columns.length > 0 && !loading && (
-            <div className="flex items-center gap-4 px-5 py-1.5 bg-[#F0F4FF] border-b border-[#DEE7FF] text-[10px] text-[#325099]/50 shrink-0 select-none">
+            <div className="hidden md:flex items-center gap-4 px-5 py-1.5 bg-[#F0F4FF] border-b border-[#DEE7FF] text-[10px] text-[#325099]/50 shrink-0 select-none">
               <span>↔ Drag header to reorder</span>
               <span>⟺ Drag right edge to resize</span>
               <span>Double-click header to hide column</span>
@@ -4824,18 +4824,18 @@ export default function DatabasePage() {
                 return (
                   <div className="h-full flex flex-col">
                     {/* Search + count bar */}
-                    <div className="flex items-center gap-3 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
-                      <div className="relative flex-1 max-w-sm">
+                    <div className="flex items-center gap-3 px-3 md:px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+                      <div className="relative flex-1 min-w-0 max-w-sm">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#325099]/50 text-sm">🔍</span>
                         <input type="text" placeholder="Search by name, email, or year…" value={studentCardsSearch} onChange={e => { setStudentCardsSearch(e.target.value); setStudentCardsSelected(null) }} className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-[#DEE7FF] bg-white text-[#2A2035] placeholder-[#2A2035]/40 focus:outline-none focus:border-[#BACBFF] transition" />
                       </div>
                       <span className="text-[10px] text-[#325099]/50 font-semibold shrink-0">{filtered.length} {q ? 'found' : 'students'}</span>
                     </div>
                     {/* Side-by-side panels */}
-                    <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 gap-0 divide-x divide-[#DEE7FF]">
+                    <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-2 max-md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-0 divide-x max-md:divide-x-0 max-md:divide-y divide-[#DEE7FF]">
                       {/* LEFT — student list */}
                       <div className="flex flex-col overflow-hidden">
-                        <div className="flex items-center gap-2.5 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+                        <div className="flex items-center gap-2.5 px-4 md:px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
                           <div className="w-7 h-7 rounded-xl bg-[#DEE7FF] flex items-center justify-center text-sm">🎓</div>
                           <p className="text-xs font-semibold text-[#2A2035] font-display">{filtered.length} {q ? 'found' : 'enrolled'}</p>
                           {studentCardsSelected && (
@@ -4881,13 +4881,13 @@ export default function DatabasePage() {
                       </div>
                       {/* RIGHT — guardian details */}
                       <div className="flex flex-col overflow-hidden">
-                        <div className="flex items-center gap-2.5 px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+                        <div className="flex items-center gap-2.5 px-4 md:px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
                           <div className="w-7 h-7 rounded-xl bg-[#FEF3C7] flex items-center justify-center text-sm">👨‍👩‍👧</div>
-                          <p className="text-xs font-semibold text-[#2A2035] font-display">{selected ? `Guardian of ${selected.full_name}` : 'Parents / Guardians'}</p>
+                          <p className="text-xs font-semibold text-[#2A2035] font-display min-w-0 truncate">{selected ? `Guardian of ${selected.full_name}` : 'Parents / Guardians'}</p>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-5">
+                        <div className="flex-1 overflow-y-auto p-4 md:p-5">
                           {!selected ? (
-                            <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                            <div className="flex flex-col items-center justify-center h-full text-center py-6 md:py-16">
                               <div className="w-12 h-12 rounded-2xl bg-[#FEF3C7] flex items-center justify-center text-2xl mb-3">👈</div>
                               <p className="text-sm font-semibold text-[#2A2035]">No student selected</p>
                               <p className="text-xs text-[#2A2035]/50 mt-1.5 max-w-xs">Click a student on the left to view their details.</p>
@@ -4897,9 +4897,9 @@ export default function DatabasePage() {
                               {/* Linked student chip */}
                               <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#EEF4FF] border border-[#DEE7FF]">
                                 <div className="w-6 h-6 rounded-full bg-[#325099] text-white text-xs font-bold flex items-center justify-center shrink-0">{(selected.full_name||'?').charAt(0)}</div>
-                                <span className="text-xs font-semibold text-[#325099]">{selected.full_name}</span>
+                                <span className="text-xs font-semibold text-[#325099] min-w-0 truncate">{selected.full_name}</span>
                                 {selected.year && <span className="text-[10px] text-[#2A2035]/50 ml-1">· Year {selected.year}</span>}
-                                <span className="ml-auto text-[10px] font-semibold text-[#325099]/60 tracking-wide">linked student</span>
+                                <span className="ml-auto text-[10px] font-semibold text-[#325099]/60 tracking-wide shrink-0">linked student</span>
                               </div>
                               {/* Status selector */}
                               <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white border border-[#DEE7FF]">
@@ -4933,11 +4933,11 @@ export default function DatabasePage() {
                                   <span className="text-xs">No guardian on file</span>
                                 </div>
                               ) : (
-                                <div className="rounded-2xl border border-[#DEE7FF] p-5 bg-[#FAFBFF]">
+                                <div className="rounded-2xl border border-[#DEE7FF] p-4 md:p-5 bg-[#FAFBFF]">
                                   <div className="flex items-start gap-3 mb-4">
                                     <div className="w-10 h-10 rounded-full bg-[#FEF3C7] flex items-center justify-center text-base font-bold text-[#92400E] shrink-0">{(selectedParent.full_name||'?').charAt(0)}</div>
-                                    <div>
-                                      <p className="text-base font-semibold text-[#2A2035] font-display">{selectedParent.full_name || '—'}</p>
+                                    <div className="min-w-0">
+                                      <p className="text-base font-semibold text-[#2A2035] font-display break-words">{selectedParent.full_name || '—'}</p>
                                       {selectedParent.relationship && <SDBadge text={selectedParent.relationship} cls="bg-[#FEF3C7] text-[#92400E] mt-0.5" />}
                                     </div>
                                   </div>
@@ -4997,7 +4997,7 @@ export default function DatabasePage() {
                     </div>
                   )}
                   {/* Session cards */}
-                  <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-4 content-start">
+                  <div className="p-4 md:p-6 grid grid-cols-1 xl:grid-cols-2 gap-4 content-start">
                     {dropinSessions.map(session => {
                       const fmt12 = t => {
                         if (!t) return ''
@@ -5047,9 +5047,9 @@ export default function DatabasePage() {
                             )}
                             {/* Edit / Delete */}
                             <div className="mt-3 flex gap-2">
-                              <button onClick={() => setEditingSession(session)} className="text-[10px] font-semibold text-[#325099] hover:underline">Edit session</button>
+                              <button onClick={() => setEditingSession(session)} className="py-1.5 md:py-0 text-[11px] md:text-[10px] font-semibold text-[#325099] hover:underline">Edit session</button>
                               <span className="text-[#2A2035]/20">·</span>
-                              <button onClick={() => setDeleteSessionId(session.id)} className="text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
+                              <button onClick={() => setDeleteSessionId(session.id)} className="py-1.5 md:py-0 text-[11px] md:text-[10px] font-semibold text-red-400 hover:underline">Delete</button>
                             </div>
                           </div>
 
@@ -5081,7 +5081,7 @@ export default function DatabasePage() {
                                   <button
                                     onClick={() => handleRemoveSignin(session.id, si.id)}
                                     title="Remove"
-                                    className="text-[#2A2035]/25 hover:text-red-400 transition text-sm leading-none shrink-0 pt-0.5"
+                                    className="text-[#2A2035]/25 hover:text-red-400 transition text-lg md:text-sm leading-none shrink-0 px-1.5 md:px-0 pt-0.5"
                                   >×</button>
                                 </div>
                               )
@@ -5093,7 +5093,7 @@ export default function DatabasePage() {
                             <button
                               onClick={() => setAddSigninFor(session.id)}
                               disabled={isFull}
-                              className="w-full py-2 rounded-xl border border-dashed border-[#DEE7FF] text-[11px] font-semibold text-[#325099]/60 hover:border-[#325099] hover:text-[#325099] hover:bg-[#F8FAFF] transition disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="w-full py-2.5 md:py-2 rounded-xl border border-dashed border-[#DEE7FF] text-[11px] font-semibold text-[#325099]/60 hover:border-[#325099] hover:text-[#325099] hover:bg-[#F8FAFF] transition disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               {isFull ? 'Session full' : '+ Add student'}
                             </button>
@@ -5138,15 +5138,15 @@ export default function DatabasePage() {
                   const unpaidAmt  = invoiceCardsData.filter(i => i.status === 'unpaid').reduce((s, i) => s + adjTotal(i), 0)
                   const fmt = n => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
                   return (
-                    <div className="mx-6 mt-6 mb-2 bg-white rounded-2xl border border-[#E8EDF8] shadow-sm overflow-hidden">
+                    <div className="mx-4 mt-4 md:mx-6 md:mt-6 mb-2 bg-white rounded-2xl border border-[#E8EDF8] shadow-sm overflow-hidden">
                       {/* Top row: main 3 stats */}
-                      <div className="grid grid-cols-3 divide-x divide-[#F0F4FF]">
-                        <div className="px-6 py-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#F0F4FF]">
+                        <div className="px-4 py-3 md:px-6 md:py-4">
                           <p className="text-[10px] font-semibold uppercase tracking-widest text-[#2A2035]/40 mb-1">Gross subtotal</p>
                           <p className="text-xl font-bold text-[#062E63] tabular-nums">{fmt(totalSubtotal)}</p>
                           <p className="text-[10px] text-[#2A2035]/40 mt-0.5">across {invoiceCardsData.length} invoice{invoiceCardsData.length !== 1 ? 's' : ''}</p>
                         </div>
-                        <div className="px-6 py-4">
+                        <div className="px-4 py-3 md:px-6 md:py-4">
                           <p className="text-[10px] font-semibold uppercase tracking-widest text-[#059669]/70 mb-1">Total discounts</p>
                           <p className="text-xl font-bold text-[#059669] tabular-nums">−{fmt(totalDiscounts)}</p>
                           <p className="text-[10px] text-[#2A2035]/40 mt-0.5 flex flex-wrap gap-x-1">
@@ -5158,7 +5158,7 @@ export default function DatabasePage() {
                             {totalDiscounts === 0 && <span>No discounts applied</span>}
                           </p>
                         </div>
-                        <div className="px-6 py-4">
+                        <div className="px-4 py-3 md:px-6 md:py-4">
                           <p className="text-[10px] font-semibold uppercase tracking-widest text-[#325099]/70 mb-1">Net total</p>
                           <p className="text-xl font-bold text-[#325099] tabular-nums">{fmt(totalAfterDiscount)}</p>
                           <p className="text-[10px] text-[#2A2035]/40 mt-0.5">after all discounts</p>
@@ -5166,13 +5166,13 @@ export default function DatabasePage() {
                       </div>
                       {/* Bottom row: payment status breakdown */}
                       <div className="border-t border-[#F0F4FF] grid grid-cols-2 divide-x divide-[#F0F4FF] bg-[#FAFBFF]">
-                        <div className="px-6 py-2.5 flex items-center gap-2">
+                        <div className="px-3 md:px-6 py-2.5 flex items-center gap-1.5 md:gap-2">
                           <span className="w-2 h-2 rounded-full bg-[#059669] shrink-0" />
                           <span className="text-[10px] text-[#2A2035]/50 font-medium">Paid</span>
                           <span className="ml-auto text-[11px] font-bold text-[#065F46] tabular-nums">{fmt(paidAmt)}</span>
                           <span className="text-[10px] text-[#2A2035]/30">({invoiceCardsData.filter(i => i.status === 'paid').length})</span>
                         </div>
-                        <div className="px-6 py-2.5 flex items-center gap-2">
+                        <div className="px-3 md:px-6 py-2.5 flex items-center gap-1.5 md:gap-2">
                           <span className="w-2 h-2 rounded-full bg-[#EF4444] shrink-0" />
                           <span className="text-[10px] text-[#2A2035]/50 font-medium">Unpaid</span>
                           <span className="ml-auto text-[11px] font-bold text-[#991B1B] tabular-nums">{fmt(unpaidAmt)}</span>
@@ -5183,7 +5183,7 @@ export default function DatabasePage() {
                   )
                 })()}
                 {/* ── Cards grid ─────────────────────────────────────────────── */}
-                <div className="p-6 grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4 content-start">
+                <div className="p-4 md:p-6 grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4 content-start">
                   {invoiceCardsData.map(inv => {
                     const statusColour = inv.status === 'paid'
                       ? { bg: 'bg-[#D1FAE5]', text: 'text-[#065F46]', border: 'border-[#6EE7B7]', dot: 'bg-[#059669]' }
@@ -5214,16 +5214,16 @@ export default function DatabasePage() {
                           </div>
                         )}
                         {/* Card header */}
-                        <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-[#F0F4FF]">
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-start justify-between gap-3 px-4 md:px-5 pt-4 md:pt-5 pb-4 border-b border-[#F0F4FF]">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
                               {inv.isFamily && <span className="text-[9px] font-bold uppercase tracking-wider text-[#325099]/50 bg-[#F0F4FF] px-1.5 py-0.5 rounded-full">Family</span>}
-                              <h3 className="text-sm font-bold text-[#062E63]">{inv.displayName}</h3>
+                              <h3 className="text-sm font-bold text-[#062E63] break-words">{inv.displayName}</h3>
                             </div>
                             <p className="text-[10px] text-[#2A2035]/40 font-medium">{inv.termName}</p>
                           </div>
                           {/* Badges */}
-                          <div className="flex items-center gap-2 flex-col">
+                          <div className="flex items-center gap-2 flex-col shrink-0">
                             {/* Paid/Unpaid — click to cycle */}
                             <button
                               onClick={() => handleInvoiceStatusUpdate(inv.id, nextStatus)}
@@ -5250,16 +5250,16 @@ export default function DatabasePage() {
                         </div>
 
                         {/* Enrolment breakdown per student */}
-                        <div className="px-5 py-3 flex flex-col gap-3 flex-1">
+                        <div className="px-4 md:px-5 py-3 flex flex-col gap-3 flex-1">
                           {inv.members.map(member => (
                             <div key={member.id}>
                               <p className="text-[10px] font-bold text-[#325099] uppercase tracking-wider mb-1">{member.full_name}</p>
                               {member.enrolments.length === 0 ? (
                                 <p className="text-[10px] text-[#2A2035]/30 italic pl-2">No priced enrolments</p>
                               ) : member.enrolments.map((e, i) => (
-                                <div key={i} className="flex items-center justify-between py-0.5 pl-2">
-                                  <span className="text-xs text-[#2A2035]/70">{e.label}</span>
-                                  <span className="text-xs font-semibold text-[#2A2035] tabular-nums">
+                                <div key={i} className="flex items-center justify-between gap-3 py-0.5 pl-2">
+                                  <span className="text-xs text-[#2A2035]/70 min-w-0 break-words">{e.label}</span>
+                                  <span className="text-xs font-semibold text-[#2A2035] tabular-nums shrink-0">
                                     {e.price != null ? `$${Number(e.price).toLocaleString()}` : '—'}
                                   </span>
                                 </div>
@@ -5269,7 +5269,7 @@ export default function DatabasePage() {
                         </div>
 
                         {/* Totals footer */}
-                        <div className="px-5 pb-4 pt-3 border-t border-[#F0F4FF] flex flex-col gap-1">
+                        <div className="px-4 md:px-5 pb-4 pt-3 border-t border-[#F0F4FF] flex flex-col gap-1">
                           <div className="flex justify-between text-xs text-[#2A2035]/60">
                             <span>Subtotal</span>
                             <span className="tabular-nums">${Number(inv.subtotal).toLocaleString()}</span>
@@ -5319,10 +5319,10 @@ export default function DatabasePage() {
                           )}
                         </div>
                         {/* Action buttons */}
-                        <div className="px-5 pb-4 flex flex-col gap-2">
+                        <div className="px-4 md:px-5 pb-4 flex flex-col gap-2">
                           <button
                             onClick={() => setCreditModal({ invoiceId: inv.id, members: inv.members })}
-                            className="w-full text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg py-1.5 hover:bg-[#F0F4FF] transition"
+                            className="w-full text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg py-2.5 md:py-1.5 hover:bg-[#F0F4FF] transition"
                           >
                             + Add credit
                           </button>
@@ -5333,7 +5333,7 @@ export default function DatabasePage() {
                               if (error) alert(`Delete failed: ${error.message}`)
                               else setReloadKey(k => k + 1)
                             }}
-                            className="w-full text-[11px] font-semibold text-red-400 border border-dashed border-red-200 rounded-lg py-1.5 hover:bg-red-50 transition"
+                            className="w-full text-[11px] font-semibold text-red-400 border border-dashed border-red-200 rounded-lg py-2.5 md:py-1.5 hover:bg-red-50 transition"
                           >
                             Delete invoice
                           </button>
@@ -5941,7 +5941,7 @@ export default function DatabasePage() {
                             ) : (
                               <button
                                 onClick={e => { e.stopPropagation(); setCancelModal({ row }) }}
-                                className="opacity-0 group-hover:opacity-100 text-[9px] font-semibold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-1.5 py-0.5 rounded transition whitespace-nowrap"
+                                className="md:opacity-0 md:group-hover:opacity-100 text-[9px] font-semibold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-1.5 py-0.5 rounded transition whitespace-nowrap"
                                 title="Cancel lesson for a student"
                               >Cancel</button>
                             )}
@@ -5955,7 +5955,7 @@ export default function DatabasePage() {
                               <button onClick={() => setDeleteConfirm(null)} className="px-1.5 py-0.5 bg-[#F4F4F4] text-[#9CA3AF] text-[9px] rounded">Cancel</button>
                             </div>
                           ) : (
-                            pkCol && <button onClick={() => { setDeleteConfirm(rowId); setEditingCell(null) }} className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-[#2A2035]/25 hover:text-red-500 hover:bg-red-50 transition" title="Delete row">×</button>
+                            pkCol && <button onClick={() => { setDeleteConfirm(rowId); setEditingCell(null) }} className="md:opacity-0 md:group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-[#2A2035]/25 hover:text-red-500 hover:bg-red-50 transition" title="Delete row">×</button>
                           )}
                         </td>
                       </tr>
@@ -5971,9 +5971,9 @@ export default function DatabasePage() {
           </div>
 
           {/* Status bar */}
-          <div className="flex items-center justify-between px-5 py-2 bg-[#F8FAFF] border-t border-[#DEE7FF] text-[10px] text-[#2A2035]/35 shrink-0 select-none">
+          <div className="flex items-center justify-between gap-3 px-3 md:px-5 py-2 bg-[#F8FAFF] border-t border-[#DEE7FF] text-[10px] text-[#2A2035]/35 shrink-0 select-none">
             <span>{search ? `${filteredRows.length} of ${rows.length} rows match` : `${rows.length} rows loaded`}{rows.length >= 500 && ' · first 500 only'}</span>
-            <span>
+            <span className="min-w-0 truncate">
               {columnOrder.length > 0 && `${columnOrder.length} columns`}
               {pkCol && ` · pk: ${pkCol}`}
               {saving && ' · saving…'}
@@ -5999,7 +5999,7 @@ export default function DatabasePage() {
           {/* Backdrop */}
           <div className="fixed inset-0 z-40 bg-black/20" onClick={closeLessonSidebar} />
           {/* Panel */}
-          <div className="fixed top-0 right-0 h-full w-[420px] max-w-full z-50 bg-white shadow-2xl flex flex-col border-l border-[#DEE7FF] overflow-hidden">
+          <div className="fixed top-0 right-0 h-full w-full md:w-[420px] max-w-full z-50 bg-white shadow-2xl flex flex-col border-l border-[#DEE7FF] overflow-hidden">
             {/* Header */}
             <div className="px-5 py-4 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF] flex items-start justify-between gap-3 shrink-0">
               <div>
@@ -6020,7 +6020,7 @@ export default function DatabasePage() {
                   <span className="inline-block mt-1 text-[10px] font-bold tracking-widest uppercase bg-[#DEE7FF] text-[#325099] px-2 py-0.5 rounded-full">Week {lessonSidebar.week}</span>
                 )}
               </div>
-              <button onClick={closeLessonSidebar} className="w-7 h-7 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg transition shrink-0">×</button>
+              <button onClick={closeLessonSidebar} className="w-9 h-9 md:w-7 md:h-7 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg transition shrink-0">×</button>
             </div>
 
             {/* Body */}
@@ -6218,8 +6218,8 @@ export default function DatabasePage() {
 
       {/* ── Add Class Modal ─────────────────────────────────────────────────── */}
       {showAddClassModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddClassModal(false) }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddClassModal(false) }}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md md:mx-4 overflow-hidden max-md:max-h-[90dvh] max-md:overflow-y-auto">
             {/* Header */}
             <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
               <h2 className="text-base font-bold text-[#2A2035] font-display">Add Class</h2>
@@ -6347,14 +6347,14 @@ export default function DatabasePage() {
             <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2">
               <button
                 onClick={() => setShowAddClassModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
+                className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddClass}
                 disabled={addClassSaving || !addClassReady}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-4 py-2.5 md:py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {addClassSaving ? 'Adding…' : 'Add Class'}
               </button>
@@ -6369,10 +6369,10 @@ export default function DatabasePage() {
           this is confirmed, so a run can be read before it happens instead of
           being reconstructed afterwards. */}
       {lessonPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm md:px-4"
           onClick={e => { if (e.target === e.currentTarget) setLessonPlan(null) }}>
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-[#DEE7FF] overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+          <div className="bg-white w-full max-w-2xl rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] overflow-hidden max-h-[90dvh] md:max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-[#DEE7FF] flex items-center justify-center text-lg">{lessonPlan.mode === 'add' ? '＋' : '⟳'}</div>
                 <div>
@@ -6386,7 +6386,7 @@ export default function DatabasePage() {
               <button onClick={() => setLessonPlan(null)} className="w-8 h-8 rounded-full flex items-center justify-center text-[#2A2035]/40 hover:text-[#2A2035] hover:bg-[#DEE7FF] transition text-lg">×</button>
             </div>
 
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+            <div className="overflow-y-auto flex-1 px-4 md:px-6 py-4 space-y-4">
               {lessonPlan.total === 0 && (
                 <p className="text-sm text-[#2A2035]/60 py-6 text-center">
                   Nothing to {lessonPlan.mode === 'add' ? 'create' : 'update'} — every lesson already matches its class.
@@ -6446,12 +6446,12 @@ export default function DatabasePage() {
               )}
             </div>
 
-            <div className="px-6 py-3 border-t border-[#DEE7FF] bg-[#F8FAFF] flex items-center justify-between gap-3 shrink-0">
+            <div className="px-4 md:px-6 py-3 border-t border-[#DEE7FF] bg-[#F8FAFF] flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
               <p className="text-[11px] text-[#2A2035]/50">Nothing has been saved yet. Past lessons are never changed, and nothing is deleted.</p>
-              <div className="flex gap-2 shrink-0">
-                <button onClick={() => setLessonPlan(null)} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">Cancel</button>
+              <div className="flex justify-end gap-2 shrink-0">
+                <button onClick={() => setLessonPlan(null)} className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">Cancel</button>
                 <button onClick={applyLessonPlan} disabled={generatingLessons || lessonPlan.total === 0}
-                  className="px-4 py-2 text-xs font-bold text-white bg-[#062E63] rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                  className="px-4 py-2.5 md:py-2 text-xs font-bold text-white bg-[#062E63] rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
                   {generatingLessons ? 'Saving…' : lessonPlan.mode === 'add' ? `Create ${lessonPlan.total}` : `Update ${lessonPlan.total}`}
                 </button>
               </div>
@@ -6461,8 +6461,8 @@ export default function DatabasePage() {
       )}
 
       {showAddLessonModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddLessonModal(false) }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddLessonModal(false) }}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md md:mx-4 overflow-hidden max-md:max-h-[90dvh] max-md:overflow-y-auto">
             {/* Header */}
             <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
               <h2 className="text-base font-bold text-[#2A2035] font-display">{newLessonForm.lesson_type === 'class' ? 'Add Lesson' : 'Add Level Test'}</h2>
@@ -6631,14 +6631,14 @@ export default function DatabasePage() {
             <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2">
               <button
                 onClick={() => setShowAddLessonModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
+                className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddLesson}
                 disabled={addLessonSaving || !lessonFormValid}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-4 py-2.5 md:py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {addLessonSaving ? 'Adding…' : 'Add Lesson'}
               </button>
@@ -6650,8 +6650,8 @@ export default function DatabasePage() {
 
       {/* ── Add Course Modal ─────────────────────────────────────────────────── */}
       {showAddCourseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddCourseModal(false) }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setShowAddCourseModal(false) }}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md md:mx-4 overflow-hidden max-md:max-h-[90dvh] max-md:overflow-y-auto">
             {/* Header */}
             <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
               <h2 className="text-base font-bold text-[#2A2035] font-display">Add Course</h2>
@@ -6701,14 +6701,14 @@ export default function DatabasePage() {
             <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2">
               <button
                 onClick={() => setShowAddCourseModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
+                className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddCourse}
                 disabled={addCourseSaving || !courseFormValid}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-4 py-2.5 md:py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {addCourseSaving ? 'Adding…' : 'Add Course'}
               </button>
@@ -6777,8 +6777,8 @@ function AddCreditModal({ members, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 p-5 md:p-6 flex flex-col gap-4 max-md:max-h-[90dvh] max-md:overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-[#2A2035] text-sm">Add Credit</h3>
           <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
@@ -6817,9 +6817,9 @@ function AddCreditModal({ members, onClose, onSave }) {
         </div>
 
         <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving || !amount || Number(amount) <= 0}
-            className="px-5 py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">
+            className="px-5 py-2.5 md:py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">
             {saving ? 'Saving…' : 'Apply Credit'}
           </button>
         </div>
@@ -6842,8 +6842,8 @@ function ReferralModal({ students, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 p-5 md:p-6 flex flex-col gap-4 max-md:max-h-[90dvh] max-md:overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-[#2A2035] text-sm">Log Referral</h3>
           <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none">✕</button>
@@ -6878,9 +6878,9 @@ function ReferralModal({ students, onClose, onSave }) {
         )}
 
         <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving || !referringId || !referredId || referringId === referredId}
-            className="px-5 py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40">
+            className="px-5 py-2.5 md:py-2 bg-[#7C3AED] text-white text-sm font-semibold rounded-lg hover:bg-[#6D28D9] transition disabled:opacity-40">
             {saving ? 'Logging…' : 'Log Referral'}
           </button>
         </div>
@@ -7036,24 +7036,24 @@ function AddEnrolmentModal({ termId: tabTermId = null, onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm md:px-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90dvh] md:max-h-[90vh]">
         <div className="px-6 py-5 border-b border-[#DEE7FF] bg-gradient-to-r from-[#F8FAFF] to-[#EEF4FF]">
           <h2 className="text-base font-bold text-[#2A2035] font-display">Add Enrolment</h2>
           <p className="text-xs text-[#2A2035]/50 mt-0.5">Link an existing student to an existing class.</p>
         </div>
 
-        <div className="overflow-y-auto px-6 py-5 flex flex-col gap-5 flex-1">
+        <div className="overflow-y-auto px-4 md:px-6 py-5 flex flex-col gap-5 flex-1">
 
           <div>
             <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Student</label>
             {selectedStudent ? (
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-[#325099] bg-[#EEF4FF]">
-                <div>
+              <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-[#325099] bg-[#EEF4FF]">
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-[#2A2035]">{selectedStudent.full_name}</p>
                   <p className="text-[11px] text-[#2A2035]/50">{selectedStudent.school}{selectedStudent.year ? ` · Year ${selectedStudent.year}` : ''}</p>
                 </div>
-                <button onClick={() => { setStudentId(''); setStudentSearch('') }} className="text-xs text-[#325099] hover:underline">Change</button>
+                <button onClick={() => { setStudentId(''); setStudentSearch('') }} className="shrink-0 py-2 md:py-0 text-xs text-[#325099] hover:underline">Change</button>
               </div>
             ) : (
               <>
@@ -7064,7 +7064,7 @@ function AddEnrolmentModal({ termId: tabTermId = null, onClose, onCreated }) {
                     ? <p className="px-3 py-2 text-xs text-[#2A2035]/40 italic">No students found</p>
                     : filteredStudents.map(s => (
                       <button key={s.id} onClick={() => setStudentId(s.id)}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-[#EEF4FF] transition border-b border-[#DEE7FF] last:border-0">
+                        className="w-full text-left px-3 py-2.5 md:py-2 text-xs hover:bg-[#EEF4FF] transition border-b border-[#DEE7FF] last:border-0">
                         <span className="font-semibold text-[#2A2035]">{s.full_name}</span>
                         <span className="text-[#2A2035]/50 ml-2">{s.school}{s.year ? ` · Yr ${s.year}` : ''}</span>
                       </button>
@@ -7076,23 +7076,23 @@ function AddEnrolmentModal({ termId: tabTermId = null, onClose, onCreated }) {
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between gap-3 mb-1.5">
               <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099]">Class</label>
               <select value={termId} onChange={e => { setTermId(e.target.value); setClassId(''); setClassSearch('') }}
                 title="Which term's classes to list"
-                className="px-2 py-1 rounded-lg border border-[#DEE7FF] text-[11px] font-semibold text-[#325099] bg-white focus:outline-none focus:border-[#325099]">
+                className="min-w-0 max-w-[65%] md:max-w-none px-2 py-1 rounded-lg border border-[#DEE7FF] text-[11px] font-semibold text-[#325099] bg-white focus:outline-none focus:border-[#325099]">
                 {terms.map(t => (
                   <option key={t.id} value={t.id}>{t.name}{t.start_date <= isoDateEnr(new Date()) && t.end_date >= isoDateEnr(new Date()) ? ' (now)' : ''}</option>
                 ))}
               </select>
             </div>
             {selectedClass ? (
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-[#325099] bg-[#EEF4FF]">
-                <div>
+              <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-[#325099] bg-[#EEF4FF]">
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-[#2A2035]">{selectedClass.class_name}</p>
                   <p className="text-[11px] text-[#2A2035]/50">{classWhen(selectedClass)}</p>
                 </div>
-                <button onClick={() => { setClassId(''); setClassSearch('') }} className="text-xs text-[#325099] hover:underline">Change</button>
+                <button onClick={() => { setClassId(''); setClassSearch('') }} className="shrink-0 py-2 md:py-0 text-xs text-[#325099] hover:underline">Change</button>
               </div>
             ) : (
               <>
@@ -7103,7 +7103,7 @@ function AddEnrolmentModal({ termId: tabTermId = null, onClose, onCreated }) {
                     ? <p className="px-3 py-2 text-xs text-[#2A2035]/40 italic">No classes found</p>
                     : filteredClasses.map(c => (
                       <button key={c.id} onClick={() => setClassId(c.id)}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-[#EEF4FF] transition border-b border-[#DEE7FF] last:border-0">
+                        className="w-full text-left px-3 py-2.5 md:py-2 text-xs hover:bg-[#EEF4FF] transition border-b border-[#DEE7FF] last:border-0">
                         <span className="font-semibold text-[#2A2035]">{c.class_name}</span>
                         <span className="text-[#2A2035]/50 ml-2">{classWhen(c)}</span>
                       </button>
@@ -7173,9 +7173,9 @@ function AddEnrolmentModal({ termId: tabTermId = null, onClose, onCreated }) {
         </div>
 
         <div className="px-6 py-4 border-t border-[#DEE7FF] bg-[#F8FAFF] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#2A2035]/60 bg-white border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving || !canSubmit}
-            className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
+            className="px-4 py-2.5 md:py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
             {saving ? 'Adding…' : 'Add Enrolment'}
           </button>
         </div>
@@ -7204,8 +7204,8 @@ function RemoveFromClassModal({ name, onClose, onLeft, onMistake }) {
   const run = async (fn) => { setSaving(true); await fn(); setSaving(false) }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 p-5 md:p-6 flex flex-col gap-4 max-md:max-h-[90dvh] max-md:overflow-y-auto">
         <div>
           <h3 className="font-bold text-[#2A2035] text-sm">Remove {name} from this class</h3>
           <p className="text-xs text-[#2A2035]/60 mt-1">Which is it?</p>
@@ -7260,7 +7260,7 @@ function RemoveFromClassModal({ name, onClose, onLeft, onMistake }) {
         )}
 
         <div className="flex justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
         </div>
       </div>
     </div>
@@ -7282,8 +7282,8 @@ function DisenrolReasonModal({ studentLabel, onClose, onSave }) {
     setSaving(false)
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-sm md:mx-4 p-5 md:p-6 flex flex-col gap-4 max-md:max-h-[90dvh] max-md:overflow-y-auto">
         <div>
           <h3 className="font-bold text-[#2A2035] text-sm">Disenrol student</h3>
           <p className="text-xs text-[#2A2035]/60 mt-1">{studentLabel}</p>
@@ -7306,9 +7306,9 @@ function DisenrolReasonModal({ studentLabel, onClose, onSave }) {
         )}
         <p className="text-[10px] text-[#2A2035]/40">Sets status to disenrol with today&apos;s date. The enrolment (and its history) is kept — it just stops being active.</p>
         <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-sm font-semibold text-[#2A2035]/60 hover:text-[#2A2035] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={submit} disabled={saving || !finalReason}
-            className="px-5 py-2 bg-[#DC2626] text-white text-sm font-semibold rounded-lg hover:bg-[#B91C1C] transition disabled:opacity-40">
+            className="px-5 py-2.5 md:py-2 bg-[#DC2626] text-white text-sm font-semibold rounded-lg hover:bg-[#B91C1C] transition disabled:opacity-40">
             {saving ? 'Saving…' : 'Disenrol'}
           </button>
         </div>
