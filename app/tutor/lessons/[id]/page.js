@@ -488,7 +488,7 @@ export default function LevelTestLessonPage() {
                               const a = marks[it.qid] ?? ''
                               return (
                                 <div key={it.qid} className="flex items-center gap-3 px-5 py-3">
-                                  <span className="w-7 text-xs font-bold text-[#062E63] shrink-0">Q{it.n}</span>
+                                  <span className="w-9 text-xs font-bold text-[#062E63] shrink-0">Q{it.n}{it.part || ''}</span>
                                   <div className="flex-1 min-w-0">
                                     {it.criterion ? (
                                       <>

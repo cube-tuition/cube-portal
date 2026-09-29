@@ -915,7 +915,7 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
           <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
           <EmbeddedTableSection block={block} set={set} />
           <PartsEditor parts={block.parts || []} onChange={parts => set({ parts })} maths={isMaths} showMarks={showMarks}
-            cols={block.partsCols} onCols={v => set({ partsCols: v })} />
+            cols={block.partsCols} onCols={v => set({ partsCols: v })} rubricOptions={rubricOptions} />
           {/* The question-level solution only applies to single questions; with
               parts, each part carries its own solution. */}
           {!(block.parts && block.parts.length) && (
@@ -1307,7 +1307,7 @@ function TableEditor({ block, set }) {
   )
 }
 
-function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, onCols }) {
+function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, onCols, rubricOptions = null }) {
   const twoCol = Number(cols) === 2
 
   /*
@@ -1417,6 +1417,21 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
               </div>
             </div>
             <LiftedTextarea className={TA + ' mb-1.5 min-h-[40px]'} rows={1} value={p.prompt || ''} onCommit={v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x))} textKey placeholder="Part prompt (optional)" />
+            {rubricOptions && (() => {
+              const r = rubricOptions.find(x => x.id === p.rubric_id)
+              const total = r ? r.criteria.reduce((s, c) => s + (Number(c.max) || 0), 0) : 0
+              return (
+                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                  <span className="text-[11px] font-semibold text-[#325099]">Marking criteria</span>
+                  <select value={p.rubric_id || ''} onChange={e => onChange(parts.map((x, j) => j === i ? { ...x, rubric_id: e.target.value || null } : x))}
+                    className="text-[11px] border border-[#E8EDF8] rounded px-1.5 py-0.5 bg-white text-[#2A2035] max-w-[220px]">
+                    <option value="">— none —</option>
+                    {rubricOptions.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                  </select>
+                  {r && <span className="text-[10px] text-[#325099]/70">{r.criteria.length} criteria · {total} marks — marked per criterion</span>}
+                </div>
+              )
+            })()}
             <ImageField value={p.image} onChange={v => onChange(parts.map((x, j) => j === i ? { ...x, image: v } : x))} />
             {/* The renderer already honours a part's imagePos/imageWidth — these
                 give them a control, so a part diagram can be centred or resized. */}
