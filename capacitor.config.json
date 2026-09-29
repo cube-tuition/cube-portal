@@ -4,7 +4,10 @@
   "webDir": "capacitor-shell",
   "server": {
     "url": "https://portal.cubetuition.com.au",
-    "allowNavigation": ["portal.cubetuition.com.au", "*.supabase.co"]
+    "allowNavigation": [
+      "portal.cubetuition.com.au",
+      "*.supabase.co"
+    ]
   },
   "ios": {
     "contentInset": "always"
@@ -22,6 +25,13 @@
     "StatusBar": {
       "style": "LIGHT",
       "backgroundColor": "#FFFFFF"
+    },
+    "PushNotifications": {
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
     }
   }
 }
