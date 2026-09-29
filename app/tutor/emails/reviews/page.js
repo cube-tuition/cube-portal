@@ -184,10 +184,6 @@ export default function ReviewEmailPage() {
               {savingContent ? 'Saving…' : 'Save'}
             </button>
           </div>
-          <p className="text-[11px] text-[#2A2035]/55 mt-2 leading-relaxed">
-            {linkOk ? 'Every email’s button opens this link.' : 'Sending is blocked until this is set. '}
-            To get it: sign in to your <strong>Google Business Profile</strong> (search “CUBE Tuition” on Google while signed in), choose <strong>Ask for reviews</strong> (or “Read reviews → Get more reviews”), and copy the link.
-          </p>
         </div>
 
         {/* Editable content */}
