@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* `app:` — styles that apply only inside the CUBE Tuition iPhone app (lib/nativeApp.js). */
+@custom-variant app (&:where([data-app] *, [data-app]));
+
 :root {
   --background: #ffffff;
   --foreground: #2A2035;

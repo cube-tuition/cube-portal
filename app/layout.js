@@ -2,6 +2,7 @@ import { Outfit, Inter } from "next/font/google";
 import "./globals.css";
 import NoNumberScroll from "../components/NoNumberScroll";
 import NativePushRegistrar from "../components/NativePushRegistrar";
+import { APP_FLAG_SCRIPT } from "../lib/nativeApp";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -24,7 +25,13 @@ export default function RootLayout({ children }) {
     <html
       lang="en"
       className={`${outfit.variable} ${inter.variable} h-full antialiased`}
+      // data-app is set by the inline script below inside the iPhone app, so
+      // the server's <html> and the client's legitimately differ there.
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: APP_FLAG_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <NoNumberScroll />
         <NativePushRegistrar />
