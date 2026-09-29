@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
 import { useState } from 'react'
 import { T_STUDENTS } from '../lib/tables'
+import CubeLogo from './CubeLogo'
 
 const LINKS = [
   { label: 'Home', href: '/dashboard' },
@@ -63,6 +64,7 @@ export default function PortalNav({ studentName }) {
           href="/dashboard"
           className="flex items-center gap-2.5 group"
         >
+          <CubeLogo className="h-7 md:h-8 w-auto text-[#062E63] shrink-0" />
           <span
             className="text-2xl md:text-[1.65rem] font-bold tracking-tight text-[#062E63] font-display"
           >

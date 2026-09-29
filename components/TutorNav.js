@@ -8,6 +8,7 @@ import GlobalUndo from './GlobalUndo'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
 import { useIsNativeApp } from '../lib/nativeApp'
 import { SUBJECTS } from '../lib/resourceSubjects'
+import CubeLogo from './CubeLogo'
 
 /*
  * Nav for the tutor / admin portal.
@@ -272,6 +273,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
         {/* Logo */}
         <Link href="/tutor" className="flex items-center gap-2.5">
+          <CubeLogo className="h-7 md:h-8 w-auto text-[#062E63] shrink-0" />
           <span className="text-2xl md:text-[1.65rem] font-bold tracking-tight text-[#062E63] font-display">
             CUBE
           </span>
