@@ -277,7 +277,7 @@ export default function CourseOffersPage() {
               {/* Content */}
               <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
                 <p className="text-xs font-bold text-[#062E63] mb-3">Email content</p>
-                <label className="block text-[11px] font-semibold text-[#325099] mb-1">Special offer this term <span className="font-normal text-[#325099]/50">— shown in a callout box · supports **bold**</span></label>
+                <label className="block text-[11px] font-semibold text-[#325099] mb-1">Special Offer <span className="font-normal text-[#325099]/50">— shown in a callout box · supports **bold**</span></label>
                 <input value={draft.offer_highlight} onChange={e => setField('offer_highlight', e.target.value)}
                   placeholder="e.g. **50%** off the first term for this course"
                   className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm mb-4 focus:outline-none focus:border-[#325099]" />
