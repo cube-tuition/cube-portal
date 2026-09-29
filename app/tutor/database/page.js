@@ -1688,8 +1688,8 @@ export default function DatabasePage() {
   const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
   const [courseStatusTab, setCourseStatusTab]   = useState('active') // courses view: 'active' | 'inactive' | 'all'
   const [classStatusTab, setClassStatusTab]     = useState('active') // classes view: 'active' | 'inactive' | 'all'
-  const [enrolStatusTab, setEnrolStatusTab]     = useState('active') // enrolments view: 'active' | 'trial' | 'disenrol' | 'inactive' | 'all'
-  // student id → students.status, for the enrolments view's Inactive tab. Kept
+  const [enrolStatusTab, setEnrolStatusTab]     = useState('active') // enrolments view: 'active' | 'pending' | 'trial' | 'disenrol' | 'inactive' | 'all'
+  // student id → students.status, for the enrolments view's Pending and Inactive tabs. Kept
   // off the rows themselves: a deleted row is re-inserted whole by Undo.
   const [enrolStudentStatus, setEnrolStudentStatus] = useState({})
   const [disenrolModal, setDisenrolModal]       = useState(null)     // { rowId } — reason prompt when flipping an enrolment to disenrol
@@ -3908,17 +3908,18 @@ export default function DatabasePage() {
       out = out.filter(r => ((r.status || 'active') === 'active') === wantActive)
     }
     // Enrolments view: status tabs ("trial" covers trial + trial complete).
-    // Inactive = the enrolments of students marked inactive, whatever the
-    // enrolment says — those students have left, so their still-"active" rows
-    // are kept out of Active and Trial. Disenrolled still lists every
-    // disenrolment, an inactive student's included.
+    // Pending and Inactive follow the STUDENT's status, whatever the enrolment
+    // says — a pending student is a lead not yet enrolled, an inactive one has
+    // left — so their rows are kept out of Active and Trial. Disenrolled still
+    // lists every disenrolment, whoever the student.
     if (selectedTable === T_ENROLMENTS && enrolStatusTab !== 'all') {
-      const studentInactive = (r) => enrolStudentStatus[r.student_id] === 'inactive'
-      out = enrolStatusTab === 'inactive' ? out.filter(studentInactive)
+      const studentIs = (r, st) => enrolStudentStatus[r.student_id] === st
+      const byStudent = (r) => studentIs(r, 'pending') || studentIs(r, 'inactive')
+      out = enrolStatusTab === 'pending' || enrolStatusTab === 'inactive' ? out.filter(r => studentIs(r, enrolStatusTab))
         : enrolStatusTab === 'disenrol' ? out.filter(r => r.status === 'disenrol')
         : enrolStatusTab === 'trial'
-          ? out.filter(r => (r.status === 'trial' || r.status === 'trial complete') && !studentInactive(r))
-          : out.filter(r => r.status === enrolStatusTab && !studentInactive(r))
+          ? out.filter(r => (r.status === 'trial' || r.status === 'trial complete') && !byStudent(r))
+          : out.filter(r => r.status === enrolStatusTab && !byStudent(r))
     }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -4587,11 +4588,11 @@ export default function DatabasePage() {
               {/* Status tabs — enrolments only */}
               {selectedTable === T_ENROLMENTS && (
                 <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden shrink-0">
-                  {[['active', 'Active'], ['trial', 'Trial'], ['disenrol', 'Disenrolled'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
+                  {[['active', 'Active'], ['pending', 'Pending'], ['trial', 'Trial'], ['disenrol', 'Disenrolled'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setEnrolStatusTab(v)}
-                      title={v === 'inactive' ? 'Enrolments of students marked inactive' : undefined}
+                      title={v === 'inactive' || v === 'pending' ? `Enrolments of students marked ${v}` : undefined}
                       className={`px-3 py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${enrolStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
                     >
                       {label}
