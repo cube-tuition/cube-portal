@@ -62,12 +62,20 @@ function ChartTooltip({ active, payload, label }) {
       <p className="font-semibold text-[#062E63] mb-1">{label}</p>
       {payload.map(p => (
         <p key={p.name} style={{ color: p.color }}>
-          {p.name}: <strong>{p.value}{p.unit || ''}</strong>
+          {p.name}: <strong>{p.value == null ? '—' : `${p.value}${p.unit || ''}`}</strong>
         </p>
       ))}
     </div>
   )
 }
+
+// A score of 0 still draws a sliver of bar, so the column reads as "scored
+// nothing" rather than "no result". A blank (not entered) score is null and
+// stays empty — the sliver is for a real 0 only.
+const ZERO_SLIVER_PX = 3
+// A score was entered (0 counts; blank does not).
+const isScore = (v) => v != null && v !== ''
+const zeroSliver = (v) => (v === 0 ? ZERO_SLIVER_PX : 0)
 
 // Fixed-order legend — recharts' default (and even an explicit `payload`) can
 // reorder Pre/Post; rendering the items ourselves guarantees the order we pass.
@@ -744,10 +752,11 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
     name: t.name.length > 12 ? t.name.slice(0, 12) + '…' : t.name,
     fullName: t.name,
     maxMarks: t.marks,
-    'Pre test':  hasPreData  && preScores[i]  != null ? Number(preScores[i])  : 0,
-    'Post test': hasPostData && postScores[i] != null ? Number(postScores[i]) : 0,
-    'Pre %':  hasPreData  && preScores[i]  != null ? safePct(preScores[i],  t.marks) : 0,
-    'Post %': hasPostData && postScores[i] != null ? safePct(postScores[i], t.marks) : 0,
+    // null, not 0, when a topic has no score entered — only a real 0 gets the sliver.
+    'Pre test':  hasPreData  && isScore(preScores[i])  ? Number(preScores[i])  : null,
+    'Post test': hasPostData && isScore(postScores[i]) ? Number(postScores[i]) : null,
+    'Pre %':  hasPreData  && isScore(preScores[i])  ? safePct(preScores[i],  t.marks) : null,
+    'Post %': hasPostData && isScore(postScores[i]) ? safePct(postScores[i], t.marks) : null,
   }))
   const expPrePct  = expectedPre  != null && totalMarks > 0 ? Math.round((Number(expectedPre)  / totalMarks) * 100) : null
   const expPostPct = expectedPost != null && totalMarks > 0 ? Math.round((Number(expectedPost) / totalMarks) * 100) : null
@@ -756,8 +765,8 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
   // classAvg.pre/post are null and we drop the bar, legend and title entirely.
   const hasClassAvg = classAvg && (classAvg.pre != null || classAvg.post != null)
   const totalChartData = [
-    { name: 'Pre test',  'Score': hasPreData  ? safePct(preTotal,  totalMarks) : 0, 'Class avg': hasClassAvg && classAvg.pre  != null ? safePct(classAvg.pre,  totalMarks) : null, 'Expected': expPrePct },
-    { name: 'Post test', 'Score': hasPostData ? safePct(postTotal, totalMarks) : 0, 'Class avg': hasClassAvg && classAvg.post != null ? safePct(classAvg.post, totalMarks) : null, 'Expected': expPostPct },
+    { name: 'Pre test',  'Score': hasPreData  ? safePct(preTotal,  totalMarks) : null, 'Class avg': hasClassAvg && classAvg.pre  != null ? safePct(classAvg.pre,  totalMarks) : null, 'Expected': expPrePct },
+    { name: 'Post test', 'Score': hasPostData ? safePct(postTotal, totalMarks) : null, 'Class avg': hasClassAvg && classAvg.post != null ? safePct(classAvg.post, totalMarks) : null, 'Expected': expPostPct },
   ]
   return (
     <div className="space-y-6">
@@ -775,8 +784,8 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
               ...(hasPreData  ? [{ label: 'Pre test',  color: PRE_COLOR }]  : []),
               ...(hasPostData ? [{ label: 'Post test', color: POST_COLOR }] : []),
             ]} />} />
-            {hasPreData  && <Bar dataKey="Pre test"  fill={PRE_COLOR}  radius={[3,3,0,0]} />}
-            {hasPostData && <Bar dataKey="Post test" fill={POST_COLOR} radius={[3,3,0,0]} />}
+            {hasPreData  && <Bar dataKey="Pre test"  fill={PRE_COLOR}  radius={[3,3,0,0]} minPointSize={zeroSliver} />}
+            {hasPostData && <Bar dataKey="Post test" fill={POST_COLOR} radius={[3,3,0,0]} minPointSize={zeroSliver} />}
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -794,8 +803,8 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
               ...(hasPreData  ? [{ label: 'Pre test %',  color: PRE_COLOR }]  : []),
               ...(hasPostData ? [{ label: 'Post test %', color: POST_COLOR }] : []),
             ]} />} />
-            {hasPreData  && <Bar dataKey="Pre %"  fill={PRE_COLOR}  name="Pre test %" radius={[3,3,0,0]} unit="%" />}
-            {hasPostData && <Bar dataKey="Post %" fill={POST_COLOR} name="Post test %" radius={[3,3,0,0]} unit="%" />}
+            {hasPreData  && <Bar dataKey="Pre %"  fill={PRE_COLOR}  name="Pre test %" radius={[3,3,0,0]} unit="%" minPointSize={zeroSliver} />}
+            {hasPostData && <Bar dataKey="Post %" fill={POST_COLOR} name="Post test %" radius={[3,3,0,0]} unit="%" minPointSize={zeroSliver} />}
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -818,7 +827,7 @@ export function PrePostCharts({ student, topics = [], totalMarks = 0, scoresMap 
               ...(hasClassAvg ? [{ label: 'Class average', color: AVG_COLOR }] : []),
               ...(hasExpected ? [{ label: 'Expected', color: EXP_COLOR }] : []),
             ]} />} />
-            <Bar dataKey="Score"     fill={SCORE_GREEN} name={`${fn}'s score`} radius={[3,3,0,0]} unit="%" />
+            <Bar dataKey="Score"     fill={SCORE_GREEN} name={`${fn}'s score`} radius={[3,3,0,0]} unit="%" minPointSize={zeroSliver} />
             {hasClassAvg && <Bar dataKey="Class avg" fill={AVG_COLOR}  name="Class average" radius={[3,3,0,0]} unit="%" />}
             {hasExpected && <Bar dataKey="Expected" fill={EXP_COLOR} name="Expected" radius={[3,3,0,0]} unit="%" />}
           </BarChart>
