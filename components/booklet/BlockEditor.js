@@ -871,7 +871,8 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
       return (
         <div className="space-y-2.5">
           {showTopic && <TopicField block={block} set={set} options={topicOptions} />}
-          {rubricOptions && (() => {
+          {/* A question with subquestions takes criteria per part, not as a whole. */}
+          {rubricOptions && !(block.parts && block.parts.length) && (() => {
             const r = rubricOptions.find(x => x.id === block.rubric_id)
             const total = r ? r.criteria.reduce((s, c) => s + (Number(c.max) || 0), 0) : 0
             return (
