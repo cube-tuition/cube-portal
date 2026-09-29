@@ -15,10 +15,9 @@ import {
 
 /*
  * Review requests — /tutor/emails/reviews
- * Asks families for a Google review: one email per family, a first ask and one
- * gentle reminder. Every send is logged (portal_settings[review_request_log]),
- * so each family shows when it was asked and the reminder goes only to
- * families who were asked and have not been reminded.
+ * Asks families for a Google review, one email per family. Every send is
+ * logged (portal_settings[review_request_log]), so each family shows when it
+ * was asked and the families not yet asked are pre-selected.
  *
  * Google's review policy: ask everyone — never only the families you expect
  * to be happy — and offer nothing in return. The page pre-selects by send
@@ -27,10 +26,8 @@ import {
 
 // label, field, rows (0 = single-line input)
 const CONTENT_FIELDS = [
-  ['First ask — subject',  'subject',         0],
-  ['First ask — message',  'body',            7],
-  ['Reminder — subject',   'reminderSubject', 0],
-  ['Reminder — message',   'reminderBody',    5],
+  ['Subject',              'subject',         0],
+  ['Message',              'body',            7],
   ['Button label',         'ctaLabel',        0],
   ['Note under button',    'ctaNote',         0],
   ['Sign-off',             'signoff',         2],
@@ -43,8 +40,7 @@ export default function ReviewEmailPage() {
   const [profile, setProfile]   = useState(null)
   const [loading, setLoading]   = useState(true)
   const [families, setFamilies] = useState([])   // { key, parent_name, parent_email, students: [full names] }
-  const [log, setLog]           = useState({})   // email → { asked, reminded }
-  const [mode, setMode]         = useState('ask') // 'ask' | 'reminder'
+  const [log, setLog]           = useState({})   // email → { asked }
   const [checked, setChecked]   = useState({})
   const [content, setContent]   = useState({ ...DEFAULT_REVIEW_CONTENT })
   const [editOpen, setEditOpen] = useState(false)
@@ -93,31 +89,29 @@ export default function ReviewEmailPage() {
       }
       const list = Object.values(map).sort((a, b) => (a.parent_name ?? 'zz').localeCompare(b.parent_name ?? 'zz'))
       setFamilies(list)
-      setChecked(defaultSelection(list, lg, 'ask'))
+      setChecked(defaultSelection(list, lg))
       setLoading(false)
     })()
   }, [router])
 
   const logOf = (f) => (f.parent_email ? log[f.parent_email.toLowerCase()] : null) || {}
-  // First ask → every family not asked yet. Reminder → asked, not yet reminded.
-  // Selection follows send history only — never who is likely to be happy.
-  function defaultSelection(list, lg, m) {
+  // Every family not asked yet. Selection follows send history only — never
+  // who is likely to be happy.
+  function defaultSelection(list, lg) {
     return Object.fromEntries(list.map(f => {
       const e = f.parent_email ? (lg[f.parent_email.toLowerCase()] || {}) : null
-      return [f.key, !!e && (m === 'ask' ? !e.asked : (!!e.asked && !e.reminded))]
+      return [f.key, !!e && !e.asked]
     }))
   }
-  const switchMode = (m) => { setMode(m); setChecked(defaultSelection(families, log, m)); setConfirmSend(false); setResults(null) }
 
   const selected = useMemo(() => families.filter(f => checked[f.key] && f.parent_email), [families, checked])
   const askedCount = families.filter(f => logOf(f).asked).length
   const noEmailCount = families.filter(f => !f.parent_email).length
   const linkOk = isValidReviewUrl(content.reviewUrl)
-  const reminder = mode === 'reminder'
   const sample = selected[0] || families.find(f => f.parent_email) || null
   const previewHtml = useMemo(() => buildReviewEmailHtml(
     { parentName: sample?.parent_name || 'there', studentNames: studentNamesFor(sample?.students || []) },
-    content, { reminder }), [sample, content, reminder])
+    content), [sample, content])
 
   const setField = (key) => (e) => { setContent(prev => ({ ...prev, [key]: e.target.value })); setContentSavedAt(null) }
   const saveContent = async () => {
@@ -139,7 +133,7 @@ export default function ReviewEmailPage() {
     try {
       const res = await authedFetch('/api/send-review-emails', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, reminder, test: true, families: payload([family]) }),
+        body: JSON.stringify({ content, test: true, families: payload([family]) }),
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || 'Test send failed')
@@ -153,12 +147,12 @@ export default function ReviewEmailPage() {
     try {
       const res = await authedFetch('/api/send-review-emails', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, reminder, families: payload(selected) }),
+        body: JSON.stringify({ content, families: payload(selected) }),
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || 'Send failed')
       setResults(body)
-      if (body.log) { setLog(body.log); setChecked(defaultSelection(families, body.log, mode)) }
+      if (body.log) { setLog(body.log); setChecked(defaultSelection(families, body.log)) }
     } catch (e) { setError(e.message) }
     finally { setSending(false) }
   }
@@ -174,7 +168,7 @@ export default function ReviewEmailPage() {
         <div className="mt-1 mb-4">
           <h1 className="text-2xl font-bold text-[#062E63]">⭐ Review Requests</h1>
           <p className="text-sm text-[#325099]/60 mt-1">
-            Ask families for a Google review — one email per family, with a single gentle reminder a week or so later.
+            Ask families for a Google review — one email per family, with a record of who has been asked.
           </p>
         </div>
 
@@ -236,19 +230,7 @@ export default function ReviewEmailPage() {
 
         {error && <div className="mb-4 px-4 py-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-medium">{error}</div>}
 
-        {/* First ask / reminder */}
-        <div className="flex items-center gap-2 mb-4 text-xs">
-          {[['ask', 'First ask'], ['reminder', 'Reminder']].map(([m, label]) => (
-            <button key={m} onClick={() => switchMode(m)}
-              className={`px-4 py-2 rounded-xl font-semibold border transition ${mode === m ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'}`}>
-              {label}
-            </button>
-          ))}
-          <span className="text-[#2A2035]/45 ml-1">
-            {askedCount} of {families.length} families asked so far
-            {reminder && ' · the reminder is pre-selected for families asked but not yet reminded'}
-          </span>
-        </div>
+        <p className="text-xs text-[#2A2035]/45 mb-3">{askedCount} of {families.length} families asked so far · families not yet asked are pre-selected</p>
 
         <div className="grid lg:grid-cols-2 gap-6">
           <div>
@@ -256,7 +238,7 @@ export default function ReviewEmailPage() {
               <div className="flex items-center justify-between px-4 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF]">
                 <p className="text-xs font-bold text-[#062E63]">Recipients — {selected.length} of {families.length} families</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setChecked(defaultSelection(families, log, mode))} className="text-[10px] font-semibold text-[#325099] hover:underline">{reminder ? 'Asked, not reminded' : 'Not asked yet'}</button>
+                  <button onClick={() => setChecked(defaultSelection(families, log))} className="text-[10px] font-semibold text-[#325099] hover:underline">Not asked yet</button>
                   <button onClick={() => setChecked(Object.fromEntries(families.map(f => [f.key, !!f.parent_email])))} className="text-[10px] font-semibold text-[#325099] hover:underline">All</button>
                   <button onClick={() => setChecked({})} className="text-[10px] font-semibold text-[#325099] hover:underline">None</button>
                 </div>
@@ -274,7 +256,6 @@ export default function ReviewEmailPage() {
                         </span>
                         <span className="shrink-0 text-[10px] text-right leading-tight">
                           {lg.asked ? <span className="block text-emerald-700 font-semibold">Asked {fmtDate(lg.asked)}</span> : <span className="block text-[#2A2035]/35">Not asked</span>}
-                          {lg.reminded && <span className="block text-[#325099]">Reminded {fmtDate(lg.reminded)}</span>}
                         </span>
                         {f.parent_email && (
                           <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendTestOne(f) }}
@@ -299,7 +280,7 @@ export default function ReviewEmailPage() {
                   <button onClick={() => setConfirmSend(true)} disabled={!linkOk || !selected.length || sending}
                     title={!linkOk ? 'Set the Google review link first' : ''}
                     className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
-                    Send {reminder ? 'reminder' : 'first ask'} to {selected.length} famil{selected.length === 1 ? 'y' : 'ies'}
+                    Send to {selected.length} famil{selected.length === 1 ? 'y' : 'ies'}
                   </button>
                 ) : (
                   <span className="flex items-center gap-2">
@@ -310,7 +291,7 @@ export default function ReviewEmailPage() {
                 )}
                 {sending && <span className="text-xs text-[#325099] animate-pulse font-semibold">Sending…</span>}
               </div>
-              <p className="text-[10px] text-[#2A2035]/45">Tip: send the first ask a few days after end-of-term reports, and the reminder about a week later. Use 🧪 Test on any family first.</p>
+              <p className="text-[10px] text-[#2A2035]/45">Tip: send it a few days after end-of-term reports go out. Use 🧪 Test on any family first.</p>
               {testSentTo && <p className="text-[11px] font-semibold text-emerald-700">✓ Test sent to {testSentTo} — check your inbox before the real send.</p>}
             </div>
 
@@ -332,8 +313,8 @@ export default function ReviewEmailPage() {
           </div>
 
           <div>
-            <p className="text-xs font-bold text-[#062E63] mb-1">Preview — {reminder ? 'reminder' : 'first ask'} <span className="font-normal text-[#2A2035]/40">({sample?.parent_name || 'sample family'} shown)</span></p>
-            <p className="text-[11px] text-[#2A2035]/55 mb-2">Subject: <strong>{reviewEmailSubject(content, { reminder })}</strong></p>
+            <p className="text-xs font-bold text-[#062E63] mb-1">Preview <span className="font-normal text-[#2A2035]/40">({sample?.parent_name || 'sample family'} shown)</span></p>
+            <p className="text-[11px] text-[#2A2035]/55 mb-2">Subject: <strong>{reviewEmailSubject(content)}</strong></p>
             <div className="rounded-2xl border border-[#DEE7FF] overflow-hidden bg-white" style={{ height: 620 }}>
               <iframe title="Email preview" srcDoc={previewHtml} className="w-full h-full" style={{ border: 0 }} />
             </div>

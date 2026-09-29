@@ -9,14 +9,13 @@ import { requireApiRole } from '../../../lib/apiAuth'
  *
  * Body: {
  *   content:   editable-content overrides (see lib/reviewEmail.js),
- *   reminder?: boolean,          // send the reminder variant
  *   test?:     boolean,          // true → redirect every send to CUBE staff (marked TEST)
  *   families:  Array<{ parent_name, parent_email, students: [full names] }>
  * }
  *
  * Asks each family for a Google review. Real (non-test) sends are recorded in
- * portal_settings[review_request_log] — { email: { asked, reminded } } — so the
- * page can show who has been asked and offer the reminder only to them.
+ * portal_settings[review_request_log] — { email: { asked } } — so the page can
+ * show who has been asked and pre-select the families who have not.
  */
 
 export async function POST(request) {
@@ -25,7 +24,7 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { content, reminder = false, test = false, families } = await request.json()
+    const { content, test = false, families } = await request.json()
     const c = mergeReviewContent(content)
     if (!isValidReviewUrl(c.reviewUrl)) {
       return Response.json({ error: 'Set the Google review link (an https:// link) before sending.' }, { status: 400 })
@@ -34,7 +33,7 @@ export async function POST(request) {
 
     const resend    = new Resend(process.env.RESEND_API_KEY)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
-    const subject   = reviewEmailSubject(content, { reminder })
+    const subject   = reviewEmailSubject(content)
 
     const results = []
     for (const family of families) {
@@ -45,7 +44,7 @@ export async function POST(request) {
       const html = buildReviewEmailHtml({
         parentName: family.parent_name,
         studentNames: family.student_names,
-      }, content, { reminder })
+      }, content)
       const { error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from: `CUBE Tuition <${fromEmail}>`,
         to: [family.parent_email],
@@ -66,7 +65,7 @@ export async function POST(request) {
       for (const r of results) {
         if (!r.success || !r.email) continue
         const k = r.email.toLowerCase()
-        log[k] = { ...(log[k] || {}), ...(reminder ? { reminded: now } : { asked: now }) }
+        log[k] = { ...(log[k] || {}), asked: now }
       }
       await admin.from('portal_settings')
         .upsert({ key: REVIEW_LOG_KEY, value: JSON.stringify(log), updated_at: now })
