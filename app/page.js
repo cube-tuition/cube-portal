@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../lib/supabase'
 import { recordPortalActivity } from '../lib/activity'
@@ -13,6 +13,21 @@ export default function LoginPage() {
   const [forgotBusy, setForgotBusy] = useState(false)
   const [forgotMsg, setForgotMsg] = useState('')
   const router = useRouter()
+  // Already signed in? Skip the form. The iPhone app always cold-starts here,
+  // and the session survives in storage, so without this every relaunch looked
+  // like a logout. getSession() reads local storage — no network round trip.
+  const [checking, setChecking] = useState(true)
+  useEffect(() => {
+    let dead = false
+    supabase.auth.getSession().then(({ data }) => {
+      if (dead) return
+      const user = data?.session?.user
+      if (!user) { setChecking(false); return }
+      const role = user.app_metadata?.role ?? 'student'
+      router.replace((role === 'tutor' || role === 'admin' || role === 'director') ? '/tutor' : '/dashboard')
+    }).catch(() => { if (!dead) setChecking(false) })
+    return () => { dead = true }
+  }, [router])
 
   /* Ask for a reset link. The server answers identically whether or not the
      address has an account, so this can't be used to find out who studies at
@@ -84,6 +99,10 @@ export default function LoginPage() {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleLogin()
   }
+
+  // While the stored session is checked, show a quiet placeholder rather than
+  // flashing the login form at someone who is about to be redirected.
+  if (checking) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-[#2A2035]">
