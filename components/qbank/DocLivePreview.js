@@ -14,9 +14,16 @@ import { useEffect, useRef, useState } from 'react'
  * `scrollRef` hands the caller the scrolling panel, which is what a jump-to-here
  * feature has to scroll — the page elements inside are not scrollable
  * themselves. `onDoubleClick` fires on that panel.
+ *
+ * KEEPING THE PLACE: a re-render empties the container before rebuilding it, and
+ * for that moment the panel has nothing to scroll, so the browser snapped it
+ * back to the top — every edit to a question lost your place in the preview.
+ * The panel's content height is held while the pages are rebuilt, and the
+ * scroll position is put back once they are in.
  */
 export default function DocLivePreview({ render, signature, scale = 0.6, scrollRef, onDoubleClick }) {
   const innerRef = useRef(null)
+  const holdRef = useRef(null)       // unscaled box around the pages — its height is held during a re-render
   const renderRef = useRef(render)
   useEffect(() => { renderRef.current = render })
   const [busy, setBusy] = useState(false)
@@ -26,7 +33,15 @@ export default function DocLivePreview({ render, signature, scale = 0.6, scrollR
     const t = setTimeout(async () => {
       if (!innerRef.current) return
       setBusy(true)
+      const hold = holdRef.current
+      // The scrolling panel is the hold box's parent — its ref belongs to the
+      // caller (jump-to-question), so it is reached from here, not re-wired.
+      const scroller = hold?.parentElement
+      const top = scroller ? scroller.scrollTop : 0
+      if (hold) hold.style.minHeight = `${hold.getBoundingClientRect().height}px`
       try { await renderRef.current(innerRef.current) } catch { /* shown inside container */ }
+      if (scroller) scroller.scrollTop = top
+      if (hold) hold.style.minHeight = ''
       if (!cancelled) setBusy(false)
     }, 450)
     return () => { cancelled = true; clearTimeout(t) }
@@ -40,8 +55,10 @@ export default function DocLivePreview({ render, signature, scale = 0.6, scrollR
           lives on the wrapper, NOT the exporter-owned container. */}
       <div ref={scrollRef} onDoubleClick={onDoubleClick}
         className="overflow-y-auto overflow-x-hidden bg-[#E9EDF6] rounded-xl p-3" style={{ maxHeight: 'calc(100vh - 120px)', width: Math.ceil(794 * scale) + 26 }}>
-        <div style={{ zoom: String(scale) }}>
-          <div ref={innerRef} />
+        <div ref={holdRef}>
+          <div style={{ zoom: String(scale) }}>
+            <div ref={innerRef} />
+          </div>
         </div>
       </div>
     </div>
