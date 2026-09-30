@@ -131,7 +131,7 @@ export default function InfoManagePage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-5 md:px-8 py-8">
+    <div className="max-w-6xl mx-auto px-4 md:px-8 py-5 md:py-8">
       <div className="flex items-end justify-between gap-3 flex-wrap mb-5">
         <div>
           <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold font-display">Info Centre</p>
@@ -146,7 +146,7 @@ export default function InfoManagePage() {
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap mb-4">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search title or tags…"
-          className="text-sm border border-[#DEE7FF] rounded-full px-4 py-2 w-60 focus:outline-none focus:border-[#325099]" />
+          className="text-sm border border-[#DEE7FF] rounded-full px-4 py-2 w-full sm:w-60 focus:outline-none focus:border-[#325099]" />
         <div className="flex items-center rounded-full border border-[#DEE7FF] overflow-hidden text-xs">
           {['all', 'draft', 'published', 'scheduled', 'archived'].map(s => (
             <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1.5 font-semibold capitalize ${statusFilter === s ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>{s}</button>
@@ -179,9 +179,9 @@ export default function InfoManagePage() {
           {filtered.map(p => {
             const unpub = hasUnpublishedChanges(p)
             return (
-              <div key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[#FAFBFF]">
+              <div key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-[#FAFBFF]">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {p.pinned && <span title="Pinned" aria-label="Pinned">📌</span>}
                     {p.icon && <span aria-hidden="true">{p.icon}</span>}
                     <Link href={`/tutor/hub/manage/${p.id}`} className="text-sm font-semibold text-[#062E63] truncate hover:underline">{p.title}</Link>
@@ -189,7 +189,7 @@ export default function InfoManagePage() {
                     {isDirectorOnly(p) && <span className="text-[9px] font-bold uppercase tracking-wider text-[#5B21B6] bg-[#F5F3FF] border border-[#DDD6FE] rounded-full px-1.5 py-0.5" title="Directors only — hidden from teachers">Director</span>}
                     {unpub && p.status === 'published' && <span className="text-[9px] font-bold uppercase tracking-wider text-[#92400E] bg-[#FFF7ED] border border-[#FDE2B8] rounded-full px-1.5 py-0.5">Unpublished changes</span>}
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#2A2035]/50">
+                  <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[11px] text-[#2A2035]/50">
                     {p.parent_id
                       ? <span className="text-[#5B21B6]/70" title="Subpage">↳ {(pages || []).find(x => x.id === p.parent_id)?.title || 'parent'}</span>
                       : catName(p.category_id) && <span className="text-[#325099]/70">{catName(p.category_id)}</span>}
@@ -199,7 +199,7 @@ export default function InfoManagePage() {
                 </div>
                 <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${STATUS_STYLE[p.status] || STATUS_STYLE.draft}`}>{p.status}</span>
                 {/* quick actions */}
-                <div className="flex items-center gap-1 text-[#2A2035]/40">
+                <div className="flex items-center gap-1 text-[#2A2035]/40 max-md:w-full max-md:justify-end max-md:[&>*]:px-2 max-md:[&>*]:py-1.5">
                   <button title={p.pinned ? 'Unpin' : 'Pin'} onClick={() => act(() => updatePageMeta(p.id, { pinned: !p.pinned }))} className="hover:text-[#325099] px-1">📌</button>
                   {p.status === 'published'
                     ? <button title="Unpublish" onClick={() => act(() => unpublishPage(p.id))} className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63] px-1">Unpublish</button>

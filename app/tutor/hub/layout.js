@@ -44,7 +44,7 @@ export default function HubLayout({ children }) {
         <TutorNav staffName={staff?.full_name} isAdmin={isAdmin} />
 
         {/* Body: sidebar + content */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-col md:flex-row flex-1 min-h-0">
           <TutorSidebar defaultOpen={true} />
 
           {/* Page content */}

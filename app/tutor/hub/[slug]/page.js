@@ -124,13 +124,13 @@ export default function InfoViewPage() {
   )
 
   if (page === 'legacy') return (
-    <div className="max-w-[min(64rem,100%)] mx-auto px-6 md:px-8 py-10">
+    <div className="max-w-[min(64rem,100%)] mx-auto px-4 md:px-8 py-5 md:py-10">
       <div className="flex items-center justify-between gap-3 mb-1">
         <h1 className="text-2xl md:text-3xl font-bold text-[#062E63] font-display">{legacy.title}</h1>
         {canEdit && <Link href="/tutor/hub/manage" className="shrink-0 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3.5 py-1.5 hover:bg-[#F0F4FF]">Manage pages</Link>}
       </div>
       {canEdit && <p className="text-[11px] text-[#92400E] font-semibold mb-6">Legacy page — import it in “Manage pages” to use the new editor.</p>}
-      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-8"><InfoBlocks blocks={legacy.blocks} canReveal={canReveal} /></div>
+      <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-8"><InfoBlocks blocks={legacy.blocks} canReveal={canReveal} /></div>
     </div>
   )
 
@@ -144,20 +144,20 @@ export default function InfoViewPage() {
   }
 
   return (
-    <div className="max-w-[min(64rem,100%)] mx-auto px-6 md:px-8 py-10">
+    <div className="max-w-[min(64rem,100%)] mx-auto px-4 md:px-8 py-5 md:py-10">
       {parent && (
         <Link href={`/tutor/hub/${parent.slug}`}
           className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] hover:underline mb-2">
           <span aria-hidden="true">↖</span>{parent.icon ? `${parent.icon} ` : ''}{parent.title}
         </Link>
       )}
-      <div className="flex items-start justify-between gap-3 mb-1">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
         <div className="flex items-center gap-2 min-w-0">
           {page.icon && <span className="text-2xl" aria-hidden="true">{page.icon}</span>}
           <h1 className="text-2xl md:text-3xl font-bold text-[#062E63] font-display">{page.title}</h1>
         </div>
         {canEdit && (
-          <div className="shrink-0 flex items-center gap-2">
+          <div className="shrink-0 flex flex-wrap items-center gap-2">
             {edit && (
               <span className={`text-[11px] font-semibold ${
                 saveState === 'error' ? 'text-[#B91C1C]' : saveState === 'saving' ? 'text-[#92400E]' : 'text-[#166534]'}`}>
@@ -169,14 +169,14 @@ export default function InfoViewPage() {
                 if (edit) { clearTimeout(saveTimer.current); await flushRef.current?.(); setEdit(false); setDraft(null) }
                 else { setDraft(liveBlocks); setSaveState('idle'); setEdit(true) }
               }}
-              className={`text-xs font-semibold rounded-full px-3.5 py-1.5 border transition ${
+              className={`text-xs font-semibold rounded-full px-3.5 py-2 md:py-1.5 border transition ${
                 edit ? 'bg-[#062E63] text-white border-[#062E63] hover:bg-[#325099]'
                      : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
               {edit ? 'Done' : '✎ Edit here'}
             </button>
             <Link href={`/tutor/hub/manage/${page.id}`}
               title="Add, reorder or remove blocks, and change the page’s settings"
-              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3.5 py-1.5 hover:bg-[#F0F4FF]">
+              className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3.5 py-2 md:py-1.5 hover:bg-[#F0F4FF]">
               Full editor
             </Link>
           </div>
@@ -188,17 +188,17 @@ export default function InfoViewPage() {
       </p>
 
       {page.mandatory && staff?.role === 'tutor' && (
-        <div className={`mb-6 rounded-xl border px-4 py-3 flex items-center gap-3 ${ack ? 'bg-[#F0FDF4] border-[#A7F3D0]' : 'bg-[#FFF7ED] border-[#FDE2B8]'}`}>
+        <div className={`mb-6 rounded-xl border px-4 py-3 flex flex-wrap items-center gap-3 ${ack ? 'bg-[#F0FDF4] border-[#A7F3D0]' : 'bg-[#FFF7ED] border-[#FDE2B8]'}`}>
           <span aria-hidden="true">{ack ? '✅' : '📌'}</span>
           <div className="flex-1 text-sm">
             {ack ? <span className="text-[#166534] font-semibold">You acknowledged this on {fmtDate(ack)}.</span>
               : <span className="text-[#92400E] font-semibold">Mandatory reading — please confirm you’ve read this page.</span>}
           </div>
-          {!ack && <button onClick={doAck} disabled={acking} className="text-xs font-semibold text-white bg-[#062E63] rounded-full px-4 py-1.5 hover:bg-[#325099] disabled:opacity-50">{acking ? 'Saving…' : 'I’ve read this'}</button>}
+          {!ack && <button onClick={doAck} disabled={acking} className="text-xs font-semibold text-white bg-[#062E63] rounded-full px-4 py-2 md:py-1.5 hover:bg-[#325099] disabled:opacity-50">{acking ? 'Saving…' : 'I’ve read this'}</button>}
         </div>
       )}
 
-      <div className={`bg-white rounded-2xl border p-6 md:p-8 ${edit ? 'border-[#325099]/40 ring-2 ring-[#325099]/10' : 'border-[#DEE7FF]'}`}>
+      <div className={`bg-white rounded-2xl border p-4 md:p-8 ${edit ? 'border-[#325099]/40 ring-2 ring-[#325099]/10' : 'border-[#DEE7FF]'}`}>
         {!blocks.length ? <p className="text-sm text-[#2A2035]/40 text-center py-6">This page is empty.</p>
           : edit ? <InlineBlocks blocks={blocks} onChange={onInlineChange} />
           : <InfoBlocks blocks={blocks} canReveal={canReveal} />}

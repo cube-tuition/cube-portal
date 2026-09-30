@@ -113,7 +113,7 @@ export default function HubFAQPage() {
         .prose-faq a:hover { color: #062E63; }
       `}</style>
 
-      <div className="max-w-3xl mx-auto px-6 md:px-10 py-10">
+      <div className="max-w-3xl mx-auto px-4 md:px-10 py-5 md:py-10">
         {/* Header */}
         <div className="mb-8">
           <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">
@@ -217,7 +217,7 @@ function CategorySection({ cat, isAdmin, onRefresh }) {
 
   return (
     <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden">
-      <div className="px-5 md:px-6 py-4 border-b border-[#DEE7FF] flex items-center justify-between gap-3 bg-[#F8FAFF]">
+      <div className="px-4 md:px-6 py-4 border-b border-[#DEE7FF] flex flex-wrap items-center justify-between gap-3 bg-[#F8FAFF]">
         {editingTitle ? (
           <input autoFocus type="text" value={titleDraft}
             onChange={e => setTitleDraft(e.target.value)}
@@ -386,7 +386,7 @@ function FAQItem({ item, isAdmin, onRefresh }) {
   return (
     <div>
       <button type="button" onClick={() => setOpen(o => !o)}
-        className="w-full px-5 md:px-6 py-4 flex items-start justify-between gap-4 text-left hover:bg-[#FAFBFF] transition group">
+        className="w-full px-4 md:px-6 py-4 flex items-start justify-between gap-4 text-left hover:bg-[#FAFBFF] transition group">
         <span className="text-sm font-semibold text-[#2A2035] group-hover:text-[#062E63] transition leading-snug flex-1">
           {item.question}
         </span>
