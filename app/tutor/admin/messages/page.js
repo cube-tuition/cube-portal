@@ -9,6 +9,8 @@ import { normalisePhone, formatPhone } from '../../../../lib/phone'
 import { recordPortalActivity, recordPageView } from '../../../../lib/activity'
 import SearchSelectPopover from '../../../../components/SearchSelectPopover'
 import PushEnable from '../../../../components/PushEnable'
+import StaffChat from '../../../../components/chat/StaffChat'
+import { supabase } from '../../../../lib/supabase'
 
 /*
  * Messages — /tutor/admin/messages (admin + director)
@@ -34,6 +36,12 @@ function MessagesInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [profile, setProfile] = useState(null)
+  const [me, setMe] = useState(null)                 // { id, full_name } for the staff chat
+  // Parents (the office number's texts and calls) or Staff (the teachers' chat).
+  const [audience, setAudience] = useState(() => (searchParams.get('tab') === 'staff' || searchParams.get('c')) ? 'staff' : 'parents')
+  const [staffUnread, setStaffUnread] = useState(0)
+  const cleanupRef = useRef(null)
+  useEffect(() => () => cleanupRef.current?.(), [])
   const [allowed, setAllowed] = useState(false)
   const [selected, setSelected] = useState(() => normalisePhone(searchParams.get('phone') || '') || null)
   const [tab, setTab] = useState(() => (searchParams.get('tab') === 'calls' ? 'calls' : 'texts'))
@@ -52,9 +60,12 @@ function MessagesInner() {
 
   useEffect(() => {
     (async () => {
-      const { profile, role } = await getAuthProfile()
+      const { user, profile, role } = await getAuthProfile()
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
-      setProfile(profile); setAllowed(true)
+      setProfile(profile); setMe({ id: user.id, full_name: profile.full_name || user.email, isAdmin: true }); setAllowed(true)
+      const tick = async () => { const { data } = await supabase.rpc('chat_unread_counts'); setStaffUnread((data || []).reduce((n, r) => n + (Number(r.n) || 0), 0)) }
+      tick(); const t = setInterval(tick, 30000); window.addEventListener('focus', tick)
+      cleanupRef.current = () => { clearInterval(t); window.removeEventListener('focus', tick) }
     })()
   }, [router])
 
@@ -89,29 +100,43 @@ function MessagesInner() {
               <span aria-hidden="true">←</span>CUBE portal
             </Link>
             <h1 className="text-2xl font-bold text-[#062E63]">Messages</h1>
-            <p className="text-sm text-[#325099]/60 mt-1">Texts and calls on the office number.{totalUnread ? ` ${totalUnread} unread text${totalUnread === 1 ? '' : 's'}.` : ''} <Link href="/messages" className="text-[#325099] hover:underline">Open the phone app →</Link></p>
+            <p className="text-sm text-[#325099]/60 mt-1">
+              {audience === 'staff'
+                ? <>Chat between the teachers.{staffUnread ? ` ${staffUnread} unread.` : ''}</>
+                : <>Texts and calls on the office number.{totalUnread ? ` ${totalUnread} unread text${totalUnread === 1 ? '' : 's'}.` : ''} <Link href="/messages" className="text-[#325099] hover:underline">Open the phone app →</Link></>}
+            </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <PushEnable />
-            <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
+            {/* Who you are talking to: families over the office number, or the staff chat. */}
+            <div className="flex items-center rounded-full border border-[#DEE7FF] bg-white p-0.5 text-xs">
+              <button onClick={() => setAudience('parents')} className={`px-3.5 py-1.5 rounded-full font-semibold ${audience === 'parents' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Parents{totalUnread ? ` · ${totalUnread}` : ''}</button>
+              <button onClick={() => setAudience('staff')} className={`px-3.5 py-1.5 rounded-full font-semibold ${audience === 'staff' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Staff{staffUnread ? ` · ${staffUnread}` : ''}</button>
+            </div>
+            {audience === 'parents' && <PushEnable />}
+            {audience === 'parents' && <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
               <button onClick={() => setTab('texts')} className={`px-3 py-2 md:py-1.5 font-semibold ${tab === 'texts' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Texts</button>
               <button onClick={() => setTab('calls')} className={`px-3 py-2 md:py-1.5 font-semibold border-l border-[#DEE7FF] ${tab === 'calls' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Calls{missedCount ? ` (${missedCount} missed)` : ''}</button>
-            </div>
-            {tab === 'texts' && <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
+            </div>}
+            {audience === 'parents' && tab === 'texts' && <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
               <button onClick={() => setFilter('all')} className={`px-3 py-2 md:py-1.5 font-semibold ${filter === 'all' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>All</button>
               <button onClick={() => setFilter('unanswered')} className={`px-3 py-2 md:py-1.5 font-semibold border-l border-[#DEE7FF] ${filter === 'unanswered' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
                 Unanswered{threads.filter((t) => t.unanswered).length ? ` (${threads.filter((t) => t.unanswered).length})` : ''}
               </button>
             </div>}
-            <button onClick={(e) => setNewPop(e.currentTarget.getBoundingClientRect())}
-              className="px-3.5 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New text</button>
+            {audience === 'parents' && <button onClick={(e) => setNewPop(e.currentTarget.getBoundingClientRect())}
+              className="px-3.5 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New text</button>}
           </div>
         </div>
 
-        {tab === 'calls' && (
+        {audience === 'staff' && me && (
+          <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
+            <StaffChat me={me} initialChannel={searchParams.get('c') || ''} className="h-[calc(100dvh-190px)] min-h-[480px]" />
+          </div>
+        )}
+        {audience === 'parents' && tab === 'calls' && (
           <CallsPanel calls={inbox.calls} who={who} onText={(phone) => { setSelected(phone); setTab('texts') }} />
         )}
-        {tab === 'texts' && <div className="grid md:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
+        {audience === 'parents' && tab === 'texts' && <div className="grid md:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
           {/* Threads */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden max-md:max-h-[45dvh] max-md:overflow-y-auto">
             {shown.length === 0 ? (

@@ -249,15 +249,16 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
-          {/* Staff chat — every teacher; the badge is unread messages. */}
-          <Link href="/tutor/chat" title="Staff chat" aria-label="Staff chat"
+          {/* Staff chat — tutors get their own icon; directors reach it as the
+              Staff tab of Messages, whose icon carries the badge instead. */}
+          {!isAdmin && <Link href="/tutor/chat" title="Staff chat" aria-label="Staff chat"
             className={`relative flex items-center justify-center w-9 h-9 rounded-xl transition ${pathname?.startsWith('/tutor/chat') ? 'bg-[#DEE7FF] text-[#062E63]' : 'text-[#062E63] hover:bg-[#F8FAFF]'}`}>
             <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h6A2.5 2.5 0 0 1 14 5.5v3a2.5 2.5 0 0 1-2.5 2.5H8l-3 2.5V11A2.5 2.5 0 0 1 3 8.5v-3Z" />
               <path d="M14 8h.5A2.5 2.5 0 0 1 17 10.5v3a2.5 2.5 0 0 1-2.5 2.5H14v2.5L11 16H9" />
             </svg>
             {chatUnread > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-[#B23A3A] text-white text-[10px] font-bold flex items-center justify-center">{chatUnread > 99 ? '99+' : chatUnread}</span>}
-          </Link>
+          </Link>}
           {/* Messages — opens in its own tab, so replying never costs you the
               page you were on. Shown at every width, next to the hamburger. */}
           {/* In the iPhone app there are no tabs (a new tab is Safari), so it
@@ -267,12 +268,13 @@ export default function TutorNav({ staffName, isAdmin = false }) {
               {...(inApp ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
               title={inApp ? 'Messages' : 'Messages — opens in a new tab'}
               aria-label={inApp ? 'Messages' : 'Messages (opens in a new tab)'}
-              className="flex items-center justify-center w-9 h-9 rounded-xl text-[#062E63] hover:bg-[#F8FAFF] transition">
+              className="relative flex items-center justify-center w-9 h-9 rounded-xl text-[#062E63] hover:bg-[#F8FAFF] transition">
               <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor"
                 strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M4.5 3h11A2.5 2.5 0 0 1 18 5.5v6a2.5 2.5 0 0 1-2.5 2.5H9l-4 3v-3h-.5A2.5 2.5 0 0 1 2 11.5v-6A2.5 2.5 0 0 1 4.5 3Z" />
                 <path d="M6 7h8M6 10h5" />
               </svg>
+              {chatUnread > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-[#B23A3A] text-white text-[10px] font-bold flex items-center justify-center" title="Unread staff chat">{chatUnread > 99 ? '99+' : chatUnread}</span>}
             </a>
           )}
           {staffName && (

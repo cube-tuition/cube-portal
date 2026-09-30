@@ -7,6 +7,7 @@ import { useSmsInbox, fmtTime } from '../../lib/useSmsInbox'
 import { normalisePhone, formatPhone } from '../../lib/phone'
 import SearchSelectPopover from '../../components/SearchSelectPopover'
 import PushEnable from '../../components/PushEnable'
+import StaffChat from '../../components/chat/StaffChat'
 
 /*
  * CUBE Messages — /messages (directors only — the 'admin' and 'director' roles; not tutors)
@@ -29,6 +30,7 @@ function MessagesAppInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [profile, setProfile] = useState(null)
+  const [me, setMe] = useState(null)
   const [allowed, setAllowed] = useState(false)
   const [denied, setDenied] = useState(false)
   const [selected, setSelected] = useState(() => normalisePhone(searchParams.get('phone') || '') || null)
@@ -46,7 +48,7 @@ function MessagesAppInner() {
       const { user, profile, role } = await getAuthProfile()
       if (!user) { router.replace('/?next=/messages'); return }
       if (role !== 'admin' && role !== 'director') { setDenied(true); return }   // directors sign in as 'admin'; tutors are kept out
-      setProfile(profile); setAllowed(true)
+      setProfile(profile); setMe({ id: user.id, full_name: profile?.full_name || user.email, isAdmin: true }); setAllowed(true)
     })()
   }, [router])
 
@@ -133,10 +135,13 @@ function MessagesAppInner() {
         <div className="flex gap-1 mt-2">
           <button onClick={() => setTab('texts')} className={`px-3 py-1 rounded-full text-xs font-semibold ${tab === 'texts' ? 'bg-[#062E63] text-white' : 'bg-[#EEF3FF] text-[#062E63]'}`}>Texts{totalUnread ? ` · ${totalUnread}` : ''}</button>
           <button onClick={() => setTab('calls')} className={`px-3 py-1 rounded-full text-xs font-semibold ${tab === 'calls' ? 'bg-[#062E63] text-white' : 'bg-[#EEF3FF] text-[#062E63]'}`}>Calls{missed ? ` · ${missed} missed` : ''}</button>
+          <button onClick={() => setTab('staff')} className={`px-3 py-1 rounded-full text-xs font-semibold ${tab === 'staff' ? 'bg-[#062E63] text-white' : 'bg-[#EEF3FF] text-[#062E63]'}`}>Staff</button>
         </div>
       </header>
 
-      {tab === 'texts' ? (
+      {tab === 'staff' ? (
+        me && <StaffChat me={me} className="h-[calc(100dvh-118px)]" />
+      ) : tab === 'texts' ? (
         inbox.threads.length === 0 ? (
           <p className="text-sm text-[#2A2035]/45 px-6 py-16 text-center">No texts yet. Tap + to text a family.</p>
         ) : (
