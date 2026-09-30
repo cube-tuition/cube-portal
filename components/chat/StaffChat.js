@@ -695,8 +695,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               return (
                 <div key={m.id}>
                   {newDay && <div className="flex items-center gap-3 my-4"><div className="flex-1 h-px bg-[#DEE7FF]" /><span className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">{fmtDay(m.created_at)}</span><div className="flex-1 h-px bg-[#DEE7FF]" /></div>}
-                  <div id={`msg-${m.id}`} className={`group relative flex gap-3 rounded-lg ${grouped ? 'mt-0.5' : 'mt-3'}`}>
-                    <div className="w-8 shrink-0">
+                  <div id={`msg-${m.id}`} className={`group relative flex gap-3 rounded-lg px-1 -mx-1 py-0.5 hover:bg-[#F8FAFF] ${grouped ? 'mt-2' : 'mt-4'}`}>
+                    <div className="w-8 shrink-0 flex items-start justify-end">
+                      {grouped && <span className="hidden group-hover:block text-[9px] text-[#2A2035]/40 leading-[22px] pr-0.5">{fmtTime(m.created_at)}</span>}
                       {!grouped && <span className="w-8 h-8 rounded-full text-[11px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(m.sender_id) }}>{initials(m.sender_name || nameOf(m.sender_id))}</span>}
                     </div>
                     <div className="min-w-0 flex-1">
