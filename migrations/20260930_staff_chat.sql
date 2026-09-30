@@ -160,3 +160,25 @@ create policy chat_messages_read on public.chat_messages for select to authentic
 drop policy if exists chat_messages_send on public.chat_messages;
 create policy chat_messages_send on public.chat_messages for insert to authenticated
   with check (sender_id = auth.uid() and public.chat_is_member(channel_id));
+
+-- ── Rename / delete an open channel: its creator or any director; never #staff.
+create or replace function public.chat_can_manage(p_channel uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.chat_channels c
+    where c.id = p_channel and c.kind = 'channel' and c.name <> 'staff'
+      and (c.created_by = auth.uid() or exists (select 1 from public.directors d where d.id = auth.uid())))
+$$;
+create or replace function public.chat_rename_channel(p_channel uuid, p_name text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.chat_can_manage(p_channel) then raise exception 'Only the channel''s creator or a director can rename it'; end if;
+  if length(trim(p_name)) = 0 then raise exception 'A channel needs a name'; end if;
+  update public.chat_channels set name = trim(p_name) where id = p_channel;
+end $$;
+create or replace function public.chat_delete_channel(p_channel uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.chat_can_manage(p_channel) then raise exception 'Only the channel''s creator or a director can delete it'; end if;
+  delete from public.chat_channels where id = p_channel;   -- members, messages and reads cascade
+end $$;

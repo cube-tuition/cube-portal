@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
-  markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renderBody,
+  markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renameChannel, deleteChannel, renderBody,
 } from '../../lib/chat'
 
 /*
@@ -44,6 +44,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mention, setMention] = useState(null)  // { query, at } while typing an @name
   const [err, setErr] = useState('')
+  const [deleting, setDeleting] = useState(null)  // { channel, step: 1|2, typed } while confirming a delete
   const listRef = useRef(null)
   const taRef = useRef(null)
   const activeRef = useRef(active)
@@ -163,6 +164,20 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const startDm = async (other) => {
     try { const id = await openDm(other.id); await refreshChannels(me.id); selectChannel(id) } catch (e) { setErr(e.message) }
   }
+  // Rename / delete: the channel's creator or a director (the server checks too).
+  const canManage = (c) => c && c.kind === 'channel' && c.name !== 'staff' && (c.created_by === me.id || me.isAdmin)
+  const rename = async (c) => {
+    const name = prompt('New channel name', c.name)
+    if (name == null) return
+    const clean = name.trim().toLowerCase().replace(/^#/, '').replace(/[^a-z0-9-_ ]/g, '').replace(/\s+/g, '-').slice(0, 40)
+    if (!clean || clean === c.name) return
+    try { await renameChannel(c.id, clean); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
+  }
+  const confirmDelete = async () => {
+    const d = deleting; if (!d || d.typed.trim() !== d.channel.name) return
+    try { await deleteChannel(d.channel.id); setDeleting(null); await refreshChannels(me.id); if (active === d.channel.id) selectChannel('') }
+    catch (e) { setErr(e.message); setDeleting(null) }
+  }
   const join = async (c) => { try { await joinChannel(c.id, me.id); await refreshChannels(me.id) } catch (e) { setErr(e.message) } }
   const leave = async (c) => { if (!confirm(`Leave #${c.name}?`)) return; try { await leaveChannel(c.id, me.id); await refreshChannels(me.id); if (active === c.id) setActive('') } catch (e) { setErr(e.message) } }
 
@@ -216,6 +231,33 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   return (
     <div className={`flex flex-col bg-[#F8FAFF] ${className}`}>
+      {deleting && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setDeleting(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[24rem]" onClick={e => e.stopPropagation()}>
+            {deleting.step === 1 ? (
+              <>
+                <p className="text-lg font-bold text-[#062E63] mb-2">Delete #{deleting.channel.name}?</p>
+                <p className="text-sm text-[#2A2035]/70 mb-5">Every message in it goes too, for everyone. This cannot be undone.</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setDeleting(null)} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 border border-[#DEE7FF] text-[#325099]">Keep it</button>
+                  <button onClick={() => setDeleting(d => ({ ...d, step: 2 }))} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 bg-[#B23A3A] text-white">Continue</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-lg font-bold text-[#062E63] mb-2">Type the channel name to confirm</p>
+                <p className="text-sm text-[#2A2035]/70 mb-3">Type <span className="font-mono font-semibold">{deleting.channel.name}</span> to delete it.</p>
+                <input autoFocus value={deleting.typed} onChange={e => setDeleting(d => ({ ...d, typed: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') confirmDelete() }}
+                  className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-mono mb-4 focus:outline-none focus:border-[#B23A3A]" placeholder={deleting.channel.name} />
+                <div className="flex gap-2">
+                  <button onClick={() => setDeleting(null)} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 border border-[#DEE7FF] text-[#325099]">Cancel</button>
+                  <button onClick={confirmDelete} disabled={deleting.typed.trim() !== deleting.channel.name} className="flex-1 text-sm font-semibold rounded-xl px-4 py-2 bg-[#B23A3A] text-white disabled:opacity-40">Delete channel</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       <div className="flex-1 min-h-0 flex">
         <div className="hidden md:flex h-full">{Sidebar}</div>
         {sidebarOpen && (
@@ -235,6 +277,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     {current.kind === 'dm' ? 'Direct message · only the two of you' : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
+                {canManage(current) && (
+                  <>
+                    <button onClick={() => rename(current)} className="text-[11px] font-semibold text-[#325099] hover:underline">Rename</button>
+                    <button onClick={() => setDeleting({ channel: current, step: 1, typed: '' })} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Delete</button>
+                  </>
+                )}
                 {current.kind === 'channel' && (current.mine
                   ? (current.name !== 'staff' && <button onClick={() => leave(current)} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Leave</button>)
                   : <button onClick={() => join(current)} className="text-xs font-semibold rounded-full px-3 py-1 bg-[#062E63] text-white">Join channel</button>)}
