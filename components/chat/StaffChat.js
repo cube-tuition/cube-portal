@@ -55,6 +55,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [shortcuts, setShortcuts] = useState([])   // directors' canned messages [{ id, title, body }]
   const [shortcutPick, setShortcutPick] = useState(false)   // composer picker open
   const [shortcutEdit, setShortcutEdit] = useState(null)    // { id?, title, body } being edited
+  const [bulk, setBulk] = useState(null)   // { sc, picked: [ids], preview: id, sending, done: { ok, failed } }
   const [termNow, setTermNow] = useState(null)
   const [nextTerm, setNextTerm] = useState(null)    // upcoming (or current) teaching term
   const [termClasses, setTermClasses] = useState([]) // its active classes, for {classes}
@@ -317,12 +318,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   }
 
   // ── Shortcuts (directors) ─────────────────────────────────────────────────
-  const shortcutVars = () => {
-    const other = current?.kind === 'dm' ? nameOf(current.otherId) : ''
+  const shortcutVars = (recipientId) => {
+    const other = recipientId ? nameOf(recipientId) : current?.kind === 'dm' ? nameOf(current.otherId) : ''
     const wk = termNow ? weekOfTerm(termNow) : null
     return {
       first: other.split(' ')[0] || '', recipient: other, me: (me.full_name || '').split(' ')[0],
-      channel: current ? channelLabel(current).replace(/^#/, '') : '',
+      channel: recipientId ? other : current ? channelLabel(current).replace(/^#/, '') : '',
       date: new Date().toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }),
       term: termNow ? `Term ${termNow.term_number} ${termNow.year}` : '', week: wk ? String(wk) : '',
       next_term: nextTerm ? `Term ${nextTerm.term_number} ${nextTerm.year}` : '', next_term_dates: nextTerm ? formatTermRange(nextTerm) : '',
@@ -354,6 +355,29 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     setShortcutEdit(null)
     const builtin = BUILTIN_SHORTCUTS.some(b => b.id === id)
     await persistShortcuts(builtin ? shortcuts.map(x => (x.id === id ? { id, hidden: true } : x)) : shortcuts.filter(x => x.id !== id))
+  }
+
+  // Send one shortcut to several people at once: a DM each, filled in for them.
+  const openBulk = (sc) => {
+    const teachers = staff.filter(s => s.id !== me.id && s.role === 'tutor').map(s => s.id)
+    setShortcutPick(false); setSidebarOpen(false)
+    setBulk({ sc, picked: teachers, preview: teachers[0] || null, sending: false, done: null })
+  }
+  const sendBulk = async () => {
+    if (!bulk || !bulk.picked.length || bulk.sending) return
+    setBulk(b => ({ ...b, sending: true }))
+    const ok = [], failed = []
+    for (const uid of bulk.picked) {
+      try {
+        const channelId = await openDm(uid)
+        const m = await sendMessage({ channelId, senderId: me.id, senderName: me.full_name, body: fillShortcut(bulk.sc.body, shortcutVars(uid)) })
+        authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
+        ok.push(uid)
+      } catch { failed.push(uid) }
+    }
+    await refreshChannels(me.id)
+    if (activeRef.current) loadConversation()
+    setBulk(b => ({ ...b, sending: false, done: { ok, failed } }))
   }
 
   // Rename / delete: the channel's creator or a director (the server checks too).
@@ -438,6 +462,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
             {visibleShortcuts.map(sc => (
               <div key={sc.id} className="group/sc flex items-center gap-1 px-4 py-1 hover:bg-[#F8FAFF]">
                 <button onClick={() => insertShortcut(sc)} disabled={!canPost} title={sc.body} className="flex-1 min-w-0 text-left text-sm text-[#2A2035]/80 truncate disabled:opacity-40">{sc.title}</button>
+                <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="opacity-0 group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Send to…</button>
                 <button onClick={() => setShortcutEdit({ ...sc })} className="opacity-0 group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Edit</button>
               </div>
             ))}
@@ -457,6 +482,59 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   return (
     <div className={`flex flex-col bg-[#F8FAFF] ${className}`}>
+      {bulk && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => !bulk.sending && setBulk(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[44rem] max-w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <p className="text-lg font-bold text-[#062E63] mb-1">Send “{bulk.sc.title}” to…</p>
+            <p className="text-xs text-[#2A2035]/50 mb-4">Each person gets their own direct message, filled in for them. Click a name to preview it.</p>
+            {bulk.done ? (
+              <div className="text-sm text-[#2A2035]/80">
+                <p className="mb-2">✅ Sent to {bulk.done.ok.length} {bulk.done.ok.length === 1 ? 'person' : 'people'}{bulk.done.ok.length ? `: ${bulk.done.ok.map(nameOf).join(', ')}` : ''}.</p>
+                {bulk.done.failed.length > 0 && <p className="text-[#B23A3A] mb-2">Could not send to: {bulk.done.failed.map(nameOf).join(', ')}.</p>}
+                <div className="flex justify-end mt-4"><button onClick={() => setBulk(null)} className="text-sm font-semibold rounded-xl px-4 py-2 bg-[#062E63] text-white">Done</button></div>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-4 min-h-0 flex-1">
+                  <div className="w-56 shrink-0 flex flex-col min-h-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Recipients · {bulk.picked.length}</p>
+                      <div className="flex gap-2 text-[11px] font-semibold text-[#325099]">
+                        <button onClick={() => setBulk(b => ({ ...b, picked: staff.filter(s => s.id !== me.id && s.role === 'tutor').map(s => s.id) }))} className="hover:underline">All teachers</button>
+                        <button onClick={() => setBulk(b => ({ ...b, picked: [] }))} className="hover:underline">None</button>
+                      </div>
+                    </div>
+                    <div className="overflow-y-auto border border-[#EEF2FB] rounded-xl divide-y divide-[#F0F4FF]">
+                      {staff.filter(s => s.id !== me.id).map(s => {
+                        const on = bulk.picked.includes(s.id)
+                        return (
+                          <div key={s.id} className={`flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer ${bulk.preview === s.id ? 'bg-[#F0F4FF]' : 'hover:bg-[#F8FAFF]'}`} onClick={() => setBulk(b => ({ ...b, preview: s.id }))}>
+                            <input type="checkbox" checked={on} onClick={e => e.stopPropagation()} onChange={() => setBulk(b => ({ ...b, picked: on ? b.picked.filter(x => x !== s.id) : [...b.picked, s.id] }))} className="accent-[#062E63]" />
+                            <span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center shrink-0" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>
+                            <span className="truncate flex-1 text-[#2A2035]/80">{s.full_name}</span>
+                            {s.role === 'director' && <span className="text-[10px] text-[#2A2035]/35">director</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col min-h-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 mb-1">Preview{bulk.preview ? ` · ${nameOf(bulk.preview)}` : ''}</p>
+                    {bulk.preview
+                      ? <div className="flex-1 overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-[#2A2035] bg-[#F8FAFF] border border-[#EEF2FB] rounded-xl px-4 py-3" dangerouslySetInnerHTML={{ __html: renderBody(fillShortcut(bulk.sc.body, shortcutVars(bulk.preview)), staffNames) }} />
+                      : <div className="flex-1 text-[13px] text-[#2A2035]/50 bg-[#F8FAFF] border border-[#EEF2FB] rounded-xl px-4 py-3">Pick a name to preview.</div>}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <span className="flex-1" />
+                  <button onClick={() => setBulk(null)} disabled={bulk.sending} className="text-sm font-semibold rounded-xl px-4 py-2 border border-[#DEE7FF] text-[#325099]">Cancel</button>
+                  <button onClick={sendBulk} disabled={!bulk.picked.length || bulk.sending} className="text-sm font-semibold rounded-xl px-4 py-2 bg-[#062E63] text-white disabled:opacity-40">{bulk.sending ? 'Sending…' : `Send ${bulk.picked.length} message${bulk.picked.length === 1 ? '' : 's'}`}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {shortcutEdit && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setShortcutEdit(null)}>
           <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[32rem] max-w-full" onClick={e => e.stopPropagation()}>
@@ -706,10 +784,13 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         </div>
                         {visibleShortcuts.length === 0 && <p className="px-2 py-2 text-xs text-[#2A2035]/45">No shortcuts yet.</p>}
                         {visibleShortcuts.map(sc => (
-                          <button key={sc.id} onClick={() => insertShortcut(sc)} className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-[#F8FAFF]">
-                            <p className="text-sm font-semibold text-[#062E63] truncate">{sc.title}</p>
-                            <p className="text-[11px] text-[#2A2035]/50 line-clamp-2">{fillShortcut(sc.body, shortcutVars())}</p>
-                          </button>
+                          <div key={sc.id} className="group/pk flex items-start rounded-lg hover:bg-[#F8FAFF]">
+                            <button onClick={() => insertShortcut(sc)} className="flex-1 min-w-0 text-left px-2 py-1.5">
+                              <p className="text-sm font-semibold text-[#062E63] truncate">{sc.title}</p>
+                              <p className="text-[11px] text-[#2A2035]/50 line-clamp-2">{fillShortcut(sc.body, shortcutVars())}</p>
+                            </button>
+                            <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="shrink-0 px-2 py-1.5 text-[11px] text-[#325099] hover:underline">Send to…</button>
+                          </div>
                         ))}
                       </div>
                     )}
