@@ -32,6 +32,46 @@ function primaryLabel(realTable, row) {
   )
 }
 
+/*
+ * A section's rows — plain, or under a heading per linked record when the
+ * section has `groupBy` (attendance per class: "Y9 Maths · Term 3 2026",
+ * with a present/absent tally). Groups keep the rows' order, so with rows
+ * newest-first the most recent class comes first.
+ */
+function LinkedRows({ def, rows, resolve, renderRow }) {
+  if (!def.groupBy) return <div className="space-y-1">{rows.map(renderRow)}</div>
+  const groups = []
+  const byKey = new Map()
+  for (const r of rows) {
+    const k = String(r[def.groupBy.col] ?? '')
+    if (!byKey.has(k)) { byKey.set(k, []); groups.push(k) }
+    byKey.get(k).push(r)
+  }
+  const heading = (k) => {
+    const hit = k ? resolve?.(def.groupBy.from, k) : null
+    const term = hit?.row?.term_id ? resolve?.('terms', hit.row.term_id)?.label : null
+    return [hit?.label || (k ? `#${k}` : 'No class'), term].filter(Boolean).join(' · ')
+  }
+  const tally = (list) => {
+    const n = {}
+    for (const r of list) if (r.status) n[r.status] = (n[r.status] || 0) + 1
+    return Object.entries(n).map(([st, c]) => `${c} ${st}`).join(' · ')
+  }
+  return (
+    <div className="space-y-3">
+      {groups.map(k => (
+        <div key={k}>
+          <div className="flex items-baseline justify-between gap-2 mb-1 px-0.5">
+            <span className="text-[11px] font-semibold text-[#062E63] truncate">{heading(k)}</span>
+            <span className="text-[10px] text-[#2A2035]/40 shrink-0">{tally(byKey.get(k))}</span>
+          </div>
+          <div className="space-y-1">{byKey.get(k).map(renderRow)}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function RecordDetailPanel({ initial, resolve, onClose, renderActions = null }) {
   // The panel is reset by the parent via a `key` prop, so the stack can safely
   // initialise from `initial` once (no sync-setState-in-effect needed).
@@ -55,8 +95,9 @@ export default function RecordDetailPanel({ initial, resolve, onClose, renderAct
       if (!defs || defs.length === 0) { if (!cancelled) setSections([]); return }
       if (!cancelled) { setSecLoading(true); setSections(null) }
       const loaded = await Promise.all(defs.map(async (def) => {
-        const { data, error } = await supabase
-          .from(def.table).select('*').eq(def.fkCol, rowId).limit(50)
+        let q = supabase.from(def.table).select('*').eq(def.fkCol, rowId)
+        if (def.order) q = q.order(def.order.col, { ascending: !def.order.desc })
+        const { data, error } = await q.limit(def.limit ?? 50)
         return { def, rows: data ?? [], error: error?.message ?? null }
       }))
       if (!cancelled) { setSections(loaded); setSecLoading(false) }
@@ -147,8 +188,8 @@ export default function RecordDetailPanel({ initial, resolve, onClose, renderAct
                     ) : rows.length === 0 ? (
                       <p className="text-[11px] text-[#2A2035]/35 italic">No linked records found.</p>
                     ) : (
-                      <div className="space-y-1">
-                        {rows.map(r => {
+                      <LinkedRows def={def} rows={rows} resolve={resolve}
+                        renderRow={(r) => {
                           // Primary label: resolve a linked id (e.g. class_id → class name) if configured.
                           let label = r[def.labelCol]
                           if (def.linkLabelFrom) {
@@ -162,7 +203,9 @@ export default function RecordDetailPanel({ initial, resolve, onClose, renderAct
                             label = formatDisplay(def.table, def.labelCol, label) || label
                           }
                           const secondary = (def.secondary ?? [])
-                            .map(c => formatDisplay(def.table, c, r[c]) || r[c])
+                            .map(c => typeof c === 'object'
+                              ? (resolve?.(c.from, r[c.col])?.label ?? null)    // a linked record's name
+                              : (formatDisplay(def.table, c, r[c]) || r[c]))
                             .filter(v => v !== null && v !== undefined && String(v).trim() !== '')
                             .join(' · ')
                           return (
@@ -178,8 +221,7 @@ export default function RecordDetailPanel({ initial, resolve, onClose, renderAct
                               <span className="text-[#325099]/40 text-[11px] shrink-0">↗</span>
                             </button>
                           )
-                        })}
-                      </div>
+                        }} />
                     )}
                     {def.note && <p className="text-[10px] text-[#2A2035]/35 mt-1">{def.note}</p>}
                   </div>
