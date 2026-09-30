@@ -126,7 +126,7 @@ function ClassProfitChart({ rows }) {
     .filter(c => c.termIncome > 0 || c.termProfit !== 0)
     .sort((a, b) => b.termProfit - a.termProfit)
     .map(c => ({
-      name: c.studentName ? `${c.class_name} · ${c.studentName}` : c.class_name,
+      name: c.studentName ? `${c.label ?? c.class_name} · ${c.studentName}` : (c.label ?? c.class_name),
       profit: Math.round(c.termProfit),
       income: Math.round(c.termIncome),
     }))
@@ -189,7 +189,7 @@ function ClassTable({ rows, editable = false, onChange, hideStudents = false }) 
             return (
               <tr key={c.id ?? i} className={`hover:bg-[#F8FAFF] transition ${profit < 0 ? 'bg-red-50' : ''}`}>
                 <td className={`px-3 py-2 font-medium text-[#062E63] whitespace-nowrap max-md:sticky max-md:left-0 max-md:z-10 max-md:whitespace-normal max-md:min-w-[8rem] max-md:max-w-[10rem] max-md:shadow-[1px_0_0_#DEE7FF] ${profit < 0 ? 'max-md:bg-red-50' : 'max-md:bg-white'}`}>
-                  {c.class_name}
+                  {c.label ?? c.class_name}
                   {c.studentName && <span className="ml-1.5 text-[#325099]/50 font-normal">· {c.studentName}</span>}
                 </td>
                 {!hideStudents && <td className="px-3 py-2 text-center">
@@ -327,6 +327,24 @@ function SummaryGrid({ s, yearly = false }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 const INSIGHT_EXCLUDE_KEY = 'forecast_insight_excluded_students'
 
+/*
+ * A class's name as the forecast shows it. Two classes can share a name —
+ * Term 4 runs two "Y10 English" on Thursday (David at 6pm, Jeremia at 7:30) —
+ * and every list here names classes, so a shared name gets the teacher's
+ * first name and day added ("Y10 English · David Thu"), plus the start time
+ * if even that is shared.
+ */
+function classLabel(c, all) {
+  const same = all.filter(x => x.class_name === c.class_name)
+  if (same.length < 2) return c.class_name
+  const first = (c.teacher || '').trim().split(/\s+/)[0]
+  const day = (c.day_of_week || '').slice(0, 3)
+  const base = [first, day].filter(Boolean).join(' ')
+  const clash = same.filter(x => (x.teacher || '').trim().split(/\s+/)[0] === first && (x.day_of_week || '').slice(0, 3) === day).length > 1
+  const time = clash && c.start_time ? ` ${String(c.start_time).slice(0, 5)}` : ''
+  return base || time ? `${c.class_name} · ${base}${time}` : c.class_name
+}
+
 export default function ForecastPage() {
   const router = useRouter()
   const [profile,  setProfile]  = useState(null)
@@ -463,7 +481,7 @@ export default function ForecastPage() {
         // book teacher pay against no income. Legacy rows have no status yet.
         // Left join on enrolments: a class with NO students yet must still show —
         // its teacher is being paid against zero income, the board's worst case.
-        classesForTerm(termId, `id, class_name, course_id, teacher, start_time, end_time,
+        classesForTerm(termId, `id, class_name, course_id, teacher, day_of_week, start_time, end_time,
             enrolments(id, student_id, price, status, students(full_name))`)
           .or('status.eq.active,status.is.null'),
         supabase.from('invoices')
@@ -537,7 +555,7 @@ export default function ForecastPage() {
         is1on1: oneOnOne, studentName,
         studentId: oneOnOne && activeEnrols.length === 1 ? activeEnrols[0].student_id : null,
       }
-    })
+    }).map((c, _i, all) => ({ ...c, label: classLabel(c, all) }))
   }, [classes, getRateForClass, courseModes, cashStudentIds])
 
   // ── Compute summary totals ───────────────────────────────────────────────────
@@ -665,27 +683,27 @@ export default function ForecastPage() {
     // 1. Loss-making group classes — break-even framing
     for (const c of groups.filter(c => c.termProfit < 0)) {
       const breakEven = c.termFee > 0 ? Math.ceil(c.totalTeacherCost / c.termFee) : null
-      add('red', '🔻', `${c.class_name} runs at ${fmt(c.termProfit)}/term`,
+      add('red', '🔻', `${c.label} runs at ${fmt(c.termProfit)}/term`,
         breakEven
           ? `Break-even is ${breakEven} students; you have ${c.studentCount}. Fill ${Math.max(0, breakEven - c.studentCount)} seat${breakEven - c.studentCount === 1 ? '' : 's'} (+${fmt(c.termFee)} each) or consider merging.`
           : 'No fee recorded for this class — set enrolment prices to assess it.')
     }
     // 2. Loss-making / thin 1:1s
     for (const c of ones.filter(c => c.termProfit < 0)) {
-      add('red', '👤', `1:1 ${c.studentName || c.class_name} loses ${fmt(Math.abs(c.termProfit))}/term`,
+      add('red', '👤', `1:1 ${c.studentName || c.label} loses ${fmt(Math.abs(c.termProfit))}/term`,
         `Fee ${fmt(c.termFee)} vs tutor cost ${fmt(c.totalTeacherCost)} — reprice or change tutor allocation.`,
         c.studentId ? { student: { id: c.studentId, name: c.studentName } } : {})
     }
     // 3. Thin-margin groups (<25%)
     for (const c of groups.filter(c => c.termProfit >= 0 && c.termIncome > 0 && c.termProfit / c.termIncome < 0.25)) {
-      add('amber', '⚖️', `${c.class_name} margin is ${Math.round((c.termProfit / c.termIncome) * 100)}%`,
+      add('amber', '⚖️', `${c.label} margin is ${Math.round((c.termProfit / c.termIncome) * 100)}%`,
         `${fmt(c.termProfit)} profit on ${fmt(c.termIncome)} income — one more student adds ${fmt(c.termFee)} straight to margin.`)
     }
     // 4. Missing tutor rates — costs understated
     const noRate = metrics.filter(c => c.teacherRate === null || c.teacherRate === undefined)
     if (noRate.length) {
       add('amber', '❓', `${noRate.length} class${noRate.length === 1 ? '' : 'es'} missing a tutor rate`,
-        `Teacher costs show as $0 for: ${noRate.slice(0, 4).map(c => c.class_name).join(', ')}${noRate.length > 4 ? '…' : ''} — profit is overstated until rates are set (Payroll → Rates).`)
+        `Teacher costs show as $0 for: ${noRate.slice(0, 4).map(c => c.label).join(', ')}${noRate.length > 4 ? '…' : ''} — profit is overstated until rates are set (Payroll → Rates).`)
     }
     // 5. Capacity upside vs the 7-cap
     const emptySeats = groups.reduce((s, c) => s + Math.max(0, CLASS_CAP - c.studentCount), 0)
@@ -705,7 +723,7 @@ export default function ForecastPage() {
       const avg = list.reduce((s, c) => s + c.termFee, 0) / list.length
       for (const c of list) {
         if (avg > 0 && Math.abs(c.termFee - avg) / avg > 0.15) {
-          add('amber', '🏷️', `${c.class_name} fee ${fmt(c.termFee)} is ${c.termFee > avg ? 'above' : 'below'} the Y${band} average (${fmt(avg)})`,
+          add('amber', '🏷️', `${c.label} fee ${fmt(c.termFee)} is ${c.termFee > avg ? 'above' : 'below'} the Y${band} average (${fmt(avg)})`,
             c.termFee < avg
               ? 'Below-band pricing — check whether this is intentional (legacy pricing carries over each term).'
               : 'Above-band pricing — fine if deliberate; worth confirming families were told.')
@@ -743,7 +761,7 @@ export default function ForecastPage() {
   useEffect(() => {
     if (tab === 'play' && !playInit && classMetrics.length > 0 && tutors.length > 0) {
       setPlayClasses(classMetrics.map(c => ({
-        id: c.id, class_name: c.class_name, teacher: c.teacher,
+        id: c.id, class_name: c.class_name, label: c.label, teacher: c.teacher,
         studentCount: c.studentCount, termFee: c.termFee, cashShare: c.cashShare,
         lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
         teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
@@ -856,7 +874,7 @@ export default function ForecastPage() {
   // ── Play-around reset ────────────────────────────────────────────────────────
   const handleResetPlay = () => {
     setPlayClasses(classMetrics.map(c => ({
-      id: c.id, class_name: c.class_name, teacher: c.teacher,
+      id: c.id, class_name: c.class_name, label: c.label, teacher: c.teacher,
       studentCount: c.studentCount, termFee: c.termFee,
       lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
       teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
@@ -1215,7 +1233,7 @@ export default function ForecastPage() {
                     <div className="divide-y divide-[#F0F4FF]">
                       {rows.map(c => (
                         <div key={c.id} className="flex items-center gap-2 md:gap-3 px-4 md:px-5 py-2.5">
-                          <span className="text-xs font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{c.class_name}</span>
+                          <span className="text-xs font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{c.label ?? c.class_name}</span>
                           <span className="text-[10px] text-[#2A2035]/45 shrink-0">{c.studentCount}/{CLASS_CAP} seats</span>
                           <span className={`text-xs font-bold tabular-nums ${good ? 'text-emerald-700' : c.termProfit < 0 ? 'text-rose-600' : 'text-[#92400E]'}`}>{fmt(c.termProfit)}</span>
                           <span className="text-[10px] text-[#2A2035]/45 w-10 text-right">{c.marginPct}%</span>
