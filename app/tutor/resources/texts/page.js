@@ -65,12 +65,12 @@ function TextEditorModal({ text, onClose, onSaved }) {
   const LBL = 'block text-[11px] font-semibold text-[#325099] mb-1'
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end md:items-start justify-center p-0 md:p-4 overflow-y-auto"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8 p-6">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-2xl md:my-8 p-5 md:p-6 max-md:max-h-[90dvh] max-md:overflow-y-auto max-md:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-[#062E63]">{text?.id ? 'Edit text' : 'New text'}</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
+          <button onClick={onClose} className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
         </div>
         <div className="space-y-3">
           <div className="grid sm:grid-cols-2 gap-3">
@@ -102,9 +102,9 @@ function TextEditorModal({ text, onClose, onSaved }) {
             <textarea className={INP + ' resize-y'} rows={2} value={form.notes} onChange={set('notes')} /></div>
         </div>
         <div className="flex justify-end gap-2 mt-5">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/60 hover:bg-[#F8FAFF]">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/60 hover:bg-[#F8FAFF]">Cancel</button>
           <button onClick={save} disabled={saving}
-            className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
+            className="px-4 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Saving…' : 'Save text'}
           </button>
         </div>
@@ -159,28 +159,28 @@ export default function TextsStimuliPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-4xl mx-auto px-6 pt-8 pb-16">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Texts / Stimuli — English</h1>
+      <div className="max-w-4xl mx-auto px-4 pt-5 pb-12 md:px-6 md:pt-8 md:pb-16">
+        <div className="flex items-start justify-between gap-3 md:gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold text-[#062E63]">Texts / Stimuli — English</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
               Reusable passages for reading comprehension — paste one into a workbook’s Stimulus block.
               {' · '}<Link href="/tutor/resources/english" className="text-[#325099] hover:underline">back to hub</Link>
             </p>
           </div>
           <button onClick={() => setEditing({})}
-            className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New text</button>
+            className="px-4 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition max-md:w-full">+ New text</button>
         </div>
 
         {/* Filters */}
         <div className="mt-5 bg-white rounded-2xl border border-[#F0F4FF] p-3 flex flex-wrap items-center gap-2">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-            className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]">
+            className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099] max-md:flex-1 max-md:min-w-0">
             <option value="">All types</option>
             {TEXT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}
-            className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]">
+            className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099] max-md:flex-1 max-md:min-w-0">
             <option value="">All years</option>
             {YEARS.map((y) => <option key={y} value={String(y)}>Year {y}</option>)}
           </select>
@@ -206,15 +206,15 @@ export default function TextsStimuliPage() {
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${TYPE_CLS[t.text_type] || TYPE_CLS.Other}`}>{t.text_type}</span>
                   {t.year && <span className="text-[10px] text-[#2A2035]/40 font-semibold">Year {t.year}</span>}
                   {t.two_col && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-[#BACBFF] bg-[#EEF4FF] text-[#325099]" title="Lays out in two columns">▍▍ 2-col</span>}
-                  <span className="text-sm font-bold text-[#062E63]">{t.title}</span>
-                  {t.source && <span className="text-xs italic text-[#2A2035]/45">— {t.source}</span>}
+                  <span className="text-sm font-bold text-[#062E63] min-w-0 break-words">{t.title}</span>
+                  {t.source && <span className="text-xs italic text-[#2A2035]/45 min-w-0 break-words">— {t.source}</span>}
                   <div className="ml-auto flex items-center gap-2">
-                    <button onClick={() => setExpanded(expanded === t.id ? null : t.id)} className="text-[11px] font-semibold text-[#325099] hover:underline">{expanded === t.id ? 'Hide' : 'View'}</button>
-                    <button onClick={() => setEditing(t)} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</button>
-                    <button onClick={() => remove(t)} className="text-[11px] text-[#DC2626]/70 hover:text-[#DC2626]">Delete</button>
+                    <button onClick={() => setExpanded(expanded === t.id ? null : t.id)} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-1.5 max-md:px-1">{expanded === t.id ? 'Hide' : 'View'}</button>
+                    <button onClick={() => setEditing(t)} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-1.5 max-md:px-1">Edit</button>
+                    <button onClick={() => remove(t)} className="text-[11px] text-[#DC2626]/70 hover:text-[#DC2626] max-md:py-1.5 max-md:px-1">Delete</button>
                   </div>
                 </div>
-                <pre className={`mt-2 text-[13px] leading-relaxed text-[#2A2035] whitespace-pre-wrap font-[inherit] ${expanded === t.id ? '' : 'line-clamp-3'}`}
+                <pre className={`mt-2 text-[13px] leading-relaxed text-[#2A2035] whitespace-pre-wrap break-words font-[inherit] ${expanded === t.id ? '' : 'line-clamp-3'}`}
                   style={{ fontFamily: 'inherit' }}>{t.body}</pre>
                 {t.notes && expanded === t.id && (
                   <p className="mt-2 text-[11px] text-[#2A2035]/50 border-t border-[#F0F4FF] pt-2">📝 {t.notes}</p>

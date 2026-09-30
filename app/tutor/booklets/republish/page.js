@@ -125,13 +125,13 @@ export default function RepublishPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
-      <div className="max-w-4xl mx-auto px-6 pt-10 pb-16">
+      <div className="max-w-4xl mx-auto px-4 md:px-6 pt-5 md:pt-10 pb-16">
         <nav className="text-[11px] text-[#2A2035]/45 mb-3">
           <Link href="/tutor/resources/maths" className="hover:text-[#325099]">Resources</Link>
           <span className="mx-1.5">›</span><span className="text-[#2A2035]/70 font-semibold">Republish PDFs</span>
         </nav>
 
-        <div className="rounded-2xl px-7 py-6 mb-6 border bg-[#EEF4FF] border-[#DEE7FF]">
+        <div className="rounded-2xl px-5 py-5 md:px-7 md:py-6 mb-6 border bg-[#EEF4FF] border-[#DEE7FF]">
           <h1 className="text-2xl font-bold text-[#325099]">Republish workbook PDFs</h1>
           <p className="text-xs text-[#2A2035]/60 mt-1.5 leading-relaxed">
             Re-renders both PDFs for every published workbook and swaps them in. No content is
@@ -145,16 +145,16 @@ export default function RepublishPage() {
           <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading workbooks…</p>
         ) : (
           <>
-            <div className="flex items-center gap-3 mb-5">
+            <div className="flex flex-wrap items-center gap-3 mb-5">
               <button
                 onClick={runAll}
                 disabled={state === RUNNING || !rows.length}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">
+                className="px-4 py-2.5 md:py-2 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">
                 {state === RUNNING ? 'Republishing…' : `Republish all ${rows.length}`}
               </button>
               {state === RUNNING && (
                 <button onClick={() => { cancelled.current = true }}
-                  className="px-4 py-2 text-xs font-semibold text-[#991B1B] bg-white border border-[#FCA5A5] rounded-lg hover:bg-[#FEF2F2] transition">
+                  className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#991B1B] bg-white border border-[#FCA5A5] rounded-lg hover:bg-[#FEF2F2] transition">
                   Stop after this one
                 </button>
               )}
@@ -165,9 +165,9 @@ export default function RepublishPage() {
 
             {cur && (
               <div className="bg-white rounded-xl border border-[#DEE7FF] px-4 py-3 mb-5">
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="font-semibold text-[#2A2035]">{cur.label}</span>
-                  <span className="text-[#325099] tabular-nums">{cur.pct}%</span>
+                <div className="flex items-center justify-between gap-3 text-xs mb-1.5">
+                  <span className="font-semibold text-[#2A2035] min-w-0 max-md:truncate">{cur.label}</span>
+                  <span className="text-[#325099] tabular-nums shrink-0">{cur.pct}%</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-[#EEF4FF] overflow-hidden">
                   <div className="h-full bg-[#325099] transition-all" style={{ width: `${cur.pct}%` }} />
@@ -179,14 +179,14 @@ export default function RepublishPage() {
               {rows.map((b) => {
                 const st = log[b.id]
                 return (
-                  <div key={b.id} className="bg-white rounded-lg border border-[#F0F4FF] px-3.5 py-2 flex items-center gap-3 text-xs">
-                    <span className="text-[10px] font-bold text-[#325099]/50 w-20 shrink-0">{b.subject}</span>
-                    <span className="w-8 shrink-0 text-[#2A2035]/40">Y{b.year}</span>
-                    <span className="flex-1 min-w-0 truncate font-semibold text-[#2A2035]">{b.title}</span>
-                    {cur?.id === b.id ? <span className="text-[#325099] shrink-0">rendering…</span>
-                      : st === 'done' ? <span className="text-[#047857] shrink-0">✓ republished</span>
-                      : st ? <span className="text-[#B91C1C] shrink-0 max-w-[45%] truncate" title={st}>{st}</span>
-                      : <span className="text-[#2A2035]/25 shrink-0">waiting</span>}
+                  <div key={b.id} className="bg-white rounded-lg border border-[#F0F4FF] px-3.5 py-2 flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-0.5 text-xs">
+                    <span className="text-[10px] font-bold text-[#325099]/50 md:w-20 shrink-0">{b.subject}</span>
+                    <span className="md:w-8 shrink-0 text-[#2A2035]/40">Y{b.year}</span>
+                    <span className="max-md:order-last max-md:basis-full flex-1 min-w-0 truncate font-semibold text-[#2A2035]">{b.title}</span>
+                    {cur?.id === b.id ? <span className="text-[#325099] shrink-0 max-md:ml-auto">rendering…</span>
+                      : st === 'done' ? <span className="text-[#047857] shrink-0 max-md:ml-auto">✓ republished</span>
+                      : st ? <span className="text-[#B91C1C] shrink-0 max-w-[45%] truncate max-md:ml-auto" title={st}>{st}</span>
+                      : <span className="text-[#2A2035]/25 shrink-0 max-md:ml-auto">waiting</span>}
                   </div>
                 )
               })}

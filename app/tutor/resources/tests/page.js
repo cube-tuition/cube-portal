@@ -55,7 +55,7 @@ function TestsInner() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-4xl mx-auto px-6 pt-8 pb-16">
+      <div className="max-w-4xl mx-auto px-4 pt-5 pb-12 md:px-6 md:pt-8 md:pb-16">
         <p className="text-[11px] tracking-[0.35em] uppercase text-[#325099] font-semibold mb-1">Resources</p>
         <h1 className="text-2xl font-bold text-[#062E63] mb-1">Exams{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
         {scope
@@ -63,12 +63,12 @@ function TestsInner() {
           : <div className="mb-5" />}
 
         {/* Main tabs */}
-        <div className="flex items-center gap-2 mb-6">
+        <div className="flex items-center gap-2 mb-5 md:mb-6 max-md:overflow-x-auto max-md:whitespace-nowrap max-md:-mx-4 max-md:px-4 max-md:pb-1">
           {TABS.map(([v, label]) => (
             <button
               key={v}
               onClick={() => setTab(v)}
-              className={`px-5 py-2 rounded-full text-sm font-semibold border transition ${
+              className={`shrink-0 px-4 md:px-5 py-2 rounded-full text-sm font-semibold border transition ${
                 tab === v
                   ? 'bg-[#062E63] text-white border-[#062E63]'
                   : 'bg-white text-[#062E63] border-[#DEE7FF] hover:bg-[#F8FAFF]'

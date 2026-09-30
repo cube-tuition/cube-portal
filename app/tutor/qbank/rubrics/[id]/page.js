@@ -48,15 +48,15 @@ export default function RubricEditor() {
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} />
       <div className="sticky top-0 z-30 bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-[1400px] mx-auto px-5 py-3 flex items-center gap-3 flex-wrap">
+        <div className="max-w-[1400px] mx-auto px-4 md:px-5 py-3 flex items-center gap-x-3 gap-y-1 flex-wrap">
           <button onClick={() => router.push('/tutor/qbank/rubrics')} className="text-[#325099] text-sm hover:underline">← Rubrics</button>
-          <input value={r.name} onChange={e => mutate({ name: e.target.value })} className="flex-1 min-w-[200px] text-base font-semibold text-[#2A2035] border border-transparent hover:border-[#DEE7FF] focus:border-[#325099] rounded-lg px-2 py-1 focus:outline-none" />
-          <span className="text-[11px] text-[#2A2035]/40">{saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}</span>
+          <input value={r.name} onChange={e => mutate({ name: e.target.value })} className="flex-1 max-md:order-last max-md:basis-full min-w-[200px] text-base font-semibold text-[#2A2035] border border-transparent hover:border-[#DEE7FF] focus:border-[#325099] rounded-lg px-2 py-1 focus:outline-none" />
+          <span className="text-[11px] text-[#2A2035]/40 max-md:ml-auto">{saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}</span>
         </div>
       </div>
 
-      <div className="max-w-[1400px] mx-auto px-5 py-6">
-        <div className="bg-white rounded-xl border border-[#DEE7FF] p-4">
+      <div className="max-w-[1400px] mx-auto px-4 py-5 md:px-5 md:py-6">
+        <div className="bg-white rounded-xl border border-[#DEE7FF] p-3 md:p-4">
           <RubricGridEditor value={r} onChange={mutate} />
         </div>
         <p className="text-[11px] text-[#2A2035]/40 mt-3">This grid prints under each writing question on English exam papers. Edit anything — bands, marks, criteria names and descriptors are all flexible.</p>

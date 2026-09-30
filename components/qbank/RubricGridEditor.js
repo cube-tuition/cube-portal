@@ -41,13 +41,13 @@ export default function RubricGridEditor({ value, onChange, compact = false }) {
       {/* Bands */}
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Mark bands (columns)</p>
-        <button onClick={addBand} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add band</button>
+        <button onClick={addBand} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-2">＋ Add band</button>
       </div>
       <div className="flex flex-wrap gap-2 mb-4">
         {bands.map((b, i) => (
           <div key={i} className="flex items-center gap-1 border border-[#DEE7FF] rounded-lg px-2 py-1.5 bg-[#F8FAFF]">
             <input value={b.label} onChange={e => setBand(i, { label: e.target.value, marks: e.target.value })} className="w-14 text-center font-semibold text-[#2A2035] bg-white border border-[#DEE7FF] rounded px-1 py-1 text-sm focus:outline-none focus:border-[#325099]" placeholder="4" />
-            {bands.length > 1 && <button onClick={() => removeBand(i)} className="text-rose-400 hover:text-rose-600 text-xs ml-0.5">✕</button>}
+            {bands.length > 1 && <button onClick={() => removeBand(i)} className="text-rose-400 hover:text-rose-600 text-xs ml-0.5 max-md:px-1.5 max-md:py-1">✕</button>}
           </div>
         ))}
       </div>
@@ -55,9 +55,9 @@ export default function RubricGridEditor({ value, onChange, compact = false }) {
       {/* Criteria grid */}
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Criteria (rows)</p>
-        <button onClick={addCrit} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add criterion</button>
+        <button onClick={addCrit} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-2">＋ Add criterion</button>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overscroll-x-contain">
         <div className="min-w-max">
           <div className="grid gap-2 mb-2" style={{ gridTemplateColumns: cellCols }}>
             <div className="text-[11px] font-bold text-[#325099]">Criteria</div>
@@ -69,7 +69,7 @@ export default function RubricGridEditor({ value, onChange, compact = false }) {
           ) : criteria.map((c, ci) => (
             <div key={ci} className="grid gap-2 mb-2 items-start" style={{ gridTemplateColumns: cellCols }}>
               <div className="flex items-start gap-1">
-                <button onClick={() => removeCrit(ci)} title="Remove criterion" className="text-rose-300 hover:text-rose-600 text-xs mt-2">✕</button>
+                <button onClick={() => removeCrit(ci)} title="Remove criterion" className="text-rose-300 hover:text-rose-600 text-xs mt-2 max-md:px-1 max-md:py-1 max-md:mt-1">✕</button>
                 <textarea value={c.name} onChange={e => setCrit(ci, { name: e.target.value })} className={`${inp} w-full resize-y ${minH} text-[13px]`} placeholder="Criterion name" />
               </div>
               <input value={c.max} onChange={e => setCrit(ci, { max: e.target.value.replace(/[^\d]/g, '') })} className={`${inp} text-center`} placeholder="4" />

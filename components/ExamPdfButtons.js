@@ -81,11 +81,11 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
   // student copy (the paper), T the teacher copy (the solutions).
   const big = size === 'lg'
   const cls = big
-    ? 'text-xs font-semibold px-4 py-2 rounded-full transition disabled:opacity-50'
-    : 'inline-flex items-center justify-center text-[9px] font-bold h-[16px] min-w-[18px] px-1 rounded-md transition disabled:opacity-50'
+    ? 'text-xs font-semibold px-4 py-2.5 md:py-2 rounded-full transition disabled:opacity-50'
+    : 'inline-flex items-center justify-center text-[9px] font-bold h-6 min-w-6 md:h-[16px] md:min-w-[18px] px-1 rounded-md transition disabled:opacity-50'
 
   return (
-    <div className={`flex items-center ${big ? 'gap-1.5' : 'gap-1'} shrink-0`}>
+    <div className={`flex items-center ${big ? 'gap-1.5 max-md:flex-wrap max-md:shrink max-md:justify-end' : 'gap-1'} shrink-0`}>
       <button onClick={() => make(false)} disabled={!!busy} className={cls}
         style={{ background: accentBg, color: accentColor }}
         title="Download the exam paper (student copy)" aria-label="Download the exam paper">
@@ -108,7 +108,7 @@ export default function ExamPdfButtons({ examId, bookletId = null, onReleased = 
           {busy === 'release' ? (step || '…') : err ? '!' : released ? '✓' : (big ? '↗ Release' : '↗')}
         </button>
       )}
-      {err && big && <span className="text-[9px] text-[#DC2626]">{err}</span>}
+      {err && big && <span className="text-[9px] text-[#DC2626] break-words min-w-0">{err}</span>}
     </div>
   )
 }

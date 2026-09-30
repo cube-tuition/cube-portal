@@ -173,7 +173,7 @@ function HolidayCoursesInner() {
       <TutorNav staffName={staff.full_name} isAdmin={canEdit} />
 
       <div className="bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-6">
           <h1 className="text-2xl font-bold text-[#062E63]">
             Holiday Courses{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}
           </h1>
@@ -186,11 +186,11 @@ function HolidayCoursesInner() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 md:px-10 py-6">
+      <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-6">
         {loading ? (
           <p className="text-sm text-[#2A2035]/40 animate-pulse py-20 text-center">Loading…</p>
         ) : visible.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] py-16 text-center">
+          <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] py-16 px-4 md:px-0 text-center">
             <p className="text-sm font-semibold text-[#2A2035]">
               No holiday courses{scope ? ` for ${SCOPE_LABEL[scope]}` : ''} yet.
             </p>
@@ -202,7 +202,7 @@ function HolidayCoursesInner() {
           </div>
         ) : visible.map((period) => (
           <div key={period.id} className="mb-9">
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-4">
               <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#EEF4FF] text-[#325099]">
                 {periodName(period)}
               </span>
@@ -210,7 +210,7 @@ function HolidayCoursesInner() {
               <span className="text-[10px] text-[#2A2035]/30 font-medium">
                 {period.classes.length} course{period.classes.length === 1 ? '' : 's'}
               </span>
-              <div className="flex-1 h-px bg-[#E8EDF8]" />
+              <div className="flex-1 h-px bg-[#E8EDF8] max-md:hidden" />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
@@ -256,7 +256,7 @@ function HolidayCoursesInner() {
                                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
                                       style={{ background: st.bg, color: st.fg }}>{p.status}</span>
                                   </div>
-                                  <p className="text-[12px] font-bold text-[#062E63] leading-snug">{p.name}</p>
+                                  <p className="text-[12px] font-bold text-[#062E63] leading-snug break-words">{p.name}</p>
                                   {p.topic && <p className="text-[10px] text-[#2A2035]/50 mt-0.5">{p.topic}</p>}
                                   {p.missing && (
                                     <p className="text-[10px] text-[#B45309] mt-0.5">
@@ -266,11 +266,11 @@ function HolidayCoursesInner() {
                                   {row.notes && <p className="text-[10px] text-[#2A2035]/40 mt-1 line-clamp-2">{row.notes}</p>}
                                 </div>
                                 {canEdit && (
-                                  <div className="px-3 pb-2.5 flex gap-2.5">
+                                  <div className="px-3 pb-1 md:pb-2.5 flex gap-2.5">
                                     <button onClick={() => setEditing({ cls, lesson, n: i + 1, row })}
-                                      className="text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
+                                      className="max-md:py-2 max-md:text-[12px] text-[10px] font-semibold text-[#325099] hover:underline">Edit</button>
                                     <button onClick={() => remove(row)}
-                                      className="text-[10px] font-semibold text-[#2A2035]/30 hover:text-rose-500">Remove</button>
+                                      className="max-md:py-2 max-md:text-[12px] text-[10px] font-semibold text-[#2A2035]/30 hover:text-rose-500">Remove</button>
                                   </div>
                                 )}
                               </div>
@@ -355,8 +355,8 @@ function DayModal({ day, when, courseName, row, master = [], defaultYear, defaul
   const LBL = 'text-[11px] font-semibold text-[#2A2035]/50 block mb-1'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 md:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6 space-y-3 max-h-[90dvh] md:max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div>
           <h2 className="text-lg font-bold text-[#062E63]">{row ? 'Edit' : 'Add'} Day {day}</h2>
           <p className="text-xs text-[#2A2035]/50">{courseName}{when ? ` · ${when}` : ''}</p>
@@ -380,7 +380,7 @@ function DayModal({ day, when, courseName, row, master = [], defaultYear, defaul
             </p>
           ) : options.map((b) => (
             <button key={b.id} type="button" onClick={() => setBookletId(b.id)}
-              className={`w-full text-left px-3 py-2 transition ${
+              className={`w-full text-left px-3 py-2.5 md:py-2 transition ${
                 bookletId === b.id ? 'bg-[#EEF4FF]' : 'hover:bg-[#F8FAFF]'}`}>
               <p className="text-xs font-semibold text-[#062E63] truncate">{b.booklet_name}</p>
               <p className="text-[10px] text-[#2A2035]/45 truncate">

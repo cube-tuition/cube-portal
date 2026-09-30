@@ -327,7 +327,7 @@ function PointRows({ rows, onChange }) {
             <LiftedInput className={I0 + ' w-16 shrink-0 text-center'} value={p.x ?? ''} onCommit={v => upd(i, { x: v })} placeholder="x" />
             <LiftedInput className={I0 + ' w-16 shrink-0 text-center'} value={p.y ?? ''} onCommit={v => upd(i, { y: v })} placeholder="y" />
             <LiftedInput className={I0 + ' flex-1 min-w-0'} value={p.label ?? ''} onCommit={v => upd(i, { label: v })} placeholder="Label (optional), e.g. A(-3, 2)" />
-            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove point">✕</button>
+            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0 max-md:px-2 max-md:py-2" title="Remove point">✕</button>
           </div>
         ))}
       </div>
@@ -346,7 +346,7 @@ function LineRows({ rows, onChange }) {
           <div key={i} className="flex items-center gap-1.5">
             <LiftedInput className={I0 + ' flex-1 min-w-0'} value={l.eq ?? ''} onCommit={v => upd(i, { eq: v })} placeholder="y = x^2 - 2  or  x^2 + y^2 = 9" />
             <LiftedInput className={I0 + ' w-32 shrink-0'} value={l.label ?? ''} onCommit={v => upd(i, { label: v })} placeholder="Label (optional)" />
-            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0" title="Remove curve">✕</button>
+            <button onClick={() => onChange(rows.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs shrink-0 max-md:px-2 max-md:py-2" title="Remove curve">✕</button>
           </div>
         ))}
       </div>
@@ -361,8 +361,8 @@ function LineRows({ rows, onChange }) {
 export function MathObjFields({ obj, upd }) {
   return (
     <>
-      <div className="flex gap-2 items-end">
-        <div className="flex-1">
+      <div className="flex gap-2 items-end max-md:flex-wrap">
+        <div className="flex-1 max-md:basis-full">
           <label className={L}>Object type</label>
           <select className={I} value={obj.objType || 'cartesian'} onChange={e => upd({ objType: e.target.value })}>
             <option value="cartesian">Cartesian plane</option>
@@ -386,13 +386,13 @@ export function MathObjFields({ obj, upd }) {
       </div>
       {(obj.objType || 'cartesian') === 'cartesian' && (
         <>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 max-md:grid-cols-2 gap-2">
             <div><label className={L}>x min</label><LiftedInput className={I} value={obj.xMin ?? ''} onCommit={v => upd({ xMin: v })} placeholder="-5" /></div>
             <div><label className={L}>x max</label><LiftedInput className={I} value={obj.xMax ?? ''} onCommit={v => upd({ xMax: v })} placeholder="5" /></div>
             <div><label className={L}>y min</label><LiftedInput className={I} value={obj.yMin ?? ''} onCommit={v => upd({ yMin: v })} placeholder="-5" /></div>
             <div><label className={L}>y max</label><LiftedInput className={I} value={obj.yMax ?? ''} onCommit={v => upd({ yMax: v })} placeholder="5" /></div>
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 max-md:grid-cols-2 gap-2">
             <div><label className={L}>x per square</label><LiftedInput className={I} value={obj.xStep ?? ''} onCommit={v => upd({ xStep: v })} placeholder="1" /></div>
             <div><label className={L}>y per square</label><LiftedInput className={I} value={obj.yStep ?? ''} onCommit={v => upd({ yStep: v })} placeholder="1" /></div>
           </div>
@@ -438,8 +438,9 @@ export function MathObjFields({ obj, upd }) {
               <div><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.bpTitle ?? ''} onCommit={v => upd({ bpTitle: v })} placeholder="e.g. Test scores" /></div>
               <div><label className={L}>Units under axis (optional)</label><LiftedInput className={I} value={obj.bpUnits ?? ''} onCommit={v => upd({ bpUnits: v })} placeholder="e.g. Score %" /></div>
             </div>
+            <div className="phone-scroll space-y-2.5">
             {plots.map((p, i) => (
-              <div key={i} className="grid grid-cols-[1fr_46px_46px_46px_46px_46px_1fr_20px] gap-1.5 items-end">
+              <div key={i} className="grid grid-cols-[1fr_46px_46px_46px_46px_46px_1fr_20px] gap-1.5 items-end max-md:min-w-[440px]">
                 <div>{i === 0 && <label className={L}>Label</label>}<LiftedInput className={I} value={p.label ?? ''} onCommit={v => updPlot(i, { label: v })} placeholder={plots.length > 1 ? 'e.g. Class' : 'optional'} /></div>
                 <div>{i === 0 && <label className={L}>Min</label>}<LiftedInput className={I} value={p.min ?? ''} onCommit={v => updPlot(i, { min: v })} /></div>
                 <div>{i === 0 && <label className={L}>Q1</label>}<LiftedInput className={I} value={p.q1 ?? ''} onCommit={v => updPlot(i, { q1: v })} /></div>
@@ -451,6 +452,7 @@ export function MathObjFields({ obj, upd }) {
                   title="Remove this box plot" className="h-7 text-rose-400 hover:text-rose-600 disabled:opacity-20 text-sm">✕</button>
               </div>
             ))}
+            </div>
             <button type="button" onClick={() => upd({ bpPlots: [...plots, { label: '', min: '', q1: '', med: '', q3: '', max: '', outliers: '' }] })}
               className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add box plot</button>
           </>
@@ -518,9 +520,9 @@ export function MathObjFields({ obj, upd }) {
               </div>
             </>
           )}
-          <div className="flex gap-2 items-end">
-            <div className="flex-1"><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.slTitle ?? ''} onCommit={v => upd({ slTitle: v })} placeholder="e.g. Test scores" /></div>
-            <div className="w-44"><label className={L}>Leaf digit</label>
+          <div className="flex gap-2 items-end max-md:flex-wrap">
+            <div className="flex-1 max-md:basis-full"><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.slTitle ?? ''} onCommit={v => upd({ slTitle: v })} placeholder="e.g. Test scores" /></div>
+            <div className="w-44 max-md:w-full"><label className={L}>Leaf digit</label>
               <select className={I} value={obj.slLeaf || '1'} onChange={e => upd({ slLeaf: e.target.value })}>
                 <option value="1">Units — 2 | 3 = 23</option>
                 <option value="10">Tens — 2 | 3 = 230</option>
@@ -594,7 +596,7 @@ function MathObjSection({ block, set, blank = true, maths = true, hideAdd = fals
           own "Add" button when the caller places one elsewhere (e.g. inline
           next to the image upload on a question). `objKey` lets a caller attach
           the object to a different field (e.g. a part's solution object). */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 max-md:flex-wrap max-md:gap-x-4 max-md:gap-y-1">
         {maths && !hideAdd && !obj && (
           <button onClick={() => set({ [objKey]: { ...EMPTY_MATHOBJ } })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add {name}</button>
         )}
@@ -648,7 +650,7 @@ function AnswerSpace({ holder, patch, dflt = 3, maths = true }) {
               but stays visible if this answer already uses it. */}
           {[['lines', 'Writing lines'], ['blank', 'Blank space'], ...(maths || mode === 'object' ? [['object', 'Maths object']] : [])].map(([m, lbl], i) => (
             <button key={m} onClick={() => setMode(m)}
-              className={`px-2.5 py-1 font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${mode === m ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
+              className={`px-2.5 py-1 max-md:py-2 font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${mode === m ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
               {lbl}
             </button>
           ))}
@@ -675,7 +677,7 @@ function AnswerSpace({ holder, patch, dflt = 3, maths = true }) {
 function ImageLayoutFields({ block, set }) {
   if (!block.image) return null
   return (
-    <div className="flex gap-2 items-end">
+    <div className="flex gap-2 items-end max-md:flex-wrap">
       <div>
         <label className={L}>Image position</label>
         <select className={I} value={block.imagePos || 'below'} onChange={e => set({ imagePos: e.target.value === 'below' ? '' : e.target.value })}>
@@ -708,10 +710,10 @@ function ImageField({ value, onChange, label = 'Diagram / image' }) {
       {value ? (
         <div className="flex items-center gap-2">
           <img src={qbankImageUrl(value)} alt="" className="h-16 rounded border border-[#DEE7FF] object-contain bg-white" />
-          <button onClick={() => onChange('')} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+          <button onClick={() => onChange('')} className="text-[11px] text-rose-500 hover:underline max-md:px-2 max-md:py-2">Remove</button>
         </div>
       ) : (
-        <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 cursor-pointer hover:bg-[#F0F4FF]">
+        <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 max-md:py-2.5 cursor-pointer hover:bg-[#F0F4FF]">
           {busy ? 'Uploading…' : '＋ Upload image'}
           <input type="file" accept="image/*" className="hidden" onChange={e => upload(e.target.files?.[0])} />
         </label>
@@ -892,11 +894,11 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
           })()}
           <div><label className={L}>Question prompt</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey placeholder="Find the area of the following:" /></div>
           <div className={showMarks ? 'grid grid-cols-[1fr_90px] gap-2 items-end' : ''}>
-            <div className="flex items-end gap-3">
+            <div className="flex items-end gap-3 max-md:flex-wrap max-md:gap-2">
               <ImageField value={block.image} onChange={v => set({ image: v })} />
               {isMaths && !block.mathObj && (
                 <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })}
-                  className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 cursor-pointer hover:bg-[#F0F4FF] whitespace-nowrap">
+                  className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 max-md:py-2.5 cursor-pointer hover:bg-[#F0F4FF] whitespace-nowrap">
                   ＋ Add maths object
                 </button>
               )}
@@ -947,11 +949,11 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
         <div className="space-y-2.5">
           {showTopic && <TopicField block={block} set={set} options={topicOptions} />}
           <div><label className={L}>Question</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey /></div>
-          <div className="flex items-end gap-3">
+          <div className="flex items-end gap-3 max-md:flex-wrap max-md:gap-2">
             <ImageField value={block.image} onChange={v => set({ image: v })} />
             {isMaths && !block.mathObj && (
               <button onClick={() => set({ mathObj: { ...EMPTY_MATHOBJ } })}
-                className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 cursor-pointer hover:bg-[#F0F4FF] whitespace-nowrap">
+                className="inline-flex items-center gap-2 text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 max-md:py-2.5 cursor-pointer hover:bg-[#F0F4FF] whitespace-nowrap">
                 ＋ Add maths object
               </button>
             )}
@@ -968,8 +970,8 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
                     onCommit={v => { const options = opts.map((x, j) => j === i ? { ...x, t: v } : x); set({ options }) }}
                     inlineKey />
                   <div className="flex flex-col shrink-0 text-[#2A2035]/40">
-                    <button onClick={() => moveOption(i, -1)} disabled={i === 0} title="Move up" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▲</button>
-                    <button onClick={() => moveOption(i, 1)} disabled={i === opts.length - 1} title="Move down" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▼</button>
+                    <button onClick={() => moveOption(i, -1)} disabled={i === 0} title="Move up" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none max-md:text-sm max-md:px-2 max-md:py-1">▲</button>
+                    <button onClick={() => moveOption(i, 1)} disabled={i === opts.length - 1} title="Move down" className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none max-md:text-sm max-md:px-2 max-md:py-1">▼</button>
                   </div>
                 </div>
               ))}
@@ -997,7 +999,7 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
               <LiftedInput className={I} value={r.q} onCommit={v => { const rows = block.rows.map((x, j) => j === i ? { ...x, q: v } : x); set({ rows }) }} placeholder="1" />
               <LiftedInput className={I} value={r.answer} onCommit={v => { const rows = block.rows.map((x, j) => j === i ? { ...x, answer: v } : x); set({ rows }) }} placeholder="A" />
               <LiftedInput className={I} value={r.explanation} onCommit={v => { const rows = block.rows.map((x, j) => j === i ? { ...x, explanation: v } : x); set({ rows }) }} placeholder="Explanation" />
-              <button onClick={() => set({ rows: block.rows.filter((_, j) => j !== i) })} className="text-rose-400 hover:text-rose-600 text-sm">✕</button>
+              <button onClick={() => set({ rows: block.rows.filter((_, j) => j !== i) })} className="text-rose-400 hover:text-rose-600 text-sm max-md:py-2">✕</button>
             </div>
           ))}
           <button onClick={() => set({ rows: [...(block.rows || []), { q: String((block.rows?.length || 0) + 1), answer: '', explanation: '' }] })} className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add row</button>
@@ -1140,7 +1142,7 @@ function TableEditor({ block, set }) {
     if (needCols > colWidths.length) patch.colWidths = [...colWidths, ...Array(needCols - colWidths.length).fill('')]
     set(patch)
   }
-  const STEP = 'w-6 h-6 flex items-center justify-center rounded border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none'
+  const STEP = 'w-6 h-6 max-md:w-9 max-md:h-9 flex items-center justify-center rounded border border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF] text-sm leading-none'
   // Width: empty = full page width (the default every existing table already has).
   // The slider stores '' at 100 so untouched tables keep rendering exactly as before.
   const widthPct = (() => { const w = Number(block.width); return Number.isFinite(w) && w >= 25 && w < 100 ? w : 100 })()
@@ -1224,7 +1226,7 @@ function TableEditor({ block, set }) {
               {rows[0]?.map((_, ci) => (
                 <td key={ci} className="p-0.5 relative group/col align-bottom">
                   <div className="flex flex-col items-center gap-0.5">
-                    <div className="flex items-center gap-0.5 h-5 opacity-0 group-hover/col:opacity-100 focus-within:opacity-100 transition">
+                    <div className="flex items-center gap-0.5 h-5 md:opacity-0 md:group-hover/col:opacity-100 md:focus-within:opacity-100 transition">
                       {nCols > 1 && (
                         <button type="button" onClick={() => moveCol(ci, -1)} disabled={ci === 0} title="Move this column left"
                           className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-20 disabled:hover:bg-transparent text-xs leading-none">◀</button>
@@ -1279,7 +1281,7 @@ function TableEditor({ block, set }) {
                 {/* Per-row controls — insert a row below this one, or delete it
                     (the last remaining row can't be removed). */}
                 <td className="p-0.5 align-middle">
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                  <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition">
                     {rows.length > 1 && (
                       <button type="button" onClick={() => moveRow(ri, -1)} disabled={ri === 0} title="Move this row up"
                         className="w-6 h-6 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-sm leading-none">▲</button>
@@ -1344,7 +1346,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
   }
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-0.5">
+      <div className="flex items-center justify-between gap-3 mb-0.5 max-md:flex-wrap max-md:gap-y-1">
         <label className={L + ' mb-0'}>Parts (a, b, c…) — optional</label>
         {/* Short parts (conversions, "find the volume of each") read much better
             side by side, which is how the printed workbooks lay them out. */}
@@ -1354,7 +1356,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
             <div className="inline-flex rounded-md border border-[#E8EDF8] overflow-hidden">
               {[['', 'One column'], ['2', 'Two columns']].map(([v, label]) => (
                 <button key={v || '1'} type="button" onClick={() => onCols(v)}
-                  className={`px-2 py-0.5 text-[11px] font-semibold cursor-pointer ${
+                  className={`px-2 py-0.5 max-md:py-1.5 text-[11px] font-semibold cursor-pointer ${
                     (v === '2') === twoCol ? 'bg-[#325099] text-white' : 'bg-white text-[#325099] hover:bg-[#F0F4FF]'}`}>
                   {label}
                 </button>
@@ -1373,19 +1375,19 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
       <div className="space-y-2">
         {parts.map((p, i) => (
           <div key={i} data-part={String(p.id ?? i)} className="border border-[#E8EDF8] rounded-lg p-2 bg-[#F8FAFF]">
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-1 max-md:flex-wrap max-md:gap-y-1">
               <div className="flex items-center gap-1">
                 <span className="text-[11px] font-bold text-[#325099]">{String.fromCharCode(97 + i)}.</span>
                 {parts.length > 1 && (
                   <>
                     <button type="button" onClick={() => movePart(i, -1)} disabled={i === 0} title="Move this part up"
-                      className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#E8EEFF] disabled:opacity-20 disabled:hover:bg-transparent text-[10px] leading-none">▲</button>
+                      className="w-5 h-5 max-md:w-9 max-md:h-9 flex items-center justify-center rounded text-[#325099] hover:bg-[#E8EEFF] disabled:opacity-20 disabled:hover:bg-transparent text-[10px] leading-none">▲</button>
                     <button type="button" onClick={() => movePart(i, 1)} disabled={i === parts.length - 1} title="Move this part down"
-                      className="w-5 h-5 flex items-center justify-center rounded text-[#325099] hover:bg-[#E8EEFF] disabled:opacity-20 disabled:hover:bg-transparent text-[10px] leading-none">▼</button>
+                      className="w-5 h-5 max-md:w-9 max-md:h-9 flex items-center justify-center rounded text-[#325099] hover:bg-[#E8EEFF] disabled:opacity-20 disabled:hover:bg-transparent text-[10px] leading-none">▼</button>
                   </>
                 )}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 max-md:flex-wrap max-md:gap-y-1">
                 {showMarks && (
                   <label className="flex items-center gap-1 text-[11px] text-[#325099]" title="Marks for this part">
                     <LiftedInput type="text" inputMode="numeric" value={p.marks || ''} onCommit={v => onChange(parts.map((x, j) => j === i ? { ...x, marks: v.replace(/[^\d]/g, '') } : x))} placeholder="—" className="w-10 px-1 py-0.5 text-center border border-[#E8EDF8] rounded text-[11px]" />
@@ -1414,7 +1416,7 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                   />
                   MCQ
                 </label>
-                <button onClick={() => onChange(parts.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs">Remove</button>
+                <button onClick={() => onChange(parts.filter((_, j) => j !== i))} className="text-rose-400 hover:text-rose-600 text-xs max-md:py-1.5">Remove</button>
               </div>
             </div>
             <LiftedTextarea className={TA + ' mb-1.5 min-h-[40px]'} rows={1} value={p.prompt || ''} onCommit={v => onChange(parts.map((x, j) => j === i ? { ...x, prompt: v } : x))} textKey placeholder="Part prompt (optional)" />
@@ -1457,14 +1459,14 @@ function PartsEditor({ parts, onChange, maths = true, showMarks = false, cols, o
                       />
                       <div className="flex flex-col shrink-0 text-[#2A2035]/40">
                         <button type="button" onClick={() => moveOption(i, oi, -1)} disabled={oi === 0} title="Move up"
-                          className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▲</button>
+                          className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none max-md:text-sm max-md:px-2 max-md:py-1">▲</button>
                         <button type="button" onClick={() => moveOption(i, oi, 1)} disabled={oi === p.options.length - 1} title="Move down"
-                          className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none">▼</button>
+                          className="hover:text-[#325099] disabled:opacity-20 text-[10px] leading-none max-md:text-sm max-md:px-2 max-md:py-1">▼</button>
                       </div>
                       <button
                         onClick={() => onChange(parts.map((x, j) => j === i
                           ? { ...x, options: x.options.filter((_, k) => k !== oi).map((y, k) => ({ ...y, k: OPT_LETTERS[k] })) } : x))}
-                        className="text-rose-400 hover:text-rose-600 text-xs shrink-0"
+                        className="text-rose-400 hover:text-rose-600 text-xs shrink-0 max-md:px-2 max-md:py-2"
                       >✕</button>
                     </div>
                   ))}

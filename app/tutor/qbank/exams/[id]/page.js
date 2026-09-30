@@ -379,16 +379,16 @@ export default function ExamBuilderPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className={`${tab === 'build' ? 'max-w-[1480px]' : 'max-w-5xl'} mx-auto px-6 pt-8 pb-16`}>
+      <div className={`${tab === 'build' ? 'max-w-[1480px]' : 'max-w-5xl'} mx-auto px-4 pt-5 md:px-6 md:pt-8 pb-16`}>
         <Link href="/tutor/qbank/exams" className="text-xs text-[#325099] hover:underline">← Exams</Link>
 
         {/* Header */}
         <div className="flex items-center gap-3 mt-1 mb-4 flex-wrap">
           <input value={exam.title} onChange={(e) => patch({ title: e.target.value })}
-            className="text-2xl font-bold text-[#062E63] bg-transparent border-b border-transparent hover:border-[#DEE7FF] focus:border-[#325099] focus:outline-none flex-1 min-w-[200px]" />
+            className="text-xl md:text-2xl font-bold text-[#062E63] bg-transparent border-b border-transparent hover:border-[#DEE7FF] focus:border-[#325099] focus:outline-none flex-1 min-w-[200px] max-md:min-w-0 max-md:basis-full" />
           <span className="text-xs text-[#2A2035]/50">{totalMarks} marks</span>
           <button onClick={save} disabled={saving} title="Changes save automatically — click to save now"
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${saving ? 'bg-[#EEF2FF] text-[#2A2035]/40' : dirty ? 'bg-[#EEF2FF] text-[#325099]' : 'bg-[#EEF2FF] text-[#16A34A]'}`}>
+            className={`px-4 py-2 max-md:py-2.5 max-md:ml-auto rounded-xl text-sm font-semibold transition ${saving ? 'bg-[#EEF2FF] text-[#2A2035]/40' : dirty ? 'bg-[#EEF2FF] text-[#325099]' : 'bg-[#EEF2FF] text-[#16A34A]'}`}>
             {saving ? 'Saving…' : dirty ? 'Autosaving…' : 'Saved ✓'}
           </button>
         </div>
@@ -406,7 +406,7 @@ export default function ExamBuilderPage() {
         {tab === 'plan' ? (
           <div className="space-y-5">
             {/* Details */}
-            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5">
               <h2 className="text-sm font-bold text-[#062E63] mb-3">Exam details</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Exam subject</label>
@@ -434,7 +434,7 @@ export default function ExamBuilderPage() {
             </section>
 
             {/* Topic scope */}
-            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5">
               <h2 className="text-sm font-bold text-[#062E63] mb-1">Topic scope</h2>
               <p className="text-[11px] text-[#2A2035]/50 mb-3">The topics this exam covers. Question slots can only pull from these.</p>
               {!exam.subject_id ? <p className="text-xs text-[#2A2035]/40 italic">Pick a year and exam subject first.</p>
@@ -449,28 +449,28 @@ export default function ExamBuilderPage() {
             </section>
 
             {/* Sections */}
-            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
-              <div className="flex items-center justify-between mb-3">
+            <section className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5">
+              <div className="flex items-center justify-between mb-3 gap-2 max-md:flex-wrap">
                 <h2 className="text-sm font-bold text-[#062E63]">Sections</h2>
                 <div className="flex gap-2">
-                  <button onClick={() => addSection('mcq')} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F8FAFF]">+ MCQ</button>
-                  <button onClick={() => addSection('extended')} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F8FAFF]">+ Extended</button>
+                  <button onClick={() => addSection('mcq')} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 max-md:py-2.5 hover:bg-[#F8FAFF]">+ MCQ</button>
+                  <button onClick={() => addSection('extended')} className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 max-md:py-2.5 hover:bg-[#F8FAFF]">+ Extended</button>
                 </div>
               </div>
               <div className="space-y-3">
                 {exam.sections.map((s, i) => (
-                  <div key={s._key} className="rounded-xl border border-[#DEE7FF] p-4 bg-[#FBFCFF]">
-                    <div className="flex items-center gap-2 mb-3">
+                  <div key={s._key} className="rounded-xl border border-[#DEE7FF] p-4 max-md:p-3 bg-[#FBFCFF]">
+                    <div className="flex items-center gap-2 mb-3 max-md:flex-wrap max-md:gap-y-1">
                       <span className="text-sm font-bold text-[#062E63]">Section {ROMAN[i]}</span>
-                      <select value={s.type} onChange={(e) => updateSection(s._key, { type: e.target.value })} className={selCls}>
+                      <select value={s.type} onChange={(e) => updateSection(s._key, { type: e.target.value })} className={`${selCls} max-md:order-1 max-md:basis-full`}>
                         <option value="mcq">Multiple choice</option><option value="extended">Extended response</option>
                       </select>
-                      <span className="text-[11px] text-[#2A2035]/40 ml-auto">{sectionMarks(s)} marks from {s.slots.length} question{s.slots.length === 1 ? '' : 's'}</span>
-                      <button onClick={() => moveSection(s._key, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
-                      <button onClick={() => moveSection(s._key, 1)} disabled={i === exam.sections.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
-                      {exam.sections.length > 1 && <button onClick={() => removeSection(s._key)} className="text-[11px] text-[#DC2626] hover:underline">✕</button>}
+                      <span className="text-[11px] text-[#2A2035]/40 ml-auto max-md:ml-0 max-md:order-last max-md:basis-full">{sectionMarks(s)} marks from {s.slots.length} question{s.slots.length === 1 ? '' : 's'}</span>
+                      <button onClick={() => moveSection(s._key, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 max-md:min-w-10 max-md:min-h-10 max-md:ml-auto">▲</button>
+                      <button onClick={() => moveSection(s._key, 1)} disabled={i === exam.sections.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 max-md:min-w-10 max-md:min-h-10">▼</button>
+                      {exam.sections.length > 1 && <button onClick={() => removeSection(s._key)} className="text-[11px] text-[#DC2626] hover:underline max-md:min-w-10 max-md:min-h-10">✕</button>}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-3">
                       <div><label className="text-[10px] font-semibold text-[#2A2035]/50">Marks target (optional)</label>
                         <input type="number" min="0" value={s.marks_limit ?? ''} placeholder="—" onChange={(e) => updateSection(s._key, { marks_limit: e.target.value === '' ? null : parseInt(e.target.value, 10) })} className="w-full border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#325099]" />
                         <p className="text-[10px] text-[#2A2035]/40 mt-0.5">What the section should come to. The marks it <em>is</em> worth are added up from its questions, and that is what prints.</p></div>
@@ -487,7 +487,7 @@ export default function ExamBuilderPage() {
                   </div>
                 ))}
               </div>
-              <button onClick={() => setTab('build')} className="mt-4 px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">Fill questions →</button>
+              <button onClick={() => setTab('build')} className="mt-4 px-4 py-2 max-md:w-full max-md:py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">Fill questions →</button>
             </section>
           </div>
         ) : (
@@ -505,7 +505,7 @@ export default function ExamBuilderPage() {
                 /* Dropping on the section itself parks the question at the end —
                    the only way into a section that has no slots to aim at. */
                 onDrop={() => { if (dragSlot && dragSlot.secKey !== s._key) dragSlotTo(s._key, null) }}
-                className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
+                className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5">
                 {/* The section's own details, editable here rather than only in
                     the Plan tab: marks and timing get settled while the
                     questions are in front of you, not on another screen. */}
@@ -528,7 +528,7 @@ export default function ExamBuilderPage() {
                       one that prints. The target beside it is a plan to fill, and
                       says how far off it is rather than pretending to be the
                       total. */}
-                  <span className="text-[11px] ml-auto text-[#2A2035]/45">
+                  <span className="text-[11px] ml-auto text-[#2A2035]/45 max-md:ml-0 max-md:basis-full">
                     <span className="font-semibold text-[#062E63]">{sectionMarks(s)} marks</span>
                     <span className="text-[#2A2035]/35"> · {s.slots.length} Q</span>
                     {s.marks_limit != null && sectionMarks(s) !== s.marks_limit && (
@@ -573,19 +573,19 @@ export default function ExamBuilderPage() {
                   })}
                 </div>
                 <button onClick={() => addSlot(s._key)}
-                  className="mt-3 text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-1.5 hover:bg-[#F8FAFF]">
+                  className="mt-3 text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-1.5 max-md:py-2.5 max-md:w-full hover:bg-[#F8FAFF]">
                   + Add question
                 </button>
               </section>
             ))}
 
-            <div className="flex gap-2 sticky bottom-3">
+            <div className="flex gap-2 sticky bottom-3 max-md:bottom-[max(0.75rem,env(safe-area-inset-bottom))]">
               <button onClick={() => doExport(false)} disabled={busy}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40 shadow-sm">
+                className="flex-1 px-4 max-md:px-2 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40 shadow-sm">
                 {busy === 'paper' ? 'Building…' : 'Exam paper PDF'}
               </button>
               <button onClick={() => doExport(true)} disabled={busy}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-[#325099] bg-white text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40 shadow-sm">
+                className="flex-1 px-4 max-md:px-2 py-2.5 rounded-xl border border-[#325099] bg-white text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40 shadow-sm">
                 {busy === 'sol' ? 'Building…' : 'Solutions PDF'}
               </button>
             </div>
@@ -612,11 +612,11 @@ export default function ExamBuilderPage() {
         * Cancel are the ways out.
         */}
       {editQ && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto max-md:items-end max-md:p-0">
+          <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5 max-md:my-0 max-md:p-4 max-md:rounded-b-none max-md:max-h-[90dvh] max-md:overflow-y-auto max-md:pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-bold text-[#062E63]">Edit question</h2>
-              <button onClick={() => setEditQ(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg">✕</button>
+              <button onClick={() => setEditQ(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg max-md:min-w-10 max-md:min-h-10">✕</button>
             </div>
             <p className="text-[11px] text-[#2A2035]/50 mb-4">
               The full editor — parts can be added, removed and relabelled. Changes are saved to the
@@ -628,11 +628,11 @@ export default function ExamBuilderPage() {
         </div>
       )}
       {newQ && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto max-md:items-end max-md:p-0">
+          <div className="bg-[#F8FAFF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5 max-md:my-0 max-md:p-4 max-md:rounded-b-none max-md:max-h-[90dvh] max-md:overflow-y-auto max-md:pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-bold text-[#062E63]">New question → bank</h2>
-              <button onClick={() => setNewQ(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg">✕</button>
+              <button onClick={() => setNewQ(null)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg max-md:min-w-10 max-md:min-h-10">✕</button>
             </div>
             <p className="text-[11px] text-[#2A2035]/50 mb-4">Saved to the question bank and placed straight into this slot.</p>
             {/* Year and subject come from the paper being built — they were blank
@@ -679,7 +679,7 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
   // Skills are a subject-level dimension — offer the exam subject's whole skill list.
   const examSubjectId = scopeTopics[0]?.subject_id
   const skillsForFilter = (tax && examSubjectId) ? (tax.skillsBySubject[examSubjectId] || []) : []
-  const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+  const selCls = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white max-md:min-w-0 max-md:flex-1 max-md:basis-[40%]'
 
   // Per-paper working-line overrides for this slot. Map of part_label (or "_" for a
   // single-part question) → line count; blank removes the override (auto from marks).
@@ -726,14 +726,14 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
           }}
           onDragEnd={onDragEnd}
           title="Drag to reorder"
-          className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none -ml-0.5">⠿</span>
+          className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none -ml-0.5 max-md:hidden">⠿</span>
         {/* Dragging is fiddly on a trackpad and cannot cross a section boundary;
             these step the question one place either way, sections included. */}
-        <span className="flex flex-col leading-none -my-1">
+        <span className="flex flex-col leading-none -my-1 max-md:flex-row max-md:my-0 max-md:gap-1">
           <button onClick={() => onMove(-1)} disabled={!canMoveUp} title="Move up"
-            className="text-[9px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▲</button>
+            className="text-[9px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5 max-md:text-xs max-md:min-w-9 max-md:min-h-9 max-md:rounded-lg max-md:border max-md:border-[#DEE7FF] max-md:bg-white">▲</button>
           <button onClick={() => onMove(1)} disabled={!canMoveDown} title="Move down"
-            className="text-[9px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▼</button>
+            className="text-[9px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5 max-md:text-xs max-md:min-w-9 max-md:min-h-9 max-md:rounded-lg max-md:border max-md:border-[#DEE7FF] max-md:bg-white">▼</button>
         </span>
         <span className="text-sm font-bold text-[#062E63]">Q{n}</span>
         <select value={slot.topic_id || ''} onChange={(e) => onCriteria({ topic_id: e.target.value || null, subtopic_id: null, skill_id: null })} className={selCls}>
@@ -753,12 +753,12 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
           {[1, 2, 3, 4].map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
         </select>
         <span className="text-[11px] text-[#2A2035]/40 ml-auto">{matches.length} match{matches.length === 1 ? '' : 'es'}</span>
-        <button onClick={onRemove} title="Remove this question" className="text-[12px] text-[#2A2035]/30 hover:text-[#DC2626]">✕</button>
+        <button onClick={onRemove} title="Remove this question" className="text-[12px] text-[#2A2035]/30 hover:text-[#DC2626] max-md:min-w-10 max-md:min-h-10">✕</button>
       </div>
 
       {chosen ? (
         <>
-          <div className="mt-2 flex items-start gap-2 bg-white rounded-lg border border-[#BACBFF] p-2.5">
+          <div className="mt-2 flex items-start gap-2 bg-white rounded-lg border border-[#BACBFF] p-2.5 max-md:flex-wrap max-md:items-center">
             <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white mt-0.5" style={{ background: DIFFICULTY_COLORS[chosen.difficulty] }}>{chosen.difficulty}</span>
             {/* A question may sit in a section of the other kind — it prints as
                 what it is, but the mismatch should be visible, not silent. */}
@@ -768,13 +768,13 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
                 {chosen.qtype === 'mcq' ? 'MCQ' : 'Extended'}
               </span>
             )}
-            <div className="flex-1 min-w-0 text-[13px] text-[#2A2035] line-clamp-2"><LatexContent text={chosen.stem_latex || '(no stem)'} /></div>
+            <div className="flex-1 min-w-0 text-[13px] text-[#2A2035] line-clamp-2 max-md:basis-[calc(100%-2.5rem)] max-md:self-start"><LatexContent text={chosen.stem_latex || '(no stem)'} /></div>
             <UsageBadge usage={usageMap[chosen.id]} />
             <span className="text-[10px] text-[#2A2035]/40 whitespace-nowrap">{qMarks(chosen)}m</span>
-            <button onClick={() => onEdit(chosen)} className="text-[11px] text-[#325099] hover:underline">Edit</button>
+            <button onClick={() => onEdit(chosen)} className="text-[11px] text-[#325099] hover:underline max-md:ml-auto max-md:px-2.5 max-md:py-2">Edit</button>
             <button
               onClick={() => { if (confirm(`Clear Q${n}?\n\n"${(chosen.stem_latex || 'This question').slice(0, 70)}"\n\nThe question stays in the bank — only this slot is emptied.`)) onPick(null) }}
-              className="text-[11px] text-[#DC2626] hover:underline">Clear</button>
+              className="text-[11px] text-[#DC2626] hover:underline max-md:px-2.5 max-md:py-2">Clear</button>
           </div>
           {section.type !== 'mcq' && (
             <div className="mt-2 flex items-center gap-2 flex-wrap pl-1">
@@ -853,7 +853,7 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
                     <input value={slot.custom_rubric.name || ''} onChange={(e) => onCriteria({ custom_rubric: { ...slot.custom_rubric, name: e.target.value } })} placeholder="Rubric title" className="text-sm font-semibold text-[#2A2035] border-b border-transparent hover:border-[#DEE7FF] focus:border-[#325099] focus:outline-none flex-1 min-w-0" />
                     <button onClick={saveCustomToLibrary} disabled={savingLib} className="text-[11px] font-semibold text-[#16A34A] hover:underline disabled:opacity-40 whitespace-nowrap">{savingLib ? 'Saving…' : '⬆ Save to library'}</button>
                   </div>
-                  <RubricGridEditor value={slot.custom_rubric} onChange={(next) => onCriteria({ custom_rubric: next })} compact />
+                  <div className="phone-scroll"><RubricGridEditor value={slot.custom_rubric} onChange={(next) => onCriteria({ custom_rubric: next })} compact /></div>
                 </div>
               )}
             </div>
@@ -862,12 +862,12 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
       ) : (
         <div className="mt-2">
           <div className="flex items-center gap-2">
-            <button onClick={() => setOpen((o) => !o)} className="text-[11px] font-semibold text-[#325099] hover:underline">{open ? 'Hide' : 'Choose'} matching question{matches.length ? ` (${matches.length})` : ''}</button>
-            <button onClick={onRefresh} title="Refresh bank" className="text-[11px] text-[#2A2035]/40 hover:text-[#325099]">↻</button>
-            <button onClick={onNew} className="text-[11px] font-semibold text-[#16A34A] hover:underline ml-auto">+ Create new</button>
+            <button onClick={() => setOpen((o) => !o)} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-2">{open ? 'Hide' : 'Choose'} matching question{matches.length ? ` (${matches.length})` : ''}</button>
+            <button onClick={onRefresh} title="Refresh bank" className="text-[11px] text-[#2A2035]/40 hover:text-[#325099] max-md:min-w-10 max-md:min-h-10">↻</button>
+            <button onClick={onNew} className="text-[11px] font-semibold text-[#16A34A] hover:underline ml-auto max-md:py-2">+ Create new</button>
           </div>
           {open && (
-            <div className="mt-2 space-y-1.5 max-h-60 overflow-y-auto">
+            <div className="mt-2 space-y-1.5 max-h-60 max-md:max-h-[50vh] overflow-y-auto">
               {matches.length === 0 ? <p className="text-[11px] text-[#2A2035]/40 italic">No bank questions match — adjust the criteria or create one.</p>
                 : matches.map((q) => (
                   <button key={q.id} onClick={() => { onPick(q.id); setOpen(false) }}

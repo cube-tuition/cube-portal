@@ -36,7 +36,7 @@ function TagRow({ label, items, untagged, cfg }) {
   return (
     <div className="flex items-start gap-2">
       <span className="text-[10px] font-bold uppercase tracking-wider text-[#2A2035]/35 shrink-0 w-16 pt-0.5">{label}</span>
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap gap-1 min-w-0">
         {items.map((it) => (
           <span key={it.label} className="text-[10px] px-1.5 py-0.5 rounded border"
             style={{ background: cfg.tint, color: cfg.accent, borderColor: cfg.border }}>
@@ -236,8 +236,8 @@ export default function TopicPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-5xl mx-auto px-6 pt-10 pb-16">
-        <nav className="text-[11px] text-[#2A2035]/45 mb-3">
+      <div className="max-w-5xl mx-auto px-4 pt-5 pb-12 md:px-6 md:pt-10 md:pb-16">
+        <nav className="text-[11px] text-[#2A2035]/45 mb-3 break-words">
           <Link href={`/tutor/resources/${slug}`} className="hover:text-[#325099]">{cfg.label}</Link>
           <span className="mx-1.5">›</span>
           <Link href={`/tutor/resources/${slug}/materials`} className="hover:text-[#325099]">Materials</Link>
@@ -247,8 +247,8 @@ export default function TopicPage() {
           <span className="text-[#2A2035]/70 font-semibold">{topic.name}</span>
         </nav>
 
-        <div className="rounded-2xl px-7 py-6 mb-8 border" style={{ background: cfg.tint, borderColor: cfg.border }}>
-          <h1 className="text-2xl font-bold" style={{ color: cfg.accent }}>{topic.name}</h1>
+        <div className="rounded-2xl px-4 py-5 mb-6 md:px-7 md:py-6 md:mb-8 border" style={{ background: cfg.tint, borderColor: cfg.border }}>
+          <h1 className="text-xl md:text-2xl font-bold break-words" style={{ color: cfg.accent }}>{topic.name}</h1>
           <p className="text-xs text-[#2A2035]/55 mt-0.5">{tab.label} · {topic.subject}</p>
         </div>
 
@@ -264,8 +264,8 @@ export default function TopicPage() {
               const st = statusStyle(b.status)
               const build = builds[b.id]
               return (
-                <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3">
-                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">
+                <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-2 md:gap-3">
+                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate max-md:basis-full max-md:whitespace-normal max-md:break-words">
                     {bookletLabel({ ...b, year: tab.year, subject: tab.subject })}
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
@@ -273,13 +273,13 @@ export default function TopicPage() {
                   <button
                   onClick={() => setInfoFor(b)}
                   title="Term, week, topic, notes and the improvement checklists"
-                  className="text-[11px] font-semibold shrink-0 text-[#325099]/70 hover:text-[#325099] hover:underline transition">
+                  className="text-[11px] font-semibold shrink-0 text-[#325099]/70 hover:text-[#325099] hover:underline transition max-md:py-1.5">
                   &#8505; Info
                   </button>
                   {bookletPdfs(b).map((p) => (
                     <button key={p.path} onClick={() => openBookletPdf(b, p)}
                       title={p.isSolutions ? 'Preview the solutions copy' : 'Preview the student copy'}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
+                      className="text-[10px] font-bold px-2 py-0.5 max-md:px-3 max-md:py-1.5 rounded-full border shrink-0 transition hover:brightness-95"
                       style={PDF_BUTTON_STYLE(p.isSolutions)}>
                       {p.label}
                     </button>
@@ -297,7 +297,7 @@ export default function TopicPage() {
         )}
 
         {/* Additional Questions — worksheets filed under this topic */}
-        <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-9 mb-2.5">
+        <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-7 md:mt-9 mb-2.5">
           Additional Questions {sheets?.length > 0 && <span className="text-[#2A2035]/35">· {sheets.length}</span>}
         </h2>
         {sheets === null ? (
@@ -320,14 +320,14 @@ export default function TopicPage() {
               return (
                 <div key={w.id}
                   className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 hover:shadow-md transition">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">{w.title}</span>
+                  <div className="flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-2 md:gap-3">
+                    <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate max-md:basis-full max-md:whitespace-normal max-md:break-words">{w.title}</span>
                     {stName && (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#EEF4FF] text-[#325099] shrink-0 whitespace-nowrap">
                         {stName}
                       </span>
                     )}
-                    {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[30%] truncate">{w.subtitle}</span>}
+                    {w.subtitle && <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-full md:max-w-[30%] truncate">{w.subtitle}</span>}
                     {rung && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0"
                         title={`Mean difficulty ${avg.toFixed(2)} of ${DIFFICULTY_MAX}, over the ${t.ratedQuestions} question${t.ratedQuestions === 1 ? '' : 's'} that carry one`}
@@ -344,7 +344,7 @@ export default function TopicPage() {
                       return (
                         <button key={key} onClick={() => buildSheetPdf(w, answers)} disabled={!!sheetPdf}
                           title={answers ? 'Build the solutions PDF' : 'Build the worksheet PDF'}
-                          className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95 disabled:opacity-40"
+                          className="text-[10px] font-bold px-2 py-0.5 max-md:px-3 max-md:py-1.5 rounded-full border shrink-0 transition hover:brightness-95 disabled:opacity-40"
                           style={PDF_BUTTON_STYLE(answers)}>
                           {sheetPdf === key ? 'Building…' : answers ? 'Solutions' : 'PDF'}
                         </button>
@@ -352,7 +352,7 @@ export default function TopicPage() {
                     })}
                     {!readOnly && (
                       <a href={`/tutor/qbank/worksheets?ws=${w.id}`}
-                        className="text-[11px] font-semibold shrink-0 hover:underline" style={{ color: cfg.accent }}>Open →</a>
+                        className="text-[11px] font-semibold shrink-0 hover:underline max-md:py-1.5" style={{ color: cfg.accent }}>Open →</a>
                     )}
                   </div>
 

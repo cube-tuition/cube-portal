@@ -93,20 +93,20 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
         <select
           value={termId}
           onChange={(e) => setTermId(e.target.value)}
-          className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+          className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] max-md:w-full"
         >
           {terms.map((t) => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
         </select>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center gap-2 md:gap-3 max-md:w-full max-md:justify-end">
           {tab === 'english' && (
             <Link href="/tutor/qbank/rubrics" className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-2 hover:bg-white transition">📊 Marking rubrics</Link>
           )}
           <button onClick={handleNew} disabled={creating}
-            className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
+            className="px-4 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50 max-md:flex-1">
             {creating ? 'Creating…' : `+ New ${paperLabel} ${noun}`}
           </button>
         </div>
@@ -114,10 +114,10 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
 
       {/* Maths / English folders (hidden when a hub scope locks the subject) */}
       {!scope && (
-      <div className="flex gap-1 mb-5 border-b border-[#DEE7FF]">
+      <div className="flex gap-1 mb-5 border-b border-[#DEE7FF] max-md:overflow-x-auto max-md:whitespace-nowrap">
         {[['maths', 'Maths', mathsN], ['english', 'English', englishN], ['chemistry', 'Chemistry', chemN]].map(([v, label, n]) => (
           <button key={v} onClick={() => setTab(v)}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${tab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+            className={`shrink-0 px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${tab === v ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
             {label} <span className="text-[11px] font-normal text-[#2A2035]/40">{n}</span>
           </button>
         ))}
@@ -136,20 +136,20 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
           {shown.map((e) => {
             const c = counts(e)
             return (
-              <div key={e.id} className="bg-white rounded-2xl border border-[#F0F4FF] p-4 flex items-center gap-4 hover:border-[#DEE7FF] transition">
-                <Link href={`/tutor/qbank/exams/${e.id}`} className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-[#062E63] truncate">{e.title || `Untitled ${noun}`}</div>
+              <div key={e.id} className="bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap md:flex-nowrap items-center gap-x-4 gap-y-2 md:gap-4 hover:border-[#DEE7FF] transition">
+                <Link href={`/tutor/qbank/exams/${e.id}`} className="flex-1 min-w-0 max-md:basis-full">
+                  <div className="text-sm font-bold text-[#062E63] truncate max-md:whitespace-normal max-md:break-words">{e.title || `Untitled ${noun}`}</div>
                   <div className="text-[11px] text-[#2A2035]/40 mt-0.5">
                     {e.year_label ? `Year ${e.year_label}` : 'Year —'}{e.term ? ` · Term ${e.term}` : ''} · {c.secs} section{c.secs === 1 ? '' : 's'} · {c.filled}/{c.slots} questions filled · edited {fmt(e.updated_at)}
                   </div>
                 </Link>
-                <Link href={`/tutor/qbank/exams/${e.id}`} className="text-[11px] font-semibold text-[#325099] hover:underline">Open</Link>
+                <Link href={`/tutor/qbank/exams/${e.id}`} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-1.5">Open</Link>
                 <button onClick={() => handleDuplicate(e.id)} disabled={!!duplicating}
                   title="Make a copy of this paper — same sections and questions — and open it"
-                  className="text-[11px] font-semibold text-[#325099] hover:underline disabled:opacity-40">
+                  className="text-[11px] font-semibold text-[#325099] hover:underline disabled:opacity-40 max-md:py-1.5">
                   {duplicating === e.id ? 'Duplicating…' : 'Duplicate'}
                 </button>
-                <button onClick={() => handleDelete(e.id, e.title)} className="text-[11px] text-[#DC2626] hover:underline">Delete</button>
+                <button onClick={() => handleDelete(e.id, e.title)} className="text-[11px] text-[#DC2626] hover:underline max-md:py-1.5 max-md:ml-auto">Delete</button>
               </div>
             )
           })}

@@ -38,8 +38,8 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
   if (impact.booklets)  carried.push(`${impact.booklets} workbook${impact.booklets === 1 ? '' : 's'}`)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1020]/60 backdrop-blur-sm p-4" onClick={busy ? undefined : onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-[#0B1020]/60 backdrop-blur-sm p-0 md:p-4" onClick={busy ? undefined : onCancel}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-xl max-w-lg w-full max-md:max-h-[90dvh] max-md:overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-base font-bold text-[#062E63]">
           {action === 'delete' ? `Delete “${name}”?`
             : action === 'rename' ? `Rename “${name}” to “${newName}”?`
@@ -88,12 +88,12 @@ export default function TopicSyncModal({ action, from, year, subject, name, newN
 
         <div className="flex items-center gap-2 mt-5">
           <button onClick={onConfirm} disabled={busy}
-            className={`px-4 py-2 rounded-xl text-white text-sm font-semibold transition disabled:opacity-40 ${
+            className={`max-md:flex-1 px-4 py-2 max-md:py-2.5 rounded-xl text-white text-sm font-semibold transition disabled:opacity-40 ${
               action === 'delete' ? 'bg-[#B91C1C] hover:bg-[#991B1B]' : 'bg-[#325099] hover:bg-[#062E63]'}`}>
             {busy ? 'Saving…' : action === 'delete' ? 'Delete from both' : 'Save to both'}
           </button>
           <button onClick={onCancel} disabled={busy}
-            className="px-4 py-2 rounded-xl bg-[#F1F4FB] text-[#2A2035]/70 text-sm font-semibold hover:bg-[#E6EBF7] transition disabled:opacity-40">
+            className="max-md:flex-1 px-4 py-2 max-md:py-2.5 rounded-xl bg-[#F1F4FB] text-[#2A2035]/70 text-sm font-semibold hover:bg-[#E6EBF7] transition disabled:opacity-40">
             Cancel
           </button>
         </div>

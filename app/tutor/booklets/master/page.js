@@ -118,7 +118,7 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
             <p className="text-xs font-bold text-[#062E63]">Topic Bank</p>
             <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} · {subject}</p>
           </div>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full text-[#2A2035]/30 hover:bg-[#F0F4FF] transition text-base">×</button>
+          <button onClick={onClose} className="w-10 h-10 md:w-7 md:h-7 flex items-center justify-center rounded-full text-[#2A2035]/30 hover:bg-[#F0F4FF] transition text-xl md:text-base">×</button>
         </div>
 
         <div className="overflow-y-auto flex-1 px-4 py-3">
@@ -139,20 +139,20 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
                         onKeyDown={e => { if (e.key === 'Enter') handleRename(t.id); if (e.key === 'Escape') setRenamingId(null) }}
                         className="flex-1 border border-[#325099] rounded px-2 py-1 text-xs focus:outline-none"
                       />
-                      <button onClick={() => handleRename(t.id)} className="text-[10px] font-bold text-[#059669] shrink-0">✓</button>
-                      <button onClick={() => setRenamingId(null)} className="text-[10px] font-bold text-[#2A2035]/30 hover:text-red-400 shrink-0">✕</button>
+                      <button onClick={() => handleRename(t.id)} className="text-[10px] max-md:text-sm max-md:px-2 max-md:py-1.5 font-bold text-[#059669] shrink-0">✓</button>
+                      <button onClick={() => setRenamingId(null)} className="text-[10px] max-md:text-sm max-md:px-2 max-md:py-1.5 font-bold text-[#2A2035]/30 hover:text-red-400 shrink-0">✕</button>
                     </>
                   ) : (
                     <>
                       <span className="flex-1 text-xs font-medium text-[#2A2035] truncate">{t.name}</span>
                       <button
                         onClick={() => { setRenamingId(t.id); setRenameDraft(t.name) }}
-                        className="text-[9px] font-semibold opacity-0 group-hover:opacity-100 transition"
+                        className="text-[9px] max-md:text-[11px] max-md:px-1.5 max-md:py-1.5 font-semibold md:opacity-0 md:group-hover:opacity-100 transition"
                         style={{ color: accentColor }}
                       >Rename</button>
                       <button
                         onClick={() => handleDelete(t.id)}
-                        className="text-[9px] font-semibold text-[#2A2035]/30 opacity-0 group-hover:opacity-100 transition hover:text-red-500"
+                        className="text-[9px] max-md:text-[11px] max-md:px-1.5 max-md:py-1.5 font-semibold text-[#2A2035]/30 md:opacity-0 md:group-hover:opacity-100 transition hover:text-red-500"
                         title="Delete topic"
                       >Delete</button>
                     </>
@@ -170,7 +170,7 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
             onConfirm={confirmPending} onCancel={() => { setPending(null); setErr('') }} />
         )}
 
-        <div className="px-4 py-3 border-t border-[#F0F4FF]">
+        <div className="px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3 border-t border-[#F0F4FF]">
           <div className="flex gap-2">
             <input
               type="text"
@@ -183,7 +183,7 @@ function ManageTopicsPanel({ year, subject, accentColor, accentBg, onClose, onTo
             <button
               onClick={handleAdd}
               disabled={busy || !newName.trim()}
-              className="px-3 py-2 text-xs font-bold text-white rounded-lg transition disabled:opacity-40"
+              className="px-3 max-md:px-4 py-2 text-xs font-bold text-white rounded-lg transition disabled:opacity-40"
               style={{ background: accentColor }}
             >
               {busy ? '…' : 'Add'}
@@ -293,14 +293,14 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm p-0 md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90dvh] md:max-h-[90vh]">
+        <div className="flex items-center justify-between px-5 md:px-6 py-3 md:py-4 border-b border-[#F0F4FF]">
           <h2 className="text-sm font-bold text-[#062E63]">{isEdit ? 'Edit Booklet' : 'Add Booklet'}</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+          <button onClick={onClose} className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-xl md:text-lg">×</button>
         </div>
 
-        <div className="overflow-y-auto flex-1 px-6 py-5 flex flex-col gap-4">
+        <div className="overflow-y-auto flex-1 px-5 md:px-6 py-5 flex flex-col gap-4">
           {/* Name */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-1">Booklet Name</label>
@@ -393,16 +393,16 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
             <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099] mb-2">PDFs <span className="font-normal text-[#2A2035]/40">(optional)</span></label>
             {existingPdfPaths.map((path, i) => (
               <div key={path} className="flex items-center justify-between px-3 py-2 mb-1.5 bg-[#EEF4FF] rounded-lg">
-                <span className="text-xs font-semibold text-[#325099] truncate">📄 {existingPdfNames[i] || `PDF ${i + 1}`}</span>
+                <span className="min-w-0 text-xs font-semibold text-[#325099] truncate">📄 {existingPdfNames[i] || `PDF ${i + 1}`}</span>
                 <button onClick={() => { setExistingPdfPaths(p => p.filter((_, j) => j !== i)); setExistingPdfNames(p => p.filter((_, j) => j !== i)) }}
-                  className="text-[10px] text-red-400 hover:text-red-600 font-semibold ml-2 shrink-0">Remove</button>
+                  className="text-[10px] max-md:text-[11px] max-md:py-1 text-red-400 hover:text-red-600 font-semibold ml-2 shrink-0">Remove</button>
               </div>
             ))}
             {newPdfFiles.map((f, i) => (
               <div key={i} className="flex items-center justify-between px-3 py-2 mb-1.5 bg-[#F0F4FF] rounded-lg">
-                <span className="text-xs font-semibold text-[#325099] truncate">📄 {f.name}</span>
+                <span className="min-w-0 text-xs font-semibold text-[#325099] truncate">📄 {f.name}</span>
                 <button onClick={() => setNewPdfFiles(p => p.filter((_, j) => j !== i))}
-                  className="text-[10px] text-red-400 hover:text-red-600 font-semibold ml-2 shrink-0">Remove</button>
+                  className="text-[10px] max-md:text-[11px] max-md:py-1 text-red-400 hover:text-red-600 font-semibold ml-2 shrink-0">Remove</button>
               </div>
             ))}
             <div onClick={() => pdfRef.current?.click()}
@@ -416,10 +416,10 @@ function BookletFormModal({ booklet, defaultYear, defaultSubject, topicBank = []
           {err && <p className="text-xs text-red-500">{err}</p>}
         </div>
 
-        <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+        <div className="px-5 md:px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+          <button onClick={onClose} className="max-md:flex-1 px-4 py-2 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving}
-            className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+            className="max-md:flex-1 px-4 py-2 max-md:py-2.5 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Booklet'}
           </button>
         </div>
@@ -748,30 +748,30 @@ function MasterDatabaseInner() {
 
       {/* Header */}
       <div className="bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6 flex items-start justify-between gap-4">
-          <div>
+        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-5 md:pt-6 flex flex-col md:flex-row md:items-start justify-between gap-3 md:gap-4">
+          <div className="min-w-0">
             <Link href={scope ? `/tutor/resources/${scope.toLowerCase()}` : '/tutor/booklets'}
               className="text-xs font-semibold text-[#325099]/50 hover:text-[#325099] transition block mb-1">
               {scope ? '← Back to hub' : '← Curriculum'}
             </Link>
-            <h1 className="text-2xl font-bold text-[#062E63]">Master Database{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-[#062E63] break-words">Master Database{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">
               {(scope ? booklets.filter(b => SUBJECT_FAMILIES[scope].includes(b.subject)) : booklets).length} booklet{booklets.length !== 1 ? 's' : ''}{scope ? '' : ' total'}
             </p>
           </div>
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 md:mt-2">
             <input
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search…"
-              className="border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] w-44"
+              className="border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] w-44 max-md:flex-1 max-md:min-w-[40%] max-md:py-2"
             />
             <select
               value={activeGroup}
               onChange={e => setGroupFilter(e.target.value)}
               title={chemTab ? 'Show one module' : 'Show one topic'}
-              className={`border rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099] max-w-[220px] ${
+              className={`border rounded-lg px-3 py-1.5 max-md:py-2 text-xs bg-white focus:outline-none focus:border-[#325099] max-w-[220px] max-md:flex-1 max-md:min-w-[40%] ${
                 activeGroup ? 'border-[#325099] text-[#062E63] font-semibold' : 'border-[#DEE7FF] text-[#2A2035]'}`}
             >
               <option value="">{chemTab ? 'All modules' : 'All topics'} ({tabBooklets.length})</option>
@@ -784,7 +784,7 @@ function MasterDatabaseInner() {
             {!isChemistry(activeSub) && (
               <button
                 onClick={() => setShowTopics(true)}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap text-[#325099]"
+                className="flex items-center gap-1.5 px-3 md:px-4 py-2 max-md:py-2.5 text-xs font-semibold rounded-xl border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap text-[#325099]"
               >
                 🏷 Topics
               </button>
@@ -792,13 +792,13 @@ function MasterDatabaseInner() {
             <button
               onClick={() => createWorkbook(asksDelivery ? 'ask' : 'physical')}
               disabled={creatingWb}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-[#325099] text-[#325099] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap disabled:opacity-40"
+              className="flex items-center gap-1.5 px-3 md:px-4 py-2 max-md:py-2.5 text-xs font-semibold rounded-xl border border-[#325099] text-[#325099] bg-white hover:bg-[#F0F4FF] transition whitespace-nowrap disabled:opacity-40"
             >
               📓 {creatingWb ? 'Creating…' : 'Create workbook'}
             </button>
             <button
               onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#325099] text-white text-xs font-semibold rounded-xl hover:bg-[#062E63] transition whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3 md:px-4 py-2 max-md:py-2.5 bg-[#325099] text-white text-xs font-semibold rounded-xl hover:bg-[#062E63] transition whitespace-nowrap"
             >
               <span className="text-sm leading-none">+</span> Add Booklet
             </button>
@@ -806,10 +806,10 @@ function MasterDatabaseInner() {
         </div>
 
         {/* Year tabs */}
-        <div className="max-w-7xl mx-auto px-6 md:px-10 flex gap-1 overflow-x-auto mt-4">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 flex gap-1 overflow-x-auto mt-4">
           {visibleYears.map(y => (
             <button key={y} onClick={() => setActiveYear(y)}
-              className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+              className={`shrink-0 px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
                 activeYear === y ? 'border-[#325099] text-[#325099]' : 'border-transparent text-[#2A2035]/50 hover:text-[#325099]'
               }`}>
               Year {y}
@@ -818,12 +818,12 @@ function MasterDatabaseInner() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 md:px-10 py-6">
+      <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-6">
         {/* Subject tabs */}
-        <div className="flex gap-2 mb-7 flex-wrap">
+        <div className="flex gap-2 mb-5 md:mb-7 flex-wrap">
           {subjectsFor(activeYear).map(s => (
             <button key={s} onClick={() => setActiveSub(s)}
-              className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
+              className={`px-4 md:px-5 py-2 rounded-xl text-sm font-semibold border transition ${
                 activeSub === s ? 'text-white border-transparent' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
               }`}
               style={activeSub === s ? { background: accentColor } : {}}>
@@ -835,21 +835,21 @@ function MasterDatabaseInner() {
         {/* Workbooks in progress (builder drafts not yet saved to the database) */}
         {draftBuilds.length > 0 && (
           <div className="mb-7 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden shadow-sm">
-            <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-5 py-2.5 flex items-center justify-between gap-3">
+            <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 md:px-5 py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-0.5 md:gap-3">
               <span className="text-xs font-bold text-[#325099]">📝 Workbooks in progress · {draftBuilds.length}</span>
               <span className="text-[11px] text-[#2A2035]/40">Save to curriculum from the builder to add them to the database below</span>
             </div>
             <div className="divide-y divide-[#F0F4FF]">
               {draftBuilds.map(wb => (
-                <div key={wb.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
-                  <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="text-left min-w-0 truncate">
+                <div key={wb.id} className="px-4 md:px-5 py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-1 md:gap-3">
+                  <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="text-left min-w-0 max-w-full truncate">
                     <span className="font-semibold text-sm text-[#062E63]">{buildLabel(wb)}</span>
                     <span className="text-xs text-[#2A2035]/50 ml-2">{[wb.subject, wb.year ? `Year ${wb.year}` : null, wb.topic].filter(Boolean).join(' · ') || 'No details yet'}</span>
                   </a>
-                  <div className="flex items-center gap-3 shrink-0 text-[11px]">
-                    <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#325099] hover:underline">Open ↗</a>
-                    <button onClick={() => duplicateWorkbook(wb.id)} disabled={duplicating === wb.id} className="text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-40" title="Copy this workbook into a new draft (e.g. for another year)">{duplicating === wb.id ? 'Duplicating…' : 'Duplicate'}</button>
-                    <button onClick={() => deleteWorkbook(wb)} className="text-[#2A2035]/40 hover:text-rose-500">Delete</button>
+                  <div className="flex items-center gap-4 md:gap-3 shrink-0 text-xs md:text-[11px]">
+                    <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="max-md:py-1 font-semibold text-[#325099] hover:underline">Open ↗</a>
+                    <button onClick={() => duplicateWorkbook(wb.id)} disabled={duplicating === wb.id} className="max-md:py-1 text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-40" title="Copy this workbook into a new draft (e.g. for another year)">{duplicating === wb.id ? 'Duplicating…' : 'Duplicate'}</button>
+                    <button onClick={() => deleteWorkbook(wb)} className="max-md:py-1 text-[#2A2035]/40 hover:text-rose-500">Delete</button>
                   </div>
                 </div>
               ))}
@@ -892,8 +892,8 @@ function MasterDatabaseInner() {
                       const open  = openTotal(b)
                       return (
                       <div key={b.id}
-                        className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
-                        <div className="min-w-0 flex-1">
+                        className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-3 md:px-4 py-3 flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
+                        <div className="min-w-0 flex-1 max-md:basis-full">
                           <p className="text-xs font-semibold text-[#2A2035] truncate">
                             {bookletLabel(b)}
                             {b.delivery === 'online' && <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F] align-middle" title="Online workbook — a typeable student doc, no printed PDFs">🌐 Online</span>}
@@ -903,7 +903,7 @@ function MasterDatabaseInner() {
                           <div className="relative mt-0.5" onClick={e => e.stopPropagation()}>
                             <button
                               onClick={() => setOtherFor(otherFor === b.id ? null : b.id)}
-                              className="text-[10px] font-semibold text-[#2A2035]/40 hover:text-[#325099] transition"
+                              className="text-[10px] max-md:text-[11px] max-md:py-1 font-semibold text-[#2A2035]/40 hover:text-[#325099] transition"
                               title="Duplicate or delete this booklet"
                             >Other ▾</button>
                             {otherFor === b.id && (
@@ -911,12 +911,12 @@ function MasterDatabaseInner() {
                                 <button
                                   onClick={() => { setOtherFor(null); duplicateWorkbook(build.id) }}
                                   disabled={!build || duplicating === build?.id}
-                                  className="w-full text-left px-3 py-1.5 text-[11px] font-semibold text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-40 disabled:hover:bg-transparent"
+                                  className="w-full text-left px-3 py-1.5 max-md:py-2.5 text-[11px] font-semibold text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-40 disabled:hover:bg-transparent"
                                   title={build ? 'Copy this workbook into a new draft (e.g. for another year)' : 'Open it in the builder first — there is nothing to copy yet'}
                                 >{duplicating === build?.id ? 'Duplicating…' : 'Duplicate'}</button>
                                 <button
                                   onClick={() => { setOtherFor(null); setDeleteBooklet(b); setDeleteConfirmText('') }}
-                                  className="w-full text-left px-3 py-1.5 text-[11px] font-semibold text-red-500 hover:bg-red-50"
+                                  className="w-full text-left px-3 py-1.5 max-md:py-2.5 text-[11px] font-semibold text-red-500 hover:bg-red-50"
                                   title="Delete booklet"
                                 >Delete</button>
                               </div>
@@ -932,7 +932,7 @@ function MasterDatabaseInner() {
                         <select
                           value={b.status || 'Not Started'}
                           onChange={e => saveStatus(b.id, e.target.value)}
-                          className={`shrink-0 text-[10px] font-semibold rounded-full px-2 py-1 border cursor-pointer focus:outline-none transition ${STATUS_CLS[b.status || 'Not Started']}`}
+                          className={`shrink-0 max-md:w-full text-[10px] font-semibold rounded-full px-2 max-md:px-3 py-1 border cursor-pointer focus:outline-none transition ${STATUS_CLS[b.status || 'Not Started']}`}
                           title="Workbook status"
                         >
                           {WORKBOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -943,7 +943,7 @@ function MasterDatabaseInner() {
                         <button
                           onClick={() => setInfoFor(b)}
                           title={open ? `${open} open item${open === 1 ? '' : 's'} on the improvement checklist` : 'All info for this booklet'}
-                          className={`shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition whitespace-nowrap ${open
+                          className={`shrink-0 max-md:flex-1 text-[10px] max-md:text-[11px] font-semibold px-2.5 py-1 max-md:py-2 rounded-lg border transition whitespace-nowrap ${open
                             ? 'border-[#FDE68A] bg-[#FFFBEB] text-[#B45309] hover:border-[#F59E0B]'
                             : 'border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099]'}`}
                         >
@@ -952,18 +952,18 @@ function MasterDatabaseInner() {
 
                         <button
                           onClick={() => setPreviewChoice(b)}
-                          className="shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-lg border border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition whitespace-nowrap"
+                          className="shrink-0 max-md:flex-1 text-[10px] max-md:text-[11px] font-semibold px-2.5 py-1 max-md:py-2 rounded-lg border border-[#DEE7FF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition whitespace-nowrap"
                           title="Preview the student or teacher copy"
                         >Preview</button>
 
                         {/* Builder — every workbook opens in the builder; a linked
                             draft is created on first open. */}
-                        <div className="shrink-0">
+                        <div className="shrink-0 max-md:flex-1">
                           {build ? (
                             <a
                               href={`/tutor/booklets/builder/${build.id}`}
                               target="_blank" rel="noopener noreferrer"
-                              className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap"
+                              className="text-[10px] max-md:text-[11px] font-bold px-2.5 py-1 max-md:py-2 max-md:block max-md:text-center rounded-lg transition hover:opacity-80 whitespace-nowrap"
                               style={{ background: accentBg, color: accentColor }}
                               title="Open this workbook in the builder"
                             >
@@ -973,7 +973,7 @@ function MasterDatabaseInner() {
                             <button
                               onClick={() => openInBuilder(b)}
                               disabled={openingBuilder === b.id}
-                              className="text-[10px] font-semibold px-2.5 py-1 rounded-lg border border-dashed border-[#BACBFF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40 whitespace-nowrap"
+                              className="max-md:w-full text-[10px] max-md:text-[11px] font-semibold px-2.5 py-1 max-md:py-2 rounded-lg border border-dashed border-[#BACBFF] text-[#325099]/70 hover:text-[#325099] hover:border-[#325099] transition disabled:opacity-40 whitespace-nowrap"
                               title="Create this workbook in the builder and open it"
                             >
                               {openingBuilder === b.id ? 'Opening…' : '＋ Open in builder'}
@@ -1004,12 +1004,12 @@ function MasterDatabaseInner() {
 
       {/* Senior English: choose how the new workbook is delivered. */}
       {deliveryChoice && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setDeliveryChoice(false) }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="text-lg font-bold text-[#062E63]">New Year {activeYear} English workbook</h2>
-              <button onClick={() => setDeliveryChoice(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-lg max-md:max-h-[90dvh] max-md:overflow-y-auto p-5 md:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h2 className="text-base md:text-lg font-bold text-[#062E63]">New Year {activeYear} English workbook</h2>
+              <button onClick={() => setDeliveryChoice(false)} className="shrink-0 w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
             </div>
             <p className="text-xs text-[#2A2035]/55 mb-4">Both are built with the same workbook builder — the choice is how students work on it. You can switch later from the builder.</p>
             <div className="grid sm:grid-cols-2 gap-3">
@@ -1069,15 +1069,15 @@ function MasterDatabaseInner() {
           setPreviewChoice(null)
         }
         return (
-          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
             onClick={e => { if (e.target === e.currentTarget) setPreviewChoice(null) }}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full md:max-w-sm max-md:max-h-[90dvh] max-md:overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-5">
               <div className="flex items-start justify-between gap-3 mb-1">
                 <div className="min-w-0">
                   <h2 className="text-sm font-bold text-[#062E63]">Preview</h2>
                   <p className="text-[11px] text-[#2A2035]/50 truncate">{label}</p>
                 </div>
-                <button onClick={() => setPreviewChoice(null)} className="w-7 h-7 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
+                <button onClick={() => setPreviewChoice(null)} className="shrink-0 w-10 h-10 md:w-7 md:h-7 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] text-lg">×</button>
               </div>
               {pdfs.length === 0 ? (
                 <p className="text-xs text-[#2A2035]/55 mt-3">
@@ -1125,12 +1125,12 @@ function MasterDatabaseInner() {
         const confirmTarget = (deleteBooklet.booklet_name || '').trim()
         const ready = deleteConfirmText.trim() === confirmTarget && confirmTarget.length > 0
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget && !deleting) { setDeleteBooklet(null); setDeleteConfirmText('') } }}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-              <div className="px-6 py-4 border-b border-[#F0F4FF]">
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm p-0 md:p-4" onClick={e => { if (e.target === e.currentTarget && !deleting) { setDeleteBooklet(null); setDeleteConfirmText('') } }}>
+            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md max-md:max-h-[90dvh] max-md:overflow-y-auto">
+              <div className="px-5 md:px-6 py-4 border-b border-[#F0F4FF]">
                 <h2 className="text-sm font-bold text-red-600">Delete booklet</h2>
               </div>
-              <div className="px-6 py-5 space-y-3">
+              <div className="px-5 md:px-6 py-5 space-y-3 break-words">
                 <p className="text-sm text-[#2A2035]">
                   This permanently deletes <span className="font-bold text-[#062E63]">{bookletLabel(deleteBooklet)}</span>, its PDF files, and any curriculum assignments. This cannot be undone.
                 </p>
@@ -1145,11 +1145,11 @@ function MasterDatabaseInner() {
                   className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] focus:outline-none focus:border-red-400 bg-white"
                 />
               </div>
-              <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+              <div className="px-5 md:px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4 border-t border-[#F0F4FF] flex justify-end gap-2">
                 <button onClick={() => { setDeleteBooklet(null); setDeleteConfirmText('') }} disabled={deleting}
-                  className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition disabled:opacity-40">Cancel</button>
+                  className="max-md:flex-1 px-4 py-2 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition disabled:opacity-40">Cancel</button>
                 <button onClick={handleDeleteBooklet} disabled={!ready || deleting}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  className="max-md:flex-1 px-4 py-2 max-md:py-2.5 text-xs font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
                   {deleting ? 'Deleting…' : 'Delete permanently'}
                 </button>
               </div>

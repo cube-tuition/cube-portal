@@ -111,19 +111,19 @@ export default function LevelTestsPanel({ profile, scope = null }) {
       {/* New button */}
       <div className="flex items-center justify-end mb-4">
         <button onClick={() => { setForm(f => ({ ...f, subject: effTab })); setShowNew(true) }}
-          className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">
+          className="px-4 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition max-md:w-full">
           + New level test
         </button>
       </div>
 
       {/* Maths / English folders (hidden when a hub scope locks the subject) */}
       {!scope && (
-      <div className="flex gap-1 mb-5 border-b border-[#DEE7FF]">
+      <div className="flex gap-1 mb-5 border-b border-[#DEE7FF] max-md:overflow-x-auto max-md:whitespace-nowrap">
         {[{ id: 'Mathematics', label: 'Maths' }, { id: 'English', label: 'English' }].map(tab => (
           <button
             key={tab.id}
             onClick={() => setSubjectTab(tab.id)}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${
+            className={`shrink-0 px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition ${
               subjectTab === tab.id ? 'border-[#325099] text-[#062E63]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'
             }`}
           >
@@ -138,7 +138,7 @@ export default function LevelTestsPanel({ profile, scope = null }) {
       {loading ? (
         <p className="text-sm text-[#2A2035]/60">Loading level tests…</p>
       ) : visibleTests.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] p-12 text-center">
+        <div className="bg-white rounded-2xl border border-dashed border-[#DEE7FF] px-6 py-10 md:p-12 text-center">
           <div className="text-4xl mb-2">📝</div>
           <p className="text-sm font-semibold text-[#2A2035]">No {effTab === 'Mathematics' ? 'Maths' : effTab === 'Chemistry' ? 'Chemistry' : 'English'} level tests yet.</p>
           <p className="text-xs text-[#2A2035]/55 mt-1">Click “New level test” to build your first one.</p>
@@ -146,8 +146,8 @@ export default function LevelTestsPanel({ profile, scope = null }) {
       ) : (
         <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden divide-y divide-[#F0F4FF]">
           {visibleTests.map(t => (
-            <div key={t.id} className="flex items-center gap-3 px-5 md:px-6 py-4">
-              <span className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#062E63] flex items-center justify-center text-base shrink-0">📝</span>
+            <div key={t.id} className="flex items-center gap-3 px-4 md:px-6 py-4">
+              <span className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#062E63] flex items-center justify-center text-base shrink-0 max-md:hidden">📝</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[#2A2035] truncate">{levelTestDisplayName(t)}</p>
                 <p className="text-[11px] text-[#2A2035]/50 truncate">
@@ -156,11 +156,11 @@ export default function LevelTestsPanel({ profile, scope = null }) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <a href={`/tutor/booklets/builder/${t.id}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs font-semibold bg-[#325099] text-white px-5 py-2 rounded-full hover:bg-[#062E63] transition">
+                  className="text-xs font-semibold bg-[#325099] text-white px-4 md:px-5 py-2.5 md:py-2 rounded-full hover:bg-[#062E63] transition">
                   Open ↗
                 </a>
                 <button onClick={() => deleteTest(t.id)}
-                  className={`text-[11px] font-semibold px-3 py-1.5 rounded-full transition ${deletingId === t.id ? 'bg-[#FEE2E2] text-[#991B1B]' : 'text-[#991B1B]/60 hover:bg-[#FEE2E2]'}`}>
+                  className={`text-[11px] font-semibold px-3 py-1.5 max-md:py-2.5 rounded-full transition ${deletingId === t.id ? 'bg-[#FEE2E2] text-[#991B1B]' : 'text-[#991B1B]/60 hover:bg-[#FEE2E2]'}`}>
                   {deletingId === t.id ? 'Confirm?' : 'Delete'}
                 </button>
               </div>
@@ -170,8 +170,8 @@ export default function LevelTestsPanel({ profile, scope = null }) {
       )}
 
       {showNew && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" onClick={() => !creating && setShowNew(false)}>
-          <div className="bg-white rounded-2xl border border-[#DEE7FF] shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 px-0 md:px-4" onClick={() => !creating && setShowNew(false)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl border border-[#DEE7FF] shadow-xl w-full max-w-md p-6 max-md:max-h-[90dvh] max-md:overflow-y-auto max-md:pb-[max(1.5rem,env(safe-area-inset-bottom))]" onClick={e => e.stopPropagation()}>
             <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1">New level test</p>
             <h2 className="text-lg font-bold text-[#062E63] mb-4">Create a level test</h2>
 
@@ -199,9 +199,9 @@ export default function LevelTestsPanel({ profile, scope = null }) {
 
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowNew(false)} disabled={creating}
-                className="text-sm font-semibold text-[#2A2035]/60 px-4 py-2 rounded-full hover:bg-[#F0F0F4] transition disabled:opacity-50">Cancel</button>
+                className="text-sm font-semibold text-[#2A2035]/60 px-4 py-2.5 md:py-2 rounded-full hover:bg-[#F0F0F4] transition disabled:opacity-50">Cancel</button>
               <button onClick={createTest} disabled={creating}
-                className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2 rounded-full transition disabled:opacity-50">
+                className="text-sm font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-5 py-2.5 md:py-2 rounded-full transition disabled:opacity-50">
                 {creating ? 'Creating…' : 'Create & open builder'}
               </button>
             </div>

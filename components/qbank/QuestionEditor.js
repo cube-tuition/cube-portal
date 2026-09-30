@@ -502,13 +502,13 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
       )}
 
       {/* Classification */}
-      <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5">
-        <div className="flex items-center justify-between mb-3">
+      <section className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h2 className="text-sm font-bold text-[#062E63]">Classification</h2>
           <div className="inline-flex rounded-xl border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
             {[['extended', 'Extended response'], ['mcq', 'Multiple choice']].map(([v, lbl]) => (
               <button key={v} type="button" onClick={() => setQtype(v)}
-                className={`px-3 py-1.5 transition ${qtype === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
+                className={`px-3 py-1.5 max-md:py-2 transition ${qtype === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
                 {lbl}
               </button>
             ))}
@@ -602,7 +602,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
               {[1, 2, 3, 4].map((d) => (
                 <button key={d} type="button" onClick={() => setDifficulty(d)}
                   title={DIFFICULTY_LABELS[d]}
-                  className="w-8 h-8 rounded-lg text-xs font-bold border transition"
+                  className="w-8 h-8 max-md:w-10 max-md:h-10 rounded-lg text-xs font-bold border transition"
                   style={difficulty === d
                     ? { background: DIFFICULTY_COLORS[d], color: '#fff', borderColor: DIFFICULTY_COLORS[d] }
                     : { background: '#fff', color: '#94a3b8', borderColor: '#DEE7FF' }}>
@@ -625,7 +625,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             )}
           </div>
           {!isMcq && (
-            <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] ml-auto cursor-pointer">
+            <label className="flex items-center gap-2 text-xs font-semibold text-[#062E63] ml-auto max-md:ml-0 max-md:py-1 cursor-pointer">
               <input type="checkbox" checked={isMulti} onChange={(e) => setIsMulti(e.target.checked)} />
               Multi-part question (a, b, c…)
             </label>
@@ -637,7 +637,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           <div className="inline-flex rounded-xl border border-[#DEE7FF] overflow-hidden text-xs font-semibold">
             {[['exam', 'CUBE'], ['student', 'Students only']].map(([v, lbl]) => (
               <button key={v} type="button" onClick={() => setAudience(v)}
-                className={`px-3.5 py-1.5 transition ${audience === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
+                className={`px-3.5 py-1.5 max-md:py-2 transition ${audience === v ? 'bg-[#325099] text-white' : 'bg-white text-[#2A2035]/60 hover:bg-[#F8FAFF]'}`}>
                 {lbl}
               </button>
             ))}
@@ -650,7 +650,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
       </section>
 
       {/* Question body */}
-      <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5 space-y-4">
+      <section className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5 space-y-4">
         <h2 className="text-sm font-bold text-[#062E63]">
           {isMcq ? 'Multiple-choice question' : isMulti ? 'Stem / intro (shown above the parts)' : 'Question'}
         </h2>
@@ -662,9 +662,9 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             className="text-[11px] font-semibold text-[#325099] hover:underline">＋ Add stimulus text</button>
         ) : (
           <div className="border border-[#DEE7FF] rounded-xl p-3 bg-[#F8FAFF] space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-[#325099]">Stimulus — printed above the question</span>
-              <button type="button" onClick={() => setStimulus('')} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-[#325099] min-w-0">Stimulus — printed above the question</span>
+              <button type="button" onClick={() => setStimulus('')} className="text-[11px] text-rose-500 hover:underline max-md:py-1.5">Remove</button>
             </div>
             <LatexField value={stimulus} onChange={setStimulus} rows={5}
               hint="**bold**, $…$ maths and “- ” bullets. There is no italic marker — *text* prints its asterisks."
@@ -686,7 +686,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           <div className="border border-[#DEE7FF] rounded-xl p-3 bg-[#F8FAFF] space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold text-[#325099]">Maths object</span>
-              <button type="button" onClick={() => setMathObj(null)} className="text-[11px] text-rose-500 hover:underline">Remove</button>
+              <button type="button" onClick={() => setMathObj(null)} className="text-[11px] text-rose-500 hover:underline max-md:py-1.5">Remove</button>
             </div>
             <MathObjFields obj={mathObj} upd={(patch) => setMathObj((o) => ({ ...o, ...patch }))} />
           </div>
@@ -701,10 +701,10 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
               <div key={opt.label} className="flex items-start gap-2">
                 <button type="button" onClick={() => setCorrectOption(opt.label)}
                   title="Mark correct"
-                  className={`mt-1 w-7 h-7 shrink-0 rounded-full text-xs font-bold border transition ${correctOption === opt.label ? 'bg-[#16A34A] text-white border-[#16A34A]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#16A34A]'}`}>
+                  className={`mt-1 w-7 h-7 max-md:w-9 max-md:h-9 shrink-0 rounded-full text-xs font-bold border transition ${correctOption === opt.label ? 'bg-[#16A34A] text-white border-[#16A34A]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#16A34A]'}`}>
                   {opt.label}
                 </button>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <LatexField value={opt.latex} rows={1}
                     onChange={(v) => setOptions((os) => os.map((o, j) => (j === i ? { ...o, latex: v } : o)))}
                     placeholder={`Option ${opt.label}…`} />
@@ -731,16 +731,16 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
 
       {/* Parts */}
       {isMulti && !isMcq && (
-        <section className="bg-white rounded-2xl border border-[#F0F4FF] p-5 space-y-4">
+        <section className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-[#062E63]">Parts</h2>
             <button type="button"
               onClick={() => setParts((ps) => [...ps, blankPart(ps.length)])}
-              className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">+ Add part</button>
+              className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63] max-md:py-2">+ Add part</button>
           </div>
           {parts.map((p, pi) => (
-            <div key={p._key} className="rounded-xl border border-[#DEE7FF] p-4 bg-[#FBFCFF] space-y-3">
-              <div className="flex items-center gap-2">
+            <div key={p._key} className="rounded-xl border border-[#DEE7FF] p-3 md:p-4 bg-[#FBFCFF] space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
                 {/* Labels follow the order of the list, so removing a part
                     relabels the rest rather than leaving a gap. */}
                 <span className="w-8 h-8 grid place-items-center rounded-lg bg-[#EEF4FF] border border-[#DEE7FF] text-sm font-bold text-[#062E63]">
@@ -750,19 +750,19 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
                   <span className="flex flex-col leading-none">
                     <button type="button" onClick={() => movePart(p._key, -1)} disabled={pi === 0}
                       title="Move this part up" aria-label="Move this part up"
-                      className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▲</button>
+                      className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5 max-md:px-2 max-md:py-0.5">▲</button>
                     <button type="button" onClick={() => movePart(p._key, 1)} disabled={pi === parts.length - 1}
                       title="Move this part down" aria-label="Move this part down"
-                      className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5">▼</button>
+                      className="text-[10px] text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 disabled:hover:text-[#2A2035]/40 px-0.5 max-md:px-2 max-md:py-0.5">▼</button>
                   </span>
                 )}
-                <span className="text-[11px] text-[#2A2035]/40">part label · set by order</span>
+                <span className="text-[11px] text-[#2A2035]/40 max-md:hidden">part label · set by order</span>
                 <input type="number" min="0" value={p.marks} placeholder="marks"
                   onChange={(e) => updatePart(p._key, 'marks', e.target.value)}
                   className="w-20 ml-auto border border-[#DEE7FF] rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#325099]" />
                 {parts.length > 1 && (
                   <button type="button" onClick={() => setParts((ps) => ps.filter((x) => x._key !== p._key))}
-                    className="text-[11px] text-[#DC2626] hover:underline">Remove</button>
+                    className="text-[11px] text-[#DC2626] hover:underline max-md:py-2">Remove</button>
                 )}
               </div>
               <LatexField value={p.prompt_latex} onChange={(v) => updatePart(p._key, 'prompt_latex', v)}
@@ -779,7 +779,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
 
       {error && <p className="text-sm text-[#DC2626]">{error}</p>}
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button onClick={handleSave} disabled={saving}
           className="px-5 py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
           {saving ? 'Saving…' : editing ? 'Save changes' : 'Add to bank'}

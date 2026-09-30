@@ -18,7 +18,7 @@ export default function UsageBadge({ usage, details = false, onClick = null }) {
   const chip = onClick ? (
     <button
       onClick={onClick}
-      className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] whitespace-nowrap hover:bg-[#FDE68A] transition cursor-pointer"
+      className="text-[10px] font-semibold px-2 py-0.5 max-md:py-1 rounded-full bg-[#FEF3C7] text-[#92400E] whitespace-nowrap hover:bg-[#FDE68A] transition cursor-pointer"
       title="See where this question is used"
     >
       Used ×{count}

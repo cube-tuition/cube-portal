@@ -97,29 +97,29 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1020]/70 backdrop-blur-sm"
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#0B1020]/70 max-md:bg-[#0B1020]/90 backdrop-blur-sm"
       onClick={onClose}>
-      <div className="flex-1 flex flex-col max-w-5xl w-full mx-auto px-4 py-6 min-h-0"
+      <div className="flex-1 flex flex-col max-w-5xl w-full mx-auto px-3 md:px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] md:py-6 min-h-0"
         onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-sm font-bold text-white truncate flex-1">{title}</h2>
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 mb-3">
+          <h2 className="text-sm font-bold text-white truncate flex-1 max-md:basis-full max-md:whitespace-normal max-md:break-words max-md:line-clamp-2">{title}</h2>
           <button onClick={print} title="Print this PDF without downloading it"
-            className="px-3.5 py-1.5 rounded-lg bg-white text-[#062E63] text-xs font-semibold hover:bg-[#EEF3FF] transition">
+            className="px-3.5 py-1.5 max-md:py-2.5 max-md:flex-1 rounded-lg bg-white text-[#062E63] text-xs font-semibold hover:bg-[#EEF3FF] transition">
             🖨 Print
           </button>
           <a ref={linkRef} href={downloadUrl || url} download={filename} onClick={onDownloadClick}
-            className="px-3.5 py-1.5 rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#243c75] transition">
+            className="px-3.5 py-1.5 max-md:py-2.5 max-md:flex-1 max-md:text-center rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#243c75] transition">
             Download
           </a>
           <button onClick={onClose}
-            className="px-3.5 py-1.5 rounded-lg bg-white/15 text-white text-xs font-semibold hover:bg-white/25 transition">
+            className="px-3.5 py-1.5 max-md:py-2.5 max-md:flex-1 rounded-lg bg-white/15 text-white text-xs font-semibold hover:bg-white/25 transition">
             Close
           </button>
         </div>
 
         {asking && (
           <form onSubmit={submitReason}
-            className="bg-white rounded-xl p-4 mb-3 shadow-lg">
+            className="bg-white rounded-xl p-4 mb-3 shadow-lg max-md:max-h-[50dvh] max-md:overflow-y-auto">
             <p className="text-xs font-bold text-[#062E63]">Why do you need this download?</p>
             <p className="text-[11px] text-[#2A2035]/55 mt-0.5 mb-2.5">
               Downloads of curriculum material are shared with the directors, along with your
@@ -129,13 +129,13 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
               placeholder="e.g. Printing for tomorrow's Year 9 lesson — the class copies ran out"
               className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099]" />
             {error && <p className="text-[11px] text-[#B91C1C] font-semibold mt-1.5">{error}</p>}
-            <div className="flex items-center gap-2 mt-2.5">
+            <div className="flex flex-wrap items-center gap-2 mt-2.5">
               <button type="submit" disabled={sending}
-                className="px-3.5 py-1.5 rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#243c75] transition disabled:opacity-40">
+                className="px-3.5 py-1.5 max-md:py-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#243c75] transition disabled:opacity-40">
                 {sending ? 'Recording…' : 'Submit and download'}
               </button>
               <button type="button" onClick={() => setAsking(false)} disabled={sending}
-                className="px-3.5 py-1.5 rounded-lg bg-[#F1F4FB] text-[#2A2035]/70 text-xs font-semibold hover:bg-[#E6EBF7] transition disabled:opacity-40">
+                className="px-3.5 py-1.5 max-md:py-2.5 rounded-lg bg-[#F1F4FB] text-[#2A2035]/70 text-xs font-semibold hover:bg-[#E6EBF7] transition disabled:opacity-40">
                 Cancel
               </button>
             </div>
@@ -160,7 +160,7 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
           * is a workflow gate, as the note at the top of this file says.
           */}
         <iframe ref={frameRef} src={`${url}#toolbar=0&navpanes=0`} title={filename || 'PDF preview'}
-          className="flex-1 w-full rounded-xl bg-white border border-white/10 min-h-0" />
+          className="flex-1 w-full rounded-lg md:rounded-xl bg-white border border-white/10 min-h-0" />
       </div>
     </div>
   )

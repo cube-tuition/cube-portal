@@ -131,7 +131,7 @@ export default function PreTestsPanel({ profile, scope = null }) {
         <select
           value={termId}
           onChange={(e) => setTermId(e.target.value)}
-          className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099]"
+          className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] max-md:w-full"
         >
           {terms.map((t) => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
         </select>
@@ -144,8 +144,8 @@ export default function PreTestsPanel({ profile, scope = null }) {
           <p className="text-sm text-[#2A2035]/50">No classes in this term.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-[#DEE7FF] overflow-x-auto">
-          <table className="w-full text-sm min-w-[760px]">
+        <div className="md:bg-white md:rounded-2xl md:border md:border-[#DEE7FF] md:overflow-x-auto">
+          <table className="phone-cards w-full text-sm md:min-w-[760px]">
             <thead>
               <tr className="bg-[#F8FAFF] text-left text-[10px] uppercase tracking-wider text-[#325099]/60">
                 <th className="px-4 py-3 font-semibold">Class</th>
@@ -156,36 +156,36 @@ export default function PreTestsPanel({ profile, scope = null }) {
                 <th className="px-4 py-3 font-semibold text-right">Pre-test paper</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#F0F4FF]">
+            <tbody className="md:divide-y md:divide-[#F0F4FF]">
               {rows.map((r) => (
                 <tr key={r.id} className="hover:bg-[#FAFBFF]">
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-[#062E63]">{r.class_name || `Class #${r.id}`}</div>
+                  <td data-label="" className="px-4 py-3">
+                    <div className="font-semibold text-[#062E63] break-words">{r.class_name || `Class #${r.id}`}</div>
                     {r.teacher && <div className="text-[11px] text-[#2A2035]/40">{r.teacher}</div>}
                   </td>
-                  <td className="px-4 py-3 text-[#2A2035]/80">
+                  <td data-label="Topics" className="px-4 py-3 text-[#2A2035]/80">
                     {r.hasTest ? (
                       <span title={r.topics.map((x) => x.name).filter(Boolean).join(', ')}>
                         {r.topics.length} topic{r.topics.length === 1 ? '' : 's'}{r.totalMarks > 0 ? ` · ${r.totalMarks} marks` : ''}
                       </span>
                     ) : <Link href={`/tutor/classes/${r.id}`} className="text-[#325099] hover:underline">Set up →</Link>}
                   </td>
-                  <td className="px-4 py-3 text-center tabular-nums">
+                  <td data-label="Pre" className="px-4 py-3 text-center tabular-nums">
                     {r.expected_pre != null ? <span className="font-semibold text-[#EF4444]">{r.expected_pre}{r.totalMarks > 0 ? `/${r.totalMarks}` : ''}</span> : <span className="text-[#2A2035]/30">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-center tabular-nums">
+                  <td data-label="Post" className="px-4 py-3 text-center tabular-nums">
                     {r.expected_post != null ? <span className="font-semibold text-[#16A34A]">{r.expected_post}{r.totalMarks > 0 ? `/${r.totalMarks}` : ''}</span> : <span className="text-[#2A2035]/30">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td data-label="Status" className="px-4 py-3 text-center">
                     <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${r.hasTest ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
                       {r.hasTest ? 'Set up' : 'Not set up'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="" className="px-4 py-3 text-right max-md:pt-2!">
                     <button
                       onClick={() => openBuilder(r)}
                       disabled={busyClass === r.id}
-                      className={`text-xs font-semibold px-4 py-1.5 rounded-full transition disabled:opacity-50 ${
+                      className={`text-xs font-semibold px-4 py-1.5 max-md:w-full max-md:py-2.5 rounded-full transition disabled:opacity-50 ${
                         r.hasPaper
                           ? 'bg-[#325099] text-white hover:bg-[#062E63]'
                           : 'border border-[#DEE7FF] text-[#062E63] hover:border-[#325099]'

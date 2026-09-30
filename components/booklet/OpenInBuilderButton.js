@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase'
  */
 export default function OpenInBuilderButton({ booklet, buildId, year, subject, accent, onCreated }) {
   const [busy, setBusy] = useState(false)
-  const cls = 'text-[11px] font-semibold shrink-0 hover:underline disabled:opacity-40'
+  const cls = 'text-[11px] font-semibold shrink-0 hover:underline disabled:opacity-40 max-md:py-1.5'
 
   if (buildId) {
     return (

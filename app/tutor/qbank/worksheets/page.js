@@ -564,18 +564,18 @@ function AdditionalQuestionsInner() {
 
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
-  const selCls = 'border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white'
+  const selCls = 'border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white max-md:min-w-0 max-md:flex-1 max-md:basis-[40%]'
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-7xl mx-auto px-6 pt-8 pb-16">
+      <div className="max-w-7xl mx-auto px-4 pt-5 md:px-6 md:pt-8 pb-16">
         <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
-        <div className="flex items-center gap-3 mt-1 mb-5">
-          <h1 className="text-2xl font-bold text-[#062E63]">Additional Questions{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
+        <div className="flex items-center gap-3 mt-1 mb-5 max-md:flex-wrap max-md:gap-y-2">
+          <h1 className="text-2xl font-bold text-[#062E63] max-md:text-xl max-md:basis-full">Additional Questions{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
           {selectedId && (
             <button onClick={closeEditor}
-              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3 py-1 hover:bg-white transition">
+              className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-full px-3 py-1 max-md:py-2 hover:bg-white transition">
               ← All worksheets
             </button>
           )}
@@ -591,14 +591,14 @@ function AdditionalQuestionsInner() {
           <div>
             <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
               <p className="text-xs text-[#2A2035]/50">Saved worksheets keep their question list so you can edit and re-export them any time. File one under a topic (inside the worksheet) and it sorts itself here.</p>
-              <button onClick={createWorksheet} className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition shrink-0">+ New worksheet</button>
+              <button onClick={createWorksheet} className="px-4 py-2 max-md:w-full max-md:py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition shrink-0">+ New worksheet</button>
             </div>
 
             {/* Year tabs */}
             <div className="flex overflow-x-auto border-b border-[#E4EAF6] mb-5">
               {aqVisibleYears.map((y) => (
                 <button key={y} onClick={() => setListYear(y)}
-                  className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+                  className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap shrink-0 ${
                     listYear === y ? 'border-[#325099] text-[#325099]' : 'border-transparent text-[#2A2035]/50 hover:text-[#325099]'
                   }`}>
                   Year {y}
@@ -607,7 +607,7 @@ function AdditionalQuestionsInner() {
               {/* Misc: worksheets with no filing topic — they have no year to
                   live under, so they get a tab of their own. */}
               <button onClick={() => setListYear('misc')}
-                className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ml-auto ${
+                className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap shrink-0 ml-auto ${
                   listYear === 'misc' ? 'border-[#325099] text-[#325099]' : 'border-transparent text-[#2A2035]/50 hover:text-[#325099]'
                 }`}>
                 Misc{wsUnfiled.length ? ` · ${wsUnfiled.length}` : ''}
@@ -616,10 +616,10 @@ function AdditionalQuestionsInner() {
 
             {/* Subject tabs */}
             {listYear !== 'misc' && (
-            <div className="flex gap-2 mb-6 flex-wrap">
+            <div className="flex gap-2 mb-6 flex-wrap max-md:flex-nowrap max-md:overflow-x-auto max-md:-mx-4 max-md:px-4 max-md:pb-1">
               {aqSubjectsFor(listYear).map((su) => (
                 <button key={su} onClick={() => setListSub(su)}
-                  className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
+                  className={`px-5 py-2 rounded-xl text-sm font-semibold border transition whitespace-nowrap shrink-0 ${
                     listSub === su ? 'text-white border-transparent' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
                   }`}
                   style={listSub === su ? { background: aqAccent(su) } : {}}>
@@ -651,7 +651,7 @@ function AdditionalQuestionsInner() {
                     </div>
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
                       {list.map((ws) => (
-                        <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
+                        <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 max-md:pr-2 flex items-center gap-3 max-md:gap-2 hover:border-[#C7D7FF] hover:shadow-md transition">
                           <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
                             {/* Unfiled worksheets have no topic to place them under a
                                 year, and the titles repeat — two "Term 3 Revision"
@@ -672,13 +672,13 @@ function AdditionalQuestionsInner() {
                             </p>
                           </button>
                           <button onClick={() => openWorksheet(ws)}
-                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0"
+                            className="text-[10px] font-bold px-2.5 py-1 max-md:py-2 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0"
                             style={subject === UNSORTED
                               ? { background: '#F4F4F4', color: '#9CA3AF' }
                               : { background: aqAccentBg(subject), color: aqAccent(subject) }}>
                             Open →
                           </button>
-                          <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#2A2035]/30 hover:text-rose-500 shrink-0" title="Delete worksheet">✕</button>
+                          <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#2A2035]/30 hover:text-rose-500 shrink-0 max-md:min-w-10 max-md:min-h-10" title="Delete worksheet">✕</button>
                         </div>
                       ))}
                     </div>
@@ -709,7 +709,7 @@ function AdditionalQuestionsInner() {
                     </div>
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5">
                       {list.map((ws) => (
-                        <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 flex items-center gap-3 hover:border-[#C7D7FF] hover:shadow-md transition">
+                        <div key={ws.id} className="bg-white rounded-xl border border-[#E8EDF8] shadow-sm px-4 py-3 max-md:pr-2 flex items-center gap-3 max-md:gap-2 hover:border-[#C7D7FF] hover:shadow-md transition">
                           <button onClick={() => openWorksheet(ws)} className="flex-1 text-left min-w-0">
                             <p className="text-xs font-semibold text-[#2A2035] truncate">{ws.title}</p>
                             <p className="text-[10px] text-[#2A2035]/45 mt-0.5">
@@ -719,11 +719,11 @@ function AdditionalQuestionsInner() {
                             </p>
                           </button>
                           <button onClick={() => openWorksheet(ws)}
-                            className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0"
+                            className="text-[10px] font-bold px-2.5 py-1 max-md:py-2 rounded-lg transition hover:opacity-80 whitespace-nowrap shrink-0"
                             style={{ background: aqAccentBg(listSub), color: aqAccent(listSub) }}>
                             Open →
                           </button>
-                          <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#2A2035]/30 hover:text-rose-500 shrink-0" title="Delete worksheet">✕</button>
+                          <button onClick={() => deleteWorksheet(ws)} className="text-[11px] text-[#2A2035]/30 hover:text-rose-500 shrink-0 max-md:min-w-10 max-md:min-h-10" title="Delete worksheet">✕</button>
                         </div>
                       ))}
                     </div>
@@ -746,20 +746,20 @@ function AdditionalQuestionsInner() {
               <span className="text-[#2A2035]/40 font-medium">{tray.length ? ` · ${tray.length} question${tray.length === 1 ? '' : 's'}` : ''}{includeMarks && totalMarks > 0 ? ` · ${totalMarks} marks` : ''}</span>
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 max-md:w-full">
             <button onClick={() => doExport(false)} disabled={!tray.length || busy}
-              className="px-4 py-2 rounded-lg bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
+              className="px-4 py-2 max-md:flex-1 max-md:px-2 max-md:py-2.5 rounded-lg bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-40">
               {busy === 'worksheet' ? 'Building…' : '↓ Worksheet PDF'}
             </button>
             <button onClick={() => doExport(true)} disabled={!tray.length || busy}
-              className="px-4 py-2 rounded-lg border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40">
+              className="px-4 py-2 max-md:flex-1 max-md:px-2 max-md:py-2.5 rounded-lg border border-[#325099] text-[#325099] text-sm font-semibold hover:bg-[#F0F4FF] transition disabled:opacity-40">
               {busy === 'answers' ? 'Building…' : '↓ Solutions PDF'}
             </button>
           </div>
         </div>
-        <div className="grid lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-5 items-start">
+        <div className="grid max-md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-5 items-start">
           {/* Left: pick from bank */}
-          <div>
+          <div className="max-md:min-w-0">
             <div className="bg-white rounded-2xl border border-[#F0F4FF] p-3 flex flex-wrap items-center gap-2">
               <select value={year} onChange={(e) => { setYear(e.target.value); setSubjectId(''); setTopicId(''); setSubtopicId(''); setSkillId('') }} className={selCls}>
                 <option value="">All years</option>
@@ -791,7 +791,7 @@ function AdditionalQuestionsInner() {
                 <option value="extended">Non-MCQ (written)</option>
               </select>
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
-                className="flex-1 min-w-[100px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
+                className="flex-1 min-w-[100px] max-md:basis-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
             </div>
 
             <div className="flex items-center justify-between mt-3 mb-2 px-1">
@@ -805,16 +805,16 @@ function AdditionalQuestionsInner() {
                   const l = labelFor(q); const inTray = trayIds.has(q.id)
                   return (
                     <div key={q.id} className={`rounded-xl border p-3 transition ${inTray ? 'border-[#BACBFF] bg-[#F8FAFF]' : 'border-[#F0F4FF] bg-white'}`}>
-                      <div className="flex items-center gap-2 mb-1.5">
+                      <div className="flex items-center gap-2 mb-1.5 max-md:flex-wrap max-md:gap-y-1">
                         <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: DIFFICULTY_COLORS[q.difficulty] }}>{q.difficulty}</span>
                         {l?.subject && <span className="text-[10px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
                         {l?.topic && <span className="text-[10px] text-[#2A2035]/40">› {l.topic.name}</span>}
                         <div className="ml-auto flex items-center gap-2">
                           <UsageBadge usage={usageMap[q.id]} />
                           <button onClick={() => setEditQ(q)}
-                            className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#325099]">✎ Edit</button>
+                            className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#325099] max-md:px-1.5 max-md:py-2">✎ Edit</button>
                           <button onClick={() => (inTray ? removeFromTray(q.id) : add(q))}
-                            className={`text-[11px] font-semibold ${inTray ? 'text-[#2A2035]/40 hover:text-[#DC2626]' : 'text-[#325099] hover:text-[#062E63]'}`}>
+                            className={`text-[11px] font-semibold max-md:px-1.5 max-md:py-2 ${inTray ? 'text-[#2A2035]/40 hover:text-[#DC2626]' : 'text-[#325099] hover:text-[#062E63]'}`}>
                             {inTray ? 'Added ✓' : '+ Add'}
                           </button>
                         </div>
@@ -827,7 +827,7 @@ function AdditionalQuestionsInner() {
           </div>
 
           {/* Right: saved worksheet */}
-          <div>
+          <div className="max-md:min-w-0">
             <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 space-y-3">
               <input value={title} onChange={(e) => { setTitle(e.target.value); setDirty(true) }} placeholder="Worksheet title"
                 className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-semibold text-[#062E63] focus:outline-none focus:border-[#325099]" />
@@ -862,7 +862,7 @@ function AdditionalQuestionsInner() {
                 <label className="flex items-center gap-2 text-xs text-[#2A2035]/60">
                   <span className="shrink-0">Subtopic</span>
                   <select value={wsSubtopicId} onChange={(e) => { setWsSubtopicId(e.target.value); setDirty(true) }}
-                    className="flex-1 border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                    className="flex-1 min-w-0 border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
                     <option value="">Whole topic</option>
                     {wsSubtopics.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
                   </select>
@@ -873,7 +873,7 @@ function AdditionalQuestionsInner() {
               <label className="flex items-center gap-2 text-xs text-[#2A2035]/60">
                 <span className="shrink-0">Cover year</span>
                 <select value={coverYear} onChange={(e) => { setCoverYear(e.target.value); setDirty(true) }}
-                  className="flex-1 border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                  className="flex-1 min-w-0 border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
                   <option value="">Auto{(() => { const y = topicById[wsTopicId]?.year ?? (tray.length ? labelFor(tray[0])?.subject?.year_level : ''); return y ? ` (Year ${y})` : '' })()}</option>
                   {[5, 6, 7, 8, 9, 10, 11, 12].map((y) => <option key={y} value={y}>Year {y}</option>)}
                 </select>
@@ -901,15 +901,15 @@ function AdditionalQuestionsInner() {
                     onDragOver={(e) => e.preventDefault()}
                     onDragEnter={() => { if (dragId) reorderTray(dragId, q.id) }}
                     className={`rounded-xl border bg-white p-3 transition ${dragId === q.id ? 'opacity-40 border-[#325099] border-dashed' : 'border-[#F0F4FF]'}`}>
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2 max-md:flex-wrap">
                       <span
                         draggable
                         onDragStart={() => setDragId(q.id)}
                         onDragEnd={() => setDragId(null)}
                         title="Drag to reorder"
-                        className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none mt-0.5">⠿</span>
+                        className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 hover:text-[#325099] select-none text-base leading-none mt-0.5 max-md:hidden">⠿</span>
                       <span className="text-sm font-bold text-[#062E63] mt-0.5">Q{i + 1}.</span>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 max-md:basis-[calc(100%-3.5rem)]">
                         <div className="text-[13px] text-[#2A2035] line-clamp-3"><LatexContent text={q.stem_latex || '(no stem)'} /></div>
                         {imgs.length > 0 && (
                           <div className="flex gap-1.5 mt-1.5">
@@ -919,7 +919,7 @@ function AdditionalQuestionsInner() {
                             ))}
                           </div>
                         )}
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1 max-md:flex-wrap max-md:gap-x-1.5">
                           {l?.skill && <span className="text-[10px] text-[#2A2035]/40">{l.skill.name}</span>}
                           <span className="text-[10px] text-[#2A2035]/40">· difficulty {q.difficulty}</span>
                           {(() => { const m = questionTotalMarks(q); return m ? <span className="text-[10px] text-[#2A2035]/40">· {m} mark{m === 1 ? '' : 's'}</span> : null })()}
@@ -953,12 +953,12 @@ function AdditionalQuestionsInner() {
                           )
                         })()}
                       </div>
-                      <div className="flex flex-col items-center gap-0.5">
-                        <button onClick={() => moveTray(q.id, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▲</button>
-                        <button onClick={() => moveTray(q.id, 1)} disabled={i === tray.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20">▼</button>
+                      <div className="flex flex-col items-center gap-0.5 max-md:basis-full max-md:flex-row max-md:justify-end max-md:gap-1 max-md:border-t max-md:border-[#F0F4FF] max-md:pt-1">
+                        <button onClick={() => moveTray(q.id, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 max-md:min-w-10 max-md:min-h-10">▲</button>
+                        <button onClick={() => moveTray(q.id, 1)} disabled={i === tray.length - 1} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 max-md:min-w-10 max-md:min-h-10">▼</button>
                         <button onClick={() => setEditQ(q)} title="Edit this question — stem, solution, marks, MCQ options"
-                          className="text-[11px] text-[#325099]/70 hover:text-[#325099] mt-1">✎</button>
-                        <button onClick={() => removeFromTray(q.id)} className="text-[11px] text-[#DC2626] hover:underline mt-1">✕</button>
+                          className="text-[11px] text-[#325099]/70 hover:text-[#325099] mt-1 max-md:mt-0 max-md:min-w-10 max-md:min-h-10">✎</button>
+                        <button onClick={() => removeFromTray(q.id)} className="text-[11px] text-[#DC2626] hover:underline mt-1 max-md:mt-0 max-md:min-w-10 max-md:min-h-10">✕</button>
                       </div>
                     </div>
                   </div>

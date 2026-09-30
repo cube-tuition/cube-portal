@@ -36,7 +36,7 @@ export default function SearchSelectPopover({ anchor, options, currentValue, onS
   return (
     <div className="fixed inset-0 z-50" onMouseDown={onClose}>
       <div
-        className="fixed bg-white border border-[#BACBFF] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="fixed max-w-[calc(100vw-16px)] bg-white border border-[#BACBFF] rounded-xl shadow-2xl overflow-hidden flex flex-col"
         style={pos}
         onMouseDown={e => e.stopPropagation()}
       >
@@ -65,7 +65,7 @@ export default function SearchSelectPopover({ anchor, options, currentValue, onS
                 onClick={() => { if (!o.disabled) onSelect(o.value) }}
                 onMouseEnter={() => setHi(i)}
                 disabled={!!o.disabled}
-                className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between gap-2 transition-colors ${i === hi ? 'bg-[#EEF4FF]' : 'bg-white'} ${o.disabled ? 'opacity-45 cursor-not-allowed' : ''} ${o._clear ? 'border-b border-[#F0F4FF]' : ''}`}
+                className={`w-full text-left px-3.5 py-2 max-md:py-3 text-xs flex items-center justify-between gap-2 transition-colors ${i === hi ? 'bg-[#EEF4FF]' : 'bg-white'} ${o.disabled ? 'opacity-45 cursor-not-allowed' : ''} ${o._clear ? 'border-b border-[#F0F4FF]' : ''}`}
               >
                 <span className="min-w-0">
                   <span className={`block truncate ${o._clear ? 'italic text-[#2A2035]/50' : isCurrent ? 'font-bold text-[#062E63]' : 'font-semibold text-[#2A2035]'}`}>{o.label}</span>

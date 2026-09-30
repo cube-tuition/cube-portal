@@ -348,7 +348,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
           </div>
         </div>
         {ab.is_exam ? (
-          <div className="px-5 md:px-6 py-4 flex items-center justify-between gap-3">
+          <div className="px-5 md:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-[#2A2035]/55">Generate the exam PDF to download:</p>
             <ExamPdfButtons examId={ab.exam_id} size="lg" />
           </div>

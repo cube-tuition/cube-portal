@@ -25,7 +25,7 @@ export default function LatexField({
         rows={rows}
         className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm font-mono text-[#2A2035] focus:outline-none focus:border-[#325099] bg-white resize-y"
       />
-      <div className="mt-1.5 rounded-xl border border-dashed border-[#DEE7FF] bg-[#F8FAFF] px-3 py-2 min-h-[2.25rem]">
+      <div className="mt-1.5 rounded-xl border border-dashed border-[#DEE7FF] bg-[#F8FAFF] px-3 py-2 min-h-[2.25rem] phone-scroll">
         <span className="text-[10px] uppercase tracking-wide text-[#2A2035]/30 mr-2">Preview</span>
         {value?.trim()
           ? <LatexContent rich text={value} className="text-sm text-[#2A2035]" />

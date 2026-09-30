@@ -82,7 +82,7 @@ function SaveButton({ dirty, state, onClick, label = 'Save' }) {
     <button
       onClick={onClick}
       disabled={!dirty || state === 'saving'}
-      className="shrink-0 px-3.5 py-1.5 rounded-full text-[11px] font-bold text-white bg-[#325099] hover:bg-[#062E63] transition disabled:opacity-40 disabled:hover:bg-[#325099]"
+      className="shrink-0 px-3.5 py-1.5 max-md:py-2.5 rounded-full text-[11px] font-bold text-white bg-[#325099] hover:bg-[#062E63] transition disabled:opacity-40 disabled:hover:bg-[#325099]"
     >{state === 'saving' ? 'Saving…' : label}</button>
   )
 }
@@ -129,7 +129,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
                 bookletId, list, itemId: it.id, done: !it.done, by: staff?.full_name }))}
               disabled={readOnly || busy === it.id}
               title={it.done ? 'Mark as not done' : 'Mark as done'}
-              className={`mt-0.5 w-3.5 h-3.5 rounded shrink-0 border flex items-center justify-center text-[9px] leading-none transition disabled:opacity-40 ${
+              className={`mt-0.5 w-5 h-5 md:w-3.5 md:h-3.5 rounded shrink-0 border flex items-center justify-center text-[9px] leading-none transition disabled:opacity-40 ${
                 it.done ? 'bg-[#065F46] border-[#065F46] text-white' : 'border-[#C7D0E0] hover:border-[#325099]'}`}
             >{it.done ? '✓' : ''}</button>
             <div className="min-w-0 flex-1">
@@ -146,7 +146,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
                 onClick={() => run(it.id, () => removeItem({ bookletId, list, itemId: it.id }))}
                 disabled={busy === it.id}
                 title="Delete this item"
-                className="shrink-0 text-[9px] font-semibold text-[#2A2035]/25 hover:text-[#DC2626] transition disabled:opacity-40"
+                className="shrink-0 text-[9px] max-md:text-[11px] max-md:py-1 font-semibold text-[#2A2035]/25 max-md:text-[#2A2035]/40 hover:text-[#DC2626] transition disabled:opacity-40"
               >Delete</button>
             )}
           </div>
@@ -168,7 +168,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
             return next
           })}
           disabled={!draft.trim() || busy === 'add:' + list}
-          className="shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-[#325099] hover:bg-[#062E63] transition disabled:opacity-40 disabled:hover:bg-[#325099]"
+          className="shrink-0 px-3 py-1.5 max-md:py-2.5 rounded-lg text-[11px] font-bold text-white bg-[#325099] hover:bg-[#062E63] transition disabled:opacity-40 disabled:hover:bg-[#325099]"
         >{busy === 'add:' + list ? '…' : 'Add'}</button>
       </div>
     </div>
@@ -232,14 +232,14 @@ function PdfList({ row, patch, onErr, readOnly = false }) {
             <div key={path} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#F0F4FF]">
               {url ? (
                 <a href={url} target="_blank" rel="noopener noreferrer"
-                  className="text-[12px] font-semibold text-[#325099] truncate hover:underline">📄 {name}</a>
+                  className="min-w-0 text-[12px] font-semibold text-[#325099] truncate hover:underline">📄 {name}</a>
               ) : (
-                <span className="text-[12px] font-semibold text-[#325099] truncate">📄 {name}</span>
+                <span className="min-w-0 text-[12px] font-semibold text-[#325099] truncate">📄 {name}</span>
               )}
               {!readOnly && <button
                 onClick={() => handleRemove(i)}
                 title={confirmIdx === i ? 'Click again to delete this PDF' : 'Remove this PDF'}
-                className={`shrink-0 text-[10px] font-semibold transition ${
+                className={`shrink-0 text-[10px] max-md:text-[11px] max-md:py-1 font-semibold transition ${
                   confirmIdx === i ? 'text-red-600' : 'text-[#2A2035]/25 hover:text-red-500'}`}
               >{confirmIdx === i ? 'Click to confirm' : 'Remove'}</button>}
             </div>
@@ -465,12 +465,12 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm p-0 md:p-4"
       onClick={e => { if (e.target === e.currentTarget) tryClose() }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90dvh] md:max-h-[90vh]">
         {/* Header: name, status (editable) */}
-        <div className="px-6 py-4 border-b border-[#F0F4FF]">
+        <div className="px-4 md:px-6 py-3 md:py-4 border-b border-[#F0F4FF]">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">Booklet info</p>
@@ -491,12 +491,12 @@ export default function BookletInfoModal({ booklet, title, staff, content, topic
                 </select>
               )}
               <button onClick={tryClose}
-                className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+                className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
             </div>
           </div>
         </div>
 
-        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+        <div className="overflow-y-auto flex-1 px-4 md:px-6 py-5 space-y-6 max-md:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           {/* Details */}
           <div>
             <SectionLabel right={!readOnly && <SavedNote state={detailState}>Changes save when you press the button.</SavedNote>}>

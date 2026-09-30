@@ -126,7 +126,7 @@ function SyllabusPointsInner() {
 
   if (!ready) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
 
-  const ebtn = 'text-[11px] text-[#2A2035]/30 hover:text-[#325099] opacity-0 group-hover:opacity-100'
+  const ebtn = 'text-[11px] text-[#2A2035]/30 hover:text-[#325099] md:opacity-0 md:group-hover:opacity-100 max-md:text-[#2A2035]/50 max-md:min-w-7 max-md:min-h-7'
 
   // Read-only coverage indicator. Leaves (lone mains + subdotpoints) are covered
   // when drawn into a booklet; a parent main with children shows an aggregate.
@@ -148,7 +148,7 @@ function SyllabusPointsInner() {
           style={{ color: covered ? '#16A34A' : partial ? '#F59E0B' : '#CBD5E1' }}>
           {covered ? '✓' : partial ? '◐' : '○'}
         </span>
-        <LatexContent className={`flex-1 text-sm ${covered ? 'text-[#16A34A]' : 'text-[#2A2035]'}`} text={dp.text} />
+        <LatexContent className={`flex-1 min-w-0 break-words text-sm ${covered ? 'text-[#16A34A]' : 'text-[#2A2035]'}`} text={dp.text} />
         {edit && (
           <span className="flex items-center gap-1.5 shrink-0">
             <button className={ebtn} onClick={() => onMove(table, list, dp, -1)}>↑</button>
@@ -165,26 +165,26 @@ function SyllabusPointsInner() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-4xl mx-auto px-6 pt-8 pb-20">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
+      <div className="max-w-4xl mx-auto px-4 pt-5 pb-16 md:px-6 md:pt-8 md:pb-20">
+        <div className="flex items-start justify-between gap-3 md:gap-4 flex-wrap">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-[#062E63]">Syllabus{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
               The master syllabus dotpoint list. Each point is ticked off automatically once it’s drawn into a booklet — hover a ✓ to see which booklet(s).
               {scope && <> · <Link href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">back to hub</Link></>}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 max-md:w-full">
             {subjects.length > 0 && (
               <select
                 value={sel ? `${sel.subject}|${sel.year}` : ''}
                 onChange={(e) => { const [subject, year] = e.target.value.split('|'); setSel({ subject, year: Number(year) }) }}
-                className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]">
+                className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099] max-md:flex-1 max-md:min-w-0 max-md:py-2">
                 {subjects.map((s) => <option key={`${s.subject}|${s.year}`} value={`${s.subject}|${s.year}`}>{s.subject} · Year {s.year}</option>)}
               </select>
             )}
             <button onClick={() => setEdit((e) => !e)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${edit ? 'bg-[#325099] text-white border-[#325099]' : 'border-[#DEE7FF] text-[#325099] hover:bg-white'}`}>
+              className={`text-xs font-semibold px-3 py-1.5 max-md:py-2.5 rounded-lg border transition shrink-0 ${edit ? 'bg-[#325099] text-white border-[#325099]' : 'border-[#DEE7FF] text-[#325099] hover:bg-white'}`}>
               {edit ? 'Done editing' : '✏️ Edit list'}
             </button>
           </div>
@@ -192,7 +192,7 @@ function SyllabusPointsInner() {
 
         {/* Coverage progress */}
         <div className="mt-5 bg-white rounded-2xl border border-[#F0F4FF] p-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
             <p className="text-xs font-semibold text-[#062E63]">Coverage</p>
             <p className="text-xs text-[#2A2035]/50">{coveredCount}/{leaves.length} dotpoints drawn · {pctCovered}%</p>
           </div>
@@ -212,8 +212,8 @@ function SyllabusPointsInner() {
           <div className="mt-6 space-y-5">
             {modules.map((mod) => (
               <div key={mod.id} className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
-                <div className="group flex items-center gap-2 px-5 py-3 bg-[#F8FAFF] border-b border-[#F0F4FF]">
-                  <h2 className="flex-1 text-sm font-bold text-[#062E63]">{mod.name}</h2>
+                <div className="group flex flex-wrap md:flex-nowrap items-center gap-2 px-4 md:px-5 py-3 bg-[#F8FAFF] border-b border-[#F0F4FF]">
+                  <h2 className="flex-1 min-w-0 break-words text-sm font-bold text-[#062E63]">{mod.name}</h2>
                   {edit && (
                     <span className="flex items-center gap-1.5">
                       <button className={ebtn} onClick={() => onMove(T_SYLLABUS_MODULES, modules, mod, -1)}>↑</button>
@@ -224,11 +224,11 @@ function SyllabusPointsInner() {
                     </span>
                   )}
                 </div>
-                <div className="px-5 py-3 space-y-4">
+                <div className="px-4 md:px-5 py-3 space-y-4">
                   {mod.topics.map((tp) => (
                     <div key={tp.id}>
-                      <div className="group flex items-center gap-2">
-                        <p className="flex-1 text-[13px] font-semibold text-[#325099]">{tp.name}</p>
+                      <div className="group flex flex-wrap md:flex-nowrap items-center gap-2">
+                        <p className="flex-1 min-w-0 break-words text-[13px] font-semibold text-[#325099]">{tp.name}</p>
                         {edit && (
                           <span className="flex items-center gap-1.5">
                             <button className={ebtn} onClick={() => onMove(T_SYLLABUS_TOPICS, mod.topics, tp, -1)}>↑</button>
@@ -246,7 +246,7 @@ function SyllabusPointsInner() {
                           <div key={dp.id}>
                             <DotRow dp={dp} list={tp.dotpoints} table={T_SYLLABUS_DOTPOINTS} />
                             {dp.subs.length > 0 && (
-                              <div className="pl-7 border-l border-[#F0F4FF] ml-1.5">
+                              <div className="pl-4 md:pl-7 border-l border-[#F0F4FF] ml-1.5">
                                 {dp.subs.map((s) => <DotRow key={s.id} dp={s} list={dp.subs} table={T_SYLLABUS_DOTPOINTS} />)}
                               </div>
                             )}

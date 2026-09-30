@@ -184,22 +184,22 @@ function CategoriesInner() {
   const Row = ({ children }) => (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#F8FAFF] group">{children}</div>
   )
-  const editBtn = 'text-[11px] text-[#2A2035]/30 hover:text-[#325099] opacity-0 group-hover:opacity-100'
+  const editBtn = 'text-[11px] text-[#2A2035]/30 hover:text-[#325099] md:opacity-0 md:group-hover:opacity-100 max-md:text-[#2A2035]/45 max-md:min-w-8 max-md:py-2'
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-6xl mx-auto px-6 pt-8 pb-16">
+      <div className="max-w-6xl mx-auto px-4 pt-5 md:px-6 md:pt-8 pb-16">
         <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1">Categories{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
 
-        <div className="grid md:grid-cols-4 gap-4">
+        <div className="grid md:grid-cols-4 gap-4 max-md:mt-4">
           {/* Subjects */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63]">Years &amp; courses</h2>
             <p className="text-[11px] text-[#2A2035]/45 mb-2">One row per year and course.</p>
             <button onClick={() => { setNewSubName(''); setAddingSubject(true) }}
-              className="w-full mb-3 px-3 py-1.5 rounded-lg border border-dashed border-[#BACBFF] text-xs font-semibold text-[#325099] hover:bg-[#F5F8FF] transition">
+              className="w-full mb-3 px-3 py-1.5 max-md:py-2.5 rounded-lg border border-dashed border-[#BACBFF] text-xs font-semibold text-[#325099] hover:bg-[#F5F8FF] transition">
               + Add year or course
             </button>
             <div className="max-h-[60vh] overflow-y-auto">
@@ -207,7 +207,7 @@ function CategoriesInner() {
               {subjectRows.map((s) => (
                 <Row key={s.id}>
                   <button onClick={() => { setSubjectId(s.id); setTopicId('') }}
-                    className={`flex-1 text-left text-sm ${subjectId === s.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                    className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${subjectId === s.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                     {subjectYearLabel(s, familyOfSubject(s.name))}
                     {!scope && <span className="text-[11px] text-[#2A2035]/35 ml-1.5">{familyOfSubject(s.name)}</span>}
                   </button>
@@ -229,14 +229,14 @@ function CategoriesInner() {
                   <input value={newTopic} onChange={(e) => setNewTopic(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && addTopic()} placeholder="New topic…"
                     className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
-                  <button onClick={addTopic} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
+                  <button onClick={addTopic} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
                   {topicsForSubject.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No topics yet.</p>}
                   {topicsForSubject.map((t) => (
                     <Row key={t.id}>
                       <button onClick={() => { setTopicId(t.id); setSubtopicId('') }}
-                        className={`flex-1 text-left text-sm ${topicId === t.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                        className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${topicId === t.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {t.name}
                       </button>
                       <button className={editBtn} onClick={() => move(T_QBANK_TOPICS, topicsForSubject, t, -1)}>↑</button>
@@ -261,14 +261,14 @@ function CategoriesInner() {
                   <input value={newSubtopic} onChange={(e) => setNewSubtopic(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && addSubtopic()} placeholder="New subtopic…"
                     className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
-                  <button onClick={addSubtopic} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
+                  <button onClick={addSubtopic} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
                   {subtopicsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No subtopics yet.</p>}
                   {subtopicsForTopic.map((st) => (
                     <Row key={st.id}>
                       <button onClick={() => setSubtopicId(st.id)}
-                        className={`flex-1 text-left text-sm ${subtopicId === st.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                        className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${subtopicId === st.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {st.name}
                       </button>
                       <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, -1)}>↑</button>
@@ -298,13 +298,13 @@ function CategoriesInner() {
                   <input value={newSkill} onChange={(e) => setNewSkill(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && addSkill()} placeholder="New skill…"
                     className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
-                  <button onClick={addSkill} className="px-2.5 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
+                  <button onClick={addSkill} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
                   {skillsForSubject.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No skills yet.</p>}
                   {skillsForSubject.map((s) => (
                     <Row key={s.id}>
-                      <span className="flex-1 text-sm text-[#2A2035]">{s.name}</span>
+                      <span className="flex-1 min-w-0 break-words text-sm text-[#2A2035]">{s.name}</span>
                       <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForSubject, s, -1)}>↑</button>
                       <button className={editBtn} onClick={() => move(T_QBANK_SKILLS, skillsForSubject, s, 1)}>↓</button>
                       <button className={editBtn} onClick={() => rename(T_QBANK_SKILLS, s.id, prompt('Rename skill', s.name))}>edit</button>
@@ -319,9 +319,9 @@ function CategoriesInner() {
       </div>
 
       {addingSubject && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#0B1020]/60 backdrop-blur-sm py-24"
+        <div className="fixed inset-0 z-50 flex items-end md:items-start justify-center bg-[#0B1020]/60 backdrop-blur-sm md:py-24"
           onClick={() => setAddingSubject(false)}>
-          <div className="bg-white rounded-2xl border border-[#E5ECFF] w-full max-w-sm mx-4 p-5 shadow-xl space-y-3"
+          <div className="bg-white rounded-t-2xl md:rounded-2xl border border-[#E5ECFF] w-full md:max-w-sm md:mx-4 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-5 max-h-[90dvh] overflow-y-auto shadow-xl space-y-3"
             onClick={(e) => e.stopPropagation()}>
             <h2 className="text-sm font-bold text-[#062E63]">Add a year or course</h2>
             <div>

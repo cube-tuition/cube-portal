@@ -44,6 +44,8 @@ const SUBJECTS = [
 // with the Master Database so the header and the workbook lists always agree.
 const formatBookletName = (year, subject, name) =>
   buildLabel({ year, subject, title: name }, 'Untitled booklet')
+// Block-card controls (move / delete) grow to a tappable square on phones.
+const PHONE_CTRL = 'max-md:w-10 max-md:h-10 max-md:inline-flex max-md:items-center max-md:justify-center max-md:rounded-lg max-md:border max-md:border-[#DEE7FF] max-md:text-base'
 
 export default function BookletBuilderEditor() {
   const router = useRouter()
@@ -776,7 +778,7 @@ export default function BookletBuilderEditor() {
     if (!chemPool.has(id)) return null
     const secs = chemAlloc[id] || []
     return secs.length ? (
-      <span className="ml-2 shrink-0 text-[10px] font-semibold text-[#16A34A] bg-[#F0FDF4] border border-[#BBF7D0] rounded-full px-1.5 py-0.5">
+      <span className="ml-2 shrink-0 max-md:shrink max-md:min-w-0 max-md:truncate text-[10px] font-semibold text-[#16A34A] bg-[#F0FDF4] border border-[#BBF7D0] rounded-full px-1.5 py-0.5">
         {secs.map(s => [s.number, s.title].filter(v => v != null && String(v).trim() !== '').join('. ') || 'section').join(' · ')}
       </span>
     ) : (
@@ -908,25 +910,25 @@ export default function BookletBuilderEditor() {
         : b.type === 'subtopic'
         ? `bg-[#EDE7FB] ${selected ? 'border-[#6D4FA3] ring-2 ring-[#6D4FA3]/20' : 'border-[#C9B8E8]'}`
         : `bg-white ${selected ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}`}>
-      <div className="flex items-center justify-between mb-2.5 cursor-pointer"
+      <div className="flex items-center justify-between mb-2.5 cursor-pointer max-md:flex-wrap max-md:gap-2"
         onClick={() => setSelectedBlockId(id => id === b.id ? null : b.id)}
         title="Click to insert new blocks right after this one">
-        <div className="flex items-center gap-2">
-          <span className="cursor-grab active:cursor-grabbing text-[#2A2035]/30 text-sm"
+        <div className="flex items-center gap-2 max-md:flex-wrap">
+          <span className="max-md:hidden cursor-grab active:cursor-grabbing text-[#2A2035]/30 text-sm"
             title={hwSwap ? 'Drag to reorder — or drop onto the other homework group to move it there' : 'Drag to reorder'}
             onMouseDown={() => { dragArmed.current = true }}>⠿</span>
           <span className="text-[10px] font-bold tracking-wider uppercase text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2 py-0.5">{BLOCK_TYPES.find(t => t.type === b.type)?.label || b.type}</span>
           {selected && <span className="text-[10px] font-semibold text-[#325099]">↳ new blocks insert here</span>}
         </div>
-        <div className="flex items-center gap-1.5 text-[#2A2035]/40">
+        <div className="flex items-center gap-1.5 max-md:gap-2 max-md:ml-auto text-[#2A2035]/40">
           {hwSwap && (
             <button onClick={e => { e.stopPropagation(); setHwGroup(b.id, hwSwap.to) }}
               title={`Move this question to ${hwSwap.label} Questions`}
-              className="text-[10px] font-semibold text-[#325099]/70 hover:text-[#325099] hover:bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2 py-0.5 mr-0.5 transition whitespace-nowrap">⇄ {hwSwap.label}</button>
+              className="text-[10px] font-semibold text-[#325099]/70 hover:text-[#325099] hover:bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2 py-0.5 max-md:py-1.5 mr-0.5 transition whitespace-nowrap">⇄ {hwSwap.label}</button>
           )}
-          <button onClick={e => { e.stopPropagation(); moveBlock(b.id, -1) }} disabled={i === 0} className="hover:text-[#325099] disabled:opacity-20 text-sm">↑</button>
-          <button onClick={e => { e.stopPropagation(); moveBlock(b.id, 1) }} disabled={i === list.length - 1} className="hover:text-[#325099] disabled:opacity-20 text-sm">↓</button>
-          <button onClick={e => { e.stopPropagation(); requestRemoveBlock(b) }} title="Delete this block" className="hover:text-rose-500 text-sm ml-1">🗑</button>
+          <button onClick={e => { e.stopPropagation(); moveBlock(b.id, -1) }} disabled={i === 0} className={`hover:text-[#325099] disabled:opacity-20 text-sm ${PHONE_CTRL}`}>↑</button>
+          <button onClick={e => { e.stopPropagation(); moveBlock(b.id, 1) }} disabled={i === list.length - 1} className={`hover:text-[#325099] disabled:opacity-20 text-sm ${PHONE_CTRL}`}>↓</button>
+          <button onClick={e => { e.stopPropagation(); requestRemoveBlock(b) }} title="Delete this block" className={`hover:text-rose-500 text-sm ml-1 max-md:ml-0 ${PHONE_CTRL}`}>🗑</button>
         </div>
       </div>
       <BlockEditor block={b} onChange={onChangeFor(b.id)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null}
@@ -942,17 +944,17 @@ export default function BookletBuilderEditor() {
         /* Exam-style docs (level tests + pre-tests) are question-only — no text /
            callout / layout blocks, just questions from the bank or new ones. */
         <div className="flex flex-col gap-1.5">
-          <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 hover:bg-[#062E63] transition">＋ From question bank</button>
-          <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
+          <button onClick={() => setBankOpen(true)} className="w-full text-left text-xs font-semibold text-white bg-[#325099] rounded-lg px-2.5 py-1.5 max-md:py-2.5 hover:bg-[#062E63] transition">＋ From question bank</button>
+          <button onClick={() => setNewQOpen(true)} className="w-full text-left text-xs font-semibold text-[#16A34A] border border-[#BBF7D0] bg-[#F0FDF4] rounded-lg px-2.5 py-1.5 max-md:py-2.5 hover:bg-[#DCFCE7] transition">＋ New question → bank</button>
         </div>
       ) : activeSection === 'content' ? (
         <div className="space-y-3">
           {BLOCK_GROUPS.map(g => (
             <div key={g}>
               <p className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mb-1">{g}</p>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 max-md:grid max-md:grid-cols-2">
                 {BLOCK_TYPES.filter(t => t.group === g && !paletteHides(t)).map(t => (
-                  <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+                  <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 max-md:py-2.5 hover:bg-[#F0F4FF] transition">
                     <span className="mr-1.5">{t.icon}</span>{t.label}
                   </button>
                 ))}
@@ -968,25 +970,25 @@ export default function BookletBuilderEditor() {
               <div className="flex items-stretch rounded-lg border border-[#DEE7FF] overflow-hidden text-[11px]">
                 {HW_GROUPS.map((g, gi) => (
                   <button key={g.id} onClick={() => setActiveHwGroup(g.id)}
-                    className={`flex-1 px-2 py-1 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
+                    className={`flex-1 px-2 py-1 max-md:py-2 font-semibold ${gi > 0 ? 'border-l border-[#DEE7FF]' : ''} ${activeHwGroup === g.id ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>
                     {g.label}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1.5 max-md:grid max-md:grid-cols-2">
             {hwPaletteTypes.filter(t => !paletteHides(t)).map(t => (
-              <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+              <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 max-md:py-2.5 hover:bg-[#F0F4FF] transition">
                 <span className="mr-1.5">{t.icon}</span>{t.label}
               </button>
             ))}
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 max-md:grid max-md:grid-cols-2">
           {HW_BLOCK_TYPES.filter(t => !paletteHides(t)).map(t => (
-            <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 hover:bg-[#F0F4FF] transition">
+            <button key={t.type} onClick={() => addBlock(t.type)} className="w-full text-left text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 max-md:py-2.5 hover:bg-[#F0F4FF] transition">
               <span className="mr-1.5">{t.icon}</span>{t.label}
             </button>
           ))}
@@ -1005,10 +1007,10 @@ export default function BookletBuilderEditor() {
       <TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} />
 
       {/* Top bar */}
-      <div className="sticky top-0 z-30 bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-[1500px] mx-auto px-5 py-3 lg:py-2 flex items-center gap-3 flex-wrap">
-          <button onClick={() => router.push(back.href)} className="text-[#325099] text-sm hover:underline">{back.label}</button>
-          <div className="flex-1 min-w-[200px] text-base font-semibold text-[#2A2035] px-2 py-1 truncate" title="Auto-formatted from Year · Subject · Booklet name">{formatBookletName(bk.year, bk.subject, bk.title)}</div>
+      <div className="sticky max-md:static top-0 z-30 bg-white border-b border-[#DEE7FF]">
+        <div className="max-w-[1500px] mx-auto px-4 md:px-5 py-3 lg:py-2 flex items-center gap-3 max-md:gap-2 flex-wrap">
+          <button onClick={() => router.push(back.href)} className="text-[#325099] text-sm hover:underline max-md:py-1">{back.label}</button>
+          <div className="flex-1 min-w-[140px] md:min-w-[200px] text-base font-semibold text-[#2A2035] px-2 py-1 truncate" title="Auto-formatted from Year · Subject · Booklet name">{formatBookletName(bk.year, bk.subject, bk.title)}</div>
           <span className={`text-[11px] ${conflict ? 'text-[#B23A3A] font-bold' : 'text-[#2A2035]/40'}`}>
             {conflict ? 'Not saved' : saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}
           </span>
@@ -1022,7 +1024,7 @@ export default function BookletBuilderEditor() {
               title={bk.delivery === 'online'
                 ? 'Online workbook — students type into it in their portal; publishing renders no PDFs. Click to make it a printed workbook.'
                 : 'Physical workbook — printed as PDFs. Click to make it an online typeable doc.'}
-              className={`px-2.5 py-1 text-[11px] font-bold rounded-full border transition ${bk.delivery === 'online'
+              className={`px-2.5 py-1 max-md:py-2 text-[11px] font-bold rounded-full border transition ${bk.delivery === 'online'
                 ? 'bg-[#ECF9F4] text-[#0E7A5F] border-[#CBEBDF] hover:bg-[#DDF3EA]'
                 : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:bg-[#F8FAFF]'}`}
             >
@@ -1036,23 +1038,23 @@ export default function BookletBuilderEditor() {
             onClick={undoLast}
             disabled={!undoTop}
             title={undoTop ? `Undo: ${undoTop.label} (Ctrl/Cmd+Z)` : 'Nothing to undo yet'}
-            className="px-2.5 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-30 disabled:hover:bg-white"
+            className="px-2.5 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-30 disabled:hover:bg-white"
           >
             ↩ Undo
           </button>
-          <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
-          <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
+          <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
+          <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
           {/* Workbooks only — a pre-test / level test has no place in the
               workbook database, so it isn't offered the button. */}
           {!isExamStyle && (
-            <button onClick={publish} disabled={publishing} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? `Saving… ${pubProgress?.pct ?? 0}%` : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
+            <button onClick={publish} disabled={publishing} className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-white bg-[#325099] rounded-lg hover:bg-[#062E63] disabled:opacity-40">{publishing ? `Saving… ${pubProgress?.pct ?? 0}%` : bk.status === 'published' ? 'Update curriculum' : 'Save to curriculum'}</button>
           )}
         </div>
         {/* Saving to the curriculum renders and uploads two PDFs, so it can take
             a while on a long booklet. The bar reports the real stage rather than
             leaving the button spinning with no sign of life. */}
         {pubProgress && (
-          <div className="max-w-[1500px] mx-auto px-5 pb-3">
+          <div className="max-w-[1500px] mx-auto px-4 md:px-5 pb-3">
             <div className="flex items-center gap-3">
               <div className="flex-1 h-2 rounded-full bg-[#EEF2FB] overflow-hidden">
                 <div
@@ -1076,7 +1078,7 @@ export default function BookletBuilderEditor() {
             stopped rather than overwrite them; the choice of which copy to keep
             is the user's, so nothing is discarded automatically. */}
         {conflict && (
-          <div className="max-w-[1500px] mx-auto px-5 pb-3">
+          <div className="max-w-[1500px] mx-auto px-4 md:px-5 pb-3">
             <div className="rounded-xl border border-[#FDE68A] bg-[#FEF3C7] px-4 py-3 flex flex-wrap items-center gap-3">
               <span className="text-lg leading-none">⚠</span>
               <p className="text-[11px] font-semibold text-[#92400E] flex-1 min-w-[240px]">
@@ -1096,7 +1098,7 @@ export default function BookletBuilderEditor() {
         {/* Meta row — Year is a dropdown; Booklet name is typed. The subject is
             fixed per workbook (set from its subject hub on creation) and shown
             read-only. The full name auto-formats as "Year.SubjectCode. Name". */}
-        <div className="max-w-[1500px] mx-auto px-5 pb-3 lg:pb-2 flex items-center gap-2 flex-wrap text-sm">
+        <div className="max-w-[1500px] mx-auto px-4 md:px-5 pb-3 lg:pb-2 flex items-center gap-2 flex-wrap text-sm">
           {bk.subject && (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#EEF4FF] border border-[#DEE7FF] px-2.5 py-1.5 text-xs font-semibold text-[#325099]"
               title="Subject is fixed per workbook — change it in the database explorer if needed">
@@ -1134,14 +1136,14 @@ export default function BookletBuilderEditor() {
           <div className="ml-auto flex items-center gap-2">
             <span className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold">Preview</span>
             <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
-              <button onClick={() => setSolnView(false)} className={`px-2.5 py-1 font-semibold ${!solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Student</button>
-              <button onClick={() => setSolnView(true)} className={`px-2.5 py-1 font-semibold border-l border-[#DEE7FF] ${solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
+              <button onClick={() => setSolnView(false)} className={`px-2.5 py-1 max-md:py-2 font-semibold ${!solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Student</button>
+              <button onClick={() => setSolnView(true)} className={`px-2.5 py-1 max-md:py-2 font-semibold border-l border-[#DEE7FF] ${solnView ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>Solutions</button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className={`w-full max-w-[1560px] mx-auto px-5 py-5 lg:py-3 grid grid-cols-1 gap-5 lg:flex-1 lg:min-h-0 ${isExamStyle ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,600px)]' : 'lg:grid-cols-[minmax(0,1fr)_208px_minmax(0,560px)]'}`}>
+      <div className={`w-full max-w-[1560px] mx-auto px-4 md:px-5 py-5 lg:py-3 grid grid-cols-1 gap-5 lg:flex-1 lg:min-h-0 ${isExamStyle ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,600px)]' : 'lg:grid-cols-[minmax(0,1fr)_208px_minmax(0,560px)]'}`}>
         {/* Blocks column — the added building blocks. min-w-0 lets this flexible
             column compress instead of forcing the whole page to scroll sideways.
             From lg up it scrolls on its own, capped to the same height as the
@@ -1182,7 +1184,7 @@ export default function BookletBuilderEditor() {
           {isExamStyle && (
             <div className="mb-4 bg-white rounded-xl border border-[#DEE7FF] p-3 shadow-sm">
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Cover page</p>
-              <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="grid grid-cols-2 max-md:grid-cols-1 gap-2 mb-2">
                 <div>
                   <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">Title</label>
                   <input value={bk.cover?.title ?? ''} placeholder={`${bk.year ? `Year ${bk.year} ` : ''}${bk.subject === 'Maths' ? 'Mathematics' : bk.subject || ''}`}
@@ -1196,7 +1198,7 @@ export default function BookletBuilderEditor() {
                     className="w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#325099]" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 max-md:grid-cols-1 gap-2">
                 <div>
                   <label className="block text-[10px] font-semibold text-[#2A2035]/50 mb-0.5">General instructions (one per line — e.g. the working time)</label>
                   <textarea rows={4} value={(bk.cover?.instructions ?? DEFAULT_LT_INSTRUCTIONS).join('\n')}
@@ -1220,10 +1222,10 @@ export default function BookletBuilderEditor() {
               Exam-style docs (level tests + pre-tests) are a single page of
               questions, so they have no page tabs. */}
           {!isExamStyle && (
-            <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit">
+            <div className="flex items-center gap-1 mb-3 bg-white border border-[#DEE7FF] rounded-xl p-1 w-fit max-md:w-full max-md:overflow-x-auto">
               {[{ id: 'content', label: 'Content page' }, { id: 'homework', label: 'Homework page' }, { id: 'revision', label: 'Revision Quiz' }, { id: 'summary', label: 'Content' }].map(s => (
                 <button key={s.id} onClick={() => { setActiveSection(s.id); setSelectedBlockId(null) }}
-                  className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition ${activeSection === s.id ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
+                  className={`shrink-0 whitespace-nowrap px-3.5 py-1.5 max-md:py-2 text-xs font-semibold rounded-lg transition ${activeSection === s.id ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>
                   {s.label}
                 </button>
               ))}
@@ -1236,13 +1238,13 @@ export default function BookletBuilderEditor() {
               and there's no see-through gap; blocks scroll cleanly behind it.
               Hidden on the "Content" (summary) tab, which has no blocks. */}
           {activeSection === 'content' && contentPages.length > 1 && (
-            <div className="sticky top-[96px] lg:top-0 z-20 bg-[#F7F9FF] pt-4 pb-3">
+            <div className="sticky top-[96px] max-md:top-[52px] lg:top-0 z-20 bg-[#F7F9FF] pt-4 pb-3">
               <div className="bg-white rounded-xl border border-[#DEE7FF] p-2 shadow-sm flex items-center gap-1.5 flex-wrap">
                 <span className="text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35 mr-0.5">Jump to page</span>
                 {contentPages.map((pg, pi) => (
                   <button key={pi} onClick={() => document.getElementById(`bk-page-anchor-${pi}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                     title={pg.auto ? 'Automatic overflow page' : 'Page'}
-                    className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-md px-2 py-0.5 hover:bg-[#F0F4FF] transition">
+                    className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-md px-2 py-0.5 max-md:px-3 max-md:py-1.5 hover:bg-[#F0F4FF] transition">
                     {pi + 1}{pg.auto && <span className="text-[#2A2035]/30">·</span>}
                   </button>
                 ))}
@@ -1266,11 +1268,11 @@ export default function BookletBuilderEditor() {
                  siblings, so the same node is moved and its size survives. */
               <div className="space-y-3">
                 {contentPages.flatMap((pg, pi) => [
-                  <div key={`pg-hdr-${pi}`} id={`bk-page-anchor-${pi}`} className="scroll-mt-[230px] lg:scroll-mt-[76px] flex items-center gap-2 pt-1">
+                  <div key={`pg-hdr-${pi}`} id={`bk-page-anchor-${pi}`} className="scroll-mt-[230px] max-md:scroll-mt-[150px] lg:scroll-mt-[76px] flex items-center gap-2 pt-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-[#325099] bg-[#EEF4FF] border border-[#DEE7FF] rounded-full px-2.5 py-0.5">Page {pi + 1}</span>
                     {pg.auto && <span className="text-[9px] font-semibold uppercase tracking-wider text-[#2A2035]/35" title="Starts automatically because the previous page is full">auto</span>}
                     <div className="h-px flex-1 bg-[#DEE7FF]" />
-                    {pg.breakId && <button onClick={() => removeBlock(pg.breakId)} className="text-[10px] font-semibold text-rose-500 hover:underline">✕ remove break</button>}
+                    {pg.breakId && <button onClick={() => removeBlock(pg.breakId)} className="text-[10px] max-md:py-1.5 font-semibold text-rose-500 hover:underline">✕ remove break</button>}
                   </div>,
                   ...(pg.ids.length === 0
                     ? [<div key={`pg-empty-${pi}`} className="text-center py-5 text-xs text-[#2A2035]/40 bg-white rounded-xl border border-dashed border-[#DEE7FF]">Empty page — add blocks from the palette or remove this break.</div>]
@@ -1314,7 +1316,7 @@ export default function BookletBuilderEditor() {
               </div>
             )
           ) : (
-            <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5">
+            <div className="bg-white rounded-2xl border border-[#DEE7FF] p-4 md:p-5">
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099]/70 font-semibold mb-2">Booklet content</p>
               {isChem ? (
                 <>
@@ -1419,10 +1421,16 @@ export default function BookletBuilderEditor() {
         {/* Preview column */}
         <div className="min-w-0 lg:h-full lg:min-h-0">
           <div className="lg:h-full lg:min-h-0 lg:flex lg:flex-col">
-            <div ref={previewScrollRef} className="bg-[#E9EDF6] rounded-xl p-4 overflow-auto max-h-[calc(100vh-160px)] lg:max-h-none lg:flex-1 lg:min-h-0"
+            <div ref={previewScrollRef} className="bg-[#E9EDF6] rounded-xl p-4 max-md:p-3 overflow-auto max-h-[calc(100vh-160px)] max-md:max-h-[80dvh] lg:max-h-none lg:flex-1 lg:min-h-0"
               onDoubleClick={onPreviewDblClick}
               title="Double-click any part of the preview to jump to its block">
-              <BookletPreview meta={meta} blocks={bk.blocks} solutions={solnView} />
+              {/* Phones: the A4 page keeps a readable size and scrolls sideways
+                  inside the card instead of shrinking to the screen width. */}
+              <div className="phone-scroll">
+                <div className="max-md:w-[520px]">
+                  <BookletPreview meta={meta} blocks={bk.blocks} solutions={solnView} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1435,9 +1443,9 @@ export default function BookletBuilderEditor() {
                    || pendingDelete.text || pendingDelete.caption || '').replace(/\s+/g, ' ').trim()
         const parts = (pendingDelete.parts || []).length
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm p-0 md:p-4"
             onClick={e => { if (e.target === e.currentTarget) setPendingDelete(null) }}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
               // Enter is left to the focused Delete button. Handling it here too
               // fired the delete twice and cost two Ctrl+Z presses to undo.
               onKeyDown={e => { if (e.key === 'Escape') setPendingDelete(null) }}>
@@ -1452,16 +1460,16 @@ export default function BookletBuilderEditor() {
                 )}
                 <p className="text-[11px] text-[#2A2035]/55 mt-3">You can bring it back with Ctrl/Cmd+Z.</p>
               </div>
-              <div className="px-6 py-3 bg-[#F8FAFF] border-t border-[#DEE7FF] flex flex-wrap items-center justify-end gap-2">
+              <div className="px-6 max-md:px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3 bg-[#F8FAFF] border-t border-[#DEE7FF] flex flex-wrap items-center justify-end gap-2">
                 <button onClick={() => setPendingDelete(null)}
-                  className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">Cancel</button>
+                  className="px-4 py-2 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">Cancel</button>
                 <button onClick={() => confirmRemoveBlock(true)}
                   title="Delete this one and stop asking for the next 5 minutes"
-                  className="px-3 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">
+                  className="px-3 py-2 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-white transition">
                   Delete · don&rsquo;t ask for 5 min
                 </button>
                 <button onClick={() => confirmRemoveBlock(false)} autoFocus
-                  className="px-4 py-2 text-xs font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition">Delete</button>
+                  className="px-4 py-2 max-md:py-2.5 text-xs font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition">Delete</button>
               </div>
             </div>
           </div>
@@ -1470,12 +1478,12 @@ export default function BookletBuilderEditor() {
 
       {bankOpen && <BankPicker booklet={bk} onClose={() => setBankOpen(false)} onPick={(blk) => insertBlock(blk)} />}
       {newQOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-0 md:p-4 overflow-y-auto"
           onClick={(e) => { if (e.target === e.currentTarget) setNewQOpen(false) }}>
-          <div className="bg-[#F7F9FF] rounded-2xl shadow-2xl w-full max-w-3xl my-8 p-5">
-            <div className="flex items-center justify-between mb-3">
+          <div className="bg-[#F7F9FF] rounded-none md:rounded-2xl shadow-2xl w-full max-w-3xl my-0 md:my-8 max-md:min-h-full p-4 md:p-5 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-5">
+            <div className="flex items-center justify-between gap-2 mb-3">
               <h2 className="text-base font-bold text-[#062E63]">New question → bank &amp; booklet</h2>
-              <button onClick={() => setNewQOpen(false)} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg">✕</button>
+              <button onClick={() => setNewQOpen(false)} className="shrink-0 text-[#2A2035]/40 hover:text-[#2A2035] text-lg max-md:w-10 max-md:h-10 max-md:flex max-md:items-center max-md:justify-center">✕</button>
             </div>
             <p className="text-[11px] text-[#2A2035]/50 mb-4">Saved to the question bank and added to this booklet as a block.</p>
             <QuestionEditor staffName={staff?.full_name}
@@ -1582,21 +1590,21 @@ function BankPicker({ booklet, onClose, onPick }) {
   }).slice(0, 80)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#DEE7FF] flex items-center gap-2">
-          <h2 className="text-base font-bold text-[#2A2035] mr-auto">Add from question bank</h2>
-          <select value={qtype} onChange={e => setQtype(e.target.value)} className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm p-0 md:p-4" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85dvh] md:max-h-[80vh] flex flex-col overflow-hidden">
+        <div className="px-4 md:px-5 py-3 md:py-4 border-b border-[#DEE7FF] flex items-center gap-2 max-md:flex-wrap">
+          <h2 className="text-base font-bold text-[#2A2035] mr-auto max-md:order-1">Add from question bank</h2>
+          <select value={qtype} onChange={e => setQtype(e.target.value)} className="border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none max-md:order-3 max-md:flex-1 max-md:min-w-0">
             <option value="">All types</option><option value="mcq">MCQ</option><option value="extended">Written</option>
           </select>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#325099]" />
-          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg ml-1">✕</button>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#325099] max-md:order-4 max-md:flex-1 max-md:min-w-0" />
+          <button onClick={onClose} className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg ml-1 max-md:order-2 max-md:w-10 max-md:h-10 max-md:flex max-md:items-center max-md:justify-center">✕</button>
         </div>
-        <div className="overflow-y-auto p-3 space-y-1.5">
+        <div className="overflow-y-auto p-3 space-y-1.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3">
           {qs === null ? <p className="text-center text-xs text-[#2A2035]/40 py-8">Loading…</p>
             : filtered.length === 0 ? <p className="text-center text-xs text-[#2A2035]/40 py-8">No matching questions.</p>
             : filtered.map(q => (
-              <button key={q.id} onClick={() => { onPick(bankToBlock(q)); onClose() }} className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg border border-[#E8EDF8] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
+              <button key={q.id} onClick={() => { onPick(bankToBlock(q)); onClose() }} className="w-full text-left flex items-center gap-3 px-3 py-2 max-md:py-2.5 rounded-lg border border-[#E8EDF8] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
                 <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#EEF4FF] text-[#325099] shrink-0">{q.qtype}</span>
                 <span className="flex-1 min-w-0 text-xs text-[#2A2035] truncate">{(q.stem_latex || '(no text)').replace(/\$/g, '').slice(0, 110)}</span>
                 {q.difficulty && <span className="text-[10px] text-[#2A2035]/40 shrink-0">D{q.difficulty}</span>}

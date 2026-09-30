@@ -33,14 +33,14 @@ export default function RubricsList() {
   return (
     <div className="min-h-screen bg-[#F7F9FF]">
       <TutorNav staffName={staff?.full_name} isAdmin={staff?.role === 'admin'} />
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-5 md:px-6 md:py-8">
         <Link href="/tutor/qbank/exams" className="text-xs text-[#325099] hover:underline">← Exams</Link>
-        <div className="flex items-center justify-between mb-6 mt-1">
-          <div>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-0 mb-6 mt-1">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-[#2A2035] font-display">Marking rubrics</h1>
             <p className="text-sm text-[#2A2035]/55 mt-0.5">Reusable band-descriptor grids for English writing papers. Attach one to any writing question in the exam builder.</p>
           </div>
-          <button onClick={create} disabled={busy} className="px-4 py-2 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">{busy ? '…' : '＋ New rubric'}</button>
+          <button onClick={create} disabled={busy} className="self-start md:self-auto shrink-0 px-4 py-2 max-md:py-2.5 bg-[#325099] text-white text-sm font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">{busy ? '…' : '＋ New rubric'}</button>
         </div>
 
         {rows === null ? <p className="text-sm text-[#2A2035]/40">Loading…</p>
@@ -52,12 +52,12 @@ export default function RubricsList() {
           ) : (
             <div className="space-y-2">
               {rows.map(r => (
-                <div key={r.id} className="bg-white rounded-xl border border-[#DEE7FF] p-4 flex items-center gap-3">
-                  <Link href={`/tutor/qbank/rubrics/${r.id}`} className="font-semibold text-[#2A2035] hover:text-[#325099] flex-1 min-w-0 truncate">{r.name}</Link>
-                  <span className="text-[11px] text-[#2A2035]/45 whitespace-nowrap">{(r.criteria || []).length} criteria · {(r.bands || []).length} bands</span>
-                  <Link href={`/tutor/qbank/rubrics/${r.id}`} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</Link>
-                  <button onClick={() => dup(r.id)} className="text-[11px] text-[#2A2035]/50 hover:text-[#325099]">Duplicate</button>
-                  <button onClick={() => del(r)} className="text-[11px] text-[#2A2035]/40 hover:text-rose-500">Delete</button>
+                <div key={r.id} className="bg-white rounded-xl border border-[#DEE7FF] p-4 flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-1">
+                  <Link href={`/tutor/qbank/rubrics/${r.id}`} className="font-semibold text-[#2A2035] hover:text-[#325099] flex-1 min-w-0 max-md:basis-full truncate">{r.name}</Link>
+                  <span className="text-[11px] text-[#2A2035]/45 whitespace-nowrap max-md:mr-auto">{(r.criteria || []).length} criteria · {(r.bands || []).length} bands</span>
+                  <Link href={`/tutor/qbank/rubrics/${r.id}`} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-2">Edit</Link>
+                  <button onClick={() => dup(r.id)} className="text-[11px] text-[#2A2035]/50 hover:text-[#325099] max-md:py-2">Duplicate</button>
+                  <button onClick={() => del(r)} className="text-[11px] text-[#2A2035]/40 hover:text-rose-500 max-md:py-2">Delete</button>
                 </div>
               ))}
             </div>

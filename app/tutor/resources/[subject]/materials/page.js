@@ -52,9 +52,9 @@ function SubjectMaterialsInner() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-5xl mx-auto px-6 pt-10 pb-16">
+      <div className="max-w-5xl mx-auto px-4 pt-5 pb-12 md:px-6 md:pt-10 md:pb-16">
         {/* Breadcrumb back to the subject hub */}
-        <nav className="text-[11px] text-[#2A2035]/45 mb-3">
+        <nav className="text-[11px] text-[#2A2035]/45 mb-3 break-words">
           <Link href="/tutor/resources" className="hover:text-[#325099]">Resources</Link>
           <span className="mx-1.5">›</span>
           <Link href={`/tutor/resources/${slug}`} className="hover:text-[#325099]">{cfg.label}</Link>
@@ -64,11 +64,11 @@ function SubjectMaterialsInner() {
         </nav>
 
         {/* Header band */}
-        <div className="rounded-2xl px-7 py-6 mb-6 border" style={{ background: cfg.tint, borderColor: cfg.border }}>
+        <div className="rounded-2xl px-4 py-5 md:px-7 md:py-6 mb-5 md:mb-6 border" style={{ background: cfg.tint, borderColor: cfg.border }}>
           <div className="flex items-center gap-3">
-            <span className="text-3xl">🗂️</span>
-            <div>
-              <h1 className="text-2xl font-bold" style={{ color: cfg.accent }}>
+            <span className="text-3xl shrink-0">🗂️</span>
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold break-words" style={{ color: cfg.accent }}>
                 {cfg.label} · Materials{tab ? ` · ${tab.label}` : ''}
               </h1>
               <p className="text-xs text-[#2A2035]/55 mt-0.5">
@@ -82,11 +82,11 @@ function SubjectMaterialsInner() {
 
         {/* Year / course TABS — picking one swaps its content in below. */}
         {tabs.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-7">
+          <div className="flex gap-1.5 mb-5 md:mb-7 max-md:overflow-x-auto max-md:whitespace-nowrap max-md:-mx-4 max-md:px-4 max-md:pb-1 md:flex-wrap">
             {tabs.map((t) => (
               <Link key={t.key} scroll={false}
                 href={t.key === tab?.key ? `/tutor/resources/${slug}/materials` : `/tutor/resources/${slug}/materials?course=${t.key}`}
-                className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border transition ${t.key === tab?.key ? 'text-white' : 'bg-white text-[#2A2035]/60 hover:text-[#2A2035]'}`}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition ${t.key === tab?.key ? 'text-white' : 'bg-white text-[#2A2035]/60 hover:text-[#2A2035]'}`}
                 style={t.key === tab?.key ? { background: cfg.accent, borderColor: cfg.accent } : { borderColor: cfg.border }}>
                 {t.label}
               </Link>
@@ -99,7 +99,7 @@ function SubjectMaterialsInner() {
         ) : (
           <>
             {/* Area cards — the unscoped landing view */}
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-2 gap-3 md:gap-4">
               {MATERIAL_AREAS(cfg.value).filter((a) => !a.adminOnly || profile?.role !== 'tutor').map((a) => (
                 <Link key={a.label} href={a.href}
                   className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">
@@ -231,7 +231,7 @@ function CoursePanel({ slug, cfg, tab, profile }) {
       {/* Workbooks that belong to no topic page */}
       {unfiled?.length > 0 && (
         <>
-          <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-9 mb-2.5">
+          <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-7 md:mt-9 mb-2.5">
             Unfiled workbooks <span className="text-[#2A2035]/35">· {unfiled.length}</span>
           </h2>
           <div className="space-y-2">
@@ -239,8 +239,8 @@ function CoursePanel({ slug, cfg, tab, profile }) {
               const st = statusStyle(b.status)
               const build = builds[b.id]
               return (
-                <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex items-center gap-3">
-                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate">
+                <div key={b.id} className="bg-white rounded-xl border border-[#F0F4FF] px-4 py-3 flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-2 md:gap-3">
+                  <span className="text-sm font-semibold text-[#2A2035] flex-1 min-w-0 truncate max-md:basis-full max-md:whitespace-normal max-md:break-words">
                     {bookletLabel({ ...b, year: tab.year, subject: tab.subject })}
                   </span>
                   <span className="text-[11px] text-[#2A2035]/40 shrink-0 max-w-[40%] truncate">
@@ -251,13 +251,13 @@ function CoursePanel({ slug, cfg, tab, profile }) {
                   <button
                     onClick={() => setInfoFor(b)}
                     title="Term, week, topic, notes and the improvement checklists"
-                    className="text-[11px] font-semibold shrink-0 text-[#325099]/70 hover:text-[#325099] hover:underline transition">
+                    className="text-[11px] font-semibold shrink-0 text-[#325099]/70 hover:text-[#325099] hover:underline transition max-md:py-1.5">
                     &#8505; Info
                   </button>
                   {bookletPdfs(b).map((p) => (
                     <button key={p.path} onClick={() => openBookletPdf(b, p)}
                       title={p.isSolutions ? 'Preview the solutions copy' : 'Preview the student copy'}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 transition hover:brightness-95"
+                      className="text-[10px] font-bold px-2 py-0.5 max-md:px-3 max-md:py-1.5 rounded-full border shrink-0 transition hover:brightness-95"
                       style={PDF_BUTTON_STYLE(p.isSolutions)}>
                       {p.label}
                     </button>
@@ -281,8 +281,8 @@ function CoursePanel({ slug, cfg, tab, profile }) {
       )}
 
       {/* The two Materials areas, scoped to this year/course */}
-      <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-9 mb-2.5">Open</h2>
-      <div className="grid sm:grid-cols-2 gap-4">
+      <h2 className="text-[10px] font-bold tracking-widest uppercase text-[#325099]/60 mt-7 md:mt-9 mb-2.5">Open</h2>
+      <div className="grid sm:grid-cols-2 gap-3 md:gap-4">
         {MATERIAL_AREAS(cfg.value, tab).filter((a) => !a.adminOnly || profile?.role !== 'tutor').map((a) => (
           <Link key={a.label} href={a.href}
             className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5">

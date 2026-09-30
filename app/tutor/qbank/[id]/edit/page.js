@@ -33,9 +33,9 @@ function EditQuestionInner() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-3xl mx-auto px-6 pt-8 pb-16">
+      <div className="max-w-3xl mx-auto px-4 pt-5 md:px-6 md:pt-8 pb-16">
         <Link href={`/tutor/qbank${scope ? `?subject=${scope}` : ''}`} className="text-xs text-[#325099] hover:underline">← Question bank</Link>
-        <h1 className="text-2xl font-bold text-[#062E63] mt-1 mb-6">Edit question</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-[#062E63] mt-1 mb-4 md:mb-6">Edit question</h1>
         <QuestionEditor questionId={params.id} staffName={profile?.full_name} />
       </div>
     </div>

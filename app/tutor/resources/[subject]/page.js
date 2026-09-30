@@ -44,21 +44,21 @@ export default function SubjectHubPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-5xl mx-auto px-6 pt-10 pb-16">
+      <div className="max-w-5xl mx-auto px-4 pt-5 pb-12 md:px-6 md:pt-10 md:pb-16">
         {/* Header band */}
-        <div className="rounded-2xl px-7 py-6 mb-8 border" style={{ background: cfg.tint, borderColor: cfg.border }}>
+        <div className="rounded-2xl px-4 py-5 mb-6 md:px-7 md:py-6 md:mb-8 border" style={{ background: cfg.tint, borderColor: cfg.border }}>
           <div className="flex items-center gap-3">
-            <span className="text-3xl">{cfg.icon}</span>
-            <div>
+            <span className="text-3xl shrink-0">{cfg.icon}</span>
+            <div className="min-w-0">
               <h1 className="text-2xl font-bold" style={{ color: cfg.accent }}>{cfg.label}</h1>
               <p className="text-xs text-[#2A2035]/55 mt-0.5">{cfg.blurb}</p>
             </div>
           </div>
           {/* Quick subject switcher */}
-          <div className="flex items-center gap-1.5 mt-4">
+          <div className="flex items-center gap-1.5 mt-4 max-md:overflow-x-auto max-md:whitespace-nowrap max-md:-mx-4 max-md:px-4 max-md:pb-1">
             {Object.entries(SUBJECTS).map(([s2slug, s]) => (
               <Link key={s2slug} href={`/tutor/resources/${s2slug}`}
-                className={`px-3 py-1 rounded-full text-[11px] font-semibold border transition ${s2slug === slug
+                className={`shrink-0 px-3 py-1.5 md:py-1 rounded-full text-[11px] font-semibold border transition ${s2slug === slug
                   ? 'text-white' : 'bg-white text-[#2A2035]/60 hover:text-[#2A2035]'}`}
                 style={s2slug === slug
                   ? { background: cfg.accent, borderColor: cfg.accent }
@@ -70,7 +70,7 @@ export default function SubjectHubPage() {
         </div>
 
         {/* Area cards */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
           {AREAS(cfg.value, slug).map((a) => (
             <Link key={a.label} href={a.href}
               className="group bg-white rounded-2xl border border-[#F0F4FF] p-5 hover:shadow-md transition hover:-translate-y-0.5"

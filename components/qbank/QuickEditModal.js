@@ -115,10 +115,10 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#0B1020]/60 backdrop-blur-sm overflow-y-auto py-8" onClick={() => !saving && onClose?.()}>
-      <div className="bg-white rounded-2xl border border-[#E5ECFF] w-full max-w-2xl mx-4 p-5 space-y-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-[#0B1020]/60 backdrop-blur-sm overflow-y-auto py-8 max-md:items-end max-md:py-0" onClick={() => !saving && onClose?.()}>
+      <div className="bg-white rounded-2xl border border-[#E5ECFF] w-full max-w-2xl mx-4 p-5 space-y-4 shadow-xl max-md:mx-0 max-md:p-4 max-md:rounded-b-none max-md:max-h-[90dvh] max-md:overflow-y-auto max-md:pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-bold text-[#062E63] flex-1">Quick edit question</h2>
+          <h2 className="text-sm font-bold text-[#062E63] flex-1 min-w-0">Quick edit question</h2>
           <span className="text-[10px] text-[#2A2035]/40">Saves to the question bank</span>
         </div>
 
@@ -128,7 +128,7 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
         <div>
           <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Difficulty</label>
           <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
-            className="w-44 border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#325099]">
+            className="w-44 max-w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#325099]">
             {difficulty === '' && <option value="">—</option>}
             {DIFFICULTY_LEVELS.map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
           </select>
@@ -165,25 +165,25 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
             <div className="flex items-center gap-2">
               <label className="text-xs font-semibold text-[#062E63] flex-1">Options — select the correct one</label>
               <button type="button" onClick={shuffleOpts} disabled={options.length < 2}
-                className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2 py-1 hover:bg-[#F0F4FF] transition disabled:opacity-40">
+                className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-2 py-1 max-md:px-3 max-md:py-2 hover:bg-[#F0F4FF] transition disabled:opacity-40">
                 ⇅ Shuffle
               </button>
             </div>
             {options.map((opt, i) => (
               <div key={opt.key} className="flex items-start gap-2">
                 <button type="button" onClick={() => setCorrectKey(opt.key)} title="Mark correct"
-                  className={`mt-1 w-7 h-7 shrink-0 rounded-full text-xs font-bold border transition ${correctKey === opt.key ? 'bg-[#16A34A] text-white border-[#16A34A]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#16A34A]'}`}>
+                  className={`mt-1 w-7 h-7 max-md:w-9 max-md:h-9 max-md:mt-0.5 shrink-0 rounded-full text-xs font-bold border transition ${correctKey === opt.key ? 'bg-[#16A34A] text-white border-[#16A34A]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#16A34A]'}`}>
                   {MCQ_LABELS[i]}
                 </button>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <LatexField value={opt.latex} rows={1} onChange={(v) => setOptLatex(opt.key, v)}
                     placeholder={`Option ${MCQ_LABELS[i]}…`} />
                 </div>
                 <div className="flex flex-col gap-0.5 mt-0.5 shrink-0">
                   <button type="button" onClick={() => moveOpt(i, -1)} disabled={i === 0} title="Move up"
-                    className="w-6 h-5 rounded border border-[#DEE7FF] text-[10px] text-[#325099] hover:bg-[#F0F4FF] transition disabled:opacity-30">▲</button>
+                    className="w-6 h-5 max-md:w-9 max-md:h-8 rounded border border-[#DEE7FF] text-[10px] text-[#325099] hover:bg-[#F0F4FF] transition disabled:opacity-30">▲</button>
                   <button type="button" onClick={() => moveOpt(i, 1)} disabled={i === options.length - 1} title="Move down"
-                    className="w-6 h-5 rounded border border-[#DEE7FF] text-[10px] text-[#325099] hover:bg-[#F0F4FF] transition disabled:opacity-30">▼</button>
+                    className="w-6 h-5 max-md:w-9 max-md:h-8 rounded border border-[#DEE7FF] text-[10px] text-[#325099] hover:bg-[#F0F4FF] transition disabled:opacity-30">▼</button>
                 </div>
               </div>
             ))}
@@ -202,11 +202,11 @@ export default function QuickEditModal({ question, onClose, onSaved }) {
 
         <div className="flex items-center gap-3 pt-1">
           <button onClick={save} disabled={saving}
-            className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
+            className="px-4 py-2 max-md:flex-1 max-md:py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? 'Saving…' : 'Save changes'}
           </button>
           <button onClick={() => !saving && onClose?.()}
-            className="px-4 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/60 hover:bg-[#F8FAFF] transition">
+            className="px-4 py-2 max-md:flex-1 max-md:py-2.5 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/60 hover:bg-[#F8FAFF] transition">
             Cancel
           </button>
         </div>

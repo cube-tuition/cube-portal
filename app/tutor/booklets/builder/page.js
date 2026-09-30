@@ -13,7 +13,7 @@ export default function BookletBuilderListRedirect() {
   useEffect(() => { router.replace('/tutor/booklets/master') }, [router])
   return (
     <div className="min-h-screen bg-[#F7F9FF] flex items-center justify-center">
-      <p className="text-sm text-[#325099]/60 font-semibold tracking-widest uppercase">Redirecting to Master Database…</p>
+      <p className="px-4 text-center text-sm text-[#325099]/60 font-semibold tracking-widest uppercase">Redirecting to Master Database…</p>
     </div>
   )
 }

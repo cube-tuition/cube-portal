@@ -239,11 +239,11 @@ function QuestionBankInner() {
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-5xl mx-auto px-6 pt-8 pb-16">
+      <div className="max-w-5xl mx-auto px-4 pt-5 md:px-6 md:pt-8 pb-16">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Question Bank{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold text-[#062E63]">Question Bank{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
               {scope
                 ? <>{subjectCounts[scope] || 0} {SCOPE_LABEL[scope]} question{(subjectCounts[scope] || 0) === 1 ? '' : 's'} · <Link href={`/tutor/resources/${scope.toLowerCase()}`} className="text-[#325099] hover:underline">back to hub</Link></>
@@ -253,8 +253,8 @@ function QuestionBankInner() {
           <div className="flex items-center gap-2">
             {/* No "Additional Questions" link here — the subject hub already has
                 that card, and two doors to the same screen is one too many. */}
-            <Link href={`/tutor/qbank/categories${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
-            <Link href={`/tutor/qbank/new${scope ? `?subject=${scope}` : ''}`} className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
+            <Link href={`/tutor/qbank/categories${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 max-md:py-2.5 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
+            <Link href={`/tutor/qbank/new${scope ? `?subject=${scope}` : ''}`} className="px-4 py-2 max-md:py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
           </div>
         </div>
 
@@ -300,7 +300,7 @@ function QuestionBankInner() {
         )}
 
         {/* Filters */}
-        <div className="mt-3 bg-white rounded-2xl border border-[#F0F4FF] p-4 flex flex-wrap items-center gap-2">
+        <div className="mt-3 bg-white rounded-2xl border border-[#F0F4FF] p-3 md:p-4 flex flex-wrap items-center gap-2">
           <FilterSelect
             value={topicId}
             placeholder={activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}
@@ -343,7 +343,7 @@ function QuestionBankInner() {
             onSelect={setQtype}
           />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search text…"
-            className="flex-1 min-w-[120px] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
+            className="flex-1 min-w-[120px] max-md:basis-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
           {/* Sort sits with the filters but is deliberately not cleared by
               "Clear" — it's how you're looking at the list, not what's in it. */}
           <label className="flex items-center gap-1.5 shrink-0">
@@ -361,7 +361,7 @@ function QuestionBankInner() {
               <option value="difficulty-desc">Difficulty: hardest first</option>
             </select>
           </label>
-          {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline">Clear</button> : null}
+          {hasFilter ? <button onClick={clearFilters} className="text-[11px] text-[#325099] font-semibold hover:underline max-md:px-2 max-md:py-2">Clear</button> : null}
         </div>
 
         {/* CUBE / Students audience tabs — the primary split */}
@@ -372,7 +372,7 @@ function QuestionBankInner() {
             const tabs = [['all', 'All', scoped.length], ['exam', 'CUBE', cubeCount], ['student', 'Students', studentCount]]
             return tabs.map(([v, lbl, n]) => (
               <button key={v} onClick={() => setAudienceTab(v)}
-                className={`px-5 py-2.5 text-base font-bold border-b-[3px] -mb-[2px] transition ${audienceTab === v ? 'border-[#D97706] text-[#92400E]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
+                className={`px-3 md:px-5 py-2.5 text-base font-bold border-b-[3px] -mb-[2px] transition ${audienceTab === v ? 'border-[#D97706] text-[#92400E]' : 'border-transparent text-[#2A2035]/40 hover:text-[#2A2035]/70'}`}>
                 {lbl} <span className="text-xs font-normal">({n})</span>
               </button>
             ))
@@ -380,13 +380,13 @@ function QuestionBankInner() {
         </div>
 
         {/* Used / Unused — secondary chips within the selected audience */}
-        <div className="flex items-center gap-1.5 mt-3">
+        <div className="flex flex-wrap items-center gap-1.5 mt-3">
           {(() => {
             const usedCount = audienceScoped.filter((q) => (usageMap[q.id]?.count || 0) > 0).length
             const tabs = [['all', 'All', audienceScoped.length], ['used', 'Used', usedCount], ['unused', 'Unused', audienceScoped.length - usedCount]]
             return tabs.map(([v, lbl, n]) => (
               <button key={v} onClick={() => setUsageTab(v)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${usageTab === v ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#325099] hover:text-[#325099]'}`}>
+                className={`px-3 py-1 max-md:py-1.5 rounded-full text-xs font-semibold border transition ${usageTab === v ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:border-[#325099] hover:text-[#325099]'}`}>
                 {lbl} <span className="font-normal opacity-80">({n})</span>
               </button>
             ))
@@ -409,7 +409,7 @@ function QuestionBankInner() {
             const nParts = q.qbank_question_parts?.length || 0
             const imgs = q.qbank_question_images || []
             return (
-              <div key={q.id} className="bg-white rounded-2xl border border-[#F0F4FF] p-4 hover:border-[#DEE7FF] transition">
+              <div key={q.id} className="bg-white rounded-2xl border border-[#F0F4FF] p-4 hover:border-[#DEE7FF] transition min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-2">
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ background: DIFFICULTY_COLORS[q.difficulty] }}>
                     {DIFFICULTY_LABELS[q.difficulty]}
@@ -426,21 +426,21 @@ function QuestionBankInner() {
                   {l?.subtopic && <span className="text-[11px] text-[#2A2035]/40">› {l.subtopic.name}</span>}
                   {l?.skill && <span className="text-[11px] text-[#2A2035]/40">› {l.skill.name}</span>}
                   {!l?.topic && <span className="text-[11px] text-[#EA580C]">⚠ untagged</span>}
-                  <div className="ml-auto flex items-center gap-3">
+                  <div className="ml-auto flex flex-wrap items-center gap-3 max-md:w-full max-md:justify-end max-md:pt-1">
                     {(() => { const m = questionTotalMarks(q); return m ? <span className="text-[11px] text-[#2A2035]/40">{m} mark{m === 1 ? '' : 's'}</span> : null })()}
                     {nParts > 0 && <span className="text-[11px] text-[#2A2035]/40">{nParts} part{nParts === 1 ? '' : 's'}</span>}
                     {imgs.length > 0 && <span className="text-[11px] text-[#2A2035]/40">🖼 {imgs.length}</span>}
-                    <Link href={`/tutor/qbank/${q.id}/edit?subject=${scope}`} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</Link>
+                    <Link href={`/tutor/qbank/${q.id}/edit?subject=${scope}`} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-1.5">Edit</Link>
                     <button
                       onClick={() => handleDuplicate(q)}
                       disabled={duplicatingId != null}
                       title="Make a copy of this question and open it for editing"
-                      className="text-[11px] font-semibold text-[#325099]/70 hover:text-[#325099] hover:underline disabled:opacity-40 disabled:no-underline"
+                      className="text-[11px] font-semibold text-[#325099]/70 hover:text-[#325099] hover:underline disabled:opacity-40 disabled:no-underline max-md:py-1.5"
                     >{duplicatingId === q.id ? 'Copying…' : 'Duplicate'}</button>
-                    <button onClick={() => handleDelete(q)} className="text-[11px] text-[#DC2626] hover:underline">Delete</button>
+                    <button onClick={() => handleDelete(q)} className="text-[11px] text-[#DC2626] hover:underline max-md:py-1.5">Delete</button>
                   </div>
                 </div>
-                <div className="text-sm text-[#2A2035]">
+                <div className="text-sm text-[#2A2035] phone-scroll">
                   <LatexContent text={q.stem_latex || '(no stem)'} />
                 </div>
                 {/* MCQ options */}
@@ -449,7 +449,7 @@ function QuestionBankInner() {
                     {q.options.map((opt) => (
                       <div key={opt.label} className={`flex items-start gap-1.5 text-[13px] ${opt.label === q.correct_option ? 'text-[#166534] font-semibold' : 'text-[#2A2035]/80'}`}>
                         <span className="font-bold">{opt.label}.</span>
-                        <span className="min-w-0"><LatexContent text={opt.latex || ''} /></span>
+                        <span className="min-w-0 phone-scroll"><LatexContent text={opt.latex || ''} /></span>
                         {opt.label === q.correct_option && <span>✓</span>}
                       </div>
                     ))}
@@ -462,7 +462,7 @@ function QuestionBankInner() {
                       const lbl = partLabel(i)
                       return (
                         <div key={p.id} className="flex items-start gap-2 text-[13px] text-[#2A2035]/80">
-                          <div className="flex-1 min-w-0"><span className="font-semibold mr-1">{lbl})</span><LatexContent text={p.prompt_latex || ''} /></div>
+                          <div className="flex-1 min-w-0 phone-scroll"><span className="font-semibold mr-1">{lbl})</span><LatexContent text={p.prompt_latex || ''} /></div>
                           {p.marks != null && <span className="text-[11px] text-[#2A2035]/40 shrink-0 mt-0.5">[{p.marks}]</span>}
                         </div>
                       )
@@ -470,7 +470,7 @@ function QuestionBankInner() {
                   </div>
                 )}
                 {imgs.length > 0 && (
-                  <div className="flex gap-2 mt-2">
+                  <div className="flex flex-wrap gap-2 mt-2">
                     {imgs.slice(0, 4).map((im) => (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img key={im.id} src={qbankImageUrl(im.storage_path)} alt="" className="h-14 w-14 object-contain rounded-lg bg-[#F8FAFF] border border-[#F0F4FF]" />
@@ -501,7 +501,7 @@ function FilterSelect({ value, options, onSelect, placeholder, clearLabel = null
     return (
       <span
         title={disabledHint}
-        className="border border-[#E5EAF5] rounded-lg px-2.5 py-1.5 text-xs bg-[#EEF1F6] text-[#2A2035]/40 flex items-center gap-1.5 cursor-not-allowed select-none"
+        className="border border-[#E5EAF5] rounded-lg px-2.5 py-1.5 max-md:py-2 text-xs bg-[#EEF1F6] text-[#2A2035]/40 flex items-center gap-1.5 cursor-not-allowed select-none"
       >
         <span className="truncate max-w-[180px]">{placeholder}</span>
         <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0 opacity-60">
@@ -516,7 +516,7 @@ function FilterSelect({ value, options, onSelect, placeholder, clearLabel = null
       <button
         type="button"
         onClick={(e) => setPop(e.currentTarget.getBoundingClientRect())}
-        className={`border rounded-lg px-2.5 py-1.5 text-xs flex items-center gap-1.5 transition ${current
+        className={`border rounded-lg px-2.5 py-1.5 max-md:py-2 text-xs flex items-center gap-1.5 transition ${current
           ? 'border-[#325099] bg-[#F0F4FF] text-[#062E63] font-semibold'
           : 'border-[#DEE7FF] bg-white text-[#2A2035] hover:border-[#325099]'}`}
       >
@@ -557,7 +557,7 @@ function UsagePopover({ usage, anchor, onClose }) {
   return (
     <div className="fixed inset-0 z-50" onMouseDown={onClose}>
       <div
-        className="fixed bg-white border border-[#BACBFF] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="fixed max-w-[calc(100vw-16px)] bg-white border border-[#BACBFF] rounded-xl shadow-2xl overflow-hidden flex flex-col"
         style={pos}
         onMouseDown={(e) => e.stopPropagation()}
       >

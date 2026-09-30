@@ -43,7 +43,7 @@ const pdfRoleLabel = (name, i, total) => {
 }
 const pdfRoleTitle = (l) => (l === 'S' ? 'Student PDF' : l === 'T' ? 'Teacher PDF' : 'Open the PDF')
 // One shape for every PDF pill in the curriculum.
-const PDF_PILL = 'inline-flex items-center text-[9px] font-bold h-[16px] rounded-md hover:opacity-80 transition whitespace-nowrap'
+const PDF_PILL = 'inline-flex items-center text-[9px] font-bold h-6 md:h-[16px] rounded-md hover:opacity-80 transition whitespace-nowrap'
 
 const isMathsSubject = (s) => s === 'Maths' || s?.includes('Maths')
 const getAccentColor = (s) => isMathsSubject(s) ? '#325099' : s === 'Chemistry' || s === 'Physics' ? '#0F766E' : '#7C3AED'
@@ -56,7 +56,7 @@ const getAccentBg    = (s) => isMathsSubject(s) ? '#EEF4FF'  : s === 'Chemistry'
 // Curriculum row actions are icon-only — the words "Info" and "Builder" were
 // repeated on every slot. Drawn as SVG rather than emoji so they can take the
 // amber tint that flags an open checklist (emoji ignore text colour).
-const ICON_BTN = 'inline-flex items-center justify-center w-[20px] h-[20px] rounded-md transition shrink-0'
+const ICON_BTN = 'inline-flex items-center justify-center w-8 h-8 md:w-[20px] md:h-[20px] rounded-md transition shrink-0'
 
 const InfoButton = ({ booklet, onClick }) => {
   const n = openTotal(booklet)
@@ -96,7 +96,7 @@ const StatusBadge = ({ status }) => status ? (
 
 // Every curriculum slot is this tall, filled or empty, so week rows line up
 // across the term columns — a ragged grid is much harder to read down.
-const SLOT_H = 'h-[52px]'
+const SLOT_H = 'min-h-[52px] md:min-h-0 md:h-[52px]'
 
 // Curriculum slots use a quieter form of the same thing: a coloured dot and
 // plain text, so ten of them down a column don't shout over the booklet names.
@@ -181,14 +181,14 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
   const tabCls = (t) => `flex-1 px-3 py-1.5 text-xs font-bold rounded-lg transition ${tab === t ? 'bg-[#325099] text-white' : 'text-[#2A2035]/50 hover:bg-[#F0F4FF]'}`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm p-0 md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90dvh] md:max-h-[80vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <div>
             <h2 className="text-sm font-bold text-[#062E63]">Assign to week</h2>
             <p className="text-[10px] text-[#2A2035]/40 mt-0.5">{className} · Term {term}, {weekLabel(subject, week)}</p>
           </div>
-          <button onClick={onClose} disabled={!!saving} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
+          <button onClick={onClose} disabled={!!saving} className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
         </div>
 
         <div className="px-4 pt-3">
@@ -206,7 +206,7 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
 
         {error && <p className="px-5 text-[11px] text-[#DC2626] pb-1">{error}</p>}
 
-        <div className="overflow-y-auto flex-1 px-4 pb-4">
+        <div className="overflow-y-auto flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
           {tab === 'booklet' ? (
             loading ? (
               <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
@@ -231,7 +231,7 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
                             {pdfCount} PDF{pdfCount > 1 ? 's' : ''}
                           </span>
                         )}
-                        <span className="text-[10px] font-semibold opacity-0 group-hover:opacity-100 transition" style={{ color: accentColor }}>
+                        <span className="text-[10px] font-semibold md:opacity-0 md:group-hover:opacity-100 transition" style={{ color: accentColor }}>
                           {saving === b.id ? 'Saving…' : 'Assign →'}
                         </span>
                       </div>
@@ -373,7 +373,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
   const terms = curriculumTerms(year)
   return (
     <>
-      <div className={`grid grid-cols-2 gap-3 mt-3 ${terms.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+      <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 ${terms.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
         {terms.map(term => {
           const filled = [...Array(10)].filter((_, i) => slotMap[`${term}-${i + 1}`]).length
           return (
@@ -418,7 +418,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                                 return data?.publicUrl ? (
                                   <a key={pi} href={data.publicUrl} target="_blank" rel="noopener noreferrer"
                                     title={pdfRoleTitle(label)} aria-label={pdfRoleTitle(label)}
-                                    className={`${PDF_PILL} ${label.length === 1 ? 'w-[18px] justify-center' : 'px-1.5'}`}
+                                    className={`${PDF_PILL} ${label.length === 1 ? 'w-6 md:w-[18px] justify-center' : 'px-1.5'}`}
                                     style={{ background: accentBg, color: accentColor }}>
                                     {label}
                                   </a>
@@ -429,13 +429,13 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                           ) : null}
                         </div>
                         {groupLabel(b) && <p className="text-[9px] mt-0.5 font-medium truncate pl-[44px]" style={{ color: accentColor }}>{groupLabel(b)}</p>}
-                        <div className="flex items-center mt-[3px] pl-[44px] h-[14px]">
-                          <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
-                          <span className="absolute left-[44px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center mt-[3px] pl-[44px] h-8 md:h-[14px]">
+                          <span className="md:group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
+                          <span className="ml-auto md:ml-0 md:absolute md:left-[44px] flex items-center gap-1 md:gap-2.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
                             {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} />}
                             <button onClick={() => handleUnassign(a.id)}
-                              className="text-[9px] font-semibold text-[#A8531A] hover:underline transition">Unassign</button>
+                              className="px-2 py-2 md:p-0 text-[11px] md:text-[9px] font-semibold text-[#A8531A] hover:underline transition">Unassign</button>
                           </span>
                         </div>
                       </div>
@@ -450,7 +450,7 @@ function ClassTermBoard({ cls, year, subject, accentColor, accentBg, staff }) {
                     className={`group w-full rounded-[10px] transition text-left ${SLOT_H} flex items-center ${overSlot === `${term}-${week}` ? 'bg-[#E2EAFB] ring-2 ring-[#325099]/30' : 'bg-[#EEF2FA] hover:bg-[#E2EAFB]'}`}>
                     <div className="px-3 flex items-baseline gap-2 w-full">
                       <span className="text-[9px] font-bold uppercase tracking-wider shrink-0 min-w-[36px] whitespace-nowrap text-[#B4BFD4] group-hover:text-[#325099] transition">{isChemistry(subject) ? 'Ln' : 'Wk'} {week}</span>
-                      <span className="text-[11px] font-medium text-transparent group-hover:text-[#325099]/70 transition leading-snug">+ assign booklet</span>
+                      <span className="text-[11px] font-medium text-[#325099]/45 md:text-transparent md:group-hover:text-[#325099]/70 transition leading-snug">+ assign booklet</span>
                     </div>
                   </button>
                 )
@@ -657,11 +657,11 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
   const totalFiles = existingPaths.length + newFiles.length
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm p-0 md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90dvh] md:max-h-[90vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <h2 className="text-sm font-bold text-[#062E63]">{isEdit ? 'Edit Booklet' : 'Add Booklet'}</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
+          <button onClick={onClose} className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg">×</button>
         </div>
         <div className="overflow-y-auto flex-1 px-6 py-5 flex flex-col gap-4">
           {/* Name */}
@@ -817,10 +817,10 @@ function BookletModal({ booklet, defaultYear, defaultSubject, defaultTerm, defau
           </div>
           {err && <p className="text-xs text-red-500">{err}</p>}
         </div>
-        <div className="px-6 py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
+        <div className="px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:py-4 border-t border-[#F0F4FF] flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2.5 md:py-2 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] transition">Cancel</button>
           <button onClick={handleSubmit} disabled={saving}
-            className="px-4 py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
+            className="px-4 py-2.5 md:py-2 text-xs font-semibold bg-[#325099] text-white rounded-lg hover:bg-[#062E63] transition disabled:opacity-50">
             {saving ? (newFiles.length ? 'Uploading…' : 'Saving…') : isEdit ? 'Save Changes' : 'Add Booklet'}
           </button>
         </div>
@@ -890,14 +890,14 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
   const tabCls = (t) => `flex-1 px-3 py-1.5 text-xs font-bold rounded-lg transition ${tab === t ? 'bg-[#325099] text-white' : 'text-[#2A2035]/50 hover:bg-[#F0F4FF]'}`
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 backdrop-blur-sm p-0 md:p-4">
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90dvh] md:max-h-[80vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <div>
             <h2 className="text-sm font-bold text-[#062E63]">Assign to week</h2>
             <p className="text-[10px] text-[#2A2035]/40 mt-0.5">Year {year} {subject} · Term {term}, {weekLabel(subject, week)}</p>
           </div>
-          <button onClick={onClose} disabled={!!assigning} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
+          <button onClick={onClose} disabled={!!assigning} className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg disabled:opacity-40">×</button>
         </div>
 
         <div className="px-4 pt-3">
@@ -932,7 +932,7 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
 
         {error && <p className="px-5 text-[11px] text-[#DC2626] pb-1">{error}</p>}
 
-        <div className="overflow-y-auto flex-1 px-4 pb-4">
+        <div className="overflow-y-auto flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
           {tab === 'booklet' ? (
             loading ? (
               <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
@@ -971,7 +971,7 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
                             {pdfCount} PDF{pdfCount > 1 ? 's' : ''}
                           </span>
                         )}
-                        <span className="text-[10px] font-semibold text-[#325099] opacity-0 group-hover:opacity-100 transition">
+                        <span className="text-[10px] font-semibold text-[#325099] md:opacity-0 md:group-hover:opacity-100 transition">
                           {assigning === b.id ? 'Assigning…' : 'Assign →'}
                         </span>
                       </div>
@@ -1172,7 +1172,7 @@ function BookletsPageInner() {
 
       {/* Header */}
       <div className="bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Curriculum{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">
@@ -1181,17 +1181,17 @@ function BookletsPageInner() {
           </div>
           <button
             onClick={() => { setAddPrefill({}); setCreating(true) }}
-            className="px-4 py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition"
+            className="px-4 py-2.5 md:py-2 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition"
           >
             + New booklet
           </button>
         </div>
 
         {/* Year tabs */}
-        <div className="max-w-7xl mx-auto px-6 md:px-10 flex gap-1 overflow-x-auto pb-0">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 flex gap-1 overflow-x-auto pb-0">
           {visibleYears.map(y => (
             <button key={y} onClick={() => setActiveYear(y)}
-              className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+              className={`shrink-0 px-4 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
                 activeYear === y
                   ? 'border-[#325099] text-[#325099]'
                   : 'border-transparent text-[#2A2035]/50 hover:text-[#325099]'
@@ -1202,12 +1202,12 @@ function BookletsPageInner() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6">
+      <div className="max-w-7xl mx-auto px-4 md:px-10 pt-5 md:pt-6">
         {/* Subject tabs (narrowed to the hub scope when one is active) */}
         <div className="flex gap-2 mb-5 flex-wrap">
           {subjectsFor(activeYear).map(s => (
             <button key={s} onClick={() => setActiveSub(s)}
-              className={`px-5 py-2 rounded-xl text-sm font-semibold border transition ${
+              className={`px-4 md:px-5 py-2 rounded-xl text-sm font-semibold border transition ${
                 activeSub === s
                   ? 'bg-[#325099] text-white border-[#325099]'
                   : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -1220,7 +1220,7 @@ function BookletsPageInner() {
         {/* Which term's classes to show — a finished term's curriculum is on
             that term's class rows, so pick the term to get back to it. */}
         {allTerms.length > 0 && (
-          <div className="flex items-center gap-2 mb-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
             <span className="font-semibold text-[#325099]/60">Classes from</span>
             <select value={viewTermId} onChange={e => setViewTermId(e.target.value)}
               className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 font-semibold text-[#325099] bg-white focus:outline-none focus:border-[#325099]">
@@ -1231,10 +1231,10 @@ function BookletsPageInner() {
 
         {/* Class tabs: General + one per class (tabs only if ≥1 class) */}
         {classes.length > 0 && (
-          <div className="flex gap-1 mb-5 overflow-x-auto">
+          <div className="flex gap-1 mb-5 overflow-x-auto max-md:-mx-4 max-md:px-4">
             {/* General tab */}
             <button onClick={() => setActiveClass(null)}
-              className={`px-4 py-2 text-xs font-semibold rounded-xl border transition whitespace-nowrap ${
+              className={`shrink-0 px-4 py-2.5 md:py-2 text-xs font-semibold rounded-xl border transition whitespace-nowrap ${
                 activeClass === null
                   ? 'bg-[#325099] text-white border-[#325099]'
                   : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -1244,7 +1244,7 @@ function BookletsPageInner() {
             {/* One tab per class (show day+time if multiple, or just class name if one) */}
             {classes.map(cls => (
               <button key={cls.id} onClick={() => setActiveClass(cls.id)}
-                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition whitespace-nowrap ${
+                className={`shrink-0 px-4 py-2.5 md:py-2 text-xs font-semibold rounded-xl border transition whitespace-nowrap ${
                   activeClass === cls.id
                     ? 'bg-[#325099] text-white border-[#325099]'
                     : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#325099]'
@@ -1295,7 +1295,7 @@ function BookletsPageInner() {
                 </div>
               )
             })()}
-            <div className={`grid grid-cols-2 gap-4 ${curriculumTerms(activeYear).length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${curriculumTerms(activeYear).length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
               {curriculumTerms(activeYear).map(termNum => {
                 const byWeek = {}
                 visible.filter(b => b.term_number === termNum).forEach(b => {
@@ -1361,7 +1361,7 @@ function BookletsPageInner() {
                                         return url ? (
                                           <a key={i} href={url} target="_blank" rel="noopener noreferrer"
                                             title={pdfRoleTitle(label)} aria-label={pdfRoleTitle(label)}
-                                            className={`${PDF_PILL} ${label.length === 1 ? 'w-[18px] justify-center' : 'px-1.5'}`}
+                                            className={`${PDF_PILL} ${label.length === 1 ? 'w-6 md:w-[18px] justify-center' : 'px-1.5'}`}
                                             style={{ background: accentBg, color: accentColor }}>
                                             {label}
                                           </a>
@@ -1372,15 +1372,15 @@ function BookletsPageInner() {
                                 </div>
                                 {/* Status by default; the actions take its place on
                                     hover, so ten slots aren't thirty grey words. */}
-                                <div className="flex items-center mt-[3px] pl-[52px] h-[14px]">
-                                  <span className="group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
-                                  <span className="absolute left-[52px] flex items-center gap-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex items-center mt-[3px] pl-[52px] h-8 md:h-[14px]">
+                                  <span className="md:group-hover:opacity-0 transition-opacity"><StatusDot status={b.status} /></span>
+                                  <span className="ml-auto md:ml-0 md:absolute md:left-[52px] flex items-center gap-1 md:gap-2.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                     <InfoButton booklet={b} onClick={() => setInfoFor(b)} />
                                     {canOpenBuilder(staff) && <BuilderButton buildId={buildIds[b.id]} />}
                                     <button onClick={async () => {
                                       await supabase.from('booklets').update({ term_number: null, week: null }).eq('id', b.id)
                                       load()
-                                    }} className="text-[10px] font-semibold text-[#A8531A] hover:underline transition">Unassign</button>
+                                    }} className="px-2 py-2 md:p-0 text-[11px] md:text-[10px] font-semibold text-[#A8531A] hover:underline transition">Unassign</button>
                                   </span>
                                 </div>
                               </div>
@@ -1407,7 +1407,7 @@ function BookletsPageInner() {
                               >
                                 {weekLabel(activeSub, week)}
                               </span>
-                              <span className="text-[11px] font-medium text-transparent group-hover:text-[#325099]/70 transition leading-snug">
+                              <span className="text-[11px] font-medium text-[#325099]/45 md:text-transparent md:group-hover:text-[#325099]/70 transition leading-snug">
                                 + assign booklet
                               </span>
                             </div>
@@ -1617,7 +1617,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="bg-white border-b border-[#DEE7FF]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 flex items-start justify-between flex-wrap gap-3">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 py-5 md:py-6 flex items-start justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">My Curriculum</h1>
             <p className="text-sm text-[#2A2035]/50 mt-0.5">
@@ -1626,7 +1626,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
                 : `${classes.length} class${classes.length !== 1 ? 'es' : ''}${viewTermId === currentTerm?.id ? ' this term' : ''}`}
             </p>
             {allTerms.length > 0 && (
-              <div className="flex items-center gap-2 mt-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
                 <span className="font-semibold text-[#325099]/60">Classes from</span>
                 <select value={viewTermId} onChange={e => setViewTermId(e.target.value)}
                   className="border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 font-semibold text-[#325099] bg-white focus:outline-none focus:border-[#325099]">
@@ -1645,7 +1645,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
 
         {/* Class tabs */}
         {classes.length > 0 && (
-          <div className="max-w-7xl mx-auto px-6 md:px-10 flex gap-0 overflow-x-auto">
+          <div className="max-w-7xl mx-auto px-4 md:px-10 flex gap-0 overflow-x-auto">
             {classes.map(cls => {
               const sub = inferSubject(cls)
               const col = getAccentColor(sub)
@@ -1654,7 +1654,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
                 <button
                   key={cls.id}
                   onClick={() => setActiveClassId(cls.id)}
-                  className={`px-4 py-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap flex flex-col items-start ${
+                  className={`shrink-0 px-4 py-3 text-xs font-semibold border-b-2 transition-all whitespace-nowrap flex flex-col items-start ${
                     isActive
                       ? 'border-[#325099] text-[#062E63]'
                       : 'border-transparent text-[#2A2035]/50 hover:text-[#325099] hover:border-[#DEE7FF]'
@@ -1674,7 +1674,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
       </div>
 
       {/* ── Body ───────────────────────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-6 md:px-10 pt-6 pb-20">
+      <div className="max-w-7xl mx-auto px-4 md:px-10 pt-5 md:pt-6 pb-20">
 
         {/* Loading / empty states */}
         {loadingCls ? (
@@ -1695,7 +1695,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
             {activeClass && (
               <div className="flex items-center gap-3 mb-6 flex-wrap">
                 <div
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border"
+                  className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 rounded-xl text-xs font-semibold border max-w-full"
                   style={{ background: accentBg, color: accent, borderColor: accent + '33' }}
                 >
                   <span>{activeClass.class_name}</span>
@@ -1729,7 +1729,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
 
             {/* ── Curriculum grid (3 terms for Year 11, 4 otherwise) ───────── */}
             {!loadingAsgn && totalAssigned > 0 && (
-              <div className={`grid grid-cols-2 gap-3 ${gridTerms.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${gridTerms.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
                 {gridTerms.map(termNum => {
                   const isCurTerm  = termNum === curTermNum
                   const termColor  = isCurTerm ? accent    : '#64748B'
@@ -1811,7 +1811,7 @@ function TutorCurriculumPage({ staff, scope = null }) {
                                               rel="noopener noreferrer"
                                               title={pdfRoleTitle(pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length))}
                                               aria-label={pdfRoleTitle(pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length))}
-                                              className={`${PDF_PILL} ${pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length).length === 1 ? 'w-[18px] justify-center' : 'px-1.5'}`}
+                                              className={`${PDF_PILL} ${pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length).length === 1 ? 'w-6 md:w-[18px] justify-center' : 'px-1.5'}`}
                                               style={{ background: accentBg, color: accent }}
                                             >
                                               {pdfRoleLabel(pdfNames[pi], pi, pdfPaths.length)}

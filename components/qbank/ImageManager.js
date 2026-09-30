@@ -40,7 +40,7 @@ export default function ImageManager({ images, onChange, label = 'Figures / imag
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]"
+          className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63] max-md:py-2 max-md:pl-2"
         >
           + Add image
         </button>
@@ -80,7 +80,7 @@ export default function ImageManager({ images, onChange, label = 'Figures / imag
                 <button
                   type="button"
                   onClick={() => removeAt(idx)}
-                  className="w-full mt-1 text-[11px] text-[#DC2626] hover:underline"
+                  className="w-full mt-1 max-md:py-1.5 text-[11px] text-[#DC2626] hover:underline"
                 >
                   Remove
                 </button>
