@@ -1,6 +1,6 @@
 {
   "appId": "au.com.cubetuition.portal",
-  "appName": "CUBE Tuition",
+  "appName": "CUBE",
   "webDir": "capacitor-shell",
   "server": {
     "url": "https://portal.cubetuition.com.au",
