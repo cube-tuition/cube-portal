@@ -31,7 +31,8 @@ export async function POST(request) {
     }
     if (!recipients.length) return Response.json({ sent: 0 })
     const title = chan?.kind === 'dm' ? msg.sender_name || 'New message' : `#${chan?.name || 'channel'} · ${msg.sender_name || ''}`.trim()
-    const { sent } = await sendPushToUsers(recipients, { title, body: msg.body.slice(0, 140), url: `/tutor/chat?c=${msg.channel_id}`, tag: `chat:${msg.channel_id}` })
+    const preview = msg.body.replace(/\[\[img:[^\]]+\]\]/g, '📷 image').trim() || '📷 image'
+    const { sent } = await sendPushToUsers(recipients, { title, body: preview.slice(0, 140), url: `/tutor/chat?c=${msg.channel_id}`, tag: `chat:${msg.channel_id}` })
     return Response.json({ sent })
   } catch (err) {
     console.error('[chat/notify]', err)

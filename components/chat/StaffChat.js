@@ -5,6 +5,7 @@ import { authedFetch } from '../../lib/authedFetch'
 import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
   markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
+  loadPins, savePins, uploadChatImage, imageMarker,
 } from '../../lib/chat'
 
 /*
@@ -46,6 +47,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(null)  // { channel, step: 1|2, typed } while confirming a delete
   const [membersOpen, setMembersOpen] = useState(false)
+  const [pins, setPins] = useState([])            // channel ids, in pin order
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef(null)
   const listRef = useRef(null)
   const taRef = useRef(null)
   const activeRef = useRef(active)
@@ -65,8 +69,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   useEffect(() => {
     if (!me?.id) return
     (async () => {
-      const [dir, cs] = await Promise.all([loadStaffDirectory(), refreshChannels(me.id)])
-      setStaff(dir)
+      const [dir, cs, pinned] = await Promise.all([loadStaffDirectory(), refreshChannels(me.id), loadPins(me.id)])
+      setStaff(dir); setPins(pinned)
       if (!activeRef.current) {
         const staffChan = cs.find(ch => ch.is_default) || cs.find(ch => ch.kind === 'channel' && ch.mine)
         if (staffChan) { activeRef.current = staffChan.id; setActive(staffChan.id) }
@@ -153,6 +157,25 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     setText(next); setMention(null)
     requestAnimationFrame(() => { if (ta) { ta.focus(); const p = mention.at + s.full_name.length + 2; ta.setSelectionRange(p, p) } })
   }
+  // Attach an image: from the 📎 button, or pasted into the composer. It goes
+  // out straight away as its own message, with whatever was typed above it.
+  const attach = async (file) => {
+    if (!file || !current || !me) return
+    setUploading(true); setErr('')
+    try {
+      const url = await uploadChatImage(file, current.id)
+      const body = [text.trim(), imageMarker(url)].filter(Boolean).join('\n')
+      setText('')
+      const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body })
+      setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
+      authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
+    } catch (e) { setErr(e.message || 'Could not attach the image') }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
+  }
+  const onPasteComposer = (e) => {
+    const f = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'))?.getAsFile()
+    if (f) { e.preventDefault(); attach(f) }
+  }
   const startEdit = (m) => { setEditing(m.id); setText(m.body); taRef.current?.focus() }
   const remove = async (m) => { if (!confirm('Delete this message?')) return; try { await deleteMessage(m.id) } catch (e) { setErr(e.message) } }
   const newChannel = async () => {
@@ -167,6 +190,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   }
   // Rename / delete: the channel's creator or a director (the server checks too).
   const canManage = (c) => c && c.kind === 'channel' && (c.created_by === me.id || me.isAdmin)
+  const togglePin = async (id) => {
+    const next = pins.includes(id) ? pins.filter(x => x !== id) : [...pins, id]
+    setPins(next)
+    try { await savePins(me.id, next) } catch (e) { setErr(e.message) }
+  }
   const addTo = async (c, uid) => { try { await addMember(c.id, uid); await refreshChannels(me.id) } catch (e) { setErr(e.message) } }
   const removeFrom = async (c, uid) => { try { await removeMember(c.id, uid); await refreshChannels(me.id) } catch (e) { setErr(e.message) } }
   const rename = async (c) => {
@@ -186,8 +214,26 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   if (!me) return null
 
-  const open = channels.filter(c => c.kind === 'channel')
-  const dms = channels.filter(c => c.kind === 'dm').sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || nameOf(a.otherId).localeCompare(nameOf(b.otherId)))
+  const pinnedSet = new Set(pins)
+  const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine)
+  const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id))
+  const dms = channels.filter(c => c.kind === 'dm' && !pinnedSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || nameOf(a.otherId).localeCompare(nameOf(b.otherId)))
+  const Row = ({ c }) => (
+    <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
+      <button onClick={() => selectChannel(c.id)} className={`flex-1 min-w-0 text-left pl-4 py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'text-[#062E63] font-semibold' : 'text-[#2A2035]/80'}`}>
+        {c.kind === 'dm'
+          ? <span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center shrink-0" style={{ background: colorFor(c.otherId) }}>{initials(nameOf(c.otherId))}</span>
+          : null}
+        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'dm' ? nameOf(c.otherId) : `# ${c.name}`}</span>
+        {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
+        {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
+      </button>
+      {c.mine && (
+        <button onClick={() => togglePin(c.id)} title={pinnedSet.has(c.id) ? 'Unpin' : 'Pin'}
+          className={`text-[11px] px-1 ${pinnedSet.has(c.id) ? 'opacity-70' : 'opacity-0 group-hover:opacity-60'} hover:!opacity-100`}>📌</button>
+      )}
+    </div>
+  )
   const others = staff.filter(s => s.id !== me.id)
   const staffNames = staff.map(s => s.full_name)
   const totalUnread = Object.values(unread).reduce((n, v) => n + v, 0)
@@ -199,29 +245,21 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         <p className="text-[11px] text-[#2A2035]/45">{totalUnread ? `${totalUnread} unread` : 'All caught up'}</p>
       </div>
       <div className="flex-1 overflow-y-auto py-2">
-        <div className="px-3 flex items-center justify-between">
+        {pinned.length > 0 && (
+          <>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 py-1">📌 Pinned</p>
+            {pinned.map(c => <Row key={c.id} c={c} />)}
+          </>
+        )}
+        <div className={`px-3 flex items-center justify-between ${pinned.length ? 'pt-3' : ''}`}>
           <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 py-1">Channels</p>
           <button onClick={newChannel} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
         </div>
-        {open.map(c => (
-          <button key={c.id} onClick={() => selectChannel(c.id)}
-            className={`w-full text-left px-4 py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'bg-[#DEE7FF] text-[#062E63] font-semibold' : 'text-[#2A2035]/80 hover:bg-[#F8FAFF]'}`}>
-            <span className={`truncate flex-1 ${!c.mine ? 'opacity-50' : ''}`}># {c.name}</span>
-            {!c.mine && <span className="text-[10px] text-[#325099]">join</span>}
-            {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
-          </button>
-        ))}
+        {open.map(c => <Row key={c.id} c={c} />)}
         <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">Direct messages</p>
-        {dms.map(c => (
-          <button key={c.id} onClick={() => selectChannel(c.id)}
-            className={`w-full text-left px-4 py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'bg-[#DEE7FF] text-[#062E63] font-semibold' : 'text-[#2A2035]/80 hover:bg-[#F8FAFF]'}`}>
-            <span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center shrink-0" style={{ background: colorFor(c.otherId) }}>{initials(nameOf(c.otherId))}</span>
-            <span className="truncate flex-1">{nameOf(c.otherId)}</span>
-            {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
-          </button>
-        ))}
+        {dms.map(c => <Row key={c.id} c={c} />)}
         <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">Everyone</p>
-        {others.filter(s => !dms.some(c => c.otherId === s.id)).map(s => (
+        {others.filter(s => !channels.some(c => c.kind === 'dm' && c.otherId === s.id)).map(s => (
           <button key={s.id} onClick={() => startDm(s)} className="w-full text-left px-4 py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/70 hover:bg-[#F8FAFF]">
             <span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center shrink-0" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>
             <span className="truncate flex-1">{s.full_name}</span>
@@ -280,6 +318,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     {current.kind === 'dm' ? 'Direct message · only the two of you' : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
+                {current.mine && (
+                  <button onClick={() => togglePin(current.id)} title={pins.includes(current.id) ? 'Unpin' : 'Pin to the top of the list'}
+                    className={`text-[11px] font-semibold hover:underline ${pins.includes(current.id) ? 'text-[#062E63]' : 'text-[#325099]'}`}>
+                    {pins.includes(current.id) ? '📌 Pinned' : '📌 Pin'}
+                  </button>
+                )}
                 {current.kind === 'channel' && (
                   <button onClick={() => setMembersOpen(o => !o)} className={`text-[11px] font-semibold ${membersOpen ? 'text-[#062E63]' : 'text-[#325099]'} hover:underline`}>Members</button>
                 )}
@@ -377,8 +421,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               )}
               {editing && <p className="text-[11px] text-[#92400E] mb-1">Editing your message · Esc to cancel</p>}
               <div className="flex items-end gap-2">
-                <textarea ref={taRef} value={text} onChange={onChange} onKeyDown={onKey} rows={1}
-                  placeholder={`Message ${channelLabel(current)} — Enter to send, Shift+Enter for a new line, @ to mention`}
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => attach(e.target.files?.[0])} />
+                <button onClick={() => fileRef.current?.click()} disabled={uploading} title="Attach an image (or paste one)"
+                  className="h-[42px] w-[42px] shrink-0 rounded-xl border border-[#DEE7FF] text-[#325099] hover:bg-[#F8FAFF] disabled:opacity-40 text-lg">{uploading ? '…' : '📎'}</button>
+                <textarea ref={taRef} value={text} onChange={onChange} onKeyDown={onKey} onPaste={onPasteComposer} rows={1}
+                  placeholder={`Message ${channelLabel(current)} — Enter to send, Shift+Enter for a new line, @ to mention, paste an image to attach`}
                   className="flex-1 border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 text-sm text-[#2A2035] resize-none max-h-40 focus:outline-none focus:border-[#325099]"
                   style={{ height: 'auto', minHeight: 42 }}
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(160, e.target.scrollHeight) + 'px' }} />

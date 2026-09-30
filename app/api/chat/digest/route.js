@@ -47,7 +47,7 @@ export async function GET(request) {
     const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#2A2035;max-width:560px">
       <p style="margin:0 0 12px">Hi ${esc((s.full_name || '').split(' ')[0])}, you have <strong>${total} unread message${total === 1 ? '' : 's'}</strong> in the staff chat.</p>
       ${sections.map(x => `<p style="margin:14px 0 4px;font-weight:700;color:#062E63">${esc(x.label)} · ${x.unread.length}</p>
-        ${x.unread.slice(-3).map(m => `<div style="background:#F0F4FF;border-radius:10px;padding:8px 12px;margin:4px 0"><span style="color:#325099;font-weight:600">${esc(m.sender_name)}</span> · ${esc(m.body.slice(0, 200))}</div>`).join('')}
+        ${x.unread.slice(-3).map(m => `<div style="background:#F0F4FF;border-radius:10px;padding:8px 12px;margin:4px 0"><span style="color:#325099;font-weight:600">${esc(m.sender_name)}</span> · ${esc(m.body.replace(/\[\[img:[^\]]+\]\]/g, '📷 image').slice(0, 200))}</div>`).join('')}
         <p style="margin:4px 0 0"><a href="${site}/tutor/chat?c=${x.cid}" style="color:#325099;font-weight:600">Open →</a></p>`).join('')}
       <p style="margin:18px 0 0;font-size:12px;color:#888">You get this once a day while messages are unread.</p></div>`
     if (!process.env.RESEND_API_KEY) continue
