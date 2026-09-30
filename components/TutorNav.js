@@ -155,6 +155,11 @@ function NavDropdown({ group, pathname }) {
 // ── Main nav ──────────────────────────────────────────────────────────────────
 export default function TutorNav({ staffName, isAdmin = false }) {
   const inApp = useIsNativeApp()
+  // Usage heartbeat — same rule as the student nav: throttled, fire-and-forget.
+  useEffect(() => { recordPortalActivity() }, [])
+
+  const router        = useRouter()
+  const pathname      = usePathname()
   // Unread staff-chat messages for the badge: polled, and refreshed on focus.
   const [chatUnread, setChatUnread] = useState(0)
   useEffect(() => {
@@ -171,11 +176,6 @@ export default function TutorNav({ staffName, isAdmin = false }) {
     document.addEventListener('visibilitychange', onWake); window.addEventListener('focus', onWake)
     return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', onWake); window.removeEventListener('focus', onWake) }
   }, [pathname])
-  // Usage heartbeat — same rule as the student nav: throttled, fire-and-forget.
-  useEffect(() => { recordPortalActivity() }, [])
-
-  const router        = useRouter()
-  const pathname      = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   // Close mobile menu on route change
