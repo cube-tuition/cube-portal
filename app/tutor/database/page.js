@@ -1694,6 +1694,7 @@ export default function DatabasePage() {
   const [enrolStudentStatus, setEnrolStudentStatus] = useState({})
   const [disenrolModal, setDisenrolModal]       = useState(null)     // { rowId } — reason prompt when flipping an enrolment to disenrol
   const [unenrolModal, setUnenrolModal]         = useState(null)     // { classId, studentId, name } — taking a student off a class card
+  const [leaveStudent, setLeaveStudent]         = useState(null)     // student row — "Mark as left" from the record panel
 
   // Search
   const [search, setSearch] = useState('')
@@ -5990,6 +5991,19 @@ export default function DatabasePage() {
           initial={detailRecord}
           resolve={refData.resolve}
           onClose={() => setDetailRecord(null)}
+          renderActions={(rt, row) => rt === T_STUDENTS && row.status !== 'inactive' ? (
+            <button onClick={() => setLeaveStudent(row)}
+              className="text-[11px] font-semibold px-3 py-1.5 rounded-lg border border-[#F3C0C0] text-[#B23A3A] bg-white hover:bg-[#FFF5F5] transition">
+              Mark as left…
+            </button>
+          ) : null}
+        />
+      )}
+      {leaveStudent && (
+        <LeaveStudentModal
+          student={leaveStudent}
+          onClose={() => setLeaveStudent(null)}
+          onDone={() => { setLeaveStudent(null); setDetailRecord(null); setReloadKey(k => k + 1) }}
         />
       )}
 
@@ -7189,6 +7203,109 @@ function AddEnrolmentModal({ termId: tabTermId = null, onClose, onCreated }) {
 // singleSelect columns): type to filter, ↑/↓ + Enter to choose, Esc or
 // click-away to close. Anchored to the clicked cell, flipping up when there's
 // no room below. options: [{ value, label, sub? }].
+// ── Mark a student as left (graduated, withdrew, …) ────────────────────────────
+// Ending a student from the class cards needs a class to click, and a student
+// can have open enrolments in past terms and none in the current one (Ria's
+// Year 12 1:1, left open in Terms 2 and 3). This ends EVERY open enrolment
+// they have — class or classless trial, any term — with one reason, and sets
+// the student inactive. Nothing is deleted: attendance, marks, reports and
+// invoices all stay.
+function LeaveStudentModal({ student, onClose, onDone }) {
+  const [open, setOpen]     = useState(null)   // open enrolments, or null while loading
+  const [reason, setReason] = useState(String(student.year) === '12' ? 'Graduated / Year 12 finished' : 'Withdrew from tutoring')
+  const [custom, setCustom] = useState('')
+  const [inactive, setInactive] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState('')
+  const finalReason = reason === 'Other' ? custom.trim() : reason
+
+  useEffect(() => {
+    let alive = true
+    supabase.from(T_ENROLMENTS)
+      .select('id, status, class_id, classes(class_name, terms(name))')
+      .eq('student_id', student.id).is('ended_at', null).neq('status', 'disenrol')
+      .then(({ data, error: err }) => {
+        if (!alive) return
+        if (err) setError(err.message)
+        setOpen(data || [])
+      })
+    return () => { alive = false }
+  }, [student.id])
+
+  const confirm = async () => {
+    if (!finalReason) return
+    setSaving(true); setError('')
+    const today = isoDateEnr(new Date())
+    if (open?.length) {
+      const { error: e1 } = await supabase.from(T_ENROLMENTS)
+        .update({ status: 'disenrol', end_reason: finalReason, ended_at: today })
+        .in('id', open.map(e => e.id))
+      if (e1) { setError('Could not end enrolments: ' + e1.message); setSaving(false); return }
+    }
+    if (inactive) {
+      const { error: e2 } = await supabase.from(T_STUDENTS).update({ status: 'inactive' }).eq('id', student.id)
+      if (e2) { setError('Enrolments ended, but could not set the student inactive: ' + e2.message); setSaving(false); return }
+    }
+    onDone()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md md:mx-4 p-5 md:p-6 flex flex-col gap-4 max-md:max-h-[90dvh] max-md:overflow-y-auto">
+        <div>
+          <h3 className="font-bold text-[#2A2035] text-sm">{student.full_name} has left CUBE</h3>
+          <p className="text-xs text-[#2A2035]/60 mt-1">Ends every open enrolment and keeps all their history — attendance, marks, reports and invoices.</p>
+        </div>
+
+        <div>
+          <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Open enrolments to end</p>
+          {open === null ? (
+            <p className="text-xs text-[#2A2035]/40 italic">Loading…</p>
+          ) : open.length === 0 ? (
+            <p className="text-xs text-[#2A2035]/50 italic">None — nothing to end.</p>
+          ) : (
+            <ul className="text-xs text-[#2A2035] space-y-1">
+              {open.map(e => (
+                <li key={e.id} className="flex items-center justify-between gap-2 bg-[#F8FAFF] border border-[#EEF2FB] rounded-lg px-2.5 py-1.5">
+                  <span className="truncate">{e.classes?.class_name || 'No class yet (trial enquiry)'}</span>
+                  <span className="text-[#2A2035]/45 shrink-0">{e.classes?.terms?.name || ''}{e.status === 'trial' ? ' · trial' : ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099] mb-1.5">Reason</label>
+          <select value={reason} onChange={e => setReason(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-[#DEE7FF] text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+            {END_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          {reason === 'Other' && (
+            <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Reason…"
+              className="mt-2 w-full px-3 py-2 rounded-lg border border-[#DEE7FF] text-xs focus:outline-none focus:border-[#325099]" />
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-[#2A2035] cursor-pointer">
+          <input type="checkbox" checked={inactive} onChange={e => setInactive(e.target.checked)} />
+          Also set {student.full_name.split(' ')[0]} to <strong>inactive</strong> (drops off rosters and marketing emails)
+        </label>
+
+        {error && <p className="text-xs text-red-600">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#2A2035]/60 hover:text-[#2A2035]">Cancel</button>
+          <button onClick={confirm} disabled={saving || open === null || !finalReason || (!open.length && !inactive)}
+            className="px-4 py-2 rounded-lg bg-[#B23A3A] text-white text-xs font-semibold hover:bg-[#962F2F] disabled:opacity-40">
+            {saving ? 'Saving…' : 'Mark as left'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Remove-from-class modal ───────────────────────────────────────────────────
 // The × on a class card has two very different meanings and only the person
 // clicking it knows which: a student who has LEFT (their marks for the weeks

@@ -20,6 +20,8 @@ import FieldValue from './FieldValue'
  *   initial   { realTable, row }   the record to open
  *   resolve   linked-record resolver from useReferenceData
  *   onClose   () => void
+ *   renderActions (realTable, row) => node   optional buttons under the title
+ *                  (e.g. "Mark as left…" on a student)
  */
 function primaryLabel(realTable, row) {
   if (!row) return realTable
@@ -30,7 +32,7 @@ function primaryLabel(realTable, row) {
   )
 }
 
-export default function RecordDetailPanel({ initial, resolve, onClose }) {
+export default function RecordDetailPanel({ initial, resolve, onClose, renderActions = null }) {
   // The panel is reset by the parent via a `key` prop, so the stack can safely
   // initialise from `initial` once (no sync-setState-in-effect needed).
   const [stack, setStack] = useState(() => (initial ? [initial] : []))
@@ -104,6 +106,7 @@ export default function RecordDetailPanel({ initial, resolve, onClose }) {
               )}
               <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-[#325099]">{TABLE_META[realTable]?.label ?? realTable}</p>
               <h2 className="text-lg font-semibold text-[#2A2035] truncate">{primaryLabel(realTable, row)}</h2>
+              {renderActions && row && <div className="mt-2 flex flex-wrap gap-2">{renderActions(realTable, row)}</div>}
             </div>
             <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-[#DEE7FF] text-[#2A2035]/50 shrink-0">✕</button>
           </div>
