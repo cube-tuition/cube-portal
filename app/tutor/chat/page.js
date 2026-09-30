@@ -24,7 +24,7 @@ function ChatInner() {
   }, [router])
   if (!me) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
   return (
-    <div className="h-screen flex flex-col bg-[#F8FAFF]">
+    <div className="h-[100dvh] flex flex-col bg-[#F8FAFF]">
       <TutorNav staffName={me.full_name} isAdmin={me.isAdmin} />
       <StaffChat me={me} initialChannel={params.get('c') || ''} className="flex-1 min-h-0" />
     </div>

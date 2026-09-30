@@ -45,7 +45,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [messages, setMessages] = useState(null)
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(null)  // message id being edited
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Phones: the channel list and the conversation are two screens; this picks
+  // which one shows. Desktop shows both and ignores it.
+  const [sidebarOpen, setSidebarOpen] = useState(!initialChannel)
   const [mention, setMention] = useState(null)  // { query, at } while typing an @name
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(null)  // { channel, step: 1|2, typed } while confirming a delete
@@ -412,7 +414,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const dms = channels.filter(c => c.kind === 'dm' && !pinnedSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || nameOf(a.otherId).localeCompare(nameOf(b.otherId)))
   const Row = ({ c }) => (
     <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
-      <button onClick={() => selectChannel(c.id)} className={`flex-1 min-w-0 text-left pl-4 py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'text-[#062E63] font-semibold' : 'text-[#2A2035]/80'}`}>
+      <button onClick={() => selectChannel(c.id)} className={`flex-1 min-w-0 text-left pl-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'text-[#062E63] font-semibold' : 'text-[#2A2035]/80'}`}>
         {c.kind === 'dm'
           ? <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(c.otherId) }}>{initials(nameOf(c.otherId))}</span>{online.has(c.otherId) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
           : null}
@@ -422,7 +424,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       </button>
       {c.mine && (
         <button onClick={() => togglePin(c.id)} title={pinnedSet.has(c.id) ? 'Unpin' : 'Pin'}
-          className={`text-[11px] px-1 ${pinnedSet.has(c.id) ? 'opacity-70' : 'opacity-0 group-hover:opacity-60'} hover:!opacity-100`}>📌</button>
+          className={`text-[11px] px-2 py-2 md:px-1 md:py-0 ${pinnedSet.has(c.id) ? 'opacity-70' : 'opacity-40 md:opacity-0 md:group-hover:opacity-60'} hover:!opacity-100`}>📌</button>
       )}
     </div>
   )
@@ -431,12 +433,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const totalUnread = Object.values(unread).reduce((n, v) => n + v, 0)
 
   const Sidebar = (
-    <aside className="w-64 shrink-0 bg-white border-r border-[#DEE7FF] flex flex-col h-full">
+    <aside className="w-full md:w-64 shrink-0 bg-white md:border-r border-[#DEE7FF] flex flex-col h-full">
       <div className="px-4 pt-4 pb-3 border-b border-[#F0F4FF]">
         <p className="text-sm font-bold text-[#062E63]">Staff chat</p>
         <p className="text-[11px] text-[#2A2035]/45">{totalUnread ? `${totalUnread} unread` : 'All caught up'} · {online.size} online</p>
         <input value={query} onChange={e => { setQuery(e.target.value); if (!e.target.value.trim()) setResults(null) }} placeholder="Search messages… (from:name)"
-          className="mt-2 w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
+          className="mt-2 w-full border border-[#DEE7FF] rounded-lg px-2.5 py-2 md:py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
       </div>
       <div className="flex-1 overflow-y-auto py-2">
         {pinned.length > 0 && (
@@ -460,17 +462,17 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
             </div>
             {visibleShortcuts.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Canned messages you send often. Only directors see these.</p>}
             {visibleShortcuts.map(sc => (
-              <div key={sc.id} className="group/sc flex items-center gap-1 px-4 py-1 hover:bg-[#F8FAFF]">
+              <div key={sc.id} className="group/sc flex items-center gap-1 px-4 py-2 md:py-1 hover:bg-[#F8FAFF]">
                 <button onClick={() => insertShortcut(sc)} disabled={!canPost} title={sc.body} className="flex-1 min-w-0 text-left text-sm text-[#2A2035]/80 truncate disabled:opacity-40">{sc.title}</button>
-                <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="opacity-0 group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Send to…</button>
-                <button onClick={() => setShortcutEdit({ ...sc })} className="opacity-0 group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Edit</button>
+                <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="md:opacity-0 md:group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Send to…</button>
+                <button onClick={() => setShortcutEdit({ ...sc })} className="md:opacity-0 md:group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Edit</button>
               </div>
             ))}
           </>
         )}
         <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">Everyone</p>
         {others.filter(s => !channels.some(c => c.kind === 'dm' && c.otherId === s.id)).map(s => (
-          <button key={s.id} onClick={() => startDm(s)} className="w-full text-left px-4 py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/70 hover:bg-[#F8FAFF]">
+          <button key={s.id} onClick={() => startDm(s)} className="w-full text-left px-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/70 hover:bg-[#F8FAFF]">
             <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>{online.has(s.id) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
             <span className="truncate flex-1">{s.full_name}</span>
             <span className="text-[10px] text-[#2A2035]/35">{s.role === 'director' ? 'director' : ''}</span>
@@ -483,8 +485,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   return (
     <div className={`flex flex-col bg-[#F8FAFF] ${className}`}>
       {bulk && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => !bulk.sending && setBulk(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[44rem] max-w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => !bulk.sending && setBulk(null)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] p-4 md:p-6 w-full md:w-[44rem] max-w-full max-h-[90dvh] flex flex-col" onClick={e => e.stopPropagation()}>
             <p className="text-lg font-bold text-[#062E63] mb-1">Send “{bulk.sc.title}” to…</p>
             <p className="text-xs text-[#2A2035]/50 mb-4">Each person gets their own direct message, filled in for them. Click a name to preview it.</p>
             {bulk.done ? (
@@ -495,8 +497,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               </div>
             ) : (
               <>
-                <div className="flex gap-4 min-h-0 flex-1">
-                  <div className="w-56 shrink-0 flex flex-col min-h-0">
+                <div className="flex flex-col md:flex-row gap-4 min-h-0 flex-1">
+                  <div className="w-full md:w-56 shrink-0 flex flex-col min-h-0 max-md:max-h-[40dvh]">
                     <div className="flex items-center justify-between mb-1">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Recipients · {bulk.picked.length}</p>
                       <div className="flex gap-2 text-[11px] font-semibold text-[#325099]">
@@ -536,8 +538,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         </div>
       )}
       {shortcutEdit && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setShortcutEdit(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[32rem] max-w-full" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => setShortcutEdit(null)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] p-4 md:p-6 w-full md:w-[32rem] max-w-full max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <p className="text-lg font-bold text-[#062E63] mb-1">{shortcutEdit.id ? 'Edit shortcut' : 'New shortcut'}</p>
             <p className="text-xs text-[#2A2035]/50 mb-4">A message you send often. Placeholders fill in from the open conversation.</p>
             <input autoFocus value={shortcutEdit.title} onChange={e => setShortcutEdit(d => ({ ...d, title: e.target.value }))} placeholder="Title, e.g. Marking due"
@@ -560,8 +562,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         </div>
       )}
       {deleting && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setDeleting(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-[#DEE7FF] p-6 w-[24rem]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => setDeleting(null)}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl border border-[#DEE7FF] p-4 md:p-6 w-full md:w-[24rem] max-w-full" onClick={e => e.stopPropagation()}>
             {deleting.step === 1 ? (
               <>
                 <p className="text-lg font-bold text-[#062E63] mb-2">Delete #{deleting.channel.name}?</p>
@@ -587,16 +589,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         </div>
       )}
       <div className="flex-1 min-h-0 flex">
-        <div className="hidden md:flex h-full">{Sidebar}</div>
-        {sidebarOpen && (
-          <div className="md:hidden fixed inset-0 z-40 flex" onClick={() => setSidebarOpen(false)}>
-            <div className="h-full" onClick={e => e.stopPropagation()}>{Sidebar}</div>
-            <div className="flex-1 bg-black/30" />
-          </div>
-        )}
-        <main className="flex-1 min-w-0 flex flex-col">
-          <div className="px-4 py-3 bg-white border-b border-[#DEE7FF] flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(true)} className="md:hidden text-[#325099] text-lg">☰</button>
+        <div className={`${sidebarOpen ? 'flex' : 'hidden'} md:flex h-full w-full md:w-auto`}>{Sidebar}</div>
+        <main className={`${sidebarOpen ? 'hidden md:flex' : 'flex'} flex-1 min-w-0 flex-col`}>
+          <div className="px-3 md:px-4 py-2.5 md:py-3 bg-white border-b border-[#DEE7FF] flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button onClick={() => setSidebarOpen(true)} aria-label="Back to the list"
+              className="md:hidden w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-[#325099] text-2xl active:bg-[#EEF3FF]">‹</button>
             {current ? (
               <>
                 <div className="min-w-0 flex-1">
@@ -695,7 +692,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               return (
                 <div key={m.id}>
                   {newDay && <div className="flex items-center gap-3 my-4"><div className="flex-1 h-px bg-[#DEE7FF]" /><span className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">{fmtDay(m.created_at)}</span><div className="flex-1 h-px bg-[#DEE7FF]" /></div>}
-                  <div id={`msg-${m.id}`} className={`group relative flex gap-3 rounded-lg px-1 -mx-1 py-0.5 hover:bg-[#F8FAFF] ${grouped ? 'mt-2' : 'mt-4'}`}>
+                  <div id={`msg-${m.id}`} className={`group relative flex gap-3 rounded-lg px-1 -mx-1 py-0.5 hover:bg-[#F8FAFF] ${grouped ? 'mt-2' : 'mt-4'}`}
+                    onClick={(e) => { if (e.target.closest('a, button') || !window.matchMedia('(max-width: 767px)').matches) return; setPicker(picker === m.id ? null : m.id) }}>
                     <div className="w-8 shrink-0 flex items-start justify-end">
                       {grouped && <span className="hidden group-hover:block text-[9px] text-[#2A2035]/40 leading-[22px] pr-0.5">{fmtTime(m.created_at)}</span>}
                       {!grouped && <span className="w-8 h-8 rounded-full text-[11px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(m.sender_id) }}>{initials(m.sender_name || nameOf(m.sender_id))}</span>}
@@ -732,7 +730,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                       )}
                     </div>
                     {!m.deleted_at && (
-                      <div className={`absolute -top-3 right-2 ${picker === m.id ? 'flex' : 'hidden group-hover:flex'} items-center gap-0.5 bg-white border border-[#DEE7FF] rounded-full shadow-sm px-1 py-0.5 z-10`}>
+                      <div className={`absolute -top-3 right-2 ${picker === m.id ? 'flex' : 'hidden md:group-hover:flex'} items-center gap-0.5 bg-white border border-[#DEE7FF] rounded-full shadow-sm px-1 py-0.5 z-10`}>
                         {(picker === m.id ? QUICK_EMOJI : QUICK_EMOJI.slice(0, 4)).map(e => (
                           <button key={e} onClick={() => react(m, e)} className="text-[15px] leading-none w-7 h-7 rounded-full hover:bg-[#F0F4FF]" title={`React ${e}`}>{e}</button>
                         ))}
@@ -752,9 +750,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           </div>
 
           {current && current.mine && (
-            <div className="relative px-4 pb-4 pt-2 bg-white border-t border-[#DEE7FF]">
+            <div className="relative px-3 md:px-4 pt-2 bg-white border-t border-[#DEE7FF]" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
               {mention && mentionMatches.length > 0 && (
-                <div className="absolute bottom-full left-4 mb-1 bg-white border border-[#BACBFF] rounded-xl shadow-xl overflow-hidden w-64 z-10">
+                <div className="absolute bottom-full left-4 mb-1 bg-white border border-[#BACBFF] rounded-xl shadow-xl overflow-hidden w-64 max-w-[calc(100vw-2rem)] z-10">
                   {mentionMatches.map((s, i) => (
                     <button key={s.id} onMouseDown={e => { e.preventDefault(); pickMention(s) }} className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 ${i === 0 ? 'bg-[#EEF4FF]' : 'hover:bg-[#F8FAFF]'}`}>
                       <span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>{s.full_name}
@@ -778,7 +776,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     <button onClick={() => setShortcutPick(o => !o)} title="Insert a shortcut"
                       className={`h-[42px] w-[42px] rounded-xl border text-lg ${shortcutPick ? 'border-[#325099] bg-[#F0F4FF]' : 'border-[#DEE7FF] hover:bg-[#F8FAFF]'}`}>⚡</button>
                     {shortcutPick && (
-                      <div className="absolute bottom-full left-0 mb-2 w-72 max-h-80 overflow-y-auto bg-white border border-[#DEE7FF] rounded-2xl shadow-xl p-1.5 z-20">
+                      <div className="absolute bottom-full left-0 mb-2 w-72 max-w-[calc(100vw-1.5rem)] max-h-80 overflow-y-auto bg-white border border-[#DEE7FF] rounded-2xl shadow-xl p-1.5 z-20">
                         <div className="flex items-center justify-between px-2 py-1">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Shortcuts</p>
                           <button onClick={() => { setShortcutPick(false); setShortcutEdit({ title: '', body: '' }) }} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
@@ -801,8 +799,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 <button onClick={() => fileRef.current?.click()} disabled={uploading} title="Attach an image or a file (or paste an image)"
                   className="h-[42px] w-[42px] shrink-0 rounded-xl border border-[#DEE7FF] text-[#325099] hover:bg-[#F8FAFF] disabled:opacity-40 text-lg">{uploading ? '…' : '📎'}</button>
                 <textarea ref={taRef} value={text} onChange={onChange} onKeyDown={onKey} onPaste={onPasteComposer} rows={1}
-                  placeholder={`Message ${channelLabel(current)} — Enter to send, Shift+Enter for a new line, @ to mention, 📎 for a file`}
-                  className="flex-1 border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 text-sm text-[#2A2035] resize-none max-h-40 focus:outline-none focus:border-[#325099]"
+                  placeholder={typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches ? `Message ${channelLabel(current)}` : `Message ${channelLabel(current)} — Enter to send, Shift+Enter for a new line, @ to mention, 📎 for a file`}
+                  className="flex-1 min-w-0 border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 text-sm text-[#2A2035] resize-none max-h-40 focus:outline-none focus:border-[#325099]"
                   style={{ height: 'auto', minHeight: 42 }}
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(160, e.target.scrollHeight) + 'px' }} />
                 <button onClick={send} disabled={!text.trim()} className="h-[42px] px-4 rounded-xl bg-[#062E63] text-white text-sm font-semibold hover:bg-[#325099] disabled:opacity-40">{editing ? 'Save' : 'Send'}</button>
