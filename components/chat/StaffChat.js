@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
-  markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renameChannel, deleteChannel, renderBody,
+  markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
 } from '../../lib/chat'
 
 /*
@@ -45,6 +45,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [mention, setMention] = useState(null)  // { query, at } while typing an @name
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(null)  // { channel, step: 1|2, typed } while confirming a delete
+  const [membersOpen, setMembersOpen] = useState(false)
   const listRef = useRef(null)
   const taRef = useRef(null)
   const activeRef = useRef(active)
@@ -67,7 +68,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       const [dir, cs] = await Promise.all([loadStaffDirectory(), refreshChannels(me.id)])
       setStaff(dir)
       if (!activeRef.current) {
-        const staffChan = cs.find(ch => ch.kind === 'channel' && ch.name === 'staff') || cs.find(ch => ch.mine)
+        const staffChan = cs.find(ch => ch.is_default) || cs.find(ch => ch.kind === 'channel' && ch.mine)
         if (staffChan) { activeRef.current = staffChan.id; setActive(staffChan.id) }
       }
     })()
@@ -165,7 +166,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     try { const id = await openDm(other.id); await refreshChannels(me.id); selectChannel(id) } catch (e) { setErr(e.message) }
   }
   // Rename / delete: the channel's creator or a director (the server checks too).
-  const canManage = (c) => c && c.kind === 'channel' && c.name !== 'staff' && (c.created_by === me.id || me.isAdmin)
+  const canManage = (c) => c && c.kind === 'channel' && (c.created_by === me.id || me.isAdmin)
+  const addTo = async (c, uid) => { try { await addMember(c.id, uid); await refreshChannels(me.id) } catch (e) { setErr(e.message) } }
+  const removeFrom = async (c, uid) => { try { await removeMember(c.id, uid); await refreshChannels(me.id) } catch (e) { setErr(e.message) } }
   const rename = async (c) => {
     const name = prompt('New channel name', c.name)
     if (name == null) return
@@ -277,19 +280,52 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     {current.kind === 'dm' ? 'Direct message · only the two of you' : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
+                {current.kind === 'channel' && (
+                  <button onClick={() => setMembersOpen(o => !o)} className={`text-[11px] font-semibold ${membersOpen ? 'text-[#062E63]' : 'text-[#325099]'} hover:underline`}>Members</button>
+                )}
                 {canManage(current) && (
                   <>
                     <button onClick={() => rename(current)} className="text-[11px] font-semibold text-[#325099] hover:underline">Rename</button>
-                    <button onClick={() => setDeleting({ channel: current, step: 1, typed: '' })} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Delete</button>
+                    {!current.is_default && <button onClick={() => setDeleting({ channel: current, step: 1, typed: '' })} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Delete</button>}
                   </>
                 )}
                 {current.kind === 'channel' && (current.mine
-                  ? (current.name !== 'staff' && <button onClick={() => leave(current)} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Leave</button>)
+                  ? (!current.is_default && <button onClick={() => leave(current)} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Leave</button>)
                   : <button onClick={() => join(current)} className="text-xs font-semibold rounded-full px-3 py-1 bg-[#062E63] text-white">Join channel</button>)}
               </>
             ) : <p className="text-sm text-[#2A2035]/50">Pick a channel or a person.</p>}
           </div>
           {err && <p className="px-4 py-2 text-xs text-[#B23A3A] bg-rose-50 border-b border-rose-100">{err}</p>}
+          {membersOpen && current?.kind === 'channel' && (() => {
+            const manage = canManage(current)
+            const inChan = new Set(current.members)
+            const outside = staff.filter(s => !inChan.has(s.id))
+            return (
+              <div className="px-4 py-3 bg-[#FBFCFF] border-b border-[#DEE7FF]">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-bold text-[#062E63]">Members · {current.members.length}</p>
+                  {current.is_default && <p className="text-[10px] text-[#2A2035]/45">Everyone on staff is in this channel.</p>}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {current.members.map(uid => (
+                    <span key={uid} className="inline-flex items-center gap-1.5 text-[11px] bg-white border border-[#DEE7FF] rounded-full pl-1 pr-2 py-0.5">
+                      <span className="w-4 h-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(uid) }}>{initials(nameOf(uid))}</span>
+                      {nameOf(uid)}{uid === me.id ? ' (you)' : ''}
+                      {manage && !current.is_default && uid !== me.id && <button onClick={() => removeFrom(current, uid)} title="Remove from channel" className="text-[#2A2035]/35 hover:text-[#B23A3A] ml-0.5">✕</button>}
+                    </span>
+                  ))}
+                </div>
+                {manage && outside.length > 0 && (
+                  <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-semibold text-[#325099]/70">Add:</span>
+                    {outside.map(s => (
+                      <button key={s.id} onClick={() => addTo(current, s.id)} className="text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-full px-2 py-0.5 hover:bg-[#EEF4FF]">+ {s.full_name}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
             {!current ? null : messages === null ? (

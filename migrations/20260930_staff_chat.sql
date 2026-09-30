@@ -182,3 +182,39 @@ begin
   if not public.chat_can_manage(p_channel) then raise exception 'Only the channel''s creator or a director can delete it'; end if;
   delete from public.chat_channels where id = p_channel;   -- members, messages and reads cascade
 end $$;
+
+-- ── The everyone-channel is flagged, not named ("staff"): it can be renamed,
+-- never deleted or left. Managers can add and remove members of a channel.
+alter table public.chat_channels add column if not exists is_default boolean not null default false;
+update public.chat_channels set is_default = true where kind = 'channel' and name = 'staff' and not exists (select 1 from public.chat_channels where is_default);
+create or replace function public.chat_can_manage(p_channel uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.chat_channels c
+    where c.id = p_channel and c.kind = 'channel'
+      and (c.created_by = auth.uid() or exists (select 1 from public.directors d where d.id = auth.uid())))
+$$;
+create or replace function public.chat_delete_channel(p_channel uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.chat_can_manage(p_channel) then raise exception 'Only the channel''s creator or a director can delete it'; end if;
+  if exists (select 1 from public.chat_channels where id = p_channel and is_default) then raise exception 'The everyone channel cannot be deleted'; end if;
+  delete from public.chat_channels where id = p_channel;
+end $$;
+create or replace function public.chat_add_member(p_channel uuid, p_user uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.chat_can_manage(p_channel) then raise exception 'Only the channel''s creator or a director can add members'; end if;
+  if not exists (select 1 from public.chat_staff_ids() s where s = p_user) then raise exception 'Not a staff member'; end if;
+  insert into public.chat_members (channel_id, user_id) values (p_channel, p_user) on conflict do nothing;
+end $$;
+create or replace function public.chat_remove_member(p_channel uuid, p_user uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.chat_can_manage(p_channel) then raise exception 'Only the channel''s creator or a director can remove members'; end if;
+  if exists (select 1 from public.chat_channels where id = p_channel and is_default) then raise exception 'Everyone stays in the everyone channel'; end if;
+  delete from public.chat_members where channel_id = p_channel and user_id = p_user;
+end $$;
+drop policy if exists chat_members_leave on public.chat_members;
+create policy chat_members_leave on public.chat_members for delete to authenticated
+  using (user_id = auth.uid() and not exists (select 1 from public.chat_channels c where c.id = channel_id and c.is_default));
