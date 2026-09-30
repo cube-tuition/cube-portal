@@ -6,7 +6,7 @@ import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
   markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
-  loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview,
+  loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, loadReads, setDirectorsOnly,
 } from '../../lib/chat'
 
 /*
@@ -51,6 +51,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [pins, setPins] = useState([])            // channel ids, in pin order
   const [uploading, setUploading] = useState(false)
   const [reactions, setReactions] = useState({})   // messageId → [{ emoji, user_id }]
+  const [reads, setReads] = useState({})           // userId → last_read_at for the open channel
   const [picker, setPicker] = useState(null)       // message id with the emoji picker open
   const [online, setOnline] = useState(new Set())  // user ids present right now
   const [typing, setTyping] = useState({})         // user id → channel id they are typing in
@@ -95,6 +96,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       const ms = await loadMessages(active)
       setMessages(ms); setErr('')
       setReactions(await loadReactions(ms.map(m => m.id)).catch(() => ({})))
+      setReads(await loadReads(active).catch(() => ({})))
     } catch (e) { setErr(e.message || 'Could not load messages'); setMessages([]) }
   }, [active, me])
   useEffect(() => { const t = setTimeout(loadConversation, 0); return () => clearTimeout(t) }, [loadConversation])
@@ -133,6 +135,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           // A DM from someone new appears in the list only after a refresh.
           setChannels(cs => (cs.some(c => c.id === r.channel_id) ? cs : cs)); refreshChannels(me.id)
         }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads' }, (p) => {
+        const r = p.new
+        if (r?.channel_id && r.channel_id === activeRef.current) setReads(rs => ({ ...rs, [r.user_id]: r.last_read_at }))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reactions' }, (p) => {
         const r = p.new?.message_id ? p.new : p.old
@@ -201,6 +207,22 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const current = channels.find(c => c.id === active) || null
+  const canPost = !!current && current.mine && (!current.directors_only || me.isAdmin)
+  // Read receipts: each other member sits under the last message they have
+  // seen, Slack-style, so a message with avatars beneath it is read that far.
+  const seenBy = useMemo(() => {
+    const out = {}
+    if (!messages?.length || !current) return out
+    for (const uid of current.members) {
+      if (uid === me.id) continue
+      const at = reads[uid]
+      if (!at) continue
+      let last = null
+      for (const m of messages) { if (m.created_at <= at) last = m; else break }
+      if (last) (out[last.id] ||= []).push(uid)
+    }
+    return out
+  }, [messages, reads, current, me.id])
   const send = async () => {
     const body = text.trim()
     if (!body || !current || !me) return
@@ -267,6 +289,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const startDm = async (other) => {
     try { const id = await openDm(other.id); await refreshChannels(me.id); selectChannel(id) } catch (e) { setErr(e.message) }
   }
+  const toggleAnnounce = async (c) => {
+    try { await setDirectorsOnly(c.id, !c.directors_only); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
+  }
+
   // Rename / delete: the channel's creator or a director (the server checks too).
   const canManage = (c) => c && c.kind === 'channel' && (c.created_by === me.id || me.isAdmin)
   const togglePin = async (id) => {
@@ -408,6 +434,15 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 {current.kind === 'channel' && (
                   <button onClick={() => setMembersOpen(o => !o)} className={`text-[11px] font-semibold ${membersOpen ? 'text-[#062E63]' : 'text-[#325099]'} hover:underline`}>Members</button>
                 )}
+                {current.kind === 'channel' && current.directors_only && !me.isAdmin && (
+                  <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]">📣 Directors post</span>
+                )}
+                {current.kind === 'channel' && me.isAdmin && (
+                  <button onClick={() => toggleAnnounce(current)} title="Only directors can post in an announcement channel"
+                    className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${current.directors_only ? 'bg-[#FFF7E6] text-[#92400E]' : 'bg-[#F0F4FF] text-[#325099]'}`}>
+                    📣 {current.directors_only ? 'Directors post' : 'Everyone posts'}
+                  </button>
+                )}
                 {canManage(current) && (
                   <>
                     <button onClick={() => rename(current)} className="text-[11px] font-semibold text-[#325099] hover:underline">Rename</button>
@@ -505,6 +540,15 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                           </div>
                         )
                       })()}
+                      {seenBy[m.id] && (
+                        <div className="flex items-center gap-1 mt-1" title={`Seen by ${seenBy[m.id].map(nameOf).join(', ')}`}>
+                          <span className="text-[10px] text-[#2A2035]/40">Seen</span>
+                          {seenBy[m.id].slice(0, 6).map(uid => (
+                            <span key={uid} className="w-4 h-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(uid) }}>{initials(nameOf(uid))}</span>
+                          ))}
+                          {seenBy[m.id].length > 6 && <span className="text-[10px] text-[#2A2035]/40">+{seenBy[m.id].length - 6}</span>}
+                        </div>
+                      )}
                     </div>
                     {!m.deleted_at && (
                       <div className={`absolute -top-3 right-2 ${picker === m.id ? 'flex' : 'hidden group-hover:flex'} items-center gap-0.5 bg-white border border-[#DEE7FF] rounded-full shadow-sm px-1 py-0.5 z-10`}>
@@ -542,6 +586,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 return who.length ? <p className="text-[11px] text-[#325099]/70 mb-1 h-4">{who.join(', ')} {who.length === 1 ? 'is' : 'are'} typing…</p> : <p className="h-4 mb-1" />
               })()}
               {editing && <p className="text-[11px] text-[#92400E] mb-1">Editing your message · Esc to cancel</p>}
+              {!canPost ? (
+                <div className="rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 text-xs text-[#2A2035]/50">
+                  📣 Only directors can post in {channelLabel(current)}. You can still react to messages.
+                </div>
+              ) : (
               <div className="flex items-end gap-2">
                 <input ref={fileRef} type="file" className="hidden" onChange={e => attach(e.target.files?.[0])} />
                 <button onClick={() => fileRef.current?.click()} disabled={uploading} title="Attach an image or a file (or paste an image)"
@@ -553,6 +602,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(160, e.target.scrollHeight) + 'px' }} />
                 <button onClick={send} disabled={!text.trim()} className="h-[42px] px-4 rounded-xl bg-[#062E63] text-white text-sm font-semibold hover:bg-[#325099] disabled:opacity-40">{editing ? 'Save' : 'Send'}</button>
               </div>
+              )}
             </div>
           )}
         </main>
