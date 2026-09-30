@@ -131,3 +131,32 @@ begin
   end if;
   insert into public.chat_members (channel_id, user_id) select v_id, s from public.chat_staff_ids() s on conflict do nothing;
 end $$;
+
+-- ── Fix (same day): the read policies referenced each other — members checked
+-- channels, channels checked members — and Postgres refused with "infinite
+-- recursion detected in policy". Membership and channel kind are now read
+-- through SECURITY DEFINER helpers, which bypass RLS, so no policy ever
+-- evaluates another.
+create or replace function public.chat_is_member(p_channel uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.chat_members m where m.channel_id = p_channel and m.user_id = auth.uid())
+$$;
+create or replace function public.chat_channel_open(p_channel uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.chat_channels c where c.id = p_channel and c.kind = 'channel')
+$$;
+drop policy if exists chat_channels_read on public.chat_channels;
+create policy chat_channels_read on public.chat_channels for select to authenticated
+  using (public.is_staff() and (kind = 'channel' or public.chat_is_member(id)));
+drop policy if exists chat_members_read on public.chat_members;
+create policy chat_members_read on public.chat_members for select to authenticated
+  using (public.is_staff() and (public.chat_channel_open(channel_id) or public.chat_is_member(channel_id)));
+drop policy if exists chat_members_join on public.chat_members;
+create policy chat_members_join on public.chat_members for insert to authenticated
+  with check (public.is_staff() and user_id = auth.uid() and public.chat_channel_open(channel_id));
+drop policy if exists chat_messages_read on public.chat_messages;
+create policy chat_messages_read on public.chat_messages for select to authenticated
+  using (public.chat_is_member(channel_id));
+drop policy if exists chat_messages_send on public.chat_messages;
+create policy chat_messages_send on public.chat_messages for insert to authenticated
+  with check (sender_id = auth.uid() and public.chat_is_member(channel_id));
