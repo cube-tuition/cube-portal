@@ -411,7 +411,7 @@ export default function AccountingDashboard() {
       }
     }
 
-    // — Compliance calendar (BAS / Super / Tax / ASIC) —
+    // — Compliance calendar (BAS / Tax / ASIC) —
     for (const d of DUE_DATES) {
       if (complianceDone[d.label]) continue
       const days = daysUntil(d.due)
