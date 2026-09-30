@@ -325,6 +325,8 @@ function SummaryGrid({ s, yearly = false }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+const INSIGHT_EXCLUDE_KEY = 'forecast_insight_excluded_students'
+
 export default function ForecastPage() {
   const router = useRouter()
   const [profile,  setProfile]  = useState(null)
@@ -340,6 +342,20 @@ export default function ForecastPage() {
       else setProfile(p)
     })
   }, [router])
+
+  // Students left out of the Recommendations — e.g. a 1:1 priced low on
+  // purpose, which would otherwise be flagged as loss-making every term.
+  // Shared between directors (portal_settings). { id, name }[]
+  const [insightExcluded, setInsightExcluded] = useState([])
+  useEffect(() => {
+    supabase.from('portal_settings').select('value').eq('key', INSIGHT_EXCLUDE_KEY).maybeSingle()
+      .then(({ data }) => { try { setInsightExcluded(JSON.parse(data?.value || '[]') || []) } catch { /* keep none */ } })
+  }, [])
+  const saveInsightExcluded = async (list) => {
+    setInsightExcluded(list)
+    await supabase.from('portal_settings')
+      .upsert({ key: INSIGHT_EXCLUDE_KEY, value: JSON.stringify(list), updated_at: new Date().toISOString() })
+  }
 
   // Live data
   const [classes,    setClasses]    = useState([])
@@ -519,6 +535,7 @@ export default function ForecastPage() {
         weeklyTeacherFee, termlyTeacherFee, superApplies, superAmount,
         totalTeacherCost, termProfit,
         is1on1: oneOnOne, studentName,
+        studentId: oneOnOne && activeEnrols.length === 1 ? activeEnrols[0].student_id : null,
       }
     })
   }, [classes, getRateForClass, courseModes, cashStudentIds])
@@ -638,9 +655,12 @@ export default function ForecastPage() {
 
   const insights = useMemo(() => {
     const out = []
-    const add = (severity, icon, title, detail) => out.push({ severity, icon, title, detail })
-    const groups = classMetrics.filter(c => !c.is1on1)
-    const ones   = classMetrics.filter(c => c.is1on1)
+    const add = (severity, icon, title, detail, extra = {}) => out.push({ severity, icon, title, detail, ...extra })
+    // An excluded student's 1:1 is left out of every recommendation below.
+    const excluded = new Set(insightExcluded.map(x => x.id))
+    const metrics = classMetrics.filter(c => !(c.is1on1 && c.studentId && excluded.has(c.studentId)))
+    const groups = metrics.filter(c => !c.is1on1)
+    const ones   = metrics.filter(c => c.is1on1)
 
     // 1. Loss-making group classes — break-even framing
     for (const c of groups.filter(c => c.termProfit < 0)) {
@@ -653,7 +673,8 @@ export default function ForecastPage() {
     // 2. Loss-making / thin 1:1s
     for (const c of ones.filter(c => c.termProfit < 0)) {
       add('red', '👤', `1:1 ${c.studentName || c.class_name} loses ${fmt(Math.abs(c.termProfit))}/term`,
-        `Fee ${fmt(c.termFee)} vs tutor cost ${fmt(c.totalTeacherCost)} — reprice or change tutor allocation.`)
+        `Fee ${fmt(c.termFee)} vs tutor cost ${fmt(c.totalTeacherCost)} — reprice or change tutor allocation.`,
+        c.studentId ? { student: { id: c.studentId, name: c.studentName } } : {})
     }
     // 3. Thin-margin groups (<25%)
     for (const c of groups.filter(c => c.termProfit >= 0 && c.termIncome > 0 && c.termProfit / c.termIncome < 0.25)) {
@@ -661,7 +682,7 @@ export default function ForecastPage() {
         `${fmt(c.termProfit)} profit on ${fmt(c.termIncome)} income — one more student adds ${fmt(c.termFee)} straight to margin.`)
     }
     // 4. Missing tutor rates — costs understated
-    const noRate = classMetrics.filter(c => c.teacherRate === null || c.teacherRate === undefined)
+    const noRate = metrics.filter(c => c.teacherRate === null || c.teacherRate === undefined)
     if (noRate.length) {
       add('amber', '❓', `${noRate.length} class${noRate.length === 1 ? '' : 'es'} missing a tutor rate`,
         `Teacher costs show as $0 for: ${noRate.slice(0, 4).map(c => c.class_name).join(', ')}${noRate.length > 4 ? '…' : ''} — profit is overstated until rates are set (Payroll → Rates).`)
@@ -716,7 +737,7 @@ export default function ForecastPage() {
 
     const order = { red: 0, amber: 1, blue: 2 }
     return out.sort((a, b) => order[a.severity] - order[b.severity])
-  }, [classMetrics, summary, trend])
+  }, [classMetrics, summary, trend, insightExcluded])
 
   // ── Initialise play-around — only when Play tab opens, so all data is loaded ──
   useEffect(() => {
@@ -978,6 +999,18 @@ export default function ForecastPage() {
               <div className="px-4 md:px-5 py-3.5 border-b border-[#F0F4FF] bg-[#F8FAFF] flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
                 <p className="text-sm font-bold text-[#062E63]">💡 Recommendations</p>
                 <span className="text-[10px] text-[#2A2035]/40">{insights.length} insight{insights.length === 1 ? '' : 's'} · computed live from this term&rsquo;s data</span>
+                {insightExcluded.length > 0 && (
+                  <span className="basis-full flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-[#2A2035]/45">
+                    Excluded:
+                    {insightExcluded.map(x => (
+                      <span key={x.id} className="inline-flex items-center gap-1 bg-white border border-[#DEE7FF] rounded-full pl-2 pr-1 py-0.5 text-[#325099] font-semibold">
+                        {x.name}
+                        <button onClick={() => saveInsightExcluded(insightExcluded.filter(y => y.id !== x.id))}
+                          title="Include again" className="text-[#2A2035]/35 hover:text-rose-600 leading-none px-0.5">×</button>
+                      </span>
+                    ))}
+                  </span>
+                )}
               </div>
               {insights.length === 0 ? (
                 <p className="px-4 md:px-5 py-6 text-xs text-[#2A2035]/40">Nothing to flag — every class is profitable with healthy margins.</p>
@@ -991,6 +1024,11 @@ export default function ForecastPage() {
                         <span className="block text-xs font-semibold text-[#2A2035]">{ins.title}</span>
                         <span className="block text-[11px] text-[#2A2035]/55 leading-relaxed">{ins.detail}</span>
                       </span>
+                      {ins.student && (
+                        <button onClick={() => saveInsightExcluded([...insightExcluded, ins.student])}
+                          title={`Leave ${ins.student.name} out of the recommendations (e.g. priced low on purpose)`}
+                          className="ml-auto shrink-0 text-[10px] font-semibold text-[#2A2035]/40 hover:text-[#325099]">Exclude</button>
+                      )}
                     </div>
                   ))}
                 </div>
