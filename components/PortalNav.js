@@ -1,29 +1,32 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
-import { useState } from 'react'
 import { T_STUDENTS } from '../lib/tables'
 import CubeLogo from './CubeLogo'
+import NavSheet from './NavSheet'
 
+// Icons show in the phone menu (see NavSheet), where `primary` links are the
+// big tiles and the rest sit under "More"; the desktop bar is text only.
 const LINKS = [
-  { label: 'Home', href: '/dashboard' },
-  { label: 'Classes', href: '/classes' },
+  { label: 'Home', href: '/dashboard', icon: '🏠', primary: true },
+  { label: 'Classes', href: '/classes', icon: '🏫', primary: true },
   // `soon` tags a link whose page is still being finished — the page itself
   // shows the coming-soon panel; this just sets the expectation beforehand.
-  { label: 'Resources', href: '/resources', soon: true },
+  { label: 'Resources', href: '/resources', icon: '📚', soon: true },
   // Seniors only — trials/HSC preparation. Filtered out for other years below.
-  { label: 'Past Papers', href: '/pastpapers', seniorOnly: true },
-  { label: 'Drop-in Help', href: '/dropin' },
-  { label: 'Past Terms', href: '/archive' },
+  { label: 'Past Papers', href: '/pastpapers', icon: '📝', seniorOnly: true },
+  { label: 'Drop-in Help', href: '/dropin', icon: '🙋', primary: true },
+  { label: 'Past Terms', href: '/archive', icon: '🗂️' },
 ]
 const YEAR_KEY = 'cube:student-year'
 
 export default function PortalNav({ studentName }) {
   const router = useRouter()
   const pathname = usePathname()
+  const [mobileOpen, setMobileOpen] = useState(false)   // phone menu (NavSheet)
 
   // Usage heartbeat — the nav renders on every signed-in page, and the ping
   // throttles itself, so this is one write per visit, not per navigation.
@@ -50,6 +53,7 @@ export default function PortalNav({ studentName }) {
     })()
   }, [year])
   const links = LINKS.filter(l => !l.seniorOnly || year === '11' || year === '12')
+  const isActive = (href) => (href === '/dashboard' ? pathname === '/dashboard' : pathname?.startsWith(href))
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -57,7 +61,7 @@ export default function PortalNav({ studentName }) {
   }
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/85 backdrop-blur-md border-b border-[#DEE7FF]">
+    <nav className="sticky top-0 z-50 bg-white/85 app:bg-white backdrop-blur-md app:backdrop-blur-none border-b border-[#DEE7FF]">
       <div className="max-w-7xl mx-auto px-6 md:px-10 py-4 flex items-center justify-between">
         {/* Logo */}
         <Link
@@ -78,10 +82,7 @@ export default function PortalNav({ studentName }) {
         {/* Nav links */}
         <div className="hidden md:flex items-center gap-1">
           {links.map((link) => {
-            const active =
-              link.href === '/dashboard'
-                ? pathname === '/dashboard'
-                : pathname?.startsWith(link.href)
+            const active = isActive(link.href)
             return (
               <Link
                 key={link.href}
@@ -111,12 +112,25 @@ export default function PortalNav({ studentName }) {
           )}
           <button
             onClick={handleLogout}
-            className="text-xs md:text-sm font-semibold text-[#062E63] hover:text-[#325099] px-3 py-2 rounded-full transition"
+            className="hidden md:block text-sm font-semibold text-[#062E63] hover:text-[#325099] px-3 py-2 rounded-full transition"
           >
             Logout
           </button>
+          {/* Hamburger — mobile only (same as the staff nav) */}
+          <button onClick={() => setMobileOpen(o => !o)}
+            className="md:hidden flex flex-col justify-center items-center w-9 h-9 gap-1.5 rounded-xl hover:bg-[#F8FAFF] transition"
+            aria-label="Menu">
+            <span className={`block w-5 h-0.5 bg-[#062E63] rounded transition-all duration-200 ${mobileOpen ? 'rotate-45 translate-y-2' : ''}`} />
+            <span className={`block w-5 h-0.5 bg-[#062E63] rounded transition-all duration-200 ${mobileOpen ? 'opacity-0' : ''}`} />
+            <span className={`block w-5 h-0.5 bg-[#062E63] rounded transition-all duration-200 ${mobileOpen ? '-rotate-45 -translate-y-2' : ''}`} />
+          </button>
         </div>
       </div>
+
+      {/* Phone menu — the same sheet the staff portal uses */}
+      <NavSheet open={mobileOpen} onClose={() => setMobileOpen(false)} onLogout={handleLogout}
+        name={studentName} role="Student" isActive={isActive}
+        primary={links.filter(l => l.primary)} sections={[{ label: 'More', links: links.filter(l => !l.primary) }]} />
     </nav>
   )
 }

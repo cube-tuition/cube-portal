@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import NavSheet from './NavSheet'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
@@ -152,98 +152,6 @@ function NavDropdown({ group, pathname }) {
 }
 
 // ── Mobile group section (collapsible) ───────────────────────────────────────
-/*
- * The phone menu: a sheet that slides in from the right over a dimmed page.
- * Your name and role on top, the everyday pages as big tiles, then each nav
- * section as a labelled grid of icon buttons, and log out at the foot.
- *
- * Rendered through a portal to <body>: the nav bar has backdrop-blur, and a
- * backdrop-filter makes fixed-position children position against the nav
- * instead of the screen, which would clip the sheet to the bar.
- */
-function MobileSheet({ open, onClose, pathname, staffName, isAdmin, onLogout }) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { const id = requestAnimationFrame(() => setMounted(true)); return () => cancelAnimationFrame(id) }, [])
-  // Lock the page behind the sheet, and let Escape close it.
-  useEffect(() => {
-    if (!open) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey) }
-  }, [open, onClose])
-  if (!mounted || !open) return null
-
-  const isActive = (href) => (href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(href))
-  const first = (staffName || '').split(' ')[0]
-  // Messages isn't repeated here: the envelope in the top bar already opens it.
-  const primary = BASE_LINKS
-  const sections = [
-    ...(!isAdmin ? TUTOR_GROUPS : []),
-    ...(!isAdmin ? [{ label: 'My work', links: TUTOR_LINKS }] : []),
-    ...(isAdmin ? ADMIN_GROUPS : []),
-    ...(isAdmin ? [{ label: 'Data', links: ADMIN_FLAT_LINKS }] : []),
-  ].map((g) => ({ ...g, links: g.links.filter((l) => !l.desktopOnly) }))
-
-  const Tile = ({ link, big }) => {
-    const active = isActive(link.href)
-    return (
-      <Link href={link.href} onClick={onClose}
-        className={`flex ${big ? 'flex-col items-start gap-2 p-3.5' : 'items-center gap-2.5 px-3 py-2.5'} rounded-2xl border transition active:scale-[0.98] ${
-          active ? 'bg-[#062E63] border-[#062E63] text-white' : 'bg-white border-[#E5ECFF] text-[#2A2035] active:bg-[#F0F4FF]'}`}>
-        <span className={`${big ? 'text-xl' : 'text-base'} leading-none`}>{link.icon || '•'}</span>
-        <span className={`text-[13px] font-semibold leading-tight ${active ? 'text-white' : ''}`}>{link.label}</span>
-      </Link>
-    )
-  }
-
-  return createPortal(
-    <div className="md:hidden fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Menu">
-      <div className="absolute inset-0 bg-[#0B1020]/45 backdrop-blur-[2px] nav-sheet-fade" onClick={onClose} />
-      <div className="absolute inset-y-0 right-0 w-[88%] max-w-sm bg-[#F7F9FE] shadow-2xl flex flex-col nav-sheet-in"
-        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        {/* Who you are */}
-        <div className="flex items-center gap-3 px-5 pt-5 pb-4">
-          <span className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#325099] to-[#062E63] text-white text-lg font-bold flex items-center justify-center shrink-0">
-            {(first || 'C').slice(0, 1).toUpperCase()}
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="text-[15px] font-bold text-[#062E63] truncate">{staffName || 'CUBE Tuition'}</p>
-            <p className="text-[11px] font-semibold text-[#325099]/70">{isAdmin ? 'Director' : 'Tutor'} · CUBE Portal</p>
-          </div>
-          <button onClick={onClose} aria-label="Close menu"
-            className="w-9 h-9 rounded-full bg-white border border-[#E5ECFF] text-[#062E63] text-lg flex items-center justify-center active:bg-[#F0F4FF]">×</button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-5">
-          {/* Everyday pages */}
-          <div className="grid grid-cols-3 gap-2.5">
-            {primary.map((l) => <Tile key={l.href} link={l} big />)}
-          </div>
-          {/* Each section */}
-          {sections.map((g) => (
-            <div key={g.label}>
-              <p className="px-1 mb-2 text-[10px] font-bold tracking-[0.18em] uppercase text-[#325099]/60">{g.label}</p>
-              <div className="grid grid-cols-2 gap-2">
-                {g.links.map((l) => <Tile key={l.href} link={l} />)}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="px-4 pt-2 pb-4 border-t border-[#E5ECFF] bg-[#F7F9FE]">
-          <button onClick={onLogout}
-            className="w-full py-3 rounded-2xl bg-white border border-[#FECACA] text-sm font-semibold text-[#B91C1C] active:bg-[#FEF2F2]">
-            Log out
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
 // ── Main nav ──────────────────────────────────────────────────────────────────
 export default function TutorNav({ staffName, isAdmin = false }) {
   const inApp = useIsNativeApp()
@@ -363,9 +271,18 @@ export default function TutorNav({ staffName, isAdmin = false }) {
         </div>
       </div>
 
-      {/* Mobile menu — a full-height sheet (see MobileSheet) */}
-      <MobileSheet open={mobileOpen} onClose={() => setMobileOpen(false)} pathname={pathname}
-        staffName={staffName} isAdmin={isAdmin} onLogout={handleLogout} />
+      {/* Mobile menu — a full-height sheet (see components/NavSheet.js).
+          Messages isn't repeated in it: the envelope in the top bar already opens it. */}
+      <NavSheet open={mobileOpen} onClose={() => setMobileOpen(false)} onLogout={handleLogout}
+        name={staffName} role={isAdmin ? 'Director' : 'Tutor'}
+        isActive={(href) => (href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(href))}
+        primary={BASE_LINKS}
+        sections={[
+          ...(!isAdmin ? TUTOR_GROUPS : []),
+          ...(!isAdmin ? [{ label: 'My work', links: TUTOR_LINKS }] : []),
+          ...(isAdmin ? ADMIN_GROUPS : []),
+          ...(isAdmin ? [{ label: 'Data', links: ADMIN_FLAT_LINKS }] : []),
+        ].map((g) => ({ ...g, links: g.links.filter((l) => !l.desktopOnly) }))} />
     </nav>
   )
 }
