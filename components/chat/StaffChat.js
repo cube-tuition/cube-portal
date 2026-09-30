@@ -2,13 +2,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
-import { fetchAllTerms, getCurrentTerm, weekOfTerm } from '../../lib/terms'
+import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm, weekOfTerm, formatTermRange } from '../../lib/terms'
 import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
   markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, loadReads, setDirectorsOnly,
-  loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS,
+  loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, loadTermClasses, classesTextFor,
 } from '../../lib/chat'
 
 /*
@@ -56,6 +56,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [shortcutPick, setShortcutPick] = useState(false)   // composer picker open
   const [shortcutEdit, setShortcutEdit] = useState(null)    // { id?, title, body } being edited
   const [termNow, setTermNow] = useState(null)
+  const [nextTerm, setNextTerm] = useState(null)    // upcoming (or current) teaching term
+  const [termClasses, setTermClasses] = useState([]) // its active classes, for {classes}
   const [reactions, setReactions] = useState({})   // messageId → [{ emoji, user_id }]
   const [reads, setReads] = useState({})           // userId → last_read_at for the open channel
   const [picker, setPicker] = useState(null)       // message id with the emoji picker open
@@ -90,8 +92,18 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       const [dir, cs, pinned] = await Promise.all([loadStaffDirectory(), refreshChannels(me.id), loadPins(me.id)])
       setStaff(dir); setPins(pinned)
       if (isAdmin) {
-        loadShortcuts().then(setShortcuts).catch(() => {})
-        fetchAllTerms().then(ts => setTermNow(getCurrentTerm(ts))).catch(() => {})
+        loadShortcuts().then(list => {
+          // Seed the built-ins once; after that they are ordinary, editable rows.
+          const missing = BUILTIN_SHORTCUTS.filter(b => !list.some(x => x.id === b.id))
+          if (!missing.length) { setShortcuts(list); return }
+          const next = [...list, ...missing]
+          setShortcuts(next); saveShortcuts(next).catch(() => {})
+        }).catch(() => {})
+        fetchAllTerms().then(ts => {
+          setTermNow(getCurrentTerm(ts))
+          const nt = getRegularEnrolmentTerm(ts); setNextTerm(nt)
+          if (nt) loadTermClasses(nt.id).then(setTermClasses).catch(() => {})
+        }).catch(() => {})
       }
       if (!activeRef.current) {
         const staffChan = cs.find(ch => ch.is_default) || cs.find(ch => ch.kind === 'channel' && ch.mine)
@@ -313,8 +325,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       channel: current ? channelLabel(current).replace(/^#/, '') : '',
       date: new Date().toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }),
       term: termNow ? `Term ${termNow.term_number} ${termNow.year}` : '', week: wk ? String(wk) : '',
+      next_term: nextTerm ? `Term ${nextTerm.term_number} ${nextTerm.year}` : '', next_term_dates: nextTerm ? formatTermRange(nextTerm) : '',
+      classes: other ? classesTextFor(other, termClasses) : '',
     }
   }
+  const visibleShortcuts = shortcuts.filter(x => !x.hidden)
   const insertShortcut = (sc) => {
     const filled = fillShortcut(sc.body, shortcutVars())
     setText(t => (t.trim() ? `${t.replace(/\s+$/, '')}\n${filled}` : filled))
@@ -337,7 +352,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const deleteShortcut = async (id) => {
     if (!confirm('Delete this shortcut?')) return
     setShortcutEdit(null)
-    await persistShortcuts(shortcuts.filter(x => x.id !== id))
+    const builtin = BUILTIN_SHORTCUTS.some(b => b.id === id)
+    await persistShortcuts(builtin ? shortcuts.map(x => (x.id === id ? { id, hidden: true } : x)) : shortcuts.filter(x => x.id !== id))
   }
 
   // Rename / delete: the channel's creator or a director (the server checks too).
@@ -418,8 +434,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 py-1">⚡ Shortcuts</p>
               <button onClick={() => setShortcutEdit({ title: '', body: '' })} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
             </div>
-            {shortcuts.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Canned messages you send often. Only directors see these.</p>}
-            {shortcuts.map(sc => (
+            {visibleShortcuts.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Canned messages you send often. Only directors see these.</p>}
+            {visibleShortcuts.map(sc => (
               <div key={sc.id} className="group/sc flex items-center gap-1 px-4 py-1 hover:bg-[#F8FAFF]">
                 <button onClick={() => insertShortcut(sc)} disabled={!canPost} title={sc.body} className="flex-1 min-w-0 text-left text-sm text-[#2A2035]/80 truncate disabled:opacity-40">{sc.title}</button>
                 <button onClick={() => setShortcutEdit({ ...sc })} className="opacity-0 group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Edit</button>
@@ -688,8 +704,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                           <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Shortcuts</p>
                           <button onClick={() => { setShortcutPick(false); setShortcutEdit({ title: '', body: '' }) }} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
                         </div>
-                        {shortcuts.length === 0 && <p className="px-2 py-2 text-xs text-[#2A2035]/45">No shortcuts yet.</p>}
-                        {shortcuts.map(sc => (
+                        {visibleShortcuts.length === 0 && <p className="px-2 py-2 text-xs text-[#2A2035]/45">No shortcuts yet.</p>}
+                        {visibleShortcuts.map(sc => (
                           <button key={sc.id} onClick={() => insertShortcut(sc)} className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-[#F8FAFF]">
                             <p className="text-sm font-semibold text-[#062E63] truncate">{sc.title}</p>
                             <p className="text-[11px] text-[#2A2035]/50 line-clamp-2">{fillShortcut(sc.body, shortcutVars())}</p>
