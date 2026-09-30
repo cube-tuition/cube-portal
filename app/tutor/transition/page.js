@@ -459,6 +459,15 @@ export default function TransitionPage() {
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin />
 
+      {/* Desktop only: the wizard is hidden on phones (and off the phone menu). */}
+      <div className="md:hidden px-4 pt-10 text-center">
+        <p className="text-3xl mb-3">🔄</p>
+        <h1 className="text-xl font-bold text-[#062E63]">Term Transition</h1>
+        <p className="text-sm text-[#2A2035]/60 mt-2">Run the term transition from a computer.</p>
+        <Link href="/tutor" className="inline-block mt-5 text-sm font-semibold text-[#325099] underline">Back to home</Link>
+      </div>
+      <div className="hidden md:block">
+
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="max-w-4xl mx-auto px-4 md:px-6 pt-6 md:pt-10 pb-4">
         <h1 className="text-2xl font-bold text-[#062E63]">Term Transition</h1>
@@ -970,6 +979,7 @@ export default function TransitionPage() {
 
       {/* ── Revert a transition ──────────────────────────────────────────── */}
       <RevertPanel terms={terms} />
+      </div>
     </div>
   )
 }

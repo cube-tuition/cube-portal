@@ -70,7 +70,8 @@ const ADMIN_GROUPS = [
       { label: 'Monitoring',    href: '/tutor/admin/monitoring',     icon: '📶' },
       { label: 'Reports',       href: '/tutor/reports',              icon: '📊' },
       { label: 'Timetable',     href: '/tutor/admin/timetable',      icon: '🗓️' },
-      { label: 'Transition',    href: '/tutor/transition',           icon: '🔄' },
+      // desktopOnly: the term-transition wizard is a sit-down job; the phone menu skips it.
+      { label: 'Transition',    href: '/tutor/transition',           icon: '🔄', desktopOnly: true },
     ],
   },
   {
@@ -183,7 +184,7 @@ function MobileSheet({ open, onClose, pathname, staffName, isAdmin, onLogout }) 
     ...(!isAdmin ? [{ label: 'My work', links: TUTOR_LINKS }] : []),
     ...(isAdmin ? ADMIN_GROUPS : []),
     ...(isAdmin ? [{ label: 'Data', links: ADMIN_FLAT_LINKS }] : []),
-  ]
+  ].map((g) => ({ ...g, links: g.links.filter((l) => !l.desktopOnly) }))
 
   const Tile = ({ link, big }) => {
     const active = isActive(link.href)
