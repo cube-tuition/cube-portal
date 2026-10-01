@@ -15,9 +15,13 @@ import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
  * written before the split have no kind and read as term tests.
  */
 const KIND_NOUN = { term: 'exam', mid_term: 'mid-term test', mock: 'mock' }
+// Mocks are universal: one bank of papers, sat in whichever term suits, so
+// they are neither filed nor filtered by term.
+const TERMLESS = new Set(['mock'])
 
 export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
   const noun = KIND_NOUN[kind] || KIND_NOUN.term
+  const termless = TERMLESS.has(kind)
   const isKind = (e) => (e.kind || 'term') === kind
   const router = useRouter()
   const [exams, setExams] = useState([])
@@ -46,14 +50,14 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
   const selTerm = terms.find((t) => t.id === termId)
   const selTermNum = selTerm?.term_number != null ? String(selTerm.term_number) : null
   const matchesTerm = (e) => {
-    if (!selTermNum) return true
+    if (termless || !selTermNum) return true
     return String(e.term ?? '').match(/\d+/)?.[0] === selTermNum
   }
 
   const handleNew = async () => {
     setCreating(true)
     try {
-      const id = await createExam(profile?.full_name, tab, selTermNum, kind)
+      const id = await createExam(profile?.full_name, tab, termless ? null : selTermNum, kind)
       router.push(`/tutor/qbank/exams/${id}`)
     } catch (e) { alert(`Could not create ${noun}: ` + (e.message || e)); setCreating(false) }
   }
@@ -94,13 +98,13 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
-        <select
+        {!termless && <select
           value={termId}
           onChange={(e) => setTermId(e.target.value)}
           className="border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm font-semibold text-[#062E63] bg-white focus:outline-none focus:border-[#325099] max-md:w-full"
         >
           {terms.map((t) => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
-        </select>
+        </select>}
         <div className="ml-auto flex flex-wrap items-center gap-2 md:gap-3 max-md:w-full max-md:justify-end">
           {tab === 'english' && (
             <Link href="/tutor/qbank/rubrics" className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg px-3 py-2 hover:bg-white transition">📊 Marking rubrics</Link>
@@ -140,7 +144,7 @@ export default function ExamsPanel({ profile, scope = null, kind = 'term' }) {
                 <Link href={`/tutor/qbank/exams/${e.id}`} className="flex-1 min-w-0 max-md:basis-full">
                   <div className="text-sm font-bold text-[#062E63] truncate max-md:whitespace-normal max-md:break-words">{e.title || `Untitled ${noun}`}</div>
                   <div className="text-[11px] text-[#2A2035]/40 mt-0.5">
-                    {e.year_label ? `Year ${e.year_label}` : 'Year —'}{e.term ? ` · Term ${e.term}` : ''} · {c.secs} section{c.secs === 1 ? '' : 's'} · {c.filled}/{c.slots} questions filled · edited {fmt(e.updated_at)}
+                    {e.year_label ? `Year ${e.year_label}` : 'Year —'}{e.term && !termless ? ` · Term ${e.term}` : ''} · {c.secs} section{c.secs === 1 ? '' : 's'} · {c.filled}/{c.slots} questions filled · edited {fmt(e.updated_at)}
                   </div>
                 </Link>
                 <Link href={`/tutor/qbank/exams/${e.id}`} className="text-[11px] font-semibold text-[#325099] hover:underline max-md:py-1.5">Open</Link>

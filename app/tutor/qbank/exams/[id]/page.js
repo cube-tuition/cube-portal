@@ -419,10 +419,13 @@ export default function ExamBuilderPage() {
                     onChange={(e) => patch({ year_label: e.target.value, subject_id: subjectFor(e.target.value, exam.paper_type || 'maths'), topic_ids: [] })}>
                     <option value="">—</option>{years.map((y) => <option key={y} value={String(y)}>Year {y}</option>)}
                   </select></div>
+                {/* Mocks are universal — sat in any term — so they have no term. */}
+                {exam.kind !== 'mock' && (
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Term</label>
                   <select value={exam.term || ''} onChange={(e) => patch({ term: e.target.value })} className={inCls}>
                     <option value="">—</option>{['1', '2', '3', '4'].map((t) => <option key={t} value={t}>{t}</option>)}
                   </select></div>
+                )}
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Reading time</label>
                   <input value={exam.reading_time || ''} onChange={(e) => patch({ reading_time: e.target.value })} className={inCls} /></div>
                 <div><label className="text-[11px] font-semibold text-[#2A2035]/50">Working time</label>
