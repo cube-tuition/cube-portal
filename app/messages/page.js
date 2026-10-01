@@ -81,6 +81,30 @@ function MessagesAppInner() {
     })()
   }, [router])
 
+  // iOS rubber-bands the whole web view when a drag has nowhere to go, which
+  // drags the pinned bottom bar with it. Let a drag through only when a list
+  // under the finger can still scroll that way; otherwise swallow it.
+  useEffect(() => {
+    let startY = 0
+    const onStart = (e) => { startY = e.touches[0]?.clientY ?? 0 }
+    const onMove = (e) => {
+      if (e.touches.length !== 1) return
+      const dy = e.touches[0].clientY - startY
+      for (let el = e.target; el && el !== document.body; el = el.parentElement) {
+        const st = getComputedStyle(el)
+        if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+          const atTop = el.scrollTop <= 0, atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+          if ((dy > 0 && !atTop) || (dy < 0 && !atBottom)) return
+          break
+        }
+      }
+      if (e.cancelable) e.preventDefault()
+    }
+    document.addEventListener('touchstart', onStart, { passive: true })
+    document.addEventListener('touchmove', onMove, { passive: false })
+    return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchmove', onMove) }
+  }, [])
+
   const thread = inbox.threads.find((t) => t.phone === selected) || (selected ? { phone: selected, list: [], unread: 0 } : null)
   useEffect(() => { if (view === 'thread' && selected && inbox.loaded) inbox.markRead(selected) }, [view, selected, inbox.loaded, inbox.messages.length])   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (view === 'thread') endRef.current?.scrollIntoView({ block: 'end' }) }, [view, selected, inbox.messages.length])
