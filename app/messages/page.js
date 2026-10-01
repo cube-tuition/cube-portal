@@ -98,7 +98,8 @@ function MessagesAppInner() {
   // name (families first, then staff), filtered by the search box.
   const contactGroups = useMemo(() => {
     const q = contactSearch.trim().toLowerCase()
-    const rows = inbox.people.filter((p) => !p.disabled).filter((p) => !q || `${p.person} ${p.student || ''} ${p.relation} ${p.value}`.toLowerCase().includes(q))
+    const rows = inbox.people.filter((p) => !p.disabled).map((p) => ({ ...p, person: p.person || p.label || p.value }))
+      .filter((p) => !q || `${p.person} ${p.student || ''} ${p.relation || ''} ${p.value}`.toLowerCase().includes(q))
     const families = rows.filter((p) => p.kind !== 'staff').sort((a, b) => a.person.localeCompare(b.person))
     const staff = rows.filter((p) => p.kind === 'staff').sort((a, b) => a.person.localeCompare(b.person))
     const byLetter = []
