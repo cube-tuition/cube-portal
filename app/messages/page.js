@@ -125,7 +125,7 @@ function MessagesAppInner() {
   // ── new chat: full-screen contact list ──────────────────────────────────────
   if (view === 'new') {
     return (
-      <div className="h-[100dvh] flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="fixed inset-0 flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <header className="shrink-0 bg-white border-b border-[#DEE7FF] px-3 pt-2 pb-2">
           <div className="flex items-center gap-1">
             <button onClick={back} className="w-10 h-10 rounded-full flex items-center justify-center text-[#325099] text-2xl active:bg-[#EEF3FF]" aria-label="Back">‹</button>
@@ -137,7 +137,7 @@ function MessagesAppInner() {
           <input value={contactSearch} onChange={(e) => setContactSearch(e.target.value)} placeholder="Search name or student" autoFocus
             className="mt-2 w-full bg-[#F0F4FF] rounded-xl px-3.5 py-2 text-[15px] focus:outline-none" />
         </header>
-        <div className="flex-1 overflow-y-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="flex-1 overflow-y-auto overscroll-contain" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {contactGroups.length === 0 && <p className="text-sm text-[#2A2035]/45 px-6 py-16 text-center">No one matches.</p>}
           {contactGroups.map((g) => (
             <div key={g.label}>
@@ -172,7 +172,7 @@ function MessagesAppInner() {
       : c?.kind === 'student' ? `Student${c.year ? ` · Year ${c.year}` : ''}`
       : c?.sub || ''
     return (
-      <div className="h-[100dvh] flex flex-col bg-[#EEF3FB]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="fixed inset-0 flex flex-col bg-[#EEF3FB]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <header className="flex items-center gap-2 px-2 py-2 bg-white border-b border-[#DEE7FF] shrink-0">
           <button onClick={back} className="w-10 h-10 rounded-full flex items-center justify-center text-[#325099] text-2xl active:bg-[#EEF3FF]" aria-label="Back">‹</button>
           <Avatar name={c?.label || thread.phone} size="w-10 h-10 text-sm" />
@@ -190,7 +190,7 @@ function MessagesAppInner() {
           )}
           <a href={`tel:${thread.phone}`} className="w-10 h-10 rounded-full flex items-center justify-center text-[#325099] text-lg active:bg-[#EEF3FF]" title="Call from this phone (shows your own number)">📞</a>
         </header>
-        <div className="flex-1 overflow-y-auto px-3 py-3">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-3">
           {thread.list.length === 0 && (
             <div className="text-center py-10">
               <Avatar name={c?.label || thread.phone} size="w-16 h-16 text-xl mx-auto" />
@@ -248,7 +248,7 @@ function MessagesAppInner() {
   )
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+    <div className="fixed inset-0 flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       {tab !== 'staff' && (
         <header className="shrink-0 bg-white border-b border-[#DEE7FF] px-4 pt-3 pb-2">
           <div className="flex items-center justify-between gap-2">
@@ -266,7 +266,7 @@ function MessagesAppInner() {
         </header>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto relative">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative">
         {tab === 'staff' ? (
           me && <StaffChat me={me} className="h-full" />
         ) : tab === 'texts' ? (
