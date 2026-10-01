@@ -24,14 +24,20 @@ export default function SearchSelectPopover({ anchor, options, currentValue, onS
   }, [q, options, clearLabel])
   useEffect(() => { setHi(0) }, [q])
 
-  const WIDTH = 340, MAX_H = maxHeight
+  const WIDTH = 340
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800
   const left = Math.max(8, Math.min(anchor.left, winW - WIDTH - 12))
-  const openUp = winH - anchor.bottom < MAX_H + 16
+  // Open on whichever side of the trigger has more room, and never taller
+  // than that room — a trigger near the top of a short window used to open
+  // upward and push the top of the list off the screen.
+  const roomBelow = winH - anchor.bottom - 12
+  const roomAbove = anchor.top - 12
+  const openUp = roomBelow < maxHeight && roomAbove > roomBelow
+  const MAX_H = Math.max(160, Math.min(maxHeight, openUp ? roomAbove : roomBelow))
   const pos = openUp
-    ? { left, bottom: winH - anchor.top + 4, width: WIDTH }
-    : { left, top: anchor.bottom + 4, width: WIDTH }
+    ? { left, bottom: winH - anchor.top + 4, width: WIDTH, maxHeight: MAX_H }
+    : { left, top: anchor.bottom + 4, width: WIDTH, maxHeight: MAX_H }
 
   return (
     <div className="fixed inset-0 z-50" onMouseDown={onClose}>
@@ -53,7 +59,7 @@ export default function SearchSelectPopover({ anchor, options, currentValue, onS
           }}
           className="w-full px-3.5 py-2.5 text-xs text-[#2A2035] border-b border-[#DEE7FF] focus:outline-none placeholder-[#2A2035]/30"
         />
-        <div className="overflow-y-auto" style={{ maxHeight: MAX_H - 40 }}>
+        <div className="overflow-y-auto min-h-0 flex-1" style={{ maxHeight: MAX_H - 64 }}>
           {list.length === 0 ? (
             <p className="text-xs text-center py-6 text-[#2A2035]/40">No matches for “{q}”.</p>
           ) : list.map((o, i) => {
