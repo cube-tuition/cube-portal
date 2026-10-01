@@ -144,7 +144,7 @@ export default function TutorSidebar({ defaultOpen = true }) {
   })()
 
   return (<>
-    <div className="md:hidden sticky top-[65px] z-30 w-full bg-white/95 backdrop-blur border-b border-[#DEE7FF] px-4 py-2">
+    <div className="md:hidden sticky top-[65px] app:top-[calc(65px+env(safe-area-inset-top))] z-30 w-full bg-white/95 backdrop-blur border-b border-[#DEE7FF] px-4 py-2">
       <button type="button" onClick={() => setSheet(true)}
         className="w-full flex items-center gap-2.5 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-3 py-2.5 text-left active:bg-[#EEF4FF]">
         <span className="text-[9px] tracking-[0.25em] uppercase font-bold text-[#325099]/60 shrink-0">Pages</span>

@@ -107,7 +107,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-[#2A2035]">
       {/* Top bar */}
-      <header className="sticky top-0 z-50 bg-white/85 backdrop-blur-md border-b border-[#DEE7FF]">
+      <header className="sticky top-0 z-50 bg-white/85 backdrop-blur-md border-b border-[#DEE7FF] app:pt-[env(safe-area-inset-top)]">
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="text-2xl md:text-[1.65rem] font-bold tracking-tight text-[#062E63] font-display">

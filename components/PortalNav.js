@@ -61,7 +61,7 @@ export default function PortalNav({ studentName }) {
   }
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/85 app:bg-white backdrop-blur-md app:backdrop-blur-none border-b border-[#DEE7FF]">
+    <nav className="sticky top-0 z-50 bg-white/85 app:bg-white backdrop-blur-md app:backdrop-blur-none border-b border-[#DEE7FF] app:pt-[env(safe-area-inset-top)]">
       <div className="max-w-7xl mx-auto px-6 md:px-10 py-4 flex items-center justify-between">
         {/* Logo */}
         <Link

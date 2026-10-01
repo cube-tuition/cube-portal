@@ -22,6 +22,10 @@ export const metadata = {
   manifest: "/manifest.webmanifest",
 };
 
+// viewport-fit=cover lets the page run under the iPhone status bar inside the
+// app, where env(safe-area-inset-top) then pads the top bars (see TutorNav).
+export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+
 export default function RootLayout({ children }) {
   return (
     <html

@@ -59,32 +59,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 }
 
-/// The app's main screen: Capacitor's web view plus a solid strip behind the
-/// status bar. The web view keeps the page below the status bar, but content
-/// scrolled up still showed through in that strip; the cover hides it.
-/// Lives here (not its own file) so the Xcode project needs no new entries.
-class MainViewController: CAPBridgeViewController {
-    private let statusBarCover = UIView()
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        statusBarCover.backgroundColor = .white
-        statusBarCover.isUserInteractionEnabled = false
-        statusBarCover.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(statusBarCover)
-        NSLayoutConstraint.activate([
-            statusBarCover.topAnchor.constraint(equalTo: view.topAnchor),
-            statusBarCover.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            statusBarCover.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            statusBarCover.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-        ])
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        view.bringSubviewToFront(statusBarCover)
-    }
-}
+/// The app's main screen. The web view runs edge to edge (contentInset
+/// "never" in capacitor.config.json) and the portal pads its own top bars by
+/// env(safe-area-inset-top), so a page's header sits behind the status bar
+/// the way a native app's does.
+class MainViewController: CAPBridgeViewController {}
 
 /// Scene lifecycle (required for apps built with the iOS 27 SDK — without it
 /// UIKit refuses to launch the app). The window comes from Main.storyboard via

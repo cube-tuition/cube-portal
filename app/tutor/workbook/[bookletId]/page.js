@@ -95,7 +95,7 @@ function TeacherWorkbookInner() {
 
   return (
     <div className="min-h-screen bg-[#F1F4FA]">
-      <div className="sticky top-0 z-20 bg-white border-b border-[#DEE7FF]">
+      <div className="sticky top-0 z-20 bg-white border-b border-[#DEE7FF] app:pt-[env(safe-area-inset-top)]">
         <div className="max-w-[1330px] mx-auto px-5 py-2.5 flex items-center gap-3 flex-wrap">
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#CBEBDF] bg-[#ECF9F4] text-[#0E7A5F]">🌐 Online</span>
           <span className="text-sm font-bold text-[#062E63]">{title}</span>
