@@ -31,17 +31,21 @@ export async function POST(req) {
     { direction: 'in', phone: from, body, twilio_sid: sid, status: 'received' }, { onConflict: 'twilio_sid', ignoreDuplicates: true })
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  // Who is this? Students' and guardians' numbers, for the alert's subject line.
+  // Who is this? Guardians', students' and staff numbers, for the alert's subject line.
   let who = formatPhone(from)
   try {
-    const [{ data: st }, { data: gu }] = await Promise.all([
+    const [{ data: st }, { data: gu }, { data: tu }, { data: di }] = await Promise.all([
       admin.from('students').select('full_name, phone').not('phone', 'is', null),
-      admin.from('guardians').select('full_name, relationship, students(full_name)').not('phone', 'is', null),
+      admin.from('guardians').select('full_name, relationship, phone, students(full_name)').not('phone', 'is', null),
+      admin.from('tutors').select('full_name, phone').not('phone', 'is', null),
+      admin.from('directors').select('full_name, phone').not('phone', 'is', null),
     ])
-    const s = (st || []).find((r) => normalisePhone(r.phone) === from)
-    const g = (gu || []).find((r) => normalisePhone(r.phone) === from)
+    const match = (rows) => (rows || []).find((r) => normalisePhone(r.phone) === from)
+    const s = match(st), g = match(gu), t = match(tu), d = match(di)
     if (g) who = `${g.full_name}${g.students?.full_name ? ` (${g.relationship || 'guardian'} of ${g.students.full_name})` : ''}`
     else if (s) who = `${s.full_name} (student)`
+    else if (d) who = `${d.full_name} (director)`
+    else if (t) who = `${t.full_name} (tutor)`
   } catch { /* the alert still goes out with the bare number */ }
 
   const link = `${portalUrl()}/tutor/admin/messages?phone=${encodeURIComponent(from)}`
