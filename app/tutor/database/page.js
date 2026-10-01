@@ -1763,6 +1763,13 @@ export default function DatabasePage() {
   useEffect(() => {
     // Handle Xero OAuth redirect feedback
     const params = new URLSearchParams(window.location.search)
+    // ?student=<id> opens that student's card in the Directory (the Messages
+    // app links here from a parent's conversation).
+    const studentParam = params.get('student')
+    if (studentParam) {
+      setSelectedTable(T_STUDENTS); setStudentViewMode('cards'); setStudentCardsSelected(studentParam)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
     const xeroParam = params.get('xero')
     if (xeroParam === 'connected') {
       setXeroConnected(true)
