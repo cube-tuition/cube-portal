@@ -74,14 +74,79 @@ function weeklySessionDates(term, daysList) {
   return out
 }
 
+/*
+ * The class page's tabs: which sessions sit under which week. Lessons in the
+ * DB are the source of truth (overrides, cancellations, moved dates); with
+ * none, dates come from the weekly schedule. Shared by the tab strip and by
+ * a ?date link, so the link lands exactly where the tab strip files that date.
+ */
+function groupSessionsIntoTabs(term, days, lessons) {
+  if (lessons.length > 0 && term) {
+    // A holiday course has no weekly rhythm — its sessions ARE its lessons, in
+    // date order. Numbering them here rather than trusting lesson.week keeps
+    // the tabs correct after a date is edited, and keeps a date that strays
+    // outside the term visible as its own session instead of being swept into
+    // the "Holidays" bucket below, which exists for holiday-intensive lessons
+    // hanging off a TEACHING term and reads as nonsense on a holiday course.
+    if (isHolidayTerm(term)) {
+      const byDate = new Map()
+      for (const lesson of lessons) {
+        if (!byDate.has(lesson.lesson_date)) byDate.set(lesson.lesson_date, [])
+        byDate.get(lesson.lesson_date).push(lesson)
+      }
+      return [...byDate.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, ls], i) => ({ week: i + 1, dates: [date], lessons: ls }))
+    }
+    const termStart = new Date(term.start_date + 'T00:00:00')
+    const weekMap = new Map()
+    // Holiday-intensive lessons run in the break BETWEEN terms, so they have no
+    // term week. Collect them all under one "Holidays" tab rather than inventing
+    // week numbers past 10 (which made the class look like a 13-week term).
+    const holiday = { week: 'holiday', isHoliday: true, dates: [], lessons: [] }
+    for (const lesson of lessons) {
+      if (lesson.lesson_date < term.start_date || lesson.lesson_date > term.end_date) {
+        holiday.dates.push(lesson.lesson_date)
+        holiday.lessons.push(lesson)
+        continue
+      }
+      const d = new Date(lesson.lesson_date + 'T00:00:00')
+      // Prefer the lesson's stored week number when valid so that a session
+      // moved to a later date (e.g. a 1:1 lesson moved to another teacher)
+      // still appears under its original week tab instead of jumping weeks or
+      // disappearing. Fall back to computing the week from the date.
+      const computedWeek = Math.floor((d - termStart) / (7 * 24 * 60 * 60 * 1000)) + 1
+      // A holiday course numbers its lessons 1..N in date order (one session
+      // per tab), so its week is authoritative and not capped at 10.
+      const maxWeek = isHolidayTerm(term) ? Infinity : 10
+      const weekNum = (Number.isInteger(lesson.week) && lesson.week >= 1 && lesson.week <= maxWeek)
+        ? lesson.week
+        : computedWeek
+      if (weekNum < 1) continue
+      if (!weekMap.has(weekNum)) weekMap.set(weekNum, { week: weekNum, dates: [], lessons: [] })
+      weekMap.get(weekNum).dates.push(lesson.lesson_date)
+      weekMap.get(weekNum).lessons.push(lesson)
+    }
+    const out = [...weekMap.values()].sort((a, b) => a.week - b.week)
+    if (holiday.dates.length) out.push(holiday)   // always last, after the term weeks
+    return out
+  }
+  return weeklySessionDates(term, days)
+}
+
 export default function ClassOverviewPage() {
   const params = useParams()
   const router = useRouter()
   const searchParams = useSearchParams()
   const classId = params?.classId
 
-  // Allow ?week=N to pre-select a tab (e.g. when linking from the weekly calendar)
+  // Allow ?week=N to pre-select a tab
   const weekParam = parseInt(searchParams?.get('week') || '', 10)
+  // ?date=YYYY-MM-DD opens whichever tab holds that session — what the weekly
+  // calendar links with. A week number alone cannot say which term it counts
+  // from: the calendar numbered a holiday-week session "Week 1" of the holiday
+  // period, and a Term 3 class then opened its own Week 1 back in July.
+  const dateParam = /^\d{4}-\d{2}-\d{2}$/.test(searchParams?.get('date') || '') ? searchParams.get('date') : null
   const initialTab = weekParam >= 1 && weekParam <= 10 ? weekParam
     : searchParams?.get('tab') === 'prepost' ? 'prepost'
     : searchParams?.get('tab') === 'exams'   ? 'exams'
@@ -232,8 +297,16 @@ export default function ClassOverviewPage() {
         .order('lesson_date')
       setLessons(lessonRows || [])
 
-      // Pick the default tab: prefer ?week param, otherwise use current week
-      if (!(weekParam >= 1 && weekParam <= 10)) {
+      // A ?date link opens the tab whose sessions include that date — a week
+      // tab, the Holidays tab for a lesson after the term, or a holiday
+      // course's session — grouped exactly as the tab strip groups them.
+      const dateTab = dateParam
+        ? groupSessionsIntoTabs(activeTerm, normalizeDays(row.day_of_week || ''), lessonRows || [])
+            .find(w => w.dates.includes(dateParam))?.week
+        : undefined
+      if (dateTab !== undefined) setTab(dateTab)
+      // Otherwise pick the default tab: prefer ?week param, otherwise use current week
+      else if (!(weekParam >= 1 && weekParam <= 10)) {
         const today = isoDate(new Date())
         if (today >= activeTerm.start_date && today <= activeTerm.end_date) {
           const days = Math.floor(
@@ -257,59 +330,7 @@ export default function ClassOverviewPage() {
 
   // If lessons exist in the DB, build weekDates from them (respecting overrides,
   // cancellations, etc.). Otherwise fall back to computing dates dynamically.
-  const weekDates = useMemo(() => {
-    if (lessons.length > 0 && term) {
-      // A holiday course has no weekly rhythm — its sessions ARE its lessons, in
-      // date order. Numbering them here rather than trusting lesson.week keeps
-      // the tabs correct after a date is edited, and keeps a date that strays
-      // outside the term visible as its own session instead of being swept into
-      // the "Holidays" bucket below, which exists for holiday-intensive lessons
-      // hanging off a TEACHING term and reads as nonsense on a holiday course.
-      if (isHolidayTerm(term)) {
-        const byDate = new Map()
-        for (const lesson of lessons) {
-          if (!byDate.has(lesson.lesson_date)) byDate.set(lesson.lesson_date, [])
-          byDate.get(lesson.lesson_date).push(lesson)
-        }
-        return [...byDate.entries()]
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([date, ls], i) => ({ week: i + 1, dates: [date], lessons: ls }))
-      }
-      const termStart = new Date(term.start_date + 'T00:00:00')
-      const weekMap = new Map()
-      // Holiday-intensive lessons run in the break BETWEEN terms, so they have no
-      // term week. Collect them all under one "Holidays" tab rather than inventing
-      // week numbers past 10 (which made the class look like a 13-week term).
-      const holiday = { week: 'holiday', isHoliday: true, dates: [], lessons: [] }
-      for (const lesson of lessons) {
-        if (lesson.lesson_date < term.start_date || lesson.lesson_date > term.end_date) {
-          holiday.dates.push(lesson.lesson_date)
-          holiday.lessons.push(lesson)
-          continue
-        }
-        const d = new Date(lesson.lesson_date + 'T00:00:00')
-        // Prefer the lesson's stored week number when valid so that a session
-        // moved to a later date (e.g. a 1:1 lesson moved to another teacher)
-        // still appears under its original week tab instead of jumping weeks or
-        // disappearing. Fall back to computing the week from the date.
-        const computedWeek = Math.floor((d - termStart) / (7 * 24 * 60 * 60 * 1000)) + 1
-        // A holiday course numbers its lessons 1..N in date order (one session
-        // per tab), so its week is authoritative and not capped at 10.
-        const maxWeek = isHolidayTerm(term) ? Infinity : 10
-        const weekNum = (Number.isInteger(lesson.week) && lesson.week >= 1 && lesson.week <= maxWeek)
-          ? lesson.week
-          : computedWeek
-        if (weekNum < 1) continue
-        if (!weekMap.has(weekNum)) weekMap.set(weekNum, { week: weekNum, dates: [], lessons: [] })
-        weekMap.get(weekNum).dates.push(lesson.lesson_date)
-        weekMap.get(weekNum).lessons.push(lesson)
-      }
-      const out = [...weekMap.values()].sort((a, b) => a.week - b.week)
-      if (holiday.dates.length) out.push(holiday)   // always last, after the term weeks
-      return out
-    }
-    return weeklySessionDates(term, days)
-  }, [term, days, lessons])
+  const weekDates = useMemo(() => groupSessionsIntoTabs(term, days, lessons), [term, days, lessons])
 
   // Lightweight lookup used by the tab nav to dot weeks that have any attendance.
   const attByDate = useMemo(() => {

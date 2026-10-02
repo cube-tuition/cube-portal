@@ -1223,16 +1223,6 @@ function CourseCard({ course, expanded, onToggle, showTeacher }) {
 // ── Weekly card view ──────────────────────────────────────────────────────
 // One card per day. Each class is a soft subject-tinted block — no double
 // borders, no nested header strip. Optimised for a glance.
-// Compute the 1-based term week number for a given ISO date string.
-function termWeekNumber(dateISO, term) {
-  if (!term || !term.start_date) return null
-  const termStart = new Date(`${term.start_date}T00:00:00`)
-  const sessionDate = new Date(`${dateISO}T00:00:00`)
-  const diff = sessionDate.getTime() - termStart.getTime()
-  const week = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1
-  return week >= 1 ? week : null
-}
-
 function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
@@ -1277,10 +1267,11 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                 sessions.map(s => {
                   const col = pickSubjectColor(s.cls.class_name)
                   const count = (rosters?.[s.cls.id] || []).length
-                  const wk = termWeekNumber(s.dateISO, currentTerm)
-                  const href = wk
-                    ? `/tutor/classes/${s.cls.id}?week=${wk}`
-                    : `/tutor/classes/${s.cls.id}`
+                  // Link by date, not week: the class page opens the tab that
+                  // holds this session. A week number counted from the CURRENT
+                  // term sent a holiday-week lesson on a Term 3 class to that
+                  // class's Week 1 — another session's marks and notes.
+                  const href = `/tutor/classes/${s.cls.id}?date=${s.dateISO}`
                   // Tutor view: every lesson is visible (director-style), but
                   // only the viewer's own are in colour — theirs highlighted
                   // blue, everyone else's greyed out. Special states (sub /
