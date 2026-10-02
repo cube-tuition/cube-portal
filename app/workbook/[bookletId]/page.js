@@ -4,6 +4,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { subjectCode } from '../../../lib/format'
 import { requireStudent } from '../../../lib/requireStudent'
+import { studentClassAccess, weekOpen } from '../../../lib/classAccess'
 import PortalNav from '../../../components/PortalNav'
 import WorkbookDoc from '../../../components/booklet/WorkbookDoc'
 import TermJournal from '../../../components/booklet/TermJournal'
@@ -44,9 +45,16 @@ function StudentWorkbookInner() {
       setStudent(user)
 
       if (!classId) { setErr('This link is missing its class.'); return }
-      const { data: enrol } = await supabase.from('enrolments')
-        .select('id').eq('class_id', classId).eq('student_id', user.id).eq('status', 'active').maybeSingle()
-      if (!enrol) { setErr('This workbook belongs to a class you are not enrolled in.'); return }
+      // Enrolled now, or once — a past term, or the weeks before they left a
+      // class (lib/classAccess). The workbook must be set for an open week.
+      const access = await studentClassAccess(user.id, classId)
+      if (!access.ok) { setErr('This workbook belongs to a class you are not enrolled in.'); return }
+      const { data: asgRows } = await supabase.from('class_booklet_assignments')
+        .select('week').eq('class_id', classId).eq('booklet_id', bookletId)
+      if (!(asgRows || []).some(r => weekOpen(access, r.week))) {
+        setErr(asgRows?.length ? 'This workbook is from after you left this class.' : 'This workbook is not set for your class.')
+        return
+      }
 
       const { data: b } = await supabase.from('booklets').select('*').eq('id', bookletId).maybeSingle()
       if (!b) { setErr('Workbook not found.'); return }

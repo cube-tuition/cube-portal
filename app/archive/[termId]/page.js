@@ -18,6 +18,7 @@ import CourseDetail, {
 } from '../../../components/CourseDetail'
 import { T_ATTENDANCE, T_QUIZ_RESULTS, T_RESULTS, T_STUDENTS } from '../../../lib/tables'
 import { enrolledClassesForTerm } from '../../../lib/classes'
+import PastClassWork from '../../../components/PastClassWork'
 
 export default function ArchiveTermPage() {
   const params = useParams()
@@ -189,6 +190,10 @@ export default function ArchiveTermPage() {
             <p className="text-sm font-semibold text-[#2A2035]">Nothing recorded for this term.</p>
           </div>
         ) : (
+          <>
+          {/* The booklets set for this class, week by week — read-only, with
+              solutions and online workbooks (weeks up to leaving, if they left). */}
+          <PastClassWork key={activeCourse.id} cls={activeCourse} term={term} studentId={student?.id} col={col} />
           <CourseDetail
             course={activeCourse}
             student={student}
@@ -198,6 +203,7 @@ export default function ArchiveTermPage() {
             exams={courseExams}
             attendance={courseAttendance}
           />
+          </>
         )}
       </section>
 

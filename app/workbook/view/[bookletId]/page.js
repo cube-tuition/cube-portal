@@ -4,7 +4,8 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { subjectCode } from '../../../../lib/format'
 import { requireStudent } from '../../../../lib/requireStudent'
-import { fetchAllTerms, solutionsUnlockAt } from '../../../../lib/terms'
+import { solutionsUnlockAt } from '../../../../lib/terms'
+import { studentClassAccess, weekOpen } from '../../../../lib/classAccess'
 
 /*
  * Read-only view of a printed workbook — /workbook/view/<bookletId>?class=<id>&i=<n>
@@ -47,26 +48,28 @@ function ViewerInner() {
       if (!requireStudent(user, router)) return
 
       if (!classId) { setErr('This link is missing its class.'); return }
-      const { data: enrol } = await supabase.from('enrolments')
-        .select('id').eq('class_id', classId).eq('student_id', user.id).eq('status', 'active').maybeSingle()
-      if (!enrol) { setErr('This workbook belongs to a class you are not enrolled in.'); return }
+      // Enrolled now, or once (a past term, or a class they left part-way) —
+      // see lib/classAccess for the rule.
+      const access = await studentClassAccess(user.id, classId)
+      if (!access.ok) { setErr('This workbook belongs to a class you are not enrolled in.'); return }
 
-      // The booklet must actually be set for this class — not just any booklet id.
-      // limit(1): the same booklet can legitimately be set for two weeks of one
-      // class, and any row at all means it is theirs to read.
-      const { data: asgRows } = await supabase.from('class_booklet_assignments')
+      // The booklet must actually be set for this class — not just any booklet id
+      // — and for a week this student can still open (a student who left keeps
+      // the weeks up to when they left). The same booklet can be set for two
+      // weeks of one class; any open week makes it theirs to read.
+      const { data: allRows } = await supabase.from('class_booklet_assignments')
         .select('id, week').eq('class_id', classId).eq('booklet_id', bookletId)
-      if (!asgRows?.length) { setErr('This workbook is not set for your class.'); return }
+      if (!allRows?.length) { setErr('This workbook is not set for your class.'); return }
+      const asgRows = allRows.filter(r => weekOpen(access, r.week))
+      if (!asgRows.length) { setErr('This workbook is from after you left this class.'); return }
 
       // Solutions are time-gated: unlocked one week after the lesson of the
       // LATEST week this booklet is set for (after the next lesson finishes).
       if (wantSolutions) {
         const { data: klass } = await supabase.from('classes')
-          .select('day_of_week, end_time, term_id').eq('id', classId).maybeSingle()
-        const terms = await fetchAllTerms()
-        const clsTerm = terms.find(t => t.id === klass?.term_id)
+          .select('day_of_week, end_time').eq('id', classId).maybeSingle()
         const wk = Math.max(...asgRows.map(r => r.week).filter(w => w >= 1))
-        const at = solutionsUnlockAt(clsTerm, klass?.day_of_week, klass?.end_time, wk)
+        const at = solutionsUnlockAt(access.term, klass?.day_of_week, klass?.end_time, wk)
         if (!at || Date.now() < at.getTime()) {
           setErr('The solutions for this workbook haven\u2019t been released yet — they unlock after your next lesson.')
           return
