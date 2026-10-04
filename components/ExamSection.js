@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo, useRef, Fragment } from 'react'
 import { supabase } from '../lib/supabase'
-import { resolveAssignedExamId, loadExamItems, computeExamAnalysis } from '../lib/examMarking'
+import { resolveAssignedExamId, loadExamItems, computeExamAnalysis, examQuestions, marksFromRows, analysisInputs } from '../lib/examMarking'
 import StudentExamAnalysisView, { studentAnalysisRows } from './StudentExamAnalysisView'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -15,6 +15,8 @@ import {
  * so awarding marks per question rolls straight up into a topic breakdown.
  *
  * Marks are stored per (class, term, student, question) in exam_question_marks.
+ * A multi-part question is marked by subquestion — one row per part, each
+ * under its own topic — and stored as its total plus part_marks by label.
  */
 
 const firstName = (n) => (n || '—').split(' ')[0]
@@ -38,6 +40,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
   const [items, setItems] = useState([])        // [{ qid, n, section, topic, max, qtype, stem }]
   const [marks, setMarks] = useState({})        // marks[studentId][qid] = awarded total (string)
   const [critMarks, setCritMarks] = useState({}) // critMarks[studentId][qid][criterionIndex] = mark (string)
+  const [whole, setWhole] = useState({})         // whole[studentId][questionId] = total entered before marking by part
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
@@ -63,24 +66,13 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
 
         const { data: existing } = await supabase
           .from('exam_question_marks')
-          .select('student_id, question_id, awarded, criteria_marks')
+          .select('student_id, question_id, awarded, criteria_marks, part_marks')
           .eq('class_id', classId).eq('term_id', termId).eq('exam_id', examId)
-        const mm = {}
-        const cm = {}
-        for (const r of existing || []) {
-          mm[r.student_id] = mm[r.student_id] || {}
-          mm[r.student_id][r.question_id] = r.awarded == null ? '' : String(r.awarded)
-          if (r.criteria_marks && typeof r.criteria_marks === 'object') {
-            cm[r.student_id] = cm[r.student_id] || {}
-            cm[r.student_id][r.question_id] = Object.fromEntries(
-              Object.entries(r.criteria_marks).map(([k, v]) => [k, v == null ? '' : String(v)]),
-            )
-          }
-        }
+        const { marks: mm, crit: cm, whole: wm } = marksFromRows(list, existing)
         if (alive) {
           skipNextSave.current = true   // loading marks shouldn't trigger an autosave
           setExam({ id: examId, name: examName || 'Exam' })
-          setItems(list); setMarks(mm); setCritMarks(cm)
+          setItems(list); setMarks(mm); setCritMarks(cm); setWhole(wm)
           setLoading(false)
         }
       } catch (e) { if (alive) { setError(e.message || 'Could not load the exam.'); setLoading(false) } }
@@ -139,7 +131,25 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
     try {
       const ups = []
       for (const st of roster) {
+        for (const q of examQuestions(items)) {
+          if (!q.parts.length) continue
+          // A question marked by part saves as its total plus the part marks.
+          // With no part marked yet, a total entered before marking by part
+          // stays as it was.
+          const entered = q.parts.filter((p) => (marks[st.id]?.[p.qid] ?? '') !== '')
+          const legacy = whole[st.id]?.[q.questionId]
+          if (!entered.length && legacy == null) continue
+          ups.push({
+            class_id: classId, term_id: termId, student_id: st.id, exam_id: exam.id, question_id: q.questionId,
+            awarded: entered.length ? entered.reduce((sum, p) => sum + (Number(marks[st.id][p.qid]) || 0), 0) : Number(legacy),
+            criteria_marks: null,
+            part_marks: entered.length ? Object.fromEntries(entered.map((p) => [p.part, Number(marks[st.id][p.qid])])) : null,
+            max_marks: q.max, topic: q.parts[0].questionTopic, section: q.section,
+            updated_at: new Date().toISOString(),
+          })
+        }
         for (const it of items) {
+          if (it.questionId) continue   // saved with its question above
           const a = marks[st.id]?.[it.qid]
           if (a === '' || a == null) continue
           // For rubric questions persist the per-criterion breakdown too.
@@ -153,6 +163,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
             class_id: classId, term_id: termId, student_id: st.id, exam_id: exam.id, question_id: it.qid,
             awarded: Number(a),
             criteria_marks: cMarks,
+            part_marks: null,
             max_marks: it.max, topic: it.topic, section: it.section,
             updated_at: new Date().toISOString(),
           })
@@ -165,7 +176,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       }
       setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch (e) { setError(e.message) } finally { setSaving(false) }
-  }, [exam, roster, items, marks, critMarks, classId, termId])
+  }, [exam, roster, items, marks, critMarks, whole, classId, termId])
 
   // Debounced autosave — marks persist as you mark; no manual save needed.
   useEffect(() => {
@@ -178,8 +189,11 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
   // ── Topical analysis (auto) ─────────────────────────────────────────────────
   // Core topic/section roll-up is shared with the student reports (single source
   // of truth in lib/examMarking); overall + strengths/weaknesses are layered on.
+  // Totals entered before marking by part count under their question's topic
+  // until the parts are marked; every total below reads through this.
+  const marked = useMemo(() => analysisInputs(items, marks, whole), [items, marks, whole])
   const analysis = useMemo(() => {
-    const base = computeExamAnalysis(items, marks, roster)
+    const base = computeExamAnalysis(marked.items, marked.marks, roster)
     const overallAwarded = base.topics.reduce((s, t) => s + t.awarded, 0)
     const overallMax = base.topics.reduce((s, t) => s + t.max, 0)
     return {
@@ -188,7 +202,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       strengths: base.topics.filter((t) => t.pct != null && t.pct >= 80).map((t) => t.topic),
       weaknesses: base.topics.filter((t) => t.pct != null && t.pct < 60).map((t) => t.topic),
     }
-  }, [roster, items, marks])
+  }, [roster, marked])
 
   // Per-question class average (% across students who attempted it)
   const qClassAvg = (it) => {
@@ -201,12 +215,32 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
     return pct(aw, mx)
   }
 
+  // A multi-part question's class average: its total over the students with
+  // a mark on it, whether by part or as an earlier whole total.
+  const questionClassAvg = (q) => {
+    let aw = 0, mx = 0
+    for (const st of roster) {
+      const t = questionTotal(st.id, q)
+      if (t == null) continue
+      aw += t.aw; mx += q.max
+    }
+    return pct(aw, mx)
+  }
+  // A student's total on a multi-part question: the sum of the parts marked,
+  // or the whole total entered before marking by part ({ legacy: true }).
+  const questionTotal = (sid, q) => {
+    const entered = q.parts.filter((p) => (marks[sid]?.[p.qid] ?? '') !== '')
+    if (entered.length) return { aw: entered.reduce((s2, p) => s2 + (Number(marks[sid][p.qid]) || 0), 0), partial: entered.length < q.parts.length }
+    const w = whole[sid]?.[q.questionId]
+    return w == null ? null : { aw: Number(w) || 0, legacy: true }
+  }
+
   // Per-student section total
   const studentSectionTotal = (sid, sectionLabel) => {
     let aw = 0, mx = 0
-    for (const it of items) {
+    for (const it of marked.items) {
       if (it.section !== sectionLabel) continue
-      const a = marks[sid]?.[it.qid]
+      const a = marked.marks[sid]?.[it.qid]
       if (a === '' || a == null) continue
       aw += Number(a) || 0; mx += it.max
     }
@@ -241,7 +275,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       <div className="flex flex-wrap items-center gap-3">
         <div className="mr-auto">
           <h2 className="text-base font-bold text-[#062E63]">{exam.name}</h2>
-          <p className="text-[11px] text-[#2A2035]/45">{items.length} questions · {analysis.overall.max ? `${analysis.overall.max} marks entered` : 'enter marks below'} · marks roll up by topic automatically</p>
+          <p className="text-[11px] text-[#2A2035]/45">{examQuestions(items).length} questions · {analysis.overall.max ? `${analysis.overall.max} marks entered` : 'enter marks below'} · marks roll up by topic automatically</p>
         </div>
         {canEdit && (
           <span className="text-xs font-semibold text-[#2A2035]/45 whitespace-nowrap">
@@ -254,6 +288,7 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
       {/* Marking grid, grouped by section */}
       {sections.map((sec) => {
         const rows = items.filter((it) => it.section === sec)
+        const questionOf = new Map(examQuestions(rows).filter((q) => q.parts.length).map((q) => [q.questionId, q]))
         return (
           <div key={sec} className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
             <div className="px-4 py-2.5 bg-[#F8FAFF] border-b border-[#F0F4FF]">
@@ -286,15 +321,58 @@ export default function ExamSection({ classId, termId, termNumber, roster, canEd
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((it) => {
+                  {rows.map((it, ri) => {
                     const cAvg = qClassAvg(it)
                     const rubric = isRubric(it)
+                    // A subquestion row; the first part of a question is
+                    // preceded by the question's own row, which holds its total.
+                    const q = it.questionId ? questionOf.get(it.questionId) : null
+                    const startsQuestion = q && rows[ri - 1]?.questionId !== it.questionId
                     return (
                       <Fragment key={it.qid}>
-                      <tr className="border-t border-[#F0F4FF]">
-                        <td className="px-3 py-2 sticky left-0 bg-white">
-                          <span className="font-bold text-[#062E63]">Q{it.n}</span>
-                          {it.stem && <span className="block text-[10px] text-[#2A2035]/40 max-w-[180px] truncate">{it.stem}</span>}
+                      {startsQuestion && (
+                        <tr className="border-t border-[#F0F4FF]">
+                          <td className="px-3 py-2 sticky left-0 bg-white">
+                            <span className="font-bold text-[#062E63]">Q{q.n}</span>
+                            <span className="block text-[10px] text-[#2A2035]/40 max-w-[180px] truncate">marked by part</span>
+                          </td>
+                          <td className="px-2 py-2" />
+                          <td className="px-2 py-2 text-center text-[#2A2035]/50 font-semibold">{q.max}</td>
+                          {roster.map((st) => {
+                            const t = questionTotal(st.id, q)
+                            const p = t ? pct(t.aw, q.max) : null
+                            return (
+                              <td key={st.id} className="px-2 py-1.5 text-center align-top"
+                                title={t?.legacy
+                                  ? 'Entered as one total before marking by part. It counts under the question\'s topic until the parts are marked; marking a part replaces it.'
+                                  : 'Auto-summed from the parts below'}>
+                                <span className={`font-bold ${t?.legacy ? 'italic' : ''}`} style={{ color: t ? scoreColor(p) : '#9CA3AF' }}>
+                                  {t ? `${t.aw}/${q.max}` : '–'}
+                                </span>
+                                {t?.legacy && <span className="block text-[9px] text-[#2A2035]/40">whole total</span>}
+                              </td>
+                            )
+                          })}
+                          {!hideClassAvg && (
+                            <td className="px-2 py-2 text-center">
+                              {(() => { const a = questionClassAvg(q); return <span className="text-xs font-bold" style={{ color: scoreColor(a) }}>{a == null ? '–' : `${a}%`}</span> })()}
+                            </td>
+                          )}
+                        </tr>
+                      )}
+                      <tr className={q ? 'border-t border-[#F6F8FF] bg-[#FCFDFF]' : 'border-t border-[#F0F4FF]'}>
+                        <td className={`px-3 py-2 sticky left-0 ${q ? 'bg-[#FCFDFF]' : 'bg-white'}`}>
+                          {q ? (
+                            <span className="block pl-4">
+                              <span className="font-semibold text-[#062E63]">↳ ({it.part})</span>
+                              {it.stem && <span className="block text-[10px] text-[#2A2035]/40 max-w-[164px] truncate">{it.stem}</span>}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="font-bold text-[#062E63]">Q{it.n}</span>
+                              {it.stem && <span className="block text-[10px] text-[#2A2035]/40 max-w-[180px] truncate">{it.stem}</span>}
+                            </>
+                          )}
                         </td>
                         <td className="px-2 py-2"><span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#EEF4FF] text-[#325099] whitespace-nowrap">{it.topic}</span></td>
                         <td className="px-2 py-2 text-center text-[#2A2035]/50 font-semibold">

@@ -56,6 +56,8 @@ const blankPart = (i) => ({
   prompt_latex: '',
   solution_latex: '',
   marks: '',
+  topic_id: null,      // the part's own topic for exam analysis; both null =
+  subtopic_id: null,   // the question's topic
   criteria: {},
 })
 
@@ -195,6 +197,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
               prompt_latex: p.prompt_latex || '', solution_latex: p.solution_latex || '',
               marks: p.marks ?? '',
               criteria: (p.criteria && typeof p.criteria === 'object') ? p.criteria : {},
+              topic_id: p.topic_id || null,
+              subtopic_id: p.subtopic_id || null,
             })))
           }
           const { data: im } = await supabase.from(T_QBANK_QUESTION_IMAGES)
@@ -271,6 +275,15 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     return (tax.topicsBySubject[subjectId] || [])
       .map((t) => ({ key: t.id, label: t.name, options: (tax.subtopicsByTopic[t.id] || []).map((st) => ({ id: st.id, name: st.name })) }))
       .filter((g) => g.options.length)
+  }, [tax, subjectId])
+  // What a subquestion can be filed under for exam marking: any topic of the
+  // subject+year, or one of its subtopics.
+  const partTopicGroups = useMemo(() => {
+    if (!tax || !subjectId) return []
+    return (tax.topicsBySubject[subjectId] || []).map((t) => ({
+      id: t.id, name: t.name,
+      subtopics: (tax.subtopicsByTopic[t.id] || []).map((st) => ({ id: st.id, name: st.name })),
+    }))
   }, [tax, subjectId])
   // Skills across the subject+year (subject-level, independent dimension).
   const skillGroups = useMemo(() => {
@@ -391,6 +404,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             solution_latex: p.solution_latex,
             marks: p.marks === '' ? null : Number(p.marks),
             criteria: p.criteria || {},
+            topic_id: p.subtopic_id ? null : (p.topic_id || null),
+            subtopic_id: p.subtopic_id || null,
             sort_order: i,
           }))
         if (rows.length) {
@@ -769,6 +784,29 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
                 rows={2} placeholder="Part prompt…" />
               <LatexField value={p.solution_latex} onChange={(v) => updatePart(p._key, 'solution_latex', v)}
                 rows={2} placeholder="Part solution…" />
+              {partTopicGroups.length > 0 && (
+                <label className="flex flex-wrap items-center gap-2 text-[11px] text-[#2A2035]/60">
+                  <span className="font-semibold text-[#062E63]">Topic</span>
+                  <select
+                    value={p.subtopic_id ? `s:${p.subtopic_id}` : p.topic_id ? `t:${p.topic_id}` : ''}
+                    onChange={(e) => {
+                      const [kind, id] = e.target.value.split(':')
+                      setParts((ps) => ps.map((x) => (x._key === p._key
+                        ? { ...x, topic_id: kind === 't' ? id : null, subtopic_id: kind === 's' ? id : null }
+                        : x)))
+                    }}
+                    className="flex-1 min-w-0 max-w-sm border border-[#DEE7FF] rounded-lg px-2 py-1 text-[12px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                    <option value="">Same as the question</option>
+                    {partTopicGroups.map((t) => (
+                      <optgroup key={t.id} label={t.name}>
+                        <option value={`t:${t.id}`}>{t.name}{t.subtopics.length ? ' (whole topic)' : ''}</option>
+                        {t.subtopics.map((st) => <option key={st.id} value={`s:${st.id}`}>{st.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-[#2A2035]/40 max-md:hidden">exam marks for this part count under it</span>
+                </label>
+              )}
               {Number(p.marks) > 1 && (
                 <CriteriaEditor marks={p.marks} value={p.criteria} onChange={(c) => updatePart(p._key, 'criteria', c)} />
               )}
