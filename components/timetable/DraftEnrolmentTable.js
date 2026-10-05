@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 
 /*
  * Draft enrolments — the timetable draft's rosters as a table, one row per
- * enrolment (student × class), sorted year → class → student.
+ * enrolment (student × class), grouped by class — year → class → student.
  *
  * It reads and writes the same draft the grid above does: changing a row's
  * class moves the student between cards, ✕ takes them out, "+ Add" puts them
@@ -37,6 +37,11 @@ export const sortForPicker = (list) => [...list].sort((a, b) => pickerRank(a) - 
 const toMins = (hhmm) => { const [h, m] = String(hhmm || '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null }
 const fromMins = (n) => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`
 const yearNum = (y) => { const n = parseInt(y, 10); return Number.isFinite(n) ? n : 99 }
+// A class's year from its name ("Y6 English", "Year 12 Chemistry"), or null.
+const classYearOf = (e, courseName) => {
+  const m = String(e.class_name || courseName(e.course_id) || '').match(/\bY(?:ear)?\s*(\d{1,2})\b/i)
+  return m ? Number(m[1]) : null
+}
 
 export default function DraftEnrolmentTable({
   draftId, entries, liveList, hiddenIds, studentsById, allStudents,
@@ -98,11 +103,22 @@ export default function DraftEnrolmentTable({
       }
     }
     const nameOf = (sid) => studentsById[sid]?.full_name || ''
+    // Each class is one block. Classes often share a name — two "Y6 English"
+    // classes on different days — so the class itself (day, time, id) keeps
+    // them apart, not the name alone; sorting by name then student wove the
+    // two rosters together. The block's year is the class's, so a student in
+    // a class above or below their own year still sits with that class.
+    const dayIdx = (e) => { const i = DAYS.indexOf(e.day_of_week); return i < 0 ? 99 : i }
+    const startOf = (e) => toMins(timeToInput(e.start_time)) ?? 24 * 60
+    out.forEach(r => { r.classYear = classYearOf(r.entry, courseName) ?? yearNum(studentsById[r.sid]?.year) })
     return out.sort((a, b) =>
-      yearNum(studentsById[a.sid]?.year) - yearNum(studentsById[b.sid]?.year)
-      || (a.entry.class_name || '').localeCompare(b.entry.class_name || '', undefined, { numeric: true })
+      a.classYear - b.classYear
+      || (a.entry.class_name || courseName(a.entry.course_id) || '').localeCompare(b.entry.class_name || courseName(b.entry.course_id) || '', undefined, { numeric: true })
+      || dayIdx(a.entry) - dayIdx(b.entry)
+      || startOf(a.entry) - startOf(b.entry)
+      || String(a.entry.id).localeCompare(String(b.entry.id), undefined, { numeric: true })
       || nameOf(a.sid).localeCompare(nameOf(b.sid)))
-  }, [entries, liveList, studentsById, isOffCourse])
+  }, [entries, liveList, studentsById, isOffCourse, courseName, timeToInput])
 
   const years = useMemo(
     () => [...new Set(rows.map(r => studentsById[r.sid]?.year).filter(Boolean))].sort((a, b) => yearNum(a) - yearNum(b)),
@@ -123,7 +139,7 @@ export default function DraftEnrolmentTable({
   })
 
   // Shade alternate classes grey / white so each class's students read as a
-  // block. Rows are sorted year → class, so a class's rows are contiguous.
+  // block. Rows are grouped by class, so a class's rows are contiguous.
   const band = []
   shown.forEach((r, i) => band.push(i && String(r.entry.id) !== String(shown[i - 1].entry.id) ? band[i - 1] + 1 : (band[i - 1] || 0)))
 
@@ -203,7 +219,7 @@ export default function DraftEnrolmentTable({
               const st = studentsById[r.sid]
               const m = meta[r.key] || {}
               const prev = shown[i - 1]
-              const newYear = i > 0 && yearNum(studentsById[prev.sid]?.year) !== yearNum(st?.year)
+              const newYear = i > 0 && prev.classYear !== r.classYear
               return (
                 <tr key={r.key}
                   className={`border-b border-[#E9ECF2] ${newYear ? 'border-t-2 border-t-[#DEE7FF]' : ''} ${r.removed ? 'bg-red-50/60 max-md:bg-red-50! text-[#325099]/45' : band[i] % 2 ? 'bg-[#E4E7EC] hover:bg-[#D9DDE4]' : 'bg-white hover:bg-[#F8FAFF]'}`}>
