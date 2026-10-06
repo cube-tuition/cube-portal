@@ -509,8 +509,18 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           <button onClick={newChannel} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
         </div>
         {open.map(c => <Row key={c.id} c={c} />)}
+        {/* People: one list. Those you already have a thread with come first
+            (unread at the top); the rest of the staff follow, and tapping
+            anyone opens or starts the conversation. */}
         <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">{cubeMode ? 'CUBE direct messages' : 'Direct messages'}</p>
         {dms.map(c => <Row key={c.id} c={c} />)}
+        {others.filter(s => !(cubeMode && s.role === 'director')).filter(s => !channels.some(c => c.kind === (cubeMode ? 'cube_dm' : 'dm') && c.otherId === s.id)).map(s => (
+          <button key={s.id} onClick={() => startDm(s)} className="w-full text-left pl-4 pr-2 py-2.5 md:py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/55 hover:bg-[#F8FAFF]">
+            <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center opacity-70" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>{online.has(s.id) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
+            <span className="truncate flex-1">{s.full_name}</span>
+            <span className="text-[10px] text-[#2A2035]/35">{s.role === 'director' ? 'director' : ''}</span>
+          </button>
+        ))}
         {me.isAdmin && (
           <>
             <div className="px-3 flex items-center justify-between pt-4">
@@ -527,14 +537,6 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
             ))}
           </>
         )}
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">Everyone</p>
-        {others.filter(s => !(cubeMode && s.role === 'director')).filter(s => !channels.some(c => c.kind === (cubeMode ? 'cube_dm' : 'dm') && c.otherId === s.id)).map(s => (
-          <button key={s.id} onClick={() => startDm(s)} className="w-full text-left px-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/70 hover:bg-[#F8FAFF]">
-            <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>{online.has(s.id) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
-            <span className="truncate flex-1">{s.full_name}</span>
-            <span className="text-[10px] text-[#2A2035]/35">{s.role === 'director' ? 'director' : ''}</span>
-          </button>
-        ))}
       </div>
     </aside>
   )
