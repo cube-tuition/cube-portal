@@ -296,7 +296,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const send = async () => {
     const body = text.trim()
     if (!body || !current || !me) return
-    setText(''); setMention(null); setTypingIn(null)
+    setText(''); setMention(null); setTypingIn(null); setErr('')
     try {
       if (editing) { await editMessage(editing, body); setEditing(null); return }
       const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body, asCube })
@@ -689,7 +689,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               </>
             ) : <p className="text-sm text-[#2A2035]/50">Pick a channel or a person.</p>}
           </div>
-          {err && <p className="px-4 py-2 text-xs text-[#B23A3A] bg-rose-50 border-b border-rose-100">{err}</p>}
+          {err && !(current && current.mine) && <p className="px-4 py-2 text-xs text-[#B23A3A] bg-rose-50 border-b border-rose-100">{err}</p>}
           {membersOpen && current?.kind === 'channel' && (() => {
             const manage = canManage(current)
             const inChan = new Set(current.members)
@@ -823,6 +823,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 const who = Object.entries(typing).filter(([, cid]) => cid === current.id).map(([uid]) => nameOf(uid).split(' ')[0])
                 return who.length ? <p className="text-[11px] text-[#325099]/70 mb-1 h-4">{who.join(', ')} {who.length === 1 ? 'is' : 'are'} typing…</p> : <p className="h-4 mb-1" />
               })()}
+              {uploading && <p className="text-[11px] text-[#325099] mb-1 animate-pulse">Sending your photo…</p>}
+              {err && <p className="text-[11px] text-[#B23A3A] mb-1">{err}</p>}
               {editing && <p className="text-[11px] text-[#92400E] mb-1">Editing your message · Esc to cancel</p>}
               {asCube && !editing && <p className="text-[11px] text-[#062E63] mb-1">Sending as <b>CUBE</b>{current.kind !== 'cube_dm' ? ' · switch to your own name at the top of the list' : ''}</p>}
               {!canPost ? (
