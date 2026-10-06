@@ -95,14 +95,32 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   // Directors post either as themselves or as "CUBE" (a shared voice): their
   // pick is remembered per browser. In a CUBE thread it is always CUBE.
   const [persona, setPersona] = useState(() => { try { return localStorage.getItem('cube:chat-persona') === 'cube' ? 'cube' : 'me' } catch { return 'me' } })
-  const pickPersona = (p) => { setPersona(p); try { localStorage.setItem('cube:chat-persona', p) } catch { /* fine */ } }
   useEffect(() => { activeRef.current = active }, [active])
 
   const staffById = useMemo(() => Object.fromEntries(staff.map(s => [s.id, s])), [staff])
   const nameOf = useCallback((id) => staffById[id]?.full_name || 'Former staff', [staffById])
   const isAdmin = !!me?.isAdmin
+  // Which direct threads belong to the profile in use: a director sees their
+  // own DMs as themselves and only CUBE's threads as CUBE; a teacher sees both.
+  const inProfile = useCallback((c) => {
+    if (c.kind === 'channel') return true
+    if (!isAdmin) return true
+    return persona === 'cube' ? c.kind === 'cube_dm' : c.kind === 'dm'
+  }, [isAdmin, persona])
+  const pickPersona = (p) => {
+    setPersona(p)
+    try { localStorage.setItem('cube:chat-persona', p) } catch { /* fine */ }
+    // Reading the other profile's thread? Go to the staff channel instead.
+    const cur = channels.find(c => c.id === activeRef.current)
+    if (cur && cur.kind !== 'channel' && (p === 'cube' ? cur.kind !== 'cube_dm' : cur.kind !== 'dm')) {
+      const home = channels.find(ch => ch.is_default) || channels.find(ch => ch.kind === 'channel' && ch.mine)
+      if (home) selectChannel(home.id)
+    }
+  }
+  // A CUBE thread reads as the teacher's name inside the CUBE profile (the
+  // whole inbox is CUBE's there) and as "CUBE" to the teacher.
   const channelLabel = useCallback((c) => c.kind === 'dm' ? nameOf(c.otherId)
-    : c.kind === 'cube_dm' ? (isAdmin ? `CUBE · ${nameOf(c.otherId)}` : 'CUBE') : `#${c.name}`, [nameOf, isAdmin])
+    : c.kind === 'cube_dm' ? (isAdmin ? nameOf(c.otherId) : 'CUBE') : `#${c.name}`, [nameOf, isAdmin])
 
   const refreshChannels = useCallback(async (uid) => {
     const [cs, un] = await Promise.all([loadChannels(uid), loadUnread()])
@@ -438,9 +456,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   if (!me) return null
 
   const pinnedSet = new Set(pins)
-  const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine)
+  const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && inProfile(c))
   const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id))
-  const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && !pinnedSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
+  const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && inProfile(c) && !pinnedSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
   const Row = ({ c }) => (
     <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
       <button onClick={() => selectChannel(c.id)} className={`flex-1 min-w-0 text-left pl-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'text-[#062E63] font-semibold' : 'text-[#2A2035]/80'}`}>
@@ -461,7 +479,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   )
   const others = staff.filter(s => s.id !== me.id)
   const staffNames = staff.map(s => s.full_name)
-  const totalUnread = Object.values(unread).reduce((n, v) => n + v, 0)
+  const totalUnread = channels.filter(inProfile).reduce((n, c) => n + (unread[c.id] || 0), 0)
 
   const Sidebar = (
     <aside className="w-full md:w-64 shrink-0 bg-white md:border-r border-[#DEE7FF] flex flex-col h-full">
@@ -491,7 +509,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           <button onClick={newChannel} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
         </div>
         {open.map(c => <Row key={c.id} c={c} />)}
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">Direct messages</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">{cubeMode ? 'CUBE direct messages' : 'Direct messages'}</p>
         {dms.map(c => <Row key={c.id} c={c} />)}
         {me.isAdmin && (
           <>
@@ -638,7 +656,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}</p>
                   <p className="text-[11px] text-[#2A2035]/45 truncate">
-                    {current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? `CUBE inbox with ${nameOf(current.otherId)} · every director sees this thread` : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
+                    {current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
                 {current.mine && (
