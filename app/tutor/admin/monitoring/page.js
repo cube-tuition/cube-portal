@@ -19,7 +19,7 @@ import EnrolmentTrend from '../../../../components/EnrolmentTrend'
 // scan wins.
 const AREAS = [
   { label: 'Attendance', href: '/tutor/admin/monitoring/attendance', icon: '📋',
-    desc: 'Attendance across every class for a term, with the students slipping below the line surfaced first.' },
+    desc: 'Attendance across every class for a term, the students slipping below the line, and the absences inbox for following each absence up.' },
   { label: 'Flags',      href: '/tutor/flags', icon: '🚩',
     desc: 'Students tutors have flagged for attention, and what has been done about each one.' },
   { label: 'Portal',     href: '/tutor/admin/monitoring/portal', icon: '📶',

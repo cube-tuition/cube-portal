@@ -7,7 +7,8 @@ import { fmtTime, fmtTimeRange, isoDate } from '../../lib/format'
 import { bookGuestMakeup, bookOneToOneMakeup, cancelMakeup } from '../../lib/makeups'
 
 /*
- * Absences — the working inbox on /tutor/admin/monitoring/attendance.
+ * Absences — the working inbox on /tutor/admin/monitoring/attendance/absences,
+ * a subpage of Attendance.
  *
  * One case per student × missed session (absence_cases). Cases open
  * themselves when a tutor marks a student absent, and the database keeps them
