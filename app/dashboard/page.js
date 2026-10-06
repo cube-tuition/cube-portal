@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { signOutEverywhere } from '../../lib/nativeApp'
 import { requireStudent } from '../../lib/requireStudent'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -125,7 +126,7 @@ export default function Dashboard() {
           Likely fix: add a row in <span className="font-mono">students</span> with this id, or check RLS policies.
         </p>
         <button
-          onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
+          onClick={async () => { await signOutEverywhere(supabase); router.push('/') }}
           className="text-xs font-semibold bg-[#325099] text-white px-4 py-2 rounded-full hover:bg-[#062E63] transition"
         >
           Sign out

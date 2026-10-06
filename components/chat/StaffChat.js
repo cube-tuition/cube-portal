@@ -249,7 +249,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       if (!at) continue
       let last = null
       for (const m of messages) { if (m.created_at <= at) last = m; else break }
-      if (last) (out[last.id] ||= []).push(uid)
+      // Their own message needs no "seen" mark — they wrote it.
+      if (last && last.sender_id !== uid) (out[last.id] ||= []).push(uid)
     }
     return out
   }, [messages, reads, current, me.id])

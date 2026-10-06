@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import GlobalUndo from './GlobalUndo'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
-import { useIsNativeApp } from '../lib/nativeApp'
+import { useIsNativeApp, signOutEverywhere } from '../lib/nativeApp'
 import { SUBJECTS } from '../lib/resourceSubjects'
 import CubeLogo from './CubeLogo'
 
@@ -186,7 +186,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
   useEffect(() => { recordPageView(pathname) }, [pathname])
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    await signOutEverywhere(supabase)
     router.push('/')
   }
 
