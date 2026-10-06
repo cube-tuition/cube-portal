@@ -136,6 +136,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
   const [flagOpen, setFlagOpen] = useState(false)
   const [flagToast, setFlagToast] = useState(null)
   const [marks, setMarks] = useState({})
+  const [noticeIds, setNoticeIds] = useState(() => new Set())   // family told us ahead they'd be away
   const [history, setHistory] = useState({})
   const [expanded, setExpanded] = useState(() => new Set())
   const [lessonId,        setLessonId]        = useState(null)
@@ -350,6 +351,22 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             if (q.created_at && (!latestSavedAt || q.created_at > latestSavedAt)) latestSavedAt = q.created_at
           }
         }
+      }
+      // Absences a family told us about ahead (logged on the Absences page):
+      // the student starts as away, with a badge saying why. Only the roll
+      // here is pre-filled — nothing is written until the tutor saves, since an
+      // attendance row is what marks a session as saved.
+      if (studentIds.length > 0) {
+        const { data: notices } = await supabase
+          .from('absence_cases').select('student_id')
+          .eq('class_id', classId).eq('session_date', dateISO).eq('source', 'manual')
+          .in('student_id', studentIds)
+        if (cancelled) return
+        const ids = new Set((notices || []).map(n => n.student_id))
+        for (const sid of ids) {
+          if (seed[sid] && !seed[sid].attendance) seed[sid] = { ...seed[sid], attendance: 'absent' }
+        }
+        setNoticeIds(ids)
       }
       setMarks(seed)
       setIsLocked(anyPriorData)
@@ -672,6 +689,7 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
             currentWeek={bookletWeek}
             rqEnabled={rqEnabled}
             expanded={expanded}
+            noticeIds={noticeIds}
             onToggleExpand={(sid) => setExpanded(prev => {
               const next = new Set(prev)
               if (next.has(sid)) next.delete(sid); else next.add(sid)
@@ -885,7 +903,7 @@ const UNDERSTANDING_OPTIONS = [
 
 function MarkTable({
   roster, notYetJoined = [], marks, history, term, currentWeek, rqEnabled = true, hwEnabled = true,
-  expanded, onToggleExpand,
+  expanded, onToggleExpand, noticeIds = new Set(),
   onChange,
   isLocked, savedAt, savedBy, onEdit,
   isOneToOne,
@@ -996,6 +1014,10 @@ function MarkTable({
                             )}
                             {s.isMakeupGuest && (
                               <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#8B5CF6]/15 text-[#5B21B6] shrink-0 whitespace-nowrap">Makeup</span>
+                            )}
+                            {noticeIds.has(s.id) && (
+                              <span title="The family told CUBE ahead of time that they'd be away"
+                                className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#E0F2FE] text-[#075985] shrink-0 whitespace-nowrap">Parent told us</span>
                             )}
                           </div>
                           <button

@@ -2,9 +2,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
-import { fetchAllTerms } from '../../lib/terms'
+import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm } from '../../lib/terms'
+import { enrolledClassesForTerm } from '../../lib/classes'
 import { fmtTime, fmtTimeRange, isoDate } from '../../lib/format'
+import { isOneToOneClass, CLASS_CAPACITY } from '../../lib/classFormat'
 import { bookGuestMakeup, bookOneToOneMakeup, cancelMakeup } from '../../lib/makeups'
+import { buildAbsenceEmailHtml, defaultAbsenceContent, fillAbsenceVars } from '../../lib/absenceEmail'
 
 /*
  * Absences — the working inbox on /tutor/admin/monitoring/attendance/absences,
@@ -45,7 +48,7 @@ const MANUAL_CLOSE = [
   { id: 'no_makeup', label: 'No makeup needed / declined' },
   { id: 'carried',   label: 'Carried to next term' },
 ]
-const NOTE_ICON = { note: '📝', contact: '📞', stage: '➜', system: '⚙️' }
+const NOTE_ICON = { note: '📝', contact: '📞', stage: '➜', system: '⚙️', email: '✉️' }
 const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }
 
 const fmtDay = (d) => {
@@ -77,6 +80,77 @@ async function chunkedIn(table, cols, col, ids, size = 100) {
   return out
 }
 
+const fmtDayLong = (d) => {
+  if (!d) return ''
+  try { return new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) }
+  catch { return String(d) }
+}
+// One line describing a session, for the picker and the family's email.
+const sessionLine = (lesson, cls) => [
+  fmtDayLong(lesson.lesson_date),
+  cls?.class_name,
+  fmtTimeRange(lesson.start_time || cls?.start_time, lesson.end_time || cls?.end_time),
+  lesson.room || cls?.room,
+].filter(Boolean).join(' · ')
+
+/*
+ * Sessions a student could make an absence up in: any session of the same
+ * course from today to the end of the absence's term (any time in the term);
+ * once that term has finished, the next teaching term's. 1:1 classes are left
+ * out — a makeup is never a seat in someone else's 1:1.
+ *
+ * Each session carries its seat count as it will stand on the day: the class's
+ * enrolments, plus makeup guests already booked into that session, less the
+ * students already known to be away from it. Full = CLASS_CAPACITY taken.
+ */
+async function loadMakeupSessions(c, cls) {
+  const today = isoDate(new Date())
+  const terms = await fetchAllTerms()
+  const own = terms.find(t => c.session_date >= t.start_date && c.session_date <= t.end_date)
+  let to = own?.end_date
+  let note = ''
+  if (!to || to < today) {
+    const next = terms.filter(t => t.end_date >= today && !/holiday/i.test(t.name || ''))
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))[0]
+    to = next?.end_date || today
+    note = own ? `${own.name} has finished — showing ${next?.name || 'upcoming'} sessions.` : ''
+  }
+  if (!cls?.course_id) return { list: [], note }
+  const [{ data: sib }, { data: courses }, { data: mine }] = await Promise.all([
+    supabase.from('classes').select('id, class_name, day_of_week, start_time, end_time, room, term_id, course_id').eq('course_id', cls.course_id),
+    supabase.from('courses').select('id, delivery_mode'),
+    supabase.from('enrolments').select('class_id').eq('student_id', c.student_id).in('status', ['active', 'trial']),
+  ])
+  const modes = Object.fromEntries((courses || []).map(x => [x.id, x.delivery_mode]))
+  const groups = (sib || []).filter(x => !isOneToOneClass(x, modes))
+  const ids = groups.map(x => x.id)
+  if (!ids.length) return { list: [], note }
+  const [{ data: lessons }, { data: enr }, { data: guests }, { data: away }] = await Promise.all([
+    supabase.from('lessons').select('id, class_id, lesson_date, start_time, end_time, room, week, status')
+      .in('class_id', ids).gte('lesson_date', today).lte('lesson_date', to)
+      .eq('is_makeup', false).neq('status', 'cancelled').order('lesson_date').order('start_time'),
+    supabase.from('enrolments').select('class_id').in('class_id', ids).in('status', ['active', 'trial']),
+    supabase.from('lessons').select('class_id, lesson_date').in('class_id', ids).eq('is_makeup', true)
+      .not('makeup_student_id', 'is', null).gte('lesson_date', today).lte('lesson_date', to),
+    supabase.from('absence_cases').select('class_id, session_date').in('class_id', ids)
+      .gte('session_date', today).lte('session_date', to),
+  ])
+  const ownClasses = new Set((mine || []).map(e => e.class_id))
+  const tally = (rows, key) => { const m = {}; for (const r of rows || []) { const k = key(r); m[k] = (m[k] || 0) + 1 } return m }
+  const enrolled = tally(enr, r => r.class_id)
+  const guestAt = tally(guests, r => `${r.class_id}|${r.lesson_date}`)
+  const awayAt = tally(away, r => `${r.class_id}|${r.session_date}`)
+  const byId = Object.fromEntries(groups.map(x => [x.id, x]))
+  const list = (lessons || [])
+    .filter(l => !ownClasses.has(l.class_id))   // their own class would double-book them
+    .map(l => {
+      const k = `${l.class_id}|${l.lesson_date}`
+      const taken = (enrolled[l.class_id] || 0) + (guestAt[k] || 0) - (awayAt[k] || 0)
+      return { lesson: l, cls: byId[l.class_id], taken, away: awayAt[k] || 0, guests: guestAt[k] || 0, full: taken >= CLASS_CAPACITY }
+    })
+  return { list, note }
+}
+
 export default function AbsencesInbox({ staff }) {
   const [reloadKey, setReloadKey] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -88,6 +162,7 @@ export default function AbsencesInbox({ staff }) {
   const [selected, setSelected] = useState(() => new Set())
   const [bulkOutcome, setBulkOutcome] = useState('no_makeup')
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [logging, setLogging] = useState(false)
   const reload = () => setReloadKey(k => k + 1)
 
   useEffect(() => {
@@ -201,7 +276,9 @@ export default function AbsencesInbox({ staff }) {
           </button>
         ))}
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student or class"
-          className="w-full md:w-56 md:ml-auto border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-[#325099]" />
+          className="flex-1 md:flex-none md:w-56 md:ml-auto border border-[#DEE7FF] rounded-xl px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-[#325099]" />
+        <button type="button" onClick={() => setLogging(true)}
+          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#062E63] text-white hover:bg-[#325099] transition shrink-0">+ Log absence</button>
       </div>
       <p className="text-[11px] text-[#2A2035]/45 mb-3">{STAGES.find(s => s.id === tab)?.hint}</p>
 
@@ -254,12 +331,15 @@ export default function AbsencesInbox({ staff }) {
                     {c.stage === 'closed' && c.outcome && (
                       <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${OUTCOMES[c.outcome]?.cls}`}>{OUTCOMES[c.outcome]?.label}</span>
                     )}
+                    {c.notice_given && (
+                      <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-[#E0F2FE] text-[#075985]">Notice given</span>
+                    )}
                     <span className="ml-auto text-[11px] text-[#2A2035]/45 tabular-nums shrink-0">
-                      {fmtDay(c.session_date)}{c.stage !== 'closed' && ` · ${age === 0 ? 'today' : `${age}d ago`}`}
+                      {fmtDay(c.session_date)}{c.stage !== 'closed' && (c.session_date > isoDate(new Date()) ? ' · upcoming' : ` · ${age === 0 ? 'today' : `${age}d ago`}`)}
                     </span>
                   </div>
                   <p className="text-xs text-[#2A2035]/60 truncate">
-                    Absent from {classLabel(cl)}
+                    {c.session_date > isoDate(new Date()) ? 'Will miss' : 'Absent from'} {classLabel(cl)}
                     {ml && <> · <span className="text-[#1E40AF] font-semibold">makeup {fmtDay(ml.lesson_date)}{ml.class_id !== c.class_id ? ` in ${data.classes[ml.class_id]?.class_name || 'another class'}` : ' (1:1)'}</span></>}
                   </p>
                   {last && (
@@ -272,6 +352,11 @@ export default function AbsencesInbox({ staff }) {
             )
           })}
         </div>
+      )}
+
+      {logging && (
+        <LogAbsenceModal staff={staff} onClose={() => setLogging(false)}
+          onLogged={(id) => { setLogging(false); setTab('new'); setOpenId(id); reload() }} />
       )}
 
       {openCase && (
@@ -369,7 +454,7 @@ function CasePanel({ c, data, staff, onClose, onChanged }) {
             <div className="flex-1 min-w-0">
               <p className="text-base font-bold text-[#062E63]">{st?.full_name || 'Unknown student'}
                 {st?.year != null && <span className="text-xs font-normal text-[#2A2035]/45"> · Year {st.year}</span>}</p>
-              <p className="text-xs text-[#2A2035]/60">Absent {fmtDay(c.session_date)} · {classLabel(cl)}</p>
+              <p className="text-xs text-[#2A2035]/60">{c.session_date > isoDate(new Date()) ? 'Will miss' : 'Absent'} {fmtDay(c.session_date)} · {classLabel(cl)}</p>
             </div>
             <button type="button" onClick={onClose} aria-label="Close" className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none px-1">✕</button>
           </div>
@@ -379,6 +464,9 @@ function CasePanel({ c, data, staff, onClose, onChanged }) {
             </span>
             {isClosed && c.outcome && (
               <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${OUTCOMES[c.outcome]?.cls}`}>{OUTCOMES[c.outcome]?.label}</span>
+            )}
+            {c.notice_given && (
+              <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-[#E0F2FE] text-[#075985]">Notice given</span>
             )}
             {ml && (
               <span className="text-[11px] text-[#1E40AF]">
@@ -426,7 +514,7 @@ function CasePanel({ c, data, staff, onClose, onChanged }) {
             <section className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-wide text-[#325099]/60">Settle it</p>
               <div className="flex flex-wrap gap-2">
-                {[...(c.makeup_lesson_id ? [] : [['makeup', '📅 Book makeup']]), ['credit', '💳 Credit / cancel'], ['close', '✓ Close']].map(([m, label]) => (
+                {[...(c.makeup_lesson_id ? [] : [['makeup', '📅 Book makeup']]), ['email', '✉️ Email family'], ['credit', '💳 Credit / cancel'], ['close', '✓ Close']].map(([m, label]) => (
                   <button key={m} type="button" onClick={() => setMode(mode === m ? null : m)}
                     className={`${btn} ${mode === m ? 'bg-[#EEF4FF] border-[#BACBFF] text-[#062E63]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:border-[#BACBFF]'}`}>{label}</button>
                 ))}
@@ -441,6 +529,8 @@ function CasePanel({ c, data, staff, onClose, onChanged }) {
               </div>
               {mode === 'makeup' && <MakeupPicker c={c} student={st} cls={cl} onBooked={done} />}
               {mode === 'credit' && <CreditForm c={c} student={st} onDone={done} />}
+              {mode === 'email' && <EmailForm c={c} student={st} cls={cl} ml={ml} mlCls={ml ? data.classes[ml.class_id] : null}
+                guardians={guardians} onSent={done} />}
               {mode === 'close' && <CloseForm onClose={(outcome, note) => setStage(
                 { stage: 'closed', outcome, closed_at: new Date().toISOString() },
                 `Closed as “${MANUAL_CLOSE.find(o => o.id === outcome)?.label}”${note ? ` — ${note}` : ''}.`,
@@ -448,6 +538,8 @@ function CasePanel({ c, data, staff, onClose, onChanged }) {
             </section>
           ) : (
             <section className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setMode(mode === 'email' ? null : 'email')}
+                className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>✉️ Email family</button>
               {c.cancellation_id ? (
                 <button type="button" disabled={busy} onClick={undoCredit}
                   className={`${btn} bg-white text-[#B91C1C] border-[#FCA5A5]`}>↩ Undo {c.outcome === 'credited' ? 'credit' : 'cancellation'} and reopen</button>
@@ -456,6 +548,8 @@ function CasePanel({ c, data, staff, onClose, onChanged }) {
                   onClick={() => setStage({ stage: c.makeup_lesson_id ? 'booked' : 'new', outcome: null, closed_at: null }, 'Reopened.')}
                   className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>↩ Reopen</button>
               )}
+              {mode === 'email' && <div className="w-full"><EmailForm c={c} student={st} cls={cl} ml={ml} mlCls={ml ? data.classes[ml.class_id] : null}
+                guardians={guardians} onSent={done} /></div>}
             </section>
           )}
           {msg && <p className="text-xs font-semibold text-[#B91C1C]">{msg}</p>}
@@ -476,7 +570,7 @@ function CasePanel({ c, data, staff, onClose, onChanged }) {
               <li className="flex gap-2 text-xs">
                 <span className="shrink-0 w-4 text-center">•</span>
                 <div>
-                  <p className="text-[#2A2035]/55">{c.source === 'manual' ? 'Logged by hand.' : c.source === 'backfill' ? 'Case created from earlier attendance.' : 'Marked absent on the roll.'}</p>
+                  <p className="text-[#2A2035]/55">{c.source === 'manual' ? (c.notice_given ? 'Logged ahead — the family gave notice.' : 'Logged by hand.') : c.source === 'backfill' ? 'Case created from earlier attendance.' : 'Marked absent on the roll.'}</p>
                   <p className="text-[10px] text-[#2A2035]/40">{fmtStamp(c.created_at)}</p>
                 </div>
               </li>
@@ -528,7 +622,7 @@ function CreditForm({ c, student, onDone }) {
   }, [c.student_id, c.class_id])
 
   if (!c.lesson_id) {
-    return <p className="text-xs text-[#B91C1C]">This absence has no lesson row to cancel against, so it can&rsquo;t be credited here.</p>
+    return <p className="text-xs text-[#B91C1C]">This absence has no lesson row yet (next term’s lessons may not be created), so it can&rsquo;t be credited until it does.</p>
   }
 
   const submit = async () => {
@@ -568,13 +662,11 @@ function CreditForm({ c, student, onDone }) {
 }
 
 // ── Makeup picker ─────────────────────────────────────────────────────────────
-// Any session of the same course from today to the end of the absence's term
-// (any time in the term). If that term has finished, the next term's sessions
-// — the makeup carries over.
 function MakeupPicker({ c, student, cls, onBooked }) {
   const [kind, setKind] = useState('class')        // 'class' | 'oneToOne'
-  const [opts, setOpts] = useState(null)           // [{ lesson, cls, enrolled }]
+  const [opts, setOpts] = useState(null)           // loadMakeupSessions().list
   const [windowNote, setWindowNote] = useState('')
+  const [showFull, setShowFull] = useState(false)
   const [pick, setPick] = useState(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -583,56 +675,22 @@ function MakeupPicker({ c, student, cls, onBooked }) {
 
   useEffect(() => {
     let alive = true
-    ;(async () => {
-      const today = isoDate(new Date())
-      const terms = await fetchAllTerms()
-      const own = terms.find(t => c.session_date >= t.start_date && c.session_date <= t.end_date)
-      let to = own?.end_date
-      let note = ''
-      if (!to || to < today) {
-        const next = terms.filter(t => t.end_date >= today && !/holiday/i.test(t.name || ''))
-          .sort((a, b) => a.start_date.localeCompare(b.start_date))[0]
-        to = next?.end_date || today
-        note = own ? `${own.name} has finished — showing ${next?.name || 'upcoming'} sessions.` : ''
-      }
-      const sib = cls?.course_id
-        ? (await supabase.from('classes').select('id, class_name, day_of_week, start_time, end_time, room, term_id').eq('course_id', cls.course_id)).data || []
-        : (cls ? [cls] : [])
-      const sibIds = sib.map(s => s.id)
-      const [{ data: lessons }, { data: mine }, { data: enr }] = await Promise.all([
-        sibIds.length
-          ? supabase.from('lessons').select('id, class_id, lesson_date, start_time, end_time, week, status')
-              .in('class_id', sibIds).gte('lesson_date', today).lte('lesson_date', to)
-              .eq('is_makeup', false).neq('status', 'cancelled').order('lesson_date').order('start_time')
-          : { data: [] },
-        supabase.from('enrolments').select('class_id').eq('student_id', c.student_id).in('status', ['active', 'trial']),
-        sibIds.length ? supabase.from('enrolments').select('class_id').in('class_id', sibIds).in('status', ['active', 'trial']) : { data: [] },
-      ])
-      const own_ = new Set((mine || []).map(e => e.class_id))
-      const counts = {}
-      for (const e of enr || []) counts[e.class_id] = (counts[e.class_id] || 0) + 1
-      const byId = Object.fromEntries(sib.map(s => [s.id, s]))
-      const list = (lessons || [])
-        .filter(l => !own_.has(l.class_id))   // their own class would double-book them
-        .map(l => ({ lesson: l, cls: byId[l.class_id], enrolled: counts[l.class_id] || 0 }))
-      if (!alive) return
-      setOpts(list); setWindowNote(note)
-    })()
+    loadMakeupSessions(c, cls).then(({ list, note }) => { if (alive) { setOpts(list); setWindowNote(note) } })
     supabase.from('tutors').select('id, full_name').eq('active', true).order('full_name')
       .then(({ data }) => { if (alive) setTutors(data || []) })
     return () => { alive = false }
-  }, [c.session_date, c.student_id, cls])
+  }, [c, cls])
 
   const source = { id: c.lesson_id, class_id: c.class_id, lesson_date: c.session_date }
-  const noSource = !c.lesson_id
 
   const bookClass = async () => {
     if (!pick) return
+    if (pick.full && !window.confirm(`${pick.cls?.class_name} on ${fmtDay(pick.lesson.lesson_date)} is already full (${pick.taken}/${CLASS_CAPACITY}). Book them in anyway?`)) return
     setBusy(true); setMsg(null)
     const { error } = await bookGuestMakeup({
       student: { id: c.student_id, full_name: student?.full_name || 'This student' },
       source,
-      target: { ...pick.lesson, classes: { class_name: pick.cls?.class_name, room: pick.cls?.room } },
+      target: { ...pick.lesson, classes: { class_name: pick.cls?.class_name, room: pick.lesson.room || pick.cls?.room } },
     })
     setBusy(false)
     if (error) setMsg(error); else onBooked()
@@ -648,9 +706,13 @@ function MakeupPicker({ c, student, cls, onBooked }) {
     if (error) setMsg(error); else onBooked()
   }
 
-  if (noSource) return <p className="text-xs text-[#B91C1C]">This absence has no lesson row, so a makeup can&rsquo;t be linked to it.</p>
+  if (!c.lesson_id) return <p className="text-xs text-[#B91C1C]">This absence has no lesson row yet (next term’s lessons may not be created), so a makeup can&rsquo;t be linked to it.</p>
 
   const field = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[#325099] bg-white'
+  const open = (opts || []).filter(o => !o.full)
+  const suggested = new Set(open.slice(0, 3).map(o => o.lesson.id))
+  const visible = (opts || []).filter(o => showFull || !o.full)
+  const fullCount = (opts || []).length - open.length
   return (
     <div className="rounded-xl border border-[#DEE7FF] bg-[#FBFCFF] p-3 space-y-2.5">
       <div className="flex gap-1.5">
@@ -668,21 +730,33 @@ function MakeupPicker({ c, student, cls, onBooked }) {
               <p className="text-xs text-[#2A2035]/50 italic">
                 {windowNote
                   ? 'No sessions found — next term’s lessons may not have been created yet. Use a 1:1 makeup, or come back once they are.'
-                  : `No other ${cls?.class_name || ''} session left in the term. Use a 1:1 makeup instead.`}
+                  : `No other ${cls?.class_name || ''} group session left in the term. Use a 1:1 makeup instead.`}
               </p>
             ) : (
-              <div className="max-h-64 overflow-y-auto divide-y divide-[#EEF2FB] rounded-lg border border-[#EEF2FB] bg-white">
-                {opts.map(o => (
-                  <label key={o.lesson.id} className={`flex items-center gap-2 px-2.5 py-2 text-xs cursor-pointer ${pick?.lesson.id === o.lesson.id ? 'bg-[#EEF4FF]' : 'hover:bg-[#F8FAFF]'}`}>
-                    <input type="radio" name="makeup-session" checked={pick?.lesson.id === o.lesson.id} onChange={() => setPick(o)} />
-                    <span className="font-semibold text-[#062E63] w-24 shrink-0">{fmtDay(o.lesson.lesson_date)}</span>
-                    <span className="flex-1 min-w-0 truncate text-[#2A2035]">
-                      {o.cls?.class_name} · {fmtTimeRange(o.lesson.start_time || o.cls?.start_time, o.lesson.end_time || o.cls?.end_time)}
-                    </span>
-                    <span className="text-[10px] text-[#2A2035]/45 shrink-0">{o.enrolled} enrolled</span>
+              <>
+                <div className="max-h-64 overflow-y-auto divide-y divide-[#EEF2FB] rounded-lg border border-[#EEF2FB] bg-white">
+                  {visible.map(o => (
+                    <label key={o.lesson.id} className={`flex items-center gap-2 px-2.5 py-2 text-xs cursor-pointer ${pick?.lesson.id === o.lesson.id ? 'bg-[#EEF4FF]' : 'hover:bg-[#F8FAFF]'} ${o.full ? 'opacity-60' : ''}`}>
+                      <input type="radio" name="makeup-session" checked={pick?.lesson.id === o.lesson.id} onChange={() => setPick(o)} />
+                      <span className="font-semibold text-[#062E63] w-24 shrink-0">{fmtDay(o.lesson.lesson_date)}</span>
+                      <span className="flex-1 min-w-0 truncate text-[#2A2035]">
+                        {o.cls?.class_name} · {fmtTimeRange(o.lesson.start_time || o.cls?.start_time, o.lesson.end_time || o.cls?.end_time)}
+                        {suggested.has(o.lesson.id) && <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#065F46] bg-[#D1FAE5] px-1.5 py-0.5 rounded-full">Suggested</span>}
+                      </span>
+                      <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-full shrink-0 ${o.full ? 'bg-[#FEE2E2] text-[#B91C1C]' : 'bg-[#EEF4FF] text-[#325099]'}`}
+                        title={`${o.taken} of ${CLASS_CAPACITY} seats taken on the day${o.guests ? ` · ${o.guests} makeup guest${o.guests === 1 ? '' : 's'}` : ''}${o.away ? ` · ${o.away} away` : ''}`}>
+                        {o.full ? 'Full' : `${o.taken}/${CLASS_CAPACITY}`}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {fullCount > 0 && (
+                  <label className="flex items-center gap-1.5 text-[11px] text-[#2A2035]/55">
+                    <input type="checkbox" checked={showFull} onChange={e => setShowFull(e.target.checked)} />
+                    Show {fullCount} full session{fullCount === 1 ? '' : 's'}
                   </label>
-                ))}
-              </div>
+                )}
+              </>
             )}
             <button type="button" disabled={busy || !pick} onClick={bookClass}
               className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#1E40AF] text-white disabled:opacity-50">{busy ? 'Booking…' : 'Book into this session'}</button>
@@ -707,6 +781,263 @@ function MakeupPicker({ c, student, cls, onBooked }) {
         </div>
       )}
       {msg && <p className="text-xs font-semibold text-[#B91C1C] whitespace-pre-line">{msg}</p>}
+    </div>
+  )
+}
+
+// ── Email the family ─────────────────────────────────────────────────────────
+// Makeup options (sessions with space, ticked), the booked makeup, or a plain
+// message. Subject and text are editable; the preview is the email exactly.
+// The send route logs it on the case and moves a fresh case to awaiting reply.
+function EmailForm({ c, student, cls, ml, mlCls, guardians, onSent }) {
+  const ahead = c.session_date >= isoDate(new Date())
+  const [kind, setKind] = useState(ml ? 'confirmed' : 'options')
+  const [content, setContent] = useState(() => defaultAbsenceContent(ml ? 'confirmed' : 'options', { ahead }))
+  const emails = guardians.filter(g => g.email)
+  const [to, setTo] = useState(() => new Set(emails.map(g => g.email)))
+  const [sessions, setSessions] = useState(null)
+  const [chosen, setChosen] = useState(() => new Set())
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    loadMakeupSessions(c, cls).then(({ list }) => {
+      if (!alive) return
+      const open = list.filter(o => !o.full)
+      setSessions(open)
+      setChosen(new Set(open.slice(0, 3).map(o => o.lesson.id)))
+    })
+    return () => { alive = false }
+  }, [c, cls])
+
+  const switchKind = (k) => { setKind(k); setContent(defaultAbsenceContent(k, { ahead })) }
+  const vars = {
+    parentName: (emails.find(g => to.has(g.email))?.full_name || '').split(' ')[0],
+    studentName: (student?.full_name || '').split(' ')[0],
+    className: cls?.class_name,
+    date: fmtDayLong(c.session_date),
+  }
+  const items = kind === 'options'
+    ? (sessions || []).filter(o => chosen.has(o.lesson.id)).map(o => sessionLine(o.lesson, o.cls))
+    : kind === 'confirmed' && ml ? [sessionLine(ml, mlCls || cls) + (ml.class_id === c.class_id ? ' (1:1)' : '')] : []
+  const html = buildAbsenceEmailHtml(vars, content, items)
+
+  const send = async (test) => {
+    if (!to.size) { setMsg('Choose who to send it to.'); return }
+    if (kind === 'options' && !items.length) { setMsg('Tick at least one session to offer.'); return }
+    if (!test && !window.confirm(`Send “${fillAbsenceVars(content.subject, vars)}” to ${[...to].join(', ')}?`)) return
+    setBusy(true); setMsg(null)
+    try {
+      const res = await authedFetch('/api/send-absence-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caseId: c.id, to: [...to], vars, content, items, test }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Send failed')
+      if (test) setMsg('Test sent to staff — the family did not receive it.')
+      else onSent()
+    } catch (e) { setMsg(e.message) } finally { setBusy(false) }
+  }
+
+  const field = 'w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099] bg-white'
+  if (!emails.length) return <p className="text-xs text-[#B91C1C]">No guardian email on file for {student?.full_name || 'this student'}.</p>
+  return (
+    <div className="rounded-xl border border-[#DEE7FF] bg-[#FBFCFF] p-3 space-y-2.5">
+      <div className="flex flex-wrap gap-1.5">
+        {[['options', 'Makeup options'], ...(ml ? [['confirmed', 'Makeup booked']] : []), ['message', 'Message']].map(([k, label]) => (
+          <button key={k} type="button" onClick={() => switchKind(k)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${kind === k ? 'bg-[#062E63] text-white border-[#062E63]' : 'bg-white text-[#325099] border-[#DEE7FF]'}`}>{label}</button>
+        ))}
+      </div>
+      <div className="space-y-1">
+        {emails.map(g => (
+          <label key={g.email} className="flex items-center gap-2 text-xs text-[#2A2035]">
+            <input type="checkbox" checked={to.has(g.email)} onChange={() => setTo(prev => {
+              const n = new Set(prev); if (n.has(g.email)) n.delete(g.email); else n.add(g.email); return n
+            })} />
+            {g.full_name || 'Guardian'} <span className="text-[#2A2035]/45">{g.email}</span>
+          </label>
+        ))}
+      </div>
+      {kind === 'options' && (
+        sessions == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Finding sessions…</p>
+          : sessions.length === 0 ? <p className="text-xs text-[#92400E]">No group session with space to offer. Send a message instead, or book a 1:1.</p>
+          : (
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-[#EEF2FB] bg-white divide-y divide-[#EEF2FB]">
+              {sessions.map(o => (
+                <label key={o.lesson.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-[#F8FAFF]">
+                  <input type="checkbox" checked={chosen.has(o.lesson.id)} onChange={() => setChosen(prev => {
+                    const n = new Set(prev); if (n.has(o.lesson.id)) n.delete(o.lesson.id); else n.add(o.lesson.id); return n
+                  })} />
+                  <span className="flex-1 min-w-0 truncate">{sessionLine(o.lesson, o.cls)}</span>
+                  <span className="text-[10px] text-[#2A2035]/45 shrink-0">{o.taken}/{CLASS_CAPACITY}</span>
+                </label>
+              ))}
+            </div>
+          )
+      )}
+      <input value={content.subject} onChange={e => setContent(v => ({ ...v, subject: e.target.value }))} className={field} aria-label="Subject" />
+      <textarea value={content.body} onChange={e => setContent(v => ({ ...v, body: e.target.value }))} rows={6} className={`${field} resize-y`} aria-label="Message" />
+      <p className="text-[10px] text-[#2A2035]/40">{'{{student_name}} {{parent_name}} {{class_name}} {{date}}'} fill in automatically · **bold**</p>
+      <details className="rounded-lg border border-[#EEF2FB] bg-white">
+        <summary className="px-2.5 py-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer">Preview</summary>
+        <iframe title="Email preview" srcDoc={html} className="w-full h-[420px] border-0 rounded-b-lg" />
+      </details>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => send(false)}
+          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#062E63] text-white disabled:opacity-50">{busy ? 'Sending…' : '✉️ Send'}</button>
+        <button type="button" disabled={busy} onClick={() => send(true)}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-[#325099] border border-[#DEE7FF] disabled:opacity-50">Send test to staff</button>
+      </div>
+      {msg && <p className={`text-xs font-semibold ${/^Test sent/.test(msg) ? 'text-[#065F46]' : 'text-[#B91C1C]'}`}>{msg}</p>}
+    </div>
+  )
+}
+
+// ── Log an absence ahead of time ─────────────────────────────────────────────
+// A family says their child will miss a lesson: open the case now, with what
+// they said. The tutor's roll then shows the student as away ("parent told
+// us"), and the case is ready for a makeup or an email before the day.
+function LogAbsenceModal({ staff, onClose, onLogged }) {
+  const [students, setStudents] = useState(null)
+  const [q, setQ] = useState('')
+  const [student, setStudent] = useState(null)
+  const [classes, setClasses] = useState(null)
+  const [classId, setClassId] = useState('')
+  const [sessions, setSessions] = useState(null)
+  const [date, setDate] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    supabase.from('students').select('id, full_name, year, status').in('status', ['active', 'trial']).order('full_name')
+      .then(({ data }) => { if (alive) setStudents(data || []) })
+    return () => { alive = false }
+  }, [])
+
+  // The student's classes in the term running now and the next teaching term
+  // (during the holidays that is the holiday courses and next term).
+  useEffect(() => {
+    if (!student) return
+    let alive = true
+    ;(async () => {
+      const terms = await fetchAllTerms()
+      const termIds = [...new Set([getCurrentTerm(terms)?.id, getRegularEnrolmentTerm(terms)?.id].filter(Boolean))]
+      const rows = []
+      for (const tid of termIds) {
+        const { data } = await enrolledClassesForTerm(student.id, tid, 'id, class_name, day_of_week, start_time, term_id')
+          .in('status', ['active', 'trial'])
+        rows.push(...(data || []).map(r => r.classes))
+      }
+      if (!alive) return
+      const uniq = [...new Map(rows.map(r => [r.id, r])).values()]
+      setClasses(uniq)
+      setClassId(uniq.length === 1 ? String(uniq[0].id) : '')
+    })()
+    return () => { alive = false }
+  }, [student])
+
+  useEffect(() => {
+    if (!classId) return
+    let alive = true
+    supabase.from('lessons').select('id, lesson_date, start_time').eq('class_id', classId)
+      .eq('is_makeup', false).neq('status', 'cancelled').gte('lesson_date', isoDate(new Date()))
+      .order('lesson_date').limit(12)
+      .then(({ data }) => { if (alive) { setSessions(data || []); setDate(data?.[0]?.lesson_date || '') } })
+    return () => { alive = false }
+  }, [classId])
+
+  const matches = (students || []).filter(s => q.trim() && s.full_name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
+
+  const save = async () => {
+    if (!student || !classId || !date) return
+    setBusy(true); setMsg(null)
+    try {
+      const lesson = (sessions || []).find(l => l.lesson_date === date)
+      const { data: made, error } = await supabase.from('absence_cases').insert({
+        student_id: student.id, class_id: Number(classId), session_date: date,
+        lesson_id: lesson?.id || null, source: 'manual',
+        notice_given: date >= isoDate(new Date()),
+      }).select('id').single()
+      if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'That absence is already logged.' : error.message)
+      await supabase.from('absence_case_notes').insert({
+        case_id: made.id, kind: 'contact',
+        body: note.trim() || 'Family let us know they will be away.',
+        author_id: staff?.id || null, author_name: staff?.full_name || null,
+      })
+      onLogged(made.id)
+    } catch (e) { setMsg(e.message) } finally { setBusy(false) }
+  }
+
+  const field = 'w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-[#325099] bg-white'
+  return (
+    <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+      <div className="absolute inset-0 bg-black/25" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-5 space-y-3">
+        <div className="flex items-start">
+          <div className="flex-1">
+            <p className="text-base font-bold text-[#062E63]">Log an absence</p>
+            <p className="text-[11px] text-[#2A2035]/50">The family told us ahead — open the case now.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none px-1">✕</button>
+        </div>
+
+        {!student ? (
+          <div>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Student name" className={field} />
+            {students == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse mt-2">Loading students…</p> : (
+              <div className="mt-1 divide-y divide-[#F4F7FF]">
+                {matches.map(s => (
+                  <button key={s.id} type="button" onClick={() => setStudent(s)}
+                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-[#F8FAFF] rounded-lg">
+                    {s.full_name} <span className="text-[11px] text-[#2A2035]/40">Y{s.year}{s.status === 'trial' ? ' · trial' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-semibold text-[#062E63]">{student.full_name}</span>
+              <button type="button" onClick={() => { setStudent(null); setClasses(null); setClassId(''); setSessions(null); setDate('') }}
+                className="text-[11px] text-[#325099] hover:underline">change</button>
+            </div>
+            {classes == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading classes…</p>
+              : classes.length === 0 ? <p className="text-xs text-[#B91C1C]">No current classes for {student.full_name}.</p> : (
+                <select value={classId} onChange={e => setClassId(e.target.value)} className={field}>
+                  <option value="">Which class?</option>
+                  {classes.map(k => <option key={k.id} value={k.id}>{classLabel(k)}</option>)}
+                </select>
+              )}
+            {classId && (
+              sessions == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading sessions…</p>
+                : sessions.length ? (
+                  <select value={date} onChange={e => setDate(e.target.value)} className={field}>
+                    {sessions.map(l => <option key={l.id} value={l.lesson_date}>{fmtDayLong(l.lesson_date)}</option>)}
+                  </select>
+                ) : (
+                  <div>
+                    <input type="date" value={date} onChange={e => setDate(e.target.value)} className={field} />
+                    <p className="text-[10px] text-[#92400E] mt-1">No upcoming lessons found for this class (next term’s may not be created yet) — pick the date. Makeups and credits unlock once the lesson exists.</p>
+                  </div>
+                )
+            )}
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+              placeholder="What did the family say? e.g. “Mum texted — away for a school camp”"
+              className={`${field} resize-y`} />
+          </>
+        )}
+        {msg && <p className="text-xs font-semibold text-[#B91C1C]">{msg}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#DEE7FF] text-[#2A2035]/60">Cancel</button>
+          <button type="button" disabled={busy || !student || !classId || !date} onClick={save}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#062E63] text-white disabled:opacity-50">{busy ? 'Saving…' : 'Log absence'}</button>
+        </div>
+      </div>
     </div>
   )
 }

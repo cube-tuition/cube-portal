@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
 import { T_ENROLMENTS, T_COURSES } from '../../lib/tables'
-import { isOneToOneClass } from '../../lib/classFormat'
+import { isOneToOneClass, CLASS_CAPACITY } from '../../lib/classFormat'
 import { WidgetShell } from './TrialFunnel'
 
 /*
@@ -14,7 +14,7 @@ import { WidgetShell } from './TrialFunnel'
  * page; fetches only the active enrolment counts. Read-only.
  */
 
-const CAP = 7
+const CAP = CLASS_CAPACITY
 const SEATS_OCCUPYING = ['active', 'trial'] // statuses that hold a seat
 
 export default function CapacityBoard({ classes = [], currentTermId, classLabelMap }) {
