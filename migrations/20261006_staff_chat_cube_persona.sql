@@ -33,3 +33,7 @@ begin
     select v_id, d.id from public.directors d on conflict do nothing;
   return v_id;
 end $function$;
+
+-- The kind check predates CUBE threads.
+alter table public.chat_channels drop constraint if exists chat_channels_kind_check;
+alter table public.chat_channels add constraint chat_channels_kind_check check (kind in ('channel', 'dm', 'cube_dm'));
