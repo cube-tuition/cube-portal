@@ -7,6 +7,7 @@ import { useSmsInbox, fmtTime } from '../../lib/useSmsInbox'
 import { normalisePhone, formatPhone } from '../../lib/phone'
 import PushEnable from '../../components/PushEnable'
 import StaffChat from '../../components/chat/StaffChat'
+import { useKeyboardFit } from '../../lib/useKeyboardFit'
 
 /*
  * CUBE Messages — /messages (directors only — the 'admin' and 'director' roles; not tutors)
@@ -71,6 +72,7 @@ function MessagesAppInner() {
   const [contactSearch, setContactSearch] = useState('')
   const [staffInChat, setStaffInChat] = useState(false)   // Staff tab: a thread is open, so the tab bar hides
   const endRef = useRef(null)
+  const rootRef = useKeyboardFit()   // keeps the screen inside the area above the keyboard
   const inbox = useSmsInbox({ enabled: allowed })
 
   useEffect(() => {
@@ -150,7 +152,7 @@ function MessagesAppInner() {
   // ── new chat: full-screen contact list ──────────────────────────────────────
   if (view === 'new') {
     return (
-      <div className="fixed inset-0 flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div ref={rootRef} className="fixed inset-0 flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <header className="shrink-0 bg-white border-b border-[#DEE7FF] px-3 pt-2 pb-2">
           <div className="flex items-center gap-1">
             <button onClick={back} className="w-10 h-10 rounded-full flex items-center justify-center text-[#325099] text-2xl active:bg-[#EEF3FF]" aria-label="Back">‹</button>
@@ -197,7 +199,7 @@ function MessagesAppInner() {
       : c?.kind === 'student' ? `Student${c.year ? ` · Year ${c.year}` : ''}`
       : c?.sub || ''
     return (
-      <div className="fixed inset-0 flex flex-col bg-[#EEF3FB]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div ref={rootRef} className="fixed inset-0 flex flex-col bg-[#EEF3FB]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <header className="flex items-center gap-2 px-2 py-2 bg-white border-b border-[#DEE7FF] shrink-0">
           <button onClick={back} className="w-10 h-10 rounded-full flex items-center justify-center text-[#325099] text-2xl active:bg-[#EEF3FF]" aria-label="Back">‹</button>
           <Avatar name={c?.label || thread.phone} size="w-10 h-10 text-sm" />
@@ -273,7 +275,7 @@ function MessagesAppInner() {
   )
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+    <div ref={rootRef} className="fixed inset-0 flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       {tab !== 'staff' && (
         <header className="shrink-0 bg-white border-b border-[#DEE7FF] px-4 pt-3 pb-2">
           <div className="flex items-center justify-between gap-2">

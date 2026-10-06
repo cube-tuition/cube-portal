@@ -77,6 +77,18 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const typingTimer = useRef(null)
   const fileRef = useRef(null)
   const listRef = useRef(null)
+  // Keyboard opening/closing resizes the list (see lib/useKeyboardFit): stay at
+  // the bottom so the latest messages remain in view above the reply box.
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 240
+      if (nearBottom) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   const taRef = useRef(null)
   const activeRef = useRef(active)
   useEffect(() => { activeRef.current = active }, [active])
