@@ -69,6 +69,7 @@ function MessagesAppInner() {
   const [tab, setTab] = useState('texts')   // texts | calls | staff
   const [search, setSearch] = useState('')
   const [contactSearch, setContactSearch] = useState('')
+  const [staffInChat, setStaffInChat] = useState(false)   // Staff tab: a thread is open, so the tab bar hides
   const endRef = useRef(null)
   const inbox = useSmsInbox({ enabled: allowed })
 
@@ -292,7 +293,7 @@ function MessagesAppInner() {
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative">
         {tab === 'staff' ? (
-          me && <StaffChat me={me} className="h-full" />
+          me && <StaffChat me={me} className="h-full" onConversationOpen={setStaffInChat} />
         ) : tab === 'texts' ? (
           threads.length === 0 ? (
             <p className="text-sm text-[#2A2035]/45 px-6 py-16 text-center">{q ? 'No chats match.' : 'No chats yet. Tap ✎ to text a family.'}</p>
@@ -365,11 +366,15 @@ function MessagesAppInner() {
         )}
       </div>
 
+      {/* The tab bar belongs to the list screens: inside a staff thread it goes away
+          (otherwise it would stack above the keyboard with the reply box). */}
+      {!(tab === 'staff' && staffInChat) && (
       <nav className="shrink-0 bg-white border-t border-[#DEE7FF] flex" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {tabButton('texts', '💬', 'Chats', totalUnread)}
         {tabButton('calls', '📞', 'Calls', missed)}
         {tabButton('staff', '👥', 'Staff', 0)}
       </nav>
+      )}
     </div>
   )
 }

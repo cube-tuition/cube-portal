@@ -37,7 +37,10 @@ const initials = (n) => (n || '?').split(/\s+/).map(p => p[0]).join('').slice(0,
 const AVATAR = ['#325099', '#7C3AED', '#047857', '#C2410C', '#BE185D', '#0E7490', '#A16207', '#4338CA']
 const colorFor = (id) => AVATAR[[...String(id || '')].reduce((n, ch) => n + ch.charCodeAt(0), 0) % AVATAR.length]
 
-export default function StaffChat({ me, initialChannel = '', className = 'h-[calc(100dvh-64px)]' }) {
+// onConversationOpen(bool): fires when the phone layout switches between the
+// channel list and a conversation, so a host can hide its own bottom bar
+// while someone is typing in a thread.
+export default function StaffChat({ me, initialChannel = '', className = 'h-[calc(100dvh-64px)]', onConversationOpen }) {
   const [staff, setStaff] = useState([])
   const [channels, setChannels] = useState([])
   const [unread, setUnread] = useState({})
@@ -48,6 +51,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   // Phones: the channel list and the conversation are two screens; this picks
   // which one shows. Desktop shows both and ignores it.
   const [sidebarOpen, setSidebarOpen] = useState(!initialChannel)
+  useEffect(() => { onConversationOpen?.(!sidebarOpen) }, [sidebarOpen])   // eslint-disable-line react-hooks/exhaustive-deps
   const [mention, setMention] = useState(null)  // { query, at } while typing an @name
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(null)  // { channel, step: 1|2, typed } while confirming a delete
