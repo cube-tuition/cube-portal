@@ -354,11 +354,18 @@ function InvoiceDashboardInner() {
         : { data: [] }
       const studentStatusMap = Object.fromEntries((invStudents || []).map(s => [s.id, s]))
 
-      // Load previous unpaid invoices
+      // Load previous unpaid invoices — earlier terms only. "Any other term"
+      // let next term's freshly generated (unpaid) draft flag this term's
+      // invoice as having an unpaid predecessor.
       const familyIds = (invs || []).map(i => i.family_id).filter(Boolean)
+      const allTerms = await fetchAllTerms()
+      const thisTerm = (allTerms || []).find(t => t.id === termId)
+      const earlierTermIds = thisTerm?.start_date
+        ? allTerms.filter(t => t.start_date && t.start_date < thisTerm.start_date).map(t => t.id)
+        : null
       let prevUnpaidSet = new Set()
-      if (familyIds.length) {
-        const { data: prevInvs } = await supabase
+      if (familyIds.length && (earlierTermIds === null || earlierTermIds.length)) {
+        let prevQ = supabase
           .from('invoices').select('family_id')
           .in('family_id', familyIds)
           .in('payment_status', ['unpaid', 'overdue'])
@@ -366,7 +373,8 @@ function InvoiceDashboardInner() {
           // was left with — voiding one that was marked unpaid kept warning
           // about a debt the replacement invoice had already settled.
           .neq('status', 'voided')
-          .neq('term_id', termId)
+        prevQ = earlierTermIds ? prevQ.in('term_id', earlierTermIds) : prevQ.neq('term_id', termId)
+        const { data: prevInvs } = await prevQ
         for (const p of prevInvs || []) prevUnpaidSet.add(p.family_id)
       }
 
