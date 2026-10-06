@@ -362,6 +362,10 @@ function InvoiceDashboardInner() {
           .from('invoices').select('family_id')
           .in('family_id', familyIds)
           .in('payment_status', ['unpaid', 'overdue'])
+          // A voided invoice is owed by no one, whatever payment status it
+          // was left with — voiding one that was marked unpaid kept warning
+          // about a debt the replacement invoice had already settled.
+          .neq('status', 'voided')
           .neq('term_id', termId)
         for (const p of prevInvs || []) prevUnpaidSet.add(p.family_id)
       }
