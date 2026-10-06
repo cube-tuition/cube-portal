@@ -5,11 +5,12 @@ import { authedFetch } from '../../lib/authedFetch'
 import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm, weekOfTerm, formatTermRange } from '../../lib/terms'
 import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
-  markRead, loadUnread, createChannel, openDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
+  markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, loadReads, setDirectorsOnly,
   loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, loadTermClasses, classesTextFor,
 } from '../../lib/chat'
+import CubeLogo from '../CubeLogo'
 
 /*
  * StaffChat — the teachers' chat, embeddable: the full page at /tutor/chat
@@ -91,11 +92,17 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   }, [])
   const taRef = useRef(null)
   const activeRef = useRef(active)
+  // Directors post either as themselves or as "CUBE" (a shared voice): their
+  // pick is remembered per browser. In a CUBE thread it is always CUBE.
+  const [persona, setPersona] = useState(() => { try { return localStorage.getItem('cube:chat-persona') === 'cube' ? 'cube' : 'me' } catch { return 'me' } })
+  const pickPersona = (p) => { setPersona(p); try { localStorage.setItem('cube:chat-persona', p) } catch { /* fine */ } }
   useEffect(() => { activeRef.current = active }, [active])
 
   const staffById = useMemo(() => Object.fromEntries(staff.map(s => [s.id, s])), [staff])
   const nameOf = useCallback((id) => staffById[id]?.full_name || 'Former staff', [staffById])
-  const channelLabel = useCallback((c) => c.kind === 'dm' ? nameOf(c.otherId) : `#${c.name}`, [nameOf])
+  const isAdmin = !!me?.isAdmin
+  const channelLabel = useCallback((c) => c.kind === 'dm' ? nameOf(c.otherId)
+    : c.kind === 'cube_dm' ? (isAdmin ? `CUBE · ${nameOf(c.otherId)}` : 'CUBE') : `#${c.name}`, [nameOf, isAdmin])
 
   const refreshChannels = useCallback(async (uid) => {
     const [cs, un] = await Promise.all([loadChannels(uid), loadUnread()])
@@ -104,7 +111,6 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   }, [])
 
   // ── Boot ───────────────────────────────────────────────────────────────────
-  const isAdmin = !!me?.isAdmin
   useEffect(() => {
     if (!me?.id) return
     (async () => {
@@ -249,6 +255,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const current = channels.find(c => c.id === active) || null
+  // Writing as CUBE: a director in CUBE mode, or anyone (a director) inside a CUBE thread.
+  const cubeMode = !!me?.isAdmin && persona === 'cube'
+  const asCube = !!me?.isAdmin && (cubeMode || current?.kind === 'cube_dm')
   const canPost = !!current && current.mine && (!current.directors_only || me.isAdmin)
   // Read receipts: each other member sits under the last message they have
   // seen, Slack-style, so a message with avatars beneath it is read that far.
@@ -272,7 +281,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     setText(''); setMention(null); setTypingIn(null)
     try {
       if (editing) { await editMessage(editing, body); setEditing(null); return }
-      const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body })
+      const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body, asCube })
       setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
       authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
     } catch (e) { setErr(e.message || 'Could not send'); setText(body) }
@@ -310,7 +319,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       const marker = file.type?.startsWith('image/') ? imageMarker(await uploadChatImage(file, current.id)) : fileMarker(await uploadChatFile(file, current.id))
       const body = [text.trim(), marker].filter(Boolean).join('\n')
       setText('')
-      const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body })
+      const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body, asCube })
       setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
       authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
     } catch (e) { setErr(e.message || 'Could not attach the file') }
@@ -330,7 +339,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     try { const id = await createChannel(clean); await refreshChannels(me.id); selectChannel(id) } catch (e) { setErr(e.message) }
   }
   const startDm = async (other) => {
-    try { const id = await openDm(other.id); await refreshChannels(me.id); selectChannel(id) } catch (e) { setErr(e.message) }
+    try {
+      const id = cubeMode && other.role === 'tutor' ? await openCubeDm(other.id) : await openDm(other.id)
+      await refreshChannels(me.id); selectChannel(id)
+    } catch (e) { setErr(e.message) }
   }
   const toggleAnnounce = async (c) => {
     try { await setDirectorsOnly(c.id, !c.directors_only); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
@@ -338,10 +350,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   // ── Shortcuts (directors) ─────────────────────────────────────────────────
   const shortcutVars = (recipientId) => {
-    const other = recipientId ? nameOf(recipientId) : current?.kind === 'dm' ? nameOf(current.otherId) : ''
+    const other = recipientId ? nameOf(recipientId) : (current?.kind === 'dm' || current?.kind === 'cube_dm') ? nameOf(current.otherId) : ''
     const wk = termNow ? weekOfTerm(termNow) : null
     return {
-      first: other.split(' ')[0] || '', recipient: other, me: (me.full_name || '').split(' ')[0],
+      first: other.split(' ')[0] || '', recipient: other, me: cubeMode ? 'CUBE' : (me.full_name || '').split(' ')[0],
       channel: recipientId ? other : current ? channelLabel(current).replace(/^#/, '') : '',
       date: new Date().toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }),
       term: termNow ? `Term ${termNow.term_number} ${termNow.year}` : '', week: wk ? String(wk) : '',
@@ -388,8 +400,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     const ok = [], failed = []
     for (const uid of bulk.picked) {
       try {
-        const channelId = await openDm(uid)
-        const m = await sendMessage({ channelId, senderId: me.id, senderName: me.full_name, body: fillShortcut(bulk.sc.body, shortcutVars(uid)) })
+        const channelId = cubeMode ? await openCubeDm(uid) : await openDm(uid)
+        const m = await sendMessage({ channelId, senderId: me.id, senderName: me.full_name, body: fillShortcut(bulk.sc.body, shortcutVars(uid)), asCube: cubeMode })
         authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
         ok.push(uid)
       } catch { failed.push(uid) }
@@ -428,14 +440,16 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const pinnedSet = new Set(pins)
   const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine)
   const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id))
-  const dms = channels.filter(c => c.kind === 'dm' && !pinnedSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || nameOf(a.otherId).localeCompare(nameOf(b.otherId)))
+  const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && !pinnedSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
   const Row = ({ c }) => (
     <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
       <button onClick={() => selectChannel(c.id)} className={`flex-1 min-w-0 text-left pl-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'text-[#062E63] font-semibold' : 'text-[#2A2035]/80'}`}>
         {c.kind === 'dm'
           ? <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(c.otherId) }}>{initials(nameOf(c.otherId))}</span>{online.has(c.otherId) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
+          : c.kind === 'cube_dm'
+          ? <span className="w-5 h-5 rounded-full bg-[#062E63] text-white flex items-center justify-center shrink-0"><CubeLogo className="h-3 w-auto" /></span>
           : null}
-        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'dm' ? nameOf(c.otherId) : `# ${c.name}`}</span>
+        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}</span>
         {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
       </button>
@@ -452,7 +466,15 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const Sidebar = (
     <aside className="w-full md:w-64 shrink-0 bg-white md:border-r border-[#DEE7FF] flex flex-col h-full">
       <div className="px-4 pt-4 pb-3 border-b border-[#F0F4FF]">
-        <p className="text-sm font-bold text-[#062E63]">Staff chat</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-bold text-[#062E63]">Staff chat</p>
+          {isAdmin && (
+            <div className="flex rounded-full border border-[#DEE7FF] overflow-hidden text-[10px] font-bold" title="Post as yourself, or as CUBE (a shared voice both directors use)">
+              <button onClick={() => pickPersona('me')} className={`px-2 py-1 ${persona === 'me' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>{(me.full_name || 'Me').split(' ')[0]}</button>
+              <button onClick={() => pickPersona('cube')} className={`px-2 py-1 flex items-center gap-1 ${persona === 'cube' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}><CubeLogo className="h-2.5 w-auto" />CUBE</button>
+            </div>
+          )}
+        </div>
         <p className="text-[11px] text-[#2A2035]/45">{totalUnread ? `${totalUnread} unread` : 'All caught up'} · {online.size} online</p>
         <input value={query} onChange={e => { setQuery(e.target.value); if (!e.target.value.trim()) setResults(null) }} placeholder="Search messages… (from:name)"
           className="mt-2 w-full border border-[#DEE7FF] rounded-lg px-2.5 py-2 md:py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
@@ -488,7 +510,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           </>
         )}
         <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">Everyone</p>
-        {others.filter(s => !channels.some(c => c.kind === 'dm' && c.otherId === s.id)).map(s => (
+        {others.filter(s => !(cubeMode && s.role === 'director')).filter(s => !channels.some(c => c.kind === (cubeMode ? 'cube_dm' : 'dm') && c.otherId === s.id)).map(s => (
           <button key={s.id} onClick={() => startDm(s)} className="w-full text-left px-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/70 hover:bg-[#F8FAFF]">
             <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>{online.has(s.id) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
             <span className="truncate flex-1">{s.full_name}</span>
@@ -616,7 +638,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}</p>
                   <p className="text-[11px] text-[#2A2035]/45 truncate">
-                    {current.kind === 'dm' ? 'Direct message · only the two of you' : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
+                    {current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? `CUBE inbox with ${nameOf(current.otherId)} · every director sees this thread` : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
                 {current.mine && (
@@ -713,10 +735,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     onClick={(e) => { if (e.target.closest('a, button') || !window.matchMedia('(max-width: 767px)').matches) return; setPicker(picker === m.id ? null : m.id) }}>
                     <div className="w-8 shrink-0 flex items-start justify-end">
                       {grouped && <span className="hidden group-hover:block text-[9px] text-[#2A2035]/40 leading-[22px] pr-0.5">{fmtTime(m.created_at)}</span>}
-                      {!grouped && <span className="w-8 h-8 rounded-full text-[11px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(m.sender_id) }}>{initials(m.sender_name || nameOf(m.sender_id))}</span>}
+                      {!grouped && (m.as_cube
+                        ? <span className="w-8 h-8 rounded-full bg-[#062E63] text-white flex items-center justify-center"><CubeLogo className="h-4 w-auto" /></span>
+                        : <span className="w-8 h-8 rounded-full text-[11px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(m.sender_id) }}>{initials(m.sender_name || nameOf(m.sender_id))}</span>)}
                     </div>
                     <div className="min-w-0 flex-1">
-                      {!grouped && <p className="text-[12px] leading-tight"><span className="font-bold text-[#062E63]">{m.sender_name || nameOf(m.sender_id)}</span> <span className="text-[10px] text-[#2A2035]/40 ml-1">{fmtTime(m.created_at)}</span></p>}
+                      {!grouped && <p className="text-[12px] leading-tight"><span className="font-bold text-[#062E63]">{m.as_cube ? 'CUBE' : (m.sender_name || nameOf(m.sender_id))}</span>{m.as_cube && isAdmin && <span className="text-[10px] text-[#2A2035]/40 ml-1">via {nameOf(m.sender_id).split(' ')[0]}</span>} <span className="text-[10px] text-[#2A2035]/40 ml-1">{fmtTime(m.created_at)}</span></p>}
                       {m.deleted_at
                         ? <p className="text-[13px] italic text-[#2A2035]/35">message deleted</p>
                         : <p className={`text-[14px] leading-relaxed text-[#2A2035] break-words ${editing === m.id ? 'bg-[#FFFBEB] rounded px-1 -mx-1' : ''}`} dangerouslySetInnerHTML={{ __html: renderBody(m.body, staffNames) + (m.edited_at ? ' <span class="text-[10px] text-[#2A2035]/35">(edited)</span>' : '') }} />}
@@ -782,6 +806,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 return who.length ? <p className="text-[11px] text-[#325099]/70 mb-1 h-4">{who.join(', ')} {who.length === 1 ? 'is' : 'are'} typing…</p> : <p className="h-4 mb-1" />
               })()}
               {editing && <p className="text-[11px] text-[#92400E] mb-1">Editing your message · Esc to cancel</p>}
+              {asCube && !editing && <p className="text-[11px] text-[#062E63] mb-1">Sending as <b>CUBE</b>{current.kind !== 'cube_dm' ? ' · switch to your own name at the top of the list' : ''}</p>}
               {!canPost ? (
                 <div className="rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 text-xs text-[#2A2035]/50">
                   📣 Only directors can post in {channelLabel(current)}. You can still react to messages.
