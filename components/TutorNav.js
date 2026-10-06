@@ -54,6 +54,9 @@ const TUTOR_LINKS = [
 ]
 const ADMIN_FLAT_LINKS = [
   { label: 'Database', href: '/tutor/database', icon: '🗄️' },
+  // Daily work (the absences inbox), so it sits up here as well as under
+  // Monitoring, where its Overview tab belongs.
+  { label: 'Attendance', href: '/tutor/admin/monitoring/attendance', icon: '📋' },
 ]
 const ADMIN_GROUPS = [
   { label: 'Resources', links: subjectLinks() },

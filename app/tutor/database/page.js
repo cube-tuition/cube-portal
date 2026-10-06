@@ -9,6 +9,7 @@ import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import { buildClassLabelMap } from '../../../lib/classLabels'
+import { bookGuestMakeup, bookOneToOneMakeup } from '../../../lib/makeups'
 import { invoiceTotalsPatch } from '../../../lib/cashDiscount'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
@@ -3309,61 +3310,12 @@ export default function DatabasePage() {
     const target = moveOptions.find(o => o.id === moveTargetId)
     if (!target) { setMakeupSaving(false); return }
 
-    // ── Guard: don't "move" a student into a session they already attend ──
-    // If the student is an enrolled member of the target session's class, they
-    // already attend it — moving them there is redundant and double-books them.
-    // A move is only valid into a sibling section they are NOT enrolled in.
-    {
-      const { data: enr } = await supabase
-        .from(T_ENROLMENTS)
-        .select('id')
-        .eq('student_id', makeupStudent.id)
-        .eq('class_id', target.class_id)
-        .in('status', ['active', 'trial'])
-        .maybeSingle()
-      if (enr) {
-        alert(`${makeupStudent.full_name} is already enrolled in ${target.classes?.class_name || 'that class'}, so they already attend that session — a makeup move would double-book them.\n\nIf they aren't attending the original session, use "Cancel this lesson" instead to mark it as absent and apply a credit.`)
-        setMakeupSaving(false)
-        return
-      }
-    }
-
-    // 1. Mark student as 'makeup' on the original lesson
-    const { error: err1 } = await supabase.from(T_ATTENDANCE).upsert({
-      student_id: makeupStudent.id, class_id: lessonSidebar.class_id,
-      session_date: lessonSidebar.lesson_date, status: 'makeup',
-    }, { onConflict: 'student_id,class_id,session_date' })
-    if (err1) { alert('Failed to update original attendance: ' + err1.message); setMakeupSaving(false); return }
-
-    // 2. Mark student as 'present' on the target lesson (makeup guest)
-    const { error: err2 } = await supabase.from(T_ATTENDANCE).upsert({
-      student_id: makeupStudent.id, class_id: target.class_id,
-      session_date: target.lesson_date, status: 'present',
-      notes: `Makeup from ${lessonSidebar.lesson_date}`,
-    }, { onConflict: 'student_id,class_id,session_date' })
-    if (err2) { alert('Failed to update target attendance: ' + err2.message); setMakeupSaving(false); return }
-
-    // 3. Create a makeup lesson row on the target so the student appears in the
-    //    lessons table and the tutor's weekly calendar (skip if already exists)
-    const { data: existingMakeup } = await supabase
-      .from(T_LESSONS).select('id').eq('is_makeup', true)
-      .eq('makeup_student_id', makeupStudent.id)
-      .eq('class_id', target.class_id).eq('lesson_date', target.lesson_date)
-      .maybeSingle()
-    if (!existingMakeup) {
-      const { error: err3 } = await supabase.from(T_LESSONS).insert({
-        class_id: target.class_id,
-        lesson_date: target.lesson_date,
-        start_time: target.start_time,
-        end_time: target.end_time,
-        room: target.classes?.room || null,
-        status: 'scheduled',
-        week: target.week ?? null,
-        is_makeup: true,
-        makeup_student_id: makeupStudent.id,
-        makeup_source_lesson_id: lessonSidebar.id,
-      })
-      if (err3) { alert('Failed to create makeup lesson row: ' + err3.message); setMakeupSaving(false); return }
+    // Guard, the two attendance marks and the makeup lessons row — shared
+    // with the Absences tab (lib/makeups).
+    const { error: moveErr } = await bookGuestMakeup({ student: makeupStudent, source: lessonSidebar, target })
+    if (moveErr) {
+      alert(moveErr + (/double-book/.test(moveErr) ? '\n\nIf they aren\'t attending the original session, use "Cancel this lesson" instead to mark it as absent and apply a credit.' : ''))
+      setMakeupSaving(false); return
     }
 
     // 4. Refresh the sidebar for the SOURCE lesson (student now shows 'Makeup')
@@ -3394,69 +3346,15 @@ export default function DatabasePage() {
     if (!makeupStudent || !lessonSidebar || !oneToOneDate) return
     setMakeupSaving(true)
 
-    // ── Guard: don't create a makeup into a session the student already attends ──
-    // A makeup only makes sense when the student is MISSING a class and needs to
-    // catch it elsewhere. If they're an enrolled member of this class and it
-    // already runs on the chosen date, a makeup would just double-book them
-    // (this is exactly what produced the bogus Emily/Emma rows). In that case
-    // the correct action is "Cancel this lesson" (absence + credit), not a makeup.
-    {
-      const { data: clashLesson } = await supabase
-        .from(T_LESSONS)
-        .select('id')
-        .eq('class_id', lessonSidebar.class_id)
-        .eq('lesson_date', oneToOneDate)
-        .eq('is_makeup', false)
-        .limit(1)
-        .maybeSingle()
-      if (clashLesson) {
-        const { data: enr } = await supabase
-          .from(T_ENROLMENTS)
-          .select('id')
-          .eq('student_id', makeupStudent.id)
-          .eq('class_id', lessonSidebar.class_id)
-          .in('status', ['active', 'trial'])
-          .maybeSingle()
-        if (enr) {
-          alert(`${makeupStudent.full_name} is already enrolled in this class and it runs on ${oneToOneDate}, so a makeup isn't needed — it would double-book them.\n\nIf they aren't attending the original session, use "Cancel this lesson" instead to mark it as absent and apply a credit.`)
-          setMakeupSaving(false)
-          return
-        }
-      }
-    }
-
-    // Look up week number from an existing lesson on the same date
-    const { data: weekRef } = await supabase
-      .from(T_LESSONS)
-      .select('week')
-      .eq('lesson_date', oneToOneDate)
-      .eq('is_makeup', false)
-      .not('week', 'is', null)
-      .limit(1)
-      .maybeSingle()
-    const resolvedWeek = weekRef?.week ?? null
-    // Create new makeup lesson row
-    const { error } = await supabase.from(T_LESSONS).insert({
-      class_id: lessonSidebar.class_id,
-      lesson_date: oneToOneDate,
-      start_time: oneToOneStart || null,
-      end_time: oneToOneEnd || null,
-      room: oneToOneRoom || null,
-      status: 'scheduled',
-      week: resolvedWeek,
-      scheduled_teacher_id: oneToOneTutorId || null,
-      is_makeup: true,
-      makeup_student_id: makeupStudent.id,
-      makeup_source_lesson_id: lessonSidebar.id,
+    // Guard, lesson row and the 'makeup' mark — shared with the Absences tab.
+    const { error: oneErr } = await bookOneToOneMakeup({
+      student: makeupStudent, source: lessonSidebar, date: oneToOneDate,
+      start: oneToOneStart, end: oneToOneEnd, room: oneToOneRoom, tutorId: oneToOneTutorId,
     })
-    if (error) { alert('Failed to create makeup lesson: ' + error.message); setMakeupSaving(false); return }
-    // Mark original lesson attendance as makeup
-    const { error: attErr } = await supabase.from(T_ATTENDANCE).upsert({
-      student_id: makeupStudent.id, class_id: lessonSidebar.class_id,
-      session_date: lessonSidebar.lesson_date, status: 'makeup',
-      notes: `1:1 makeup scheduled for ${oneToOneDate}`,
-    }, { onConflict: 'student_id,class_id,session_date' })
-    if (attErr) { alert('Lesson created but failed to update attendance: ' + attErr.message); setMakeupSaving(false); return }
+    if (oneErr) {
+      alert(oneErr + (/double-book/.test(oneErr) ? '\n\nIf they aren\'t attending the original session, use "Cancel this lesson" instead to mark it as absent and apply a credit.' : ''))
+      setMakeupSaving(false); return
+    }
     // Refresh attendance
     const { data: attRows } = await supabase.from(T_ATTENDANCE).select('student_id, status, notes').eq('class_id', lessonSidebar.class_id).eq('session_date', lessonSidebar.lesson_date)
     const attMap = {}; for (const a of attRows || []) attMap[a.student_id] = a

@@ -1,20 +1,25 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../../lib/supabase'
 import { getAuthProfile } from '../../../../../lib/getProfile'
 import TutorNav from '../../../../../components/TutorNav'
 import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../../../lib/terms'
 import { classesForTerm } from '../../../../../lib/classes'
 import { T_ATTENDANCE, T_STUDENTS } from '../../../../../lib/tables'
+import AbsencesInbox from '../../../../../components/attendance/AbsencesInbox'
 
 /*
  * Attendance — /tutor/admin/monitoring/attendance (admin only)
  *
- * One of the pages under Monitoring. Tutors mark attendance from their lesson
- * page; this reads all of it back for a term and answers the question you
- * cannot answer from a single class: WHICH STUDENTS ARE QUIETLY SLIPPING?
+ * Two tabs:
+ *   Absences (default) — the working inbox: every absence as a case, from
+ *     "needs action" through contact, makeup or credit, to closed. See
+ *     components/attendance/AbsencesInbox.js. ?tab=absences
+ *   Overview — tutors mark attendance from their lesson page; this reads all
+ *     of it back for a term and answers the question you cannot answer from a
+ *     single class: WHICH STUDENTS ARE QUIETLY SLIPPING? ?tab=overview
  *
  * What counts as attending:
  *   present, late      → attended (arriving late is still arriving)
@@ -49,8 +54,54 @@ function Kpi({ label, value, sub }) {
 }
 
 export default function AttendancePage() {
+  return <Suspense><AttendanceInner /></Suspense>
+}
+
+const TABS = [
+  { id: 'absences', label: 'Absences' },
+  { id: 'overview', label: 'Overview' },
+]
+
+function AttendanceInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const tab = searchParams?.get('tab') === 'overview' ? 'overview' : 'absences'
   const [staff, setStaff] = useState(null)
+
+  useEffect(() => {
+    (async () => {
+      const { profile, role } = await getAuthProfile()
+      if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
+      setStaff(profile)
+    })()
+  }, [router])
+
+  if (!staff) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFF]">
+      <TutorNav staffName={staff?.full_name} isAdmin={true} />
+      <div className="max-w-6xl mx-auto px-4 pt-5 pb-16 md:px-6 md:pt-8">
+        <Link href="/tutor/admin/monitoring" className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] transition">← Monitoring</Link>
+        <div className="flex items-end justify-between gap-4 mt-1 mb-4 flex-wrap">
+          <h1 className="text-2xl font-bold text-[#062E63]">Attendance</h1>
+          <div className="flex gap-1 p-1 rounded-xl bg-white border border-[#DEE7FF]">
+            {TABS.map(t => (
+              <button key={t.id} type="button"
+                onClick={() => router.replace(`/tutor/admin/monitoring/attendance?tab=${t.id}`, { scroll: false })}
+                className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tab === t.id ? 'bg-[#062E63] text-white' : 'text-[#325099] hover:bg-[#F4F7FF]'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {tab === 'absences' ? <AbsencesInbox staff={staff} /> : <AttendanceOverview />}
+      </div>
+    </div>
+  )
+}
+
+function AttendanceOverview() {
   const [terms, setTerms] = useState([])
   const [termId, setTermId] = useState('')
   const [rows, setRows] = useState([])          // attendance rows for the term
@@ -61,14 +112,11 @@ export default function AttendancePage() {
 
   useEffect(() => {
     (async () => {
-      const { profile, role } = await getAuthProfile()
-      if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
-      setStaff(profile)
       const all = await fetchAllTerms()
       setTerms(all)
       setTermId(getCurrentTerm(all)?.id || all[0]?.id || '')
     })()
-  }, [router])
+  }, [])
 
   const load = useCallback(async (tid) => {
     if (!tid) return
@@ -128,20 +176,12 @@ export default function AttendancePage() {
     }
   }, [rows])
 
-  if (!staff) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>
-
   return (
-    <div className="min-h-screen bg-[#F8FAFF]">
-      <TutorNav staffName={staff?.full_name} isAdmin={true} />
-      <div className="max-w-6xl mx-auto px-4 pt-5 pb-16 md:px-6 md:pt-8">
-        <Link href="/tutor/admin/monitoring" className="text-xs font-semibold text-[#325099]/60 hover:text-[#325099] transition">← Monitoring</Link>
-        <div className="flex items-end justify-between gap-4 mt-1 mb-6 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold text-[#062E63]">Attendance</h1>
-            <p className="text-xs text-[#2A2035]/55 mt-0.5">
-              Every session marked this term. Cancelled sessions are left out of the rates.
-            </p>
-          </div>
+    <div>
+        <div className="flex items-end justify-between gap-4 mb-6 flex-wrap">
+          <p className="text-xs text-[#2A2035]/55">
+            Every session marked this term. Cancelled sessions are left out of the rates.
+          </p>
           <select value={termId} onChange={(e) => setTermId(e.target.value)}
             className="w-full md:w-auto border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
             {terms.map(t => <option key={t.id} value={t.id}>{formatTermLabel(t)}</option>)}
@@ -226,7 +266,6 @@ export default function AttendancePage() {
             </div>
           </>
         )}
-      </div>
     </div>
   )
 }
