@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { normaliseTerm } from '../../../lib/termDates'
 
 /*
  * POST /api/send-term-start-emails
@@ -167,8 +168,9 @@ export async function POST(request) {
       )
 
       // Also fetch term for PDF (name + dates)
-      const { data: term } = await sb.from('terms')
+      const { data: termRaw } = await sb.from('terms')
         .select('name, start_date, end_date').eq('id', term_id).maybeSingle()
+      const term = normaliseTerm(termRaw)   // starts on the Monday of its first week
 
       const { data: invoices } = await sb.from('invoices')
         .select('*')

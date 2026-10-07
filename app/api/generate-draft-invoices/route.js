@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { normaliseTerm } from '../../../lib/termDates'
 import { cashDiscountFor, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
 
 /*
@@ -32,10 +33,11 @@ export async function POST(req) {
     )
 
     // ── Load term ────────────────────────────────────────────────────────────
-    const { data: term, error: termErr } = await sb
+    const { data: termRaw, error: termErr } = await sb
       .from('terms').select('id, name, year, term_number, start_date, end_date')
       .eq('id', term_id).single()
-    if (termErr || !term) return Response.json({ error: 'Term not found' }, { status: 404 })
+    if (termErr || !termRaw) return Response.json({ error: 'Term not found' }, { status: 404 })
+    const term = normaliseTerm(termRaw)   // starts on the Monday of its first week
 
     // ── Load active enrolments with class + student + guardian ───────────────
     const { data: classes } = await sb

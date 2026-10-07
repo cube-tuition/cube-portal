@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
-import { getCurrentTerm } from '@/lib/terms'
+import { getCurrentTerm, normaliseTerms } from '@/lib/terms'
 import { classesForTerm } from '@/lib/classes'
 import { isOneToOneClass } from '@/lib/classFormat'
 import { LESSONS_PER_TERM, SUPER_RATE, lessonHoursFromClass, rateForClass } from '@/lib/teacherCost'
@@ -420,7 +420,7 @@ export default function ForecastPage() {
       .order('start_date', { ascending: false })
       .then(({ data, error }) => {
         reportError('Terms failed to load')(error)
-        setTerms(data || [])
+        setTerms(normaliseTerms(data || []))
         // The term being TAUGHT now (getCurrentTerm), not the term a new student
         // would join (getEnrolmentTerm) — mid-term, the enrolment term is the
         // NEXT one, which opened the page on a term with only partial enrolments.

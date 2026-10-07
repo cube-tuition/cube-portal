@@ -5,6 +5,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { T_TERMS } from '../../../lib/tables'
+import { normaliseTerms } from '../../../lib/termDates'
 import { YEAR_GROUPS, REPEAT_OPTIONS, yearGroupLabel, seriesDates, termContaining,
          buildSeriesRows } from '../../../lib/dropin'
 
@@ -52,7 +53,7 @@ function SessionModal({ session, onClose, onSaved }) {
       all.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
       setTutorsList(all)
     })
-    supabase.from(T_TERMS).select('*').then(({ data }) => setTerms(data || []))
+    supabase.from(T_TERMS).select('*').then(({ data }) => setTerms(normaliseTerms(data || [])))
   }, [])
 
   const toggleSubject = s => setForm(f => ({

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
-import { fetchAllTerms, getEnrolmentTerm, getRegularEnrolmentTerm, isHolidayTerm } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, getRegularEnrolmentTerm, isHolidayTerm, mondayOf } from '../../../lib/terms'
 import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
@@ -2935,7 +2935,7 @@ export default function DatabasePage() {
     const today = new Date().toISOString().slice(0, 10)
     const { data: cls } = await supabase.from(T_CLASSES)
       .select('terms(start_date)').eq('id', classId).maybeSingle()
-    const termStart = cls?.terms?.start_date || null
+    const termStart = mondayOf(cls?.terms?.start_date) || null
     const startedAt = termStart && today > termStart ? today : null
 
     const { error } = stub?.length
@@ -2997,7 +2997,7 @@ export default function DatabasePage() {
       // 2. Term name + dates
       const { data: termRow } = await supabase.from(T_TERMS).select('id, name, start_date, end_date').eq('id', invoiceTermId).single()
       const termName      = termRow?.name ?? ''
-      const termStartDate = termRow?.start_date ?? null
+      const termStartDate = mondayOf(termRow?.start_date) ?? null
       const termEndDate   = termRow?.end_date   ?? null
 
       // 3. Students
