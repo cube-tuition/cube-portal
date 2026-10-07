@@ -2,12 +2,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { getAuthProfile } from '../../lib/getProfile'
 import { authedFetch } from '../../lib/authedFetch'
+import PdfPages from '../PdfPages'
 
 /*
  * In-page PDF preview. Shows a PDF in an iframe so tutors can check it without
  * downloading — either one generated in the browser (a blob URL) or one already
  * stored. Download + Close buttons in the header. The caller owns a blob URL;
- * onClose should revoke it.
+ * onClose should revoke it. On phones the iframe is useless (iOS shows one
+ * frozen page), so the file is drawn page by page instead (see PdfPages).
  *
  * `downloadUrl` defaults to `url`. It exists because the `download` attribute
  * is ignored on a cross-origin link: a stored file has to be fetched from a URL
@@ -30,6 +32,7 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
   const [reason, setReason] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [phone, setPhone] = useState(false)   // narrow screen → draw the pages ourselves
   const linkRef = useRef(null)
   // Set just before the programmatic click, so that click passes through the
   // gate instead of re-opening it.
@@ -39,6 +42,13 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
     let dead = false
     getAuthProfile().then(({ role }) => { if (!dead) setRole(role) })
     return () => { dead = true }
+  }, [])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const sync = () => setPhone(mq.matches)
+    sync(); mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
   }, [])
 
   useEffect(() => {
@@ -103,10 +113,12 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
         onClick={(e) => e.stopPropagation()}>
         <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 mb-3">
           <h2 className="text-sm font-bold text-white truncate flex-1 max-md:basis-full max-md:whitespace-normal max-md:break-words max-md:line-clamp-2">{title}</h2>
-          <button onClick={print} title="Print this PDF without downloading it"
-            className="px-3.5 py-1.5 max-md:py-2.5 max-md:flex-1 rounded-lg bg-white text-[#062E63] text-xs font-semibold hover:bg-[#EEF3FF] transition">
-            🖨 Print
-          </button>
+          {!phone && (
+            <button onClick={print} title="Print this PDF without downloading it"
+              className="px-3.5 py-1.5 rounded-lg bg-white text-[#062E63] text-xs font-semibold hover:bg-[#EEF3FF] transition">
+              🖨 Print
+            </button>
+          )}
           <a ref={linkRef} href={downloadUrl || url} download={filename} onClick={onDownloadClick}
             className="px-3.5 py-1.5 max-md:py-2.5 max-md:flex-1 max-md:text-center rounded-lg bg-[#325099] text-white text-xs font-semibold hover:bg-[#243c75] transition">
             Download
@@ -159,8 +171,10 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
           * Nothing here stops devtools, Ctrl+P, or the file's public URL — this
           * is a workflow gate, as the note at the top of this file says.
           */}
-        <iframe ref={frameRef} src={`${url}#toolbar=0&navpanes=0`} title={filename || 'PDF preview'}
-          className="flex-1 w-full rounded-lg md:rounded-xl bg-white border border-white/10 min-h-0" />
+        {phone
+          ? <PdfPages url={url} className="flex-1 w-full rounded-lg min-h-0" />
+          : <iframe ref={frameRef} src={`${url}#toolbar=0&navpanes=0`} title={filename || 'PDF preview'}
+              className="flex-1 w-full rounded-lg md:rounded-xl bg-white border border-white/10 min-h-0" />}
       </div>
     </div>
   )
