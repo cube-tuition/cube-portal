@@ -8,7 +8,7 @@ import {
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, loadReads, setDirectorsOnly,
-  loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, loadTermClasses, classesTextFor,
+  loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, shortcutFits, loadTermClasses, classesTextFor,
 } from '../../lib/chat'
 import CubeLogo from '../CubeLogo'
 
@@ -137,9 +137,15 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       if (isAdmin) {
         loadShortcuts().then(list => {
           // Seed the built-ins once; after that they are ordinary, editable rows.
+          // A built-in seeded before it had a scope picks the scope up (once).
           const missing = BUILTIN_SHORTCUTS.filter(b => !list.some(x => x.id === b.id))
-          if (!missing.length) { setShortcuts(list); return }
-          const next = [...list, ...missing]
+          const scoped = list.map(x => {
+            const b = BUILTIN_SHORTCUTS.find(y => y.id === x.id)
+            return b?.scope && !('scope' in x) && !x.hidden ? { ...x, scope: b.scope } : x
+          })
+          const changed = scoped.some((x, i) => x !== list[i])
+          if (!missing.length && !changed) { setShortcuts(list); return }
+          const next = [...scoped, ...missing]
           setShortcuts(next); saveShortcuts(next).catch(() => {})
         }).catch(() => {})
         fetchAllTerms().then(ts => {
@@ -380,6 +386,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     }
   }
   const visibleShortcuts = shortcuts.filter(x => !x.hidden)
+  const fitsHere = (sc) => shortcutFits(sc, current)
   const insertShortcut = (sc) => {
     const filled = fillShortcut(sc.body, shortcutVars())
     setText(t => (t.trim() ? `${t.replace(/\s+$/, '')}\n${filled}` : filled))
@@ -394,7 +401,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const commitShortcut = async () => {
     const d = shortcutEdit
     if (!d?.title.trim() || !d?.body.trim()) return
-    const row = { id: d.id || `sc_${Date.now().toString(36)}`, title: d.title.trim(), body: d.body }
+    const row = { id: d.id || `sc_${Date.now().toString(36)}`, title: d.title.trim(), body: d.body, scope: d.scope === 'announcement' ? 'announcement' : null }
     const next = d.id ? shortcuts.map(x => (x.id === d.id ? row : x)) : [...shortcuts, row]
     setShortcutEdit(null)
     await persistShortcuts(next)
@@ -530,8 +537,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
             {visibleShortcuts.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Canned messages you send often. Only directors see these.</p>}
             {visibleShortcuts.map(sc => (
               <div key={sc.id} className="group/sc flex items-center gap-1 px-4 py-2 md:py-1 hover:bg-[#F8FAFF]">
-                <button onClick={() => insertShortcut(sc)} disabled={!canPost} title={sc.body} className="flex-1 min-w-0 text-left text-sm text-[#2A2035]/80 truncate disabled:opacity-40">{sc.title}</button>
-                <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="md:opacity-0 md:group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Send to…</button>
+                <button onClick={() => insertShortcut(sc)} disabled={!canPost || !fitsHere(sc)} title={fitsHere(sc) ? sc.body : 'Announcement shortcut — open an announcement channel to use it'} className="flex-1 min-w-0 text-left text-sm text-[#2A2035]/80 truncate disabled:opacity-40">{sc.scope === 'announcement' && <span className="mr-1" title="Announcements only">📣</span>}{sc.title}</button>
+                {sc.scope !== 'announcement' && <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="md:opacity-0 md:group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Send to…</button>}
                 <button onClick={() => setShortcutEdit({ ...sc })} className="md:opacity-0 md:group-hover/sc:opacity-100 text-[11px] text-[#325099] hover:underline shrink-0">Edit</button>
               </div>
             ))}
@@ -605,6 +612,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm mb-2 focus:outline-none focus:border-[#325099]" />
             <textarea value={shortcutEdit.body} onChange={e => setShortcutEdit(d => ({ ...d, body: e.target.value }))} rows={5} placeholder={'Hi {first}, a reminder that marking for {term} week {week} is due Friday. Thanks! – {me}'}
               className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm resize-y focus:outline-none focus:border-[#325099]" />
+            <label className="flex items-center gap-2 mt-3 text-sm text-[#2A2035]/80 select-none">
+              <input type="checkbox" checked={shortcutEdit.scope === 'announcement'} onChange={e => setShortcutEdit(d => ({ ...d, scope: e.target.checked ? 'announcement' : null }))} />
+              📣 Announcement only <span className="text-[11px] text-[#2A2035]/45">— offered only in announcement channels</span>
+            </label>
             <div className="flex flex-wrap gap-1 mt-2 mb-4">
               {SHORTCUT_VARS.map(v => (
                 <button key={v.key} onClick={() => setShortcutEdit(d => ({ ...d, body: `${d.body}{${v.key}}` }))} title={v.label + (v.hint ? ` (${v.hint})` : '')}
@@ -845,14 +856,14 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                           <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60">Shortcuts</p>
                           <button onClick={() => { setShortcutPick(false); setShortcutEdit({ title: '', body: '' }) }} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
                         </div>
-                        {visibleShortcuts.length === 0 && <p className="px-2 py-2 text-xs text-[#2A2035]/45">No shortcuts yet.</p>}
-                        {visibleShortcuts.map(sc => (
+                        {visibleShortcuts.filter(fitsHere).length === 0 && <p className="px-2 py-2 text-xs text-[#2A2035]/45">No shortcuts for this conversation yet.</p>}
+                        {visibleShortcuts.filter(fitsHere).map(sc => (
                           <div key={sc.id} className="group/pk flex items-start rounded-lg hover:bg-[#F8FAFF]">
                             <button onClick={() => insertShortcut(sc)} className="flex-1 min-w-0 text-left px-2 py-1.5">
-                              <p className="text-sm font-semibold text-[#062E63] truncate">{sc.title}</p>
+                              <p className="text-sm font-semibold text-[#062E63] truncate">{sc.scope === 'announcement' && <span className="mr-1">📣</span>}{sc.title}</p>
                               <p className="text-[11px] text-[#2A2035]/50 line-clamp-2">{fillShortcut(sc.body, shortcutVars())}</p>
                             </button>
-                            <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="shrink-0 px-2 py-1.5 text-[11px] text-[#325099] hover:underline">Send to…</button>
+                            {sc.scope !== 'announcement' && <button onClick={() => openBulk(sc)} title="Send to several teachers at once" className="shrink-0 px-2 py-1.5 text-[11px] text-[#325099] hover:underline">Send to…</button>}
                           </div>
                         ))}
                       </div>
