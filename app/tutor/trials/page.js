@@ -413,6 +413,12 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                     .is('class_id', null)
                 }
                 await supabase.from('trial_submissions').update({ trial_class_id: val }).eq('id', sub.id)
+                // Assigning a class makes a pending student a trial student
+                // (active stays active — e.g. trialling a second subject).
+                if (val && studentId) {
+                  await supabase.from('students').update({ status: 'trial' })
+                    .eq('id', studentId).eq('status', 'pending')
+                }
                 onUpdate(sub.id, { trial_class_id: val })
                 registerUndoAction('trial class assignment', async () => {
                   if (sub.enrolment_id && prevEnrol) {
@@ -571,6 +577,24 @@ export default function TrialsPage() {
       return s
     })
     for (const h of healed) supabase.from('trial_submissions').update({ trial_class_id: h.val }).eq('id', h.id).then(() => {})
+
+    // Student status follows the pipeline: a student with a trial class
+    // assigned who hasn't been converted yet is a TRIAL student, not pending.
+    // (Convert sets active; Drop sets quit trial; this closes the gap where a
+    // class was assigned — here or in the explorer — but the student record
+    // still said pending.) Only pending is promoted: an active student
+    // trialling a second subject must stay active.
+    const statusById = Object.fromEntries((studentRes.data || []).map(s => [s.id, s.status]))
+    for (const s of merged) {
+      if (['enrolled', 'declined'].includes(s.status)) continue
+      if (!s.converted_student_id || s.trial_class_id == null) continue
+      if ((statusById[s.converted_student_id] || '').toLowerCase() !== 'pending') continue
+      statusById[s.converted_student_id] = 'trial'
+      const row = (studentRes.data || []).find(x => x.id === s.converted_student_id)
+      if (row) row.status = 'trial'
+      supabase.from('students').update({ status: 'trial' })
+        .eq('id', s.converted_student_id).eq('status', 'pending').then(() => {})
+    }
 
     // A live class can sit outside the enrolment-term list (assigned in the
     // explorer for another term) — fetch those so the dropdown can show them.
