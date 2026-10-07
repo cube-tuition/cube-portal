@@ -4,8 +4,9 @@ import { sendPushToUsers } from '../../../../lib/push'
 
 /*
  * POST /api/chat/notify { messageId }
- * After a message is sent: push the other person of a DM, or anyone
- * @mentioned in a channel. Staff-only; the message must be the caller's.
+ * After a message is sent: push everyone else in the conversation — the
+ * other person of a DM, the teacher and other directors of a CUBE thread,
+ * every member of a channel. Staff-only; the message must be the caller's.
  */
 export async function POST(request) {
   try {
@@ -23,13 +24,10 @@ export async function POST(request) {
       admin.from('directors').select('id, full_name'),
     ])
     const memberIds = new Set((members || []).map(m => m.user_id))
-    let recipients = []
-    // A DM pushes the other person; a CUBE thread pushes everyone else in it (the teacher and the other directors).
-    if (chan?.kind === 'dm' || chan?.kind === 'cube_dm') recipients = [...memberIds].filter(id => id !== msg.sender_id)
-    else {
-      const staff = [...(tutors || []), ...(directors || [])]
-      recipients = staff.filter(s => s.full_name && msg.body.includes('@' + s.full_name) && memberIds.has(s.id) && s.id !== msg.sender_id).map(s => s.id)
-    }
+    // Everyone in the conversation but the sender. (Channels used to push only
+    // the people @mentioned, which meant most channel messages went unnoticed.)
+    const staffIds = new Set([...(tutors || []), ...(directors || [])].map(s => s.id))
+    const recipients = [...memberIds].filter(id => id !== msg.sender_id && staffIds.has(id))
     if (!recipients.length) return Response.json({ sent: 0 })
     const from = msg.as_cube ? 'CUBE' : (msg.sender_name || 'New message')
     const title = (chan?.kind === 'dm' || chan?.kind === 'cube_dm') ? from : `#${chan?.name || 'channel'} · ${from}`.trim()
