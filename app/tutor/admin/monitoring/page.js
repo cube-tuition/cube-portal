@@ -9,7 +9,7 @@ import EnrolmentTrend from '../../../../components/EnrolmentTrend'
 /*
  * Monitoring — /tutor/admin/monitoring (admin only)
  *
- * A hub, not a screen of its own: the three places you go to see how the
+ * A hub, not a screen of its own: the places you go to see how the
  * portal and the people in it are tracking. Each of these existed already and
  * still lives at its own URL — this page gathers them under one heading so the
  * Admin menu is not a flat list of ten unrelated items.
@@ -22,10 +22,12 @@ const AREAS = [
     desc: 'Attendance across every class for a term, the students slipping below the line, and the absences inbox for following each absence up.' },
   { label: 'Flags',      href: '/tutor/flags', icon: '🚩',
     desc: 'Students tutors have flagged for attention, and what has been done about each one.' },
+  { label: 'Level tests', href: '/tutor/admin/monitoring/level-tests', icon: '📝',
+    desc: 'Book a student in for a level test, mark the paper per question and send the report with its topical analysis.' },
   { label: 'Portal',     href: '/tutor/admin/monitoring/portal', icon: '📶',
     desc: 'Student engagement across the portal — logins, page views, quiz and homework results, and any client crashes from the last fortnight.' },
   { label: 'Trials',     href: '/tutor/trials', icon: '🧪',
-    desc: 'Trial students and their outcomes, plus level tests: book a student in, mark the paper and send the report.' },
+    desc: 'Trial enquiries and trial students, from first contact through to enrolled or declined.' },
 ]
 
 export default function MonitoringHub() {
