@@ -9,7 +9,7 @@ import { resolveFlag } from '../lib/studentFlags'
 
 /*
  * ActionCentre — "what needs my attention" boxes for directors, shown at the
- * top of /tutor. One card per category (Operations, Invoices, …); each card
+ * top of /tutor. One card per category (Operations, Uncontacted, …); each card
  * has its own severity summary and all-clear state. Self-gating: renders
  * nothing for tutors.
  *
@@ -19,7 +19,7 @@ import { resolveFlag } from '../lib/studentFlags'
 
 const SECTIONS = [
   { id: 'Operations', icon: '⚙️', title: 'Operations' },
-  { id: 'Invoices',   icon: '🧾', title: 'Invoices' },
+  { id: 'Uncontacted', icon: '📞', title: 'Uncontacted', clearText: 'Everyone has been contacted — new enquiries, absences and form sign-ups land here.' },
   { id: 'Payroll',    icon: '💼', title: 'Payroll', clearText: 'No pay run due — bank reminders appear the Monday after each fortnight.' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
   { id: 'Flags',      icon: '🚩', title: 'Student flags', clearText: 'No open flags — tutors raise these from the lesson page.' },
@@ -58,7 +58,7 @@ function SectionCard({ section, items, loading, onDone }) {
               <span className="text-base shrink-0">{item.icon}</span>
               <span className="flex-1 min-w-0">
                 <span className="block text-xs font-semibold text-[#2A2035]">
-                  {!item.done && <span className="text-[#062E63] font-bold">{item.count} </span>}{item.label}
+                  {!item.done && !item.person && <span className="text-[#062E63] font-bold">{item.count} </span>}{item.label}
                 </span>
                 <span className="block text-[11px] text-[#2A2035]/45 truncate">{item.detail}</span>
               </span>
