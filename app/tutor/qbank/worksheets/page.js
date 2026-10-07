@@ -27,7 +27,8 @@ import { useCourseCurriculum, subjectRank } from '../../../../lib/courses'
  * the bank carries none, and each placement here can set its own lines per part
  * (blank = derived from marks), the same contract exam slots use. question_ids
  * is jsonb, so an entry is either a bare id (no override) or
- * { id, lines: { partLabel | "_" : n } } — old worksheets keep loading as-is.
+ * { id, lines: { partLabel | "_" : n }, img: { pos, w } } — old worksheets keep
+ * loading as-is. `img` is this placement's figure layout (position + width %).
  */
 
 // Everything a tray question needs: the question, its parts and its figures.
@@ -36,6 +37,13 @@ const QUESTION_COLS = '*, qbank_question_parts(*), qbank_question_images(id, sto
 // question_ids entries are bare ids until someone sets lines on one.
 const entryId = (e) => (typeof e === 'string' ? e : e?.id)
 const entryLines = (e) => (typeof e === 'string' ? null : (e?.lines || null))
+const entryImg = (e) => (typeof e === 'string' ? null : (e?.img || null))
+// Saved entry for a tray question: a bare id unless it carries an override.
+const toEntry = (q) => {
+  const lines = q._workingLines && Object.keys(q._workingLines).length ? q._workingLines : null
+  const img = q._imageLayout && (q._imageLayout.pos || q._imageLayout.w) ? q._imageLayout : null
+  return lines || img ? { id: q.id, ...(lines ? { lines } : {}), ...(img ? { img } : {}) } : q.id
+}
 
 // ── AQ master database tabs — same shape as the workbook master database ─────
 const AQ_YEARS = [5, 6, 7, 8, 9, 10, 11, 12]
@@ -209,10 +217,7 @@ function AdditionalQuestionsInner() {
       title: (snap.title || '').trim() || 'Untitled worksheet',
       subtitle: null,   // retired — the cover carries the title alone
       cover_year: snap.coverYear !== '' && snap.coverYear != null ? Number(snap.coverYear) : null,
-      question_ids: (snap.tray || []).map((q) => (
-        q._workingLines && Object.keys(q._workingLines).length
-          ? { id: q.id, lines: q._workingLines }
-          : q.id)),
+      question_ids: (snap.tray || []).map(toEntry),
       include_marks: snap.includeMarks ?? true,
       topic_id: snap.wsTopicId ? Number(snap.wsTopicId) : null,
       // Only meaningful under a topic, so it travels with it.
@@ -254,6 +259,7 @@ function AdditionalQuestionsInner() {
     const entries = Array.isArray(ws.question_ids) ? ws.question_ids : []
     const ids = entries.map(entryId).filter(Boolean)
     const linesById = Object.fromEntries(entries.map((e) => [entryId(e), entryLines(e)]).filter(([k, v]) => k && v))
+    const imgById = Object.fromEntries(entries.map((e) => [entryId(e), entryImg(e)]).filter(([k, v]) => k && v))
     /*
      * A question this page has not cached — written after the page loaded, or
      * outside the year/subject filter it fetched — must be FETCHED, not dropped.
@@ -278,7 +284,8 @@ function AdditionalQuestionsInner() {
       }
     }
     setTray(ids.map((id) => byId[id]).filter(Boolean)
-      .map((q) => (linesById[q.id] ? { ...q, _workingLines: linesById[q.id] } : q)))
+      .map((q) => (linesById[q.id] ? { ...q, _workingLines: linesById[q.id] } : q))
+      .map((q) => (imgById[q.id] ? { ...q, _imageLayout: imgById[q.id] } : q)))
     setIncludeMarks(ws.include_marks ?? true)
     setDirty(false)
   }
@@ -377,7 +384,7 @@ function AdditionalQuestionsInner() {
       .eq('id', editQ.id).single()
     if (data) {
       setQuestions((qs) => qs.map((q) => (q.id === data.id ? data : q)))
-      setTray((ts) => ts.map((q) => (q.id === data.id ? { ...data, _workingLines: q._workingLines } : q)))
+      setTray((ts) => ts.map((q) => (q.id === data.id ? { ...data, _workingLines: q._workingLines, _imageLayout: q._imageLayout } : q)))
     }
     setEditQ(null)
   }
@@ -477,6 +484,17 @@ function AdditionalQuestionsInner() {
     }))
     setDirty(true)
   }
+  // Figure layout for this placement: position ('' = centred) and width %.
+  const setImageLayout = (qid, patch) => {
+    setTray((t) => t.map((q) => {
+      if (q.id !== qid) return q
+      const next = { ...(q._imageLayout || {}), ...patch }
+      if (!next.pos) delete next.pos
+      if (!next.w) delete next.w
+      return { ...q, _imageLayout: Object.keys(next).length ? next : undefined }
+    }))
+    setDirty(true)
+  }
   const removeFromTray = (id) => { setTray((t) => t.filter((x) => x.id !== id)); setDirty(true) }
   const moveTray = (id, dir) => {
     setTray((t) => {
@@ -545,7 +563,7 @@ function AdditionalQuestionsInner() {
   }
 
   const renderPreview = useCallback((c) => renderWorksheetPreview(c, { title: title || 'Worksheet', questions: tray, includeMarks, answers: previewAnswers, cover: coverMeta, breaks }), [title, tray, includeMarks, previewAnswers, coverMeta, breaks])
-  const previewSig = useMemo(() => JSON.stringify({ t: title, m: includeMarks, a: previewAnswers, c: coverMeta, b: breaks, q: tray.map((q) => [q.id, q._workingLines, q.updated_at]) }), [title, includeMarks, previewAnswers, tray, coverMeta, breaks])
+  const previewSig = useMemo(() => JSON.stringify({ t: title, m: includeMarks, a: previewAnswers, c: coverMeta, b: breaks, q: tray.map((q) => [q.id, q._workingLines, q._imageLayout, q.updated_at]) }), [title, includeMarks, previewAnswers, tray, coverMeta, breaks])
 
   const doExport = async (answers) => {
     if (!tray.length) return
@@ -952,6 +970,25 @@ function AdditionalQuestionsInner() {
                             </div>
                           )
                         })()}
+                        {/* Figure layout for THIS placement — only when the question has a stem image. */}
+                        {(q.qbank_question_images || []).some((im) => (im.role || 'stem') !== 'solution') && (
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <span className="text-[10px] font-semibold text-[#2A2035]/45">Image:</span>
+                            <select value={q._imageLayout?.pos || ''} onChange={(e) => setImageLayout(q.id, { pos: e.target.value })}
+                              className="border border-[#DEE7FF] rounded px-1 py-0.5 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]">
+                              <option value="">Centred</option>
+                              <option value="left">Left — text wraps</option>
+                              <option value="right">Right — text wraps</option>
+                            </select>
+                            <label className="flex items-center gap-1 text-[10px] text-[#2A2035]/50">
+                              <input type="text" inputMode="numeric" placeholder="auto"
+                                className="w-11 border border-[#DEE7FF] rounded px-1 py-0.5 text-[11px] text-center text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]"
+                                value={q._imageLayout?.w ?? ''}
+                                onChange={(e) => { const v = String(e.target.value).replace(/\D/g, ''); setImageLayout(q.id, { w: v ? Math.min(100, Number(v)) : '' }) }} />
+                              <span>% width</span>
+                            </label>
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col items-center gap-0.5 max-md:basis-full max-md:flex-row max-md:justify-end max-md:gap-1 max-md:border-t max-md:border-[#F0F4FF] max-md:pt-1">
                         <button onClick={() => moveTray(q.id, -1)} disabled={i === 0} className="text-xs text-[#2A2035]/40 hover:text-[#325099] disabled:opacity-20 max-md:min-w-10 max-md:min-h-10">▲</button>

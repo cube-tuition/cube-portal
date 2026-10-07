@@ -959,6 +959,7 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
               </button>
             )}
           </div>
+          <ImageLayoutFields block={block} set={set} />
           <MathObjSection block={block} set={set} blank={false} maths={isMaths} hideAdd />
           <EmbeddedTableSection block={block} set={set} />
           <div>
