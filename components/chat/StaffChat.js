@@ -651,10 +651,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                   </p>
                 </div>
                 {current.mine && (
-                  <button onClick={() => togglePin(current.id)} title={pins.includes(current.id) ? 'Unpin' : 'Pin to the top of the list'}
-                    className={`text-[11px] font-semibold hover:underline ${pins.includes(current.id) ? 'text-[#062E63]' : 'text-[#325099]'}`}>
-                    {pins.includes(current.id) ? '📌 Pinned' : '📌 Pin'}
-                  </button>
+                  <button onClick={() => togglePin(current.id)} title={pins.includes(current.id) ? 'Unpin' : 'Pin to the top of the list'} aria-label="Pin"
+                    className={`text-[13px] leading-none px-1 ${pins.includes(current.id) ? '' : 'opacity-40 hover:opacity-100'}`}>📌</button>
                 )}
                 {current.kind === 'channel' && (
                   <button onClick={() => setMembersOpen(o => !o)} className={`text-[11px] font-semibold ${membersOpen ? 'text-[#062E63]' : 'text-[#325099]'} hover:underline`}>Members</button>
@@ -662,12 +660,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 {current.kind === 'channel' && current.directors_only && !me.isAdmin && (
                   <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]">📣 Directors post</span>
                 )}
-                {current.kind === 'channel' && me.isAdmin && (
-                  <button onClick={() => toggleAnnounce(current)} title="Only directors can post in an announcement channel"
-                    className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${current.directors_only ? 'bg-[#FFF7E6] text-[#92400E]' : 'bg-[#F0F4FF] text-[#325099]'}`}>
-                    📣 {current.directors_only ? 'Directors post' : 'Everyone posts'}
-                  </button>
-                )}
+                {/* Announcement mode: a pill while it's on; otherwise just a dim megaphone a director can tap to turn it on. */}
+                {current.kind === 'channel' && me.isAdmin && (current.directors_only
+                  ? <button onClick={() => toggleAnnounce(current)} title="Only directors can post here — tap to let everyone post"
+                      className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]">📣 Directors post</button>
+                  : <button onClick={() => toggleAnnounce(current)} title="Make this an announcement channel (only directors post)" aria-label="Announcement mode"
+                      className="text-[13px] leading-none px-1 opacity-40 hover:opacity-100">📣</button>)}
                 {canManage(current) && (
                   <>
                     <button onClick={() => rename(current)} className="text-[11px] font-semibold text-[#325099] hover:underline">Rename</button>
