@@ -92,9 +92,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   }, [])
   const taRef = useRef(null)
   const activeRef = useRef(active)
-  // Directors post either as themselves or as "CUBE" (a shared voice): their
-  // pick is remembered per browser. In a CUBE thread it is always CUBE.
-  const [persona, setPersona] = useState(() => { try { return localStorage.getItem('cube:chat-persona') === 'cube' ? 'cube' : 'me' } catch { return 'me' } })
+  // Directors post as "CUBE" (a shared voice, the default) or as themselves:
+  // their pick is remembered per browser. In a CUBE thread it is always CUBE.
+  const [persona, setPersona] = useState(() => { try { return localStorage.getItem('cube:chat-persona') === 'me' ? 'me' : 'cube' } catch { return 'cube' } })
   useEffect(() => { activeRef.current = active }, [active])
 
   const staffById = useMemo(() => Object.fromEntries(staff.map(s => [s.id, s])), [staff])
@@ -488,8 +488,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           <p className="text-sm font-bold text-[#062E63]">Staff chat</p>
           {isAdmin && (
             <div className="flex rounded-full border border-[#DEE7FF] overflow-hidden text-[10px] font-bold" title="Post as yourself, or as CUBE (a shared voice both directors use)">
-              <button onClick={() => pickPersona('me')} className={`px-2 py-1 ${persona === 'me' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>{(me.full_name || 'Me').split(' ')[0]}</button>
               <button onClick={() => pickPersona('cube')} className={`px-2 py-1 flex items-center gap-1 ${persona === 'cube' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}><CubeLogo className="h-2.5 w-auto" />CUBE</button>
+              <button onClick={() => pickPersona('me')} className={`px-2 py-1 ${persona === 'me' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>{(me.full_name || 'Me').split(' ')[0]}</button>
             </div>
           )}
         </div>
