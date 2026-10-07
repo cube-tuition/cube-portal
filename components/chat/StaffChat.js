@@ -7,7 +7,7 @@ import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
-  loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, loadReads, setDirectorsOnly,
+  loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly,
   loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, shortcutFits, loadTermClasses, classesTextFor,
 } from '../../lib/chat'
 import CubeLogo from '../CubeLogo'
@@ -67,7 +67,6 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [nextTerm, setNextTerm] = useState(null)    // upcoming (or current) teaching term
   const [termClasses, setTermClasses] = useState([]) // its active classes, for {classes}
   const [reactions, setReactions] = useState({})   // messageId → [{ emoji, user_id }]
-  const [reads, setReads] = useState({})           // userId → last_read_at for the open channel
   const [picker, setPicker] = useState(null)       // message id with the emoji picker open
   const [online, setOnline] = useState(new Set())  // user ids present right now
   const [typing, setTyping] = useState({})         // user id → channel id they are typing in
@@ -168,7 +167,6 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       const ms = await loadMessages(active)
       setMessages(ms); setErr('')
       setReactions(await loadReactions(ms.map(m => m.id)).catch(() => ({})))
-      setReads(await loadReads(active).catch(() => ({})))
     } catch (e) { setErr(e.message || 'Could not load messages'); setMessages([]) }
   }, [active, me])
   useEffect(() => { const t = setTimeout(loadConversation, 0); return () => clearTimeout(t) }, [loadConversation])
@@ -207,10 +205,6 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           // A DM from someone new appears in the list only after a refresh.
           setChannels(cs => (cs.some(c => c.id === r.channel_id) ? cs : cs)); refreshChannels(me.id)
         }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reads' }, (p) => {
-        const r = p.new
-        if (r?.channel_id && r.channel_id === activeRef.current) setReads(rs => ({ ...rs, [r.user_id]: r.last_read_at }))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_reactions' }, (p) => {
         const r = p.new?.message_id ? p.new : p.old
@@ -283,22 +277,6 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const cubeMode = !!me?.isAdmin && persona === 'cube'
   const asCube = !!me?.isAdmin && (cubeMode || current?.kind === 'cube_dm')
   const canPost = !!current && current.mine && (!current.directors_only || me.isAdmin)
-  // Read receipts: each other member sits under the last message they have
-  // seen, Slack-style, so a message with avatars beneath it is read that far.
-  const seenBy = useMemo(() => {
-    const out = {}
-    if (!messages?.length || !current) return out
-    for (const uid of current.members) {
-      if (uid === me.id) continue
-      const at = reads[uid]
-      if (!at) continue
-      let last = null
-      for (const m of messages) { if (m.created_at <= at) last = m; else break }
-      // Their own message needs no "seen" mark — they wrote it.
-      if (last && last.sender_id !== uid) (out[last.id] ||= []).push(uid)
-    }
-    return out
-  }, [messages, reads, current, me.id])
   const send = async () => {
     const body = text.trim()
     if (!body || !current || !me) return
@@ -791,15 +769,6 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                           </div>
                         )
                       })()}
-                      {seenBy[m.id] && (
-                        <div className="flex items-center gap-1 mt-1" title={`Seen by ${seenBy[m.id].map(nameOf).join(', ')}`}>
-                          <span className="text-[10px] text-[#2A2035]/40">Seen</span>
-                          {seenBy[m.id].slice(0, 6).map(uid => (
-                            <span key={uid} className="w-4 h-4 rounded-full text-[8px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(uid) }}>{initials(nameOf(uid))}</span>
-                          ))}
-                          {seenBy[m.id].length > 6 && <span className="text-[10px] text-[#2A2035]/40">+{seenBy[m.id].length - 6}</span>}
-                        </div>
-                      )}
                     </div>
                     {!m.deleted_at && (
                       <div className={`absolute -top-3 right-2 ${picker === m.id ? 'flex' : 'hidden md:group-hover:flex'} items-center gap-0.5 bg-white border border-[#DEE7FF] rounded-full shadow-sm px-1 py-0.5 z-10`}>
