@@ -13,6 +13,7 @@ import { classesForTerm, classesAllTerms } from '../../../lib/classes'
 import { logReferralWithCredits } from '../../../lib/referralCredits'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
+import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
@@ -155,7 +156,7 @@ function StatsBar({ submissions }) {
 }
 
 // ── Trial card ────────────────────────────────────────────────────────────────
-function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, onOutcomeEmail }) {
+function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail }) {
   const [expanded,     setExpanded]     = useState(false)
   const [editNotes,    setEditNotes]    = useState(false)
   const [notes,        setNotes]        = useState(sub.admin_notes || '')
@@ -438,6 +439,19 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
               ))}
             </select>
 
+            {/* Trial invitation — the FIRST email: welcome + a proposed trial
+                class matched to year/subject/availability. Hidden once the
+                trial is decided either way. */}
+            {!['enrolled', 'declined'].includes(sub.status) && (
+              <button
+                onClick={onInvitationEmail}
+                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+                title="Compose the trial invitation — welcome, suggested class and trial date"
+              >
+                ✉ Trial invitation
+              </button>
+            )}
+
             {/* Trial outcome email — the tutors' per-lesson feedback plus how to
                 continue. No completion gate: staff read the feedback and decide. */}
             {sub.converted_student_id && sub.status !== 'declined' && (
@@ -516,7 +530,9 @@ export default function TrialsPage() {
   // studentId → { attended, withFeedback } for the trial-lesson badge
   const [trialProgress, setTrialProgress] = useState({})
   // the trial whose outcome-email composer is open
-  const [outcomeSub,  setOutcomeSub]  = useState(null)
+  const [outcomeSub,    setOutcomeSub]    = useState(null)
+  const [invitationSub, setInvitationSub] = useState(null)
+  const [enrolTerm,     setEnrolTerm]     = useState(null)   // trial target term (holiday rows excluded)
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -533,9 +549,13 @@ export default function TrialsPage() {
     setLoading(true)
     // Trials join the term being taught now (or the upcoming one during
     // holidays) — classes are per-term rows, so an unscoped fetch would list
-    // every class once per term.
-    const term = getEnrolmentTerm(await fetchAllTerms())
-    const classCols = 'id, class_name, day_of_week, start_time, course_id'
+    // every class once per term. Holiday rows exist in terms (pay periods,
+    // holiday workshops) but a trial belongs to a REAL term's classes: during
+    // the break getEnrolmentTerm would otherwise return the holiday row and
+    // starve the class list.
+    const term = getEnrolmentTerm((await fetchAllTerms()).filter(t => !/holiday/i.test(t.name || '')))
+    setEnrolTerm(term)
+    const classCols = 'id, class_name, day_of_week, start_time, end_time, course_id'
     const classQuery = term?.id ? classesForTerm(term.id, classCols) : classesAllTerms(classCols)
     const [subRes, classRes, studentRes] = await Promise.all([
       supabase
@@ -866,6 +886,7 @@ export default function TrialsPage() {
                     onConvertDrop={handleConvertDrop}
                     progress={trialProgress[sub.converted_student_id]}
                     onOutcomeEmail={() => setOutcomeSub(sub)}
+                    onInvitationEmail={() => setInvitationSub(sub)}
                   />
                 ))}
               </div>
@@ -879,6 +900,19 @@ export default function TrialsPage() {
           sub={outcomeSub}
           onClose={() => setOutcomeSub(null)}
           onSent={() => setOutcomeSub(null)}
+        />
+      )}
+
+      {invitationSub && (
+        <TrialInvitationModal
+          sub={invitationSub}
+          classes={classes}
+          term={enrolTerm}
+          onClose={() => setInvitationSub(null)}
+          onSent={(stamped) => {
+            // Mirror the route's stamping locally so the card moves at once.
+            if (stamped) handleUpdate(invitationSub.id, { status: 'contacted', contacted_at: new Date().toISOString() })
+          }}
         />
       )}
     </div>
