@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { reportClientError } from '../lib/reportClientError'
 
 /*
  * PdfPages — a PDF drawn page by page onto canvases, for phones.
@@ -15,7 +16,7 @@ import { useEffect, useRef, useState } from 'react'
  */
 const MAX_ZOOM = 4, MIN_ZOOM = 1
 // Canvases are drawn sharper than 1:1 so a pinch stays crisp.
-const OVERSAMPLE = 1.25
+const OVERSAMPLE = 1.1
 
 export default function PdfPages({ url, className = '' }) {
   const scrollRef = useRef(null)
@@ -74,8 +75,14 @@ export default function PdfPages({ url, className = '' }) {
           canvas.style.cssText = `width:${s.vp.width}px;height:${s.vp.height}px;display:block`
           s.slot.appendChild(canvas)
           try {
-            await s.page.render({ canvasContext: canvas.getContext('2d'), viewport: s.page.getViewport({ scale: s.scale * dpr }) }).promise
-          } catch { /* a cancelled render on unmount */ }
+            const ctx = canvas.getContext('2d')
+            if (!ctx) throw new Error(`PdfPages: no 2d context for page ${s.slot.dataset.page} (${canvas.width}×${canvas.height})`)
+            await s.page.render({ canvasContext: ctx, viewport: s.page.getViewport({ scale: s.scale * dpr }) }).promise
+          } catch (e) {
+            if (dead) return   // a cancelled render on unmount
+            s.slot.innerHTML = `<p style="padding:24px 12px;font-size:12px;color:#B23A3A;text-align:center">This page could not be drawn.</p>`
+            reportClientError(new Error(`PdfPages page ${s.slot.dataset.page}: ${e?.message || e}`))
+          }
         }
         observer = new IntersectionObserver((entries) => {
           for (const e of entries) if (e.isIntersecting) draw(slots[Number(e.target.dataset.page) - 1])
@@ -84,7 +91,9 @@ export default function PdfPages({ url, className = '' }) {
         slots.slice(0, 2).forEach(draw)
         slots.slice(2).forEach((s) => observer.observe(s.slot))
       } catch (e) {
-        if (!dead) setStatus({ pages: 0, error: e?.message || 'Could not open this PDF.' })
+        if (dead) return
+        setStatus({ pages: 0, error: e?.message || 'Could not open this PDF.' })
+        reportClientError(new Error(`PdfPages open: ${e?.message || e}`))
       }
     })()
     return () => { dead = true; observer?.disconnect(); doc?.destroy?.() }

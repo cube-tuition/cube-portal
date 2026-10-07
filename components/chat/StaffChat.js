@@ -863,7 +863,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 <button onClick={() => fileRef.current?.click()} disabled={uploading} title="Attach an image or a file (or paste an image)"
                   className="h-[42px] w-[42px] shrink-0 rounded-xl border border-[#DEE7FF] text-[#325099] hover:bg-[#F8FAFF] disabled:opacity-40 text-lg">{uploading ? '…' : '📎'}</button>
                 <textarea ref={taRef} value={text} onChange={onChange} onKeyDown={onKey} onPaste={onPasteComposer} rows={1}
-                  placeholder={typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches ? `Message ${channelLabel(current)}` : `Message ${channelLabel(current)} — Enter to send, Shift+Enter for a new line, @ to mention, 📎 for a file`}
+                  placeholder={typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches ? `Message ${channelLabel(current)}` : `Message ${channelLabel(current)} — Shift+Enter for a new line, @ to mention`}
                   className="flex-1 min-w-0 border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 text-sm text-[#2A2035] resize-none max-h-40 focus:outline-none focus:border-[#325099]"
                   style={{ height: 'auto', minHeight: 42 }}
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(160, e.target.scrollHeight) + 'px' }} />
