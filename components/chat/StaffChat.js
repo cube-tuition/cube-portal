@@ -480,7 +480,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           )}
         </div>
         <p className="text-[11px] text-[#2A2035]/45">{totalUnread ? `${totalUnread} unread` : 'All caught up'} · {online.size} online</p>
-        <input value={query} onChange={e => { setQuery(e.target.value); if (!e.target.value.trim()) setResults(null) }} placeholder="Search messages… (from:name)"
+        <input value={query} onChange={e => { setQuery(e.target.value); if (!e.target.value.trim()) setResults(null) }} placeholder="Search messages…"
           className="mt-2 w-full border border-[#DEE7FF] rounded-lg px-2.5 py-2 md:py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
       </div>
       <div className="flex-1 overflow-y-auto py-2">
