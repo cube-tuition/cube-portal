@@ -125,7 +125,6 @@ function daysSince(iso) {
 function StatsBar({ submissions }) {
   const total     = submissions.length
   const newCount  = submissions.filter(s => s.status === 'new').length
-  const thisWeek  = submissions.filter(s => daysSince(s.submitted_at) <= 7).length
   const enrolled  = submissions.filter(s => s.status === 'enrolled').length
   const rate      = total > 0 ? Math.round((enrolled / total) * 100) : 0
   const stale     = submissions.filter(s =>
@@ -133,11 +132,10 @@ function StatsBar({ submissions }) {
   ).length
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       {[
         { label: 'Total submissions', value: total,          color: 'text-[#062E63]' },
         { label: 'New (unactioned)',   value: newCount,       color: newCount > 0 ? 'text-amber-600' : 'text-[#062E63]' },
-        { label: 'This week',          value: thisWeek,       color: 'text-[#062E63]' },
         { label: 'Enrolled',           value: enrolled,       color: 'text-emerald-600' },
         { label: 'Conversion rate',    value: rate + '%',     color: rate >= 50 ? 'text-emerald-600' : 'text-[#062E63]' },
       ].map(({ label, value, color }) => (
