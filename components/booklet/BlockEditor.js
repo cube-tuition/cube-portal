@@ -277,16 +277,17 @@ function LiftedInput({ value, onCommit, inlineKey = false, ...rest }) {
  * again on the class page. The list offers the topics already used on the paper,
  * so a run of questions shares one spelling.
  */
-function TopicField({ block, set, options = [] }) {
+function TopicField({ block, set, options = [], hint = '' }) {
   const listId = `topics_${block.id}`
   return (
     <div>
       <label className={L}>
         Topic
-        <span className="ml-1.5 font-normal text-[#2A2035]/40">— groups the pre/post scores, never printed</span>
+        <span className="ml-1.5 font-normal text-[#2A2035]/40">— groups the scores and topic analysis, never printed</span>
+        {hint && !(block.topic || '').trim() && <span className="ml-1.5 font-normal text-[#325099]/70">· from the bank: {hint}</span>}
       </label>
       <LiftedInput className={I} value={block.topic || ''} onCommit={v => set({ topic: v })}
-        list={listId} placeholder="e.g. Indices" />
+        list={listId} placeholder={hint || 'e.g. Indices'} />
       <datalist id={listId}>{options.map(t => <option key={t} value={t} />)}</datalist>
     </div>
   )
@@ -750,7 +751,7 @@ const partsCarryMarks = (b) =>
   Array.isArray(b?.parts) && b.parts.some((p) => p.marks != null && p.marks !== '')
 
 function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMarks = false, syllabus = [], syllabusPool = null,
-                      showTopic = false, topicOptions = [], rubricOptions = null }) {
+                      showTopic = false, topicOptions = [], topicHint = '', rubricOptions = null }) {
   const set = (patch) => onChange({ ...block, ...patch })
   // Maths workbook/homework don't print marks (only the revision quiz does), so
   // hide the Marks input there — but always show it in the revision quiz.
@@ -872,7 +873,7 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
     case 'question':
       return (
         <div className="space-y-2.5">
-          {showTopic && <TopicField block={block} set={set} options={topicOptions} />}
+          {showTopic && <TopicField block={block} set={set} options={topicOptions} hint={topicHint} />}
           {/* A question with subquestions takes criteria per part, not as a whole. */}
           {rubricOptions && !(block.parts && block.parts.length) && (() => {
             const r = rubricOptions.find(x => x.id === block.rubric_id)
@@ -947,7 +948,7 @@ function BlockEditor({ block, onChange, isChem = false, isMaths = true, hideMark
       }
       return (
         <div className="space-y-2.5">
-          {showTopic && <TopicField block={block} set={set} options={topicOptions} />}
+          {showTopic && <TopicField block={block} set={set} options={topicOptions} hint={topicHint} />}
           <div><label className={L}>Question</label><LiftedTextarea className={TA} value={block.prompt} onCommit={v => set({ prompt: v })} textKey /></div>
           <div className="flex items-end gap-3 max-md:flex-wrap max-md:gap-2">
             <ImageField value={block.image} onChange={v => set({ image: v })} />

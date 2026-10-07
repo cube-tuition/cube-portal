@@ -20,6 +20,7 @@ import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
 import { fetchTaxonomy, SUBJECT_FAMILIES, fetchAllRows } from '../../../../../lib/qbank'
+import { analysisTopicLabel, analysisTopicName } from '../../../../../lib/examMarking'
 import { fetchSyllabus, filterModulesToPool, removeDotpointsFromSections, dotpointAllocation, countSelected } from '../../../../../lib/syllabus'
 import { buildSyllabusContent } from '../../../../../lib/bookletContent'
 import LatexContent from '../../../../../components/qbank/LatexContent'
@@ -449,20 +450,25 @@ export default function BookletBuilderEditor() {
 
   // Insert a (new or bank) block into the currently-active section/group, keeping
   // the canonical ordering, then scroll it into view.
-  const insertBlock = (blk) => {
+  // Takes one block, or an array inserted together in order (a bank question
+  // with a stimulus arrives as [stimulus, question]).
+  const insertBlock = (blkOrList) => {
+    const list = Array.isArray(blkOrList) ? blkOrList : [blkOrList]
     const arr = [...(bk.blocks || [])]
     const anchorIdx = selectedBlockId ? arr.findIndex(b => b.id === selectedBlockId) : -1
     let mk
     if (anchorIdx >= 0) {
       // Insert right after the selected block, in that block's section/group.
       const a = arr[anchorIdx]
-      mk = { ...blk, section: a.section || 'content', hwGroup: a.section === 'homework' ? (a.hwGroup || 'foundational') : undefined }
-      arr.splice(anchorIdx + 1, 0, mk)
+      const placed = list.map(blk => ({ ...blk, section: a.section || 'content', hwGroup: a.section === 'homework' ? (a.hwGroup || 'foundational') : undefined }))
+      arr.splice(anchorIdx + 1, 0, ...placed)
+      mk = placed[placed.length - 1]
     } else {
-      if (activeSection === 'homework') mk = { ...blk, section: 'homework', hwGroup: activeHwGroup }
-      else if (activeSection === 'revision') mk = { ...blk, section: 'revision', hwGroup: undefined }
-      else mk = { ...blk, section: 'content', hwGroup: undefined }
-      arr.push(mk)
+      const placed = list.map(blk => activeSection === 'homework' ? { ...blk, section: 'homework', hwGroup: activeHwGroup }
+        : activeSection === 'revision' ? { ...blk, section: 'revision', hwGroup: undefined }
+        : { ...blk, section: 'content', hwGroup: undefined })
+      arr.push(...placed)
+      mk = placed[placed.length - 1]
     }
     setBlocks(recompose(arr), 'Add block')
     setLastAddedId(mk.id)
@@ -471,11 +477,16 @@ export default function BookletBuilderEditor() {
   const addBlock = (type) => insertBlock(newBlock(type))
   // After a new bank question is saved, fetch it (with parts + images) and drop
   // it into the booklet as a block, mirroring the "from question bank" flow.
-  const onNewQuestionSaved = async (qid) => {
+  // Both paths (a new question, or one picked from the bank) re-read the
+  // question with its topic so the block arrives with its stimulus and topic.
+  const insertFromBank = async (qid) => {
     const { data } = await supabase.from(T_QBANK_QUESTIONS)
-      .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
+      .select(`*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role), ${BANK_TOPIC_JOIN}`)
       .eq('id', qid).single()
-    if (data) insertBlock(bankToBlock(data))
+    if (data) insertBlock(bankToBlocks(data, { preTest: bk?.doc_type === 'pre_test' }))
+  }
+  const onNewQuestionSaved = async (qid) => {
+    await insertFromBank(qid)
     setNewQOpen(false)
   }
   const updateBlock = (bid, next) => setBlocks(bk.blocks.map(b => b.id === bid ? next : b), 'Edit block', `block:${bid}`)
@@ -588,6 +599,26 @@ export default function BookletBuilderEditor() {
   }, [bk])
 
   const isLevelTest = bk?.doc_type === 'level_test'
+  // Bank topic of each linked question, shown in an empty Topic box as what the
+  // reports will use (papers built before the topic carried over have none typed).
+  const [bankTopics, setBankTopics] = useState({})
+  const linkedIds = useMemo(() => [...new Set((bk?.blocks || []).map(b => b?.qbank_question_id).filter(Boolean))].sort().join(','), [bk])
+  useEffect(() => {
+    if (!linkedIds || !(bk?.doc_type === 'level_test' || bk?.doc_type === 'pre_test')) return
+    let alive = true
+    const preTest = bk?.doc_type === 'pre_test'
+    supabase.from(T_QBANK_QUESTIONS).select(`id, ${BANK_TOPIC_JOIN}`).in('id', linkedIds.split(','))
+      .then(({ data }) => {
+        if (!alive) return
+        const map = {}
+        for (const q of data || []) {
+          const t = preTest ? analysisTopicName(q) : analysisTopicLabel(q)
+          if (t && t !== 'Uncategorised') map[q.id] = t
+        }
+        setBankTopics(map)
+      })
+    return () => { alive = false }
+  }, [linkedIds, bk?.doc_type])
   // Marking-criteria library, offered on level-test questions (English writing).
   const [rubricOptions, setRubricOptions] = useState([])
   useEffect(() => {
@@ -932,7 +963,7 @@ export default function BookletBuilderEditor() {
         </div>
       </div>
       <BlockEditor block={b} onChange={onChangeFor(b.id)} isChem={isChem} isMaths={isMathsSubj} hideMarks={isMathsSubj && !isExamStyle} syllabus={chemSyllabus} syllabusPool={isChem ? chemPool : null}
-        showTopic={isExamStyle} topicOptions={paperTopicOptions} rubricOptions={isLevelTest ? rubricOptions : null} />
+        showTopic={isExamStyle} topicOptions={paperTopicOptions} topicHint={b.qbank_question_id ? bankTopics[b.qbank_question_id] : ''} rubricOptions={isLevelTest ? rubricOptions : null} />
     </div>
     )
   }
@@ -1476,7 +1507,7 @@ export default function BookletBuilderEditor() {
         )
       })()}
 
-      {bankOpen && <BankPicker booklet={bk} onClose={() => setBankOpen(false)} onPick={(blk) => insertBlock(blk)} />}
+      {bankOpen && <BankPicker booklet={bk} onClose={() => setBankOpen(false)} onPick={(q) => insertFromBank(q.id)} />}
       {newQOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-0 md:p-4 overflow-y-auto"
           onClick={(e) => { if (e.target === e.currentTarget) setNewQOpen(false) }}>
@@ -1498,6 +1529,38 @@ export default function BookletBuilderEditor() {
 }
 
 // ── Question-bank picker ────────────────────────────────────────────────────────
+// The bank question's topic, resolved the same way the marking analysis does.
+const BANK_TOPIC_JOIN = 'qbank_topics(name), qbank_subtopics!qbank_questions_subtopic_id_fkey(name, qbank_topics(name)), qbank_skills!qbank_questions_skill_id_fkey(qbank_topics(name))'
+
+/*
+ * A bank stimulus as a booklet stimulus block. The bank writes a centred title
+ * line ("->**Mother to Son** - By Langston Hughes") and `$\text{}$` spacer lines;
+ * the stimulus block has its own title/source fields and treats a blank line as
+ * the stanza break.
+ */
+function bankStimulusBlock(latex) {
+  const lines = String(latex || '').replace(/\r/g, '').split('\n')
+  let title = '', source = ''
+  const first = (lines[0] || '').replace(/^\s*->\s*/, '')
+  const m = first.match(/^\*\*(.+?)\*\*\s*(?:[-–—:]\s*(?:by\s+)?(.+))?$/i)
+  if (m) { title = m[1].trim(); source = (m[2] || '').trim(); lines.shift() }
+  const body = lines
+    .map(l => (/^\s*\$\\text\{\s*\}\$\s*$/.test(l) ? '' : l.replace(/^\s*->\s*/, '')))
+    .join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '')
+  return { ...newBlock('stimulus'), title, source, body }
+}
+
+function bankToBlocks(q, { preTest = false } = {}) {
+  const block = bankToBlock(q)
+  // Pre-tests group their scores by the bank TOPIC; level tests report by the
+  // finer label the marking analysis uses (the subtopic where it says something).
+  const hasTopic = q.qbank_topics || q.qbank_subtopics || q.qbank_skills
+  if (hasTopic) block.topic = preTest ? analysisTopicName(q) : analysisTopicLabel(q)
+  if (block.topic === 'Uncategorised') block.topic = ''
+  const stim = String(q.stimulus_latex || '').trim()
+  return stim ? [bankStimulusBlock(stim), block] : [block]
+}
+
 function bankToBlock(q) {
   const imgs = (q.qbank_question_images || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
   const firstImg = imgs.filter(im => (im.role || 'stem') !== 'solution')[0]?.storage_path || ''
@@ -1604,7 +1667,7 @@ function BankPicker({ booklet, onClose, onPick }) {
           {qs === null ? <p className="text-center text-xs text-[#2A2035]/40 py-8">Loading…</p>
             : filtered.length === 0 ? <p className="text-center text-xs text-[#2A2035]/40 py-8">No matching questions.</p>
             : filtered.map(q => (
-              <button key={q.id} onClick={() => { onPick(bankToBlock(q)); onClose() }} className="w-full text-left flex items-center gap-3 px-3 py-2 max-md:py-2.5 rounded-lg border border-[#E8EDF8] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
+              <button key={q.id} onClick={() => { onPick(q); onClose() }} className="w-full text-left flex items-center gap-3 px-3 py-2 max-md:py-2.5 rounded-lg border border-[#E8EDF8] hover:border-[#BACBFF] hover:bg-[#F8FAFF] transition">
                 <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#EEF4FF] text-[#325099] shrink-0">{q.qtype}</span>
                 <span className="flex-1 min-w-0 text-xs text-[#2A2035] truncate">{(q.stem_latex || '(no text)').replace(/\$/g, '').slice(0, 110)}</span>
                 {q.difficulty && <span className="text-[10px] text-[#2A2035]/40 shrink-0">D{q.difficulty}</span>}
