@@ -1,3 +1,12 @@
+(function () {
+  for (const C of [Map, WeakMap]) {
+    if (!C.prototype.getOrInsert) C.prototype.getOrInsert = function (k, v) { if (this.has(k)) return this.get(k); this.set(k, v); return v };
+    if (!C.prototype.getOrInsertComputed) C.prototype.getOrInsertComputed = function (k, fn) { if (this.has(k)) return this.get(k); const v = fn(k); this.set(k, v); return v };
+  }
+  if (!Promise.try) Promise.try = function (fn, ...args) { return new Promise((res) => res(fn(...args))) };
+  if (!Uint8Array.fromBase64) Uint8Array.fromBase64 = function (s) { const b = atob(s); const out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out };
+  if (!Uint8Array.prototype.toBase64) Uint8Array.prototype.toBase64 = function () { let s = ''; for (let i = 0; i < this.length; i++) s += String.fromCharCode(this[i]); return btoa(s) };
+})();
 /**
  * @licstart The following is the entire license notice for the
  * JavaScript code in this page

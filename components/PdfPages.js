@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { reportClientError } from '../lib/reportClientError'
+import { installPdfPolyfills } from '../lib/pdfPolyfills'
 
 /*
  * PdfPages — a PDF drawn page by page onto canvases, for phones.
@@ -40,6 +41,7 @@ export default function PdfPages({ url, className = '' }) {
     if (!inner || !scroller) return
     ;(async () => {
       try {
+        installPdfPolyfills()   // before pdf.js runs: iOS 18 lacks a few of the functions it uses
         const pdfjs = await import('pdfjs-dist')
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
         doc = await pdfjs.getDocument({ url }).promise
