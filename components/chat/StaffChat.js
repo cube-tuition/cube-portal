@@ -56,6 +56,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [mention, setMention] = useState(null)  // { query, at } while typing an @name
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(null)  // { channel, step: 1|2, typed } while confirming a delete
+  const [menuOpen, setMenuOpen] = useState(false)  // the ⋯ menu in the conversation header
   const [membersOpen, setMembersOpen] = useState(false)
   const [pins, setPins] = useState([])            // channel ids, in pin order
   const [uploading, setUploading] = useState(false)
@@ -170,7 +171,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     } catch (e) { setErr(e.message || 'Could not load messages'); setMessages([]) }
   }, [active, me])
   useEffect(() => { const t = setTimeout(loadConversation, 0); return () => clearTimeout(t) }, [loadConversation])
-  const selectChannel = (id) => { if (id !== active) { setMessages(null); setEditing(null); setText('') } setActive(id); setSidebarOpen(false) }
+  const selectChannel = (id) => { if (id !== active) { setMessages(null); setEditing(null); setText('') } setActive(id); setSidebarOpen(false); setMenuOpen(false) }
   // Seen: whenever this conversation is open and its messages are loaded.
   useEffect(() => {
     if (!active || !me || messages === null) return
@@ -650,31 +651,37 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     {current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
+                {current.kind === 'channel' && current.directors_only && (
+                  <span className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]">📣 Directors post</span>
+                )}
+                {current.kind === 'channel' && !current.mine && (
+                  <button onClick={() => join(current)} className="shrink-0 text-xs font-semibold rounded-full px-3 py-1 bg-[#062E63] text-white">Join channel</button>
+                )}
+                {/* Everything else lives behind ⋯ so the name keeps the width. */}
                 {current.mine && (
-                  <button onClick={() => togglePin(current.id)} title={pins.includes(current.id) ? 'Unpin' : 'Pin to the top of the list'} aria-label="Pin"
-                    className={`text-[13px] leading-none px-1 ${pins.includes(current.id) ? '' : 'opacity-40 hover:opacity-100'}`}>📌</button>
+                  <div className="relative shrink-0">
+                    <button onClick={() => setMenuOpen(o => !o)} aria-label="Conversation options"
+                      className={`w-9 h-9 rounded-full text-lg leading-none flex items-center justify-center ${menuOpen ? 'bg-[#EEF4FF] text-[#062E63]' : 'text-[#325099] hover:bg-[#F8FAFF]'}`}>⋯</button>
+                    {menuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
+                        <div className="absolute right-0 top-full mt-1 z-40 w-56 bg-white border border-[#DEE7FF] rounded-2xl shadow-xl py-1.5 text-sm">
+                          {[
+                            { label: pins.includes(current.id) ? '📌 Unpin' : '📌 Pin to top', run: () => togglePin(current.id) },
+                            ...(current.kind === 'channel' ? [{ label: `👥 Members · ${current.members.length}`, run: () => setMembersOpen(o => !o) }] : []),
+                            ...(current.kind === 'channel' && me.isAdmin ? [{ label: current.directors_only ? '📣 Let everyone post' : '📣 Only directors post', run: () => toggleAnnounce(current) }] : []),
+                            ...(canManage(current) ? [{ label: '✏️ Rename', run: () => rename(current) }] : []),
+                            ...(canManage(current) && !current.is_default ? [{ label: '🗑 Delete channel', run: () => setDeleting({ channel: current, step: 1, typed: '' }), danger: true }] : []),
+                            ...(current.kind === 'channel' && !current.is_default ? [{ label: '🚪 Leave channel', run: () => leave(current), danger: true }] : []),
+                          ].map((item) => (
+                            <button key={item.label} onClick={() => { setMenuOpen(false); item.run() }}
+                              className={`w-full text-left px-4 py-2.5 md:py-2 hover:bg-[#F8FAFF] ${item.danger ? 'text-[#B23A3A]' : 'text-[#2A2035]'}`}>{item.label}</button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
-                {current.kind === 'channel' && (
-                  <button onClick={() => setMembersOpen(o => !o)} className={`text-[11px] font-semibold ${membersOpen ? 'text-[#062E63]' : 'text-[#325099]'} hover:underline`}>Members</button>
-                )}
-                {current.kind === 'channel' && current.directors_only && !me.isAdmin && (
-                  <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]">📣 Directors post</span>
-                )}
-                {/* Announcement mode: a pill while it's on; otherwise just a dim megaphone a director can tap to turn it on. */}
-                {current.kind === 'channel' && me.isAdmin && (current.directors_only
-                  ? <button onClick={() => toggleAnnounce(current)} title="Only directors can post here — tap to let everyone post"
-                      className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]">📣 Directors post</button>
-                  : <button onClick={() => toggleAnnounce(current)} title="Make this an announcement channel (only directors post)" aria-label="Announcement mode"
-                      className="text-[13px] leading-none px-1 opacity-40 hover:opacity-100">📣</button>)}
-                {canManage(current) && (
-                  <>
-                    <button onClick={() => rename(current)} className="text-[11px] font-semibold text-[#325099] hover:underline">Rename</button>
-                    {!current.is_default && <button onClick={() => setDeleting({ channel: current, step: 1, typed: '' })} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Delete</button>}
-                  </>
-                )}
-                {current.kind === 'channel' && (current.mine
-                  ? (!current.is_default && <button onClick={() => leave(current)} className="text-[11px] font-semibold text-[#2A2035]/40 hover:text-[#B23A3A]">Leave</button>)
-                  : <button onClick={() => join(current)} className="text-xs font-semibold rounded-full px-3 py-1 bg-[#062E63] text-white">Join channel</button>)}
               </>
             ) : <p className="text-sm text-[#2A2035]/50">Pick a channel or a person.</p>}
           </div>
