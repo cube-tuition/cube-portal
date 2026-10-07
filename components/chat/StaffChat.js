@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
-import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm, weekOfTerm, formatTermRange } from '../../lib/terms'
+import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm, weekOfTerm, formatTermRange, formatTermStart } from '../../lib/terms'
 import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
@@ -375,7 +375,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       channel: recipientId ? other : current ? channelLabel(current).replace(/^#/, '') : '',
       date: new Date().toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }),
       term: termNow ? `Term ${termNow.term_number} ${termNow.year}` : '', week: wk ? String(wk) : '',
-      next_term: nextTerm ? `Term ${nextTerm.term_number} ${nextTerm.year}` : '', next_term_dates: nextTerm ? formatTermRange(nextTerm) : '',
+      next_term: nextTerm ? `Term ${nextTerm.term_number} ${nextTerm.year}` : '', next_term_dates: nextTerm ? formatTermRange(nextTerm) : '', next_term_start: formatTermStart(nextTerm),
       classes: other ? classesTextFor(other, termClasses) : '',
     }
   }
