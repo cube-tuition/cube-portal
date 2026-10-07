@@ -556,19 +556,29 @@ export default function TrialsPage() {
     // "Assign class" dropdown looking empty. Read each trial's live enrolment
     // class, prefer it, and heal the submission row so the two stay in sync.
     const enrolIds = subs.map(s => s.enrolment_id).filter(Boolean)
-    const studentIds = subs.filter(s => !s.enrolment_id && s.converted_student_id).map(s => s.converted_student_id)
+    // Fetch trial enrolments for EVERY linked student, not just submissions
+    // missing an enrolment_id — if the linked enrolment row was deleted or
+    // can't be read, the student's other trial enrolments still answer.
+    const studentIds = subs.filter(s => s.converted_student_id).map(s => s.converted_student_id)
     const [byId, byStudent] = await Promise.all([
       enrolIds.length ? supabase.from('enrolments').select('id, class_id').in('id', enrolIds) : Promise.resolve({ data: [] }),
       studentIds.length ? supabase.from('enrolments').select('student_id, class_id').in('student_id', studentIds).in('status', ['trial', 'trial complete']) : Promise.resolve({ data: [] }),
     ])
     const classByEnrol = Object.fromEntries((byId.data || []).map(r => [r.id, r.class_id]))
+    // Prefer an enrolment that HAS a class — a classless stub must not mask a
+    // real assignment sitting on the student's other trial enrolment.
     const classByStudent = {}
-    for (const r of (byStudent.data || [])) if (!(r.student_id in classByStudent)) classByStudent[r.student_id] = r.class_id
+    for (const r of (byStudent.data || [])) {
+      if (r.class_id != null || !(r.student_id in classByStudent)) classByStudent[r.student_id] = r.class_id
+    }
     const healed = []
     const merged = subs.map(s => {
-      const live = s.enrolment_id
-        ? classByEnrol[s.enrolment_id]
-        : (s.converted_student_id ? classByStudent[s.converted_student_id] : undefined)
+      let live = s.enrolment_id ? classByEnrol[s.enrolment_id] : undefined
+      // Fall back to the student's trial enrolments when the direct link
+      // yields nothing (missing row) or no class.
+      if ((live === undefined || live === null) && s.converted_student_id && classByStudent[s.converted_student_id] != null) {
+        live = classByStudent[s.converted_student_id]
+      }
       // undefined = no enrolment row found; null = enrolment exists with no class
       if (live !== undefined && live !== s.trial_class_id) {
         healed.push({ id: s.id, val: live })
@@ -576,7 +586,10 @@ export default function TrialsPage() {
       }
       return s
     })
-    for (const h of healed) supabase.from('trial_submissions').update({ trial_class_id: h.val }).eq('id', h.id).then(() => {})
+    for (const h of healed) {
+      supabase.from('trial_submissions').update({ trial_class_id: h.val }).eq('id', h.id)
+        .then(({ error }) => { if (error) console.warn('trial_class_id heal failed for submission', h.id, error.message) })
+    }
 
     // Student status follows the pipeline: a student with a trial class
     // assigned who hasn't been converted yet is a TRIAL student, not pending.
@@ -652,6 +665,26 @@ export default function TrialsPage() {
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // The pipeline heals itself from live enrolments at load time — so reload
+  // when the tab regains focus, and an assignment made in the database
+  // explorer (another tab) appears here without a manual refresh. Throttled:
+  // a quick alt-tab shouldn't refire every query.
+  useEffect(() => {
+    let last = Date.now()
+    const onFocus = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - last < 10000) return
+      last = Date.now()
+      loadData()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [loadData])
 
   const handleUpdate = useCallback((id, patch) => {
     setSubmissions(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s))
