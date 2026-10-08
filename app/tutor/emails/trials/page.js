@@ -17,7 +17,7 @@ import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey }
  * For NEW students about to trial: students whose enrolments in the selected
  * term are ALL trials (existing students trialling an extra course are handled
  * by the term-start email, where the extra course shows a "(Trial)" marker).
- * Sends a welcome/reminder with the first-lesson date — no invoice attached.
+ * Sends a welcome/reminder with the two trial lesson dates — no invoice attached.
  * Trials happen throughout the term, so this page lives separately from the
  * term-start flow. Sends go through the same API route with attach_invoices
  * off (a mixed family has an invoice, but it doesn't belong on this email).
@@ -25,11 +25,11 @@ import { loadEmailOverrides, saveEmailOverride, deleteEmailOverride, familyKey }
 
 const TEMPLATE_KEY = 'cube_trials_template'
 const SUBJECT_KEY  = 'cube_trials_subject'
-const DEFAULT_SUBJECT = 'Your trial lesson{{plural}} at CUBE'
+const DEFAULT_SUBJECT = 'Your trial lessons at CUBE'
 
 const DEFAULT_TEMPLATE = `Dear {{parent_name}},
 
-Welcome to CUBE! We're excited to have {{student_names}} joining us for a trial lesson{{plural}}.
+Welcome to CUBE! We're excited to have {{student_names}} joining us for a trial.
 
 Here are the trial details:
 
@@ -37,7 +37,7 @@ Here are the trial details:
 
 There's nothing to pay for the trial — just arrive a few minutes early and our team will look after the rest.
 
-We'll be in touch after the lesson to hear how it went and to help with next steps if you'd like to continue.
+We'll be in touch after the trial to hear how it went and to help with next steps if you'd like to continue.
 
 If you have any questions before then, just reply to this email.
 
@@ -45,16 +45,22 @@ Kind regards,
 The CUBE Team`
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-// Trial schedule lines show the actual FIRST lesson date, not just the weekday.
+// A trial runs two weeks, so a trial's schedule line names both lesson dates
+// ("Tuesday 13 Oct & Tuesday 20 Oct · 18:00 - 20:00"); with no lessons in the
+// timetable yet it falls back to the weekday.
+function trialWhen(s) {
+  return [
+    s.trial_dates_label || s.class_day,
+    s.class_start && s.class_end ? `${s.class_start} - ${s.class_end}` : s.class_start,
+  ].filter(Boolean).join(' · ')
+}
+
 function buildClassDetails(students) {
   const unique = students.filter((s, i, a) =>
     a.findIndex(x => x.student_name === s.student_name && x.class_name === s.class_name) === i
   )
   return unique.map(s => {
-    const when = [
-      s.first_lesson_label || s.class_day,
-      s.class_start && s.class_end ? `${s.class_start} - ${s.class_end}` : s.class_start,
-    ].filter(Boolean).join(' ')
+    const when = trialWhen(s)
     return `  • ${s.student_name} — ${s.class_name}${when ? ' · ' + when : ''}`
   }).join('\n')
 }
@@ -133,6 +139,10 @@ function firstLessonLabel(iso) {
   const d = new Date(iso + 'T00:00:00')
   return `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MON_NAMES[d.getMonth()]}`
 }
+// The lessons a trial covers: the first two of the class from the trial's
+// start date (when one is set), skipping cancelled lessons.
+const TRIAL_LESSONS = 2
+const trialDatesLabel = (dates) => dates.map(firstLessonLabel).join(' & ')
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function TrialsEmailPage() {
@@ -216,23 +226,24 @@ function TrialsEmailPageInner() {
       // All enrolments for the term — a student counts as "trialling" only if
       // they have trial enrolments and NO active ones (completely new).
       const { data: enr, error: enrErr } = await supabase
-        .from(T_ENROLMENTS).select('id, student_id, class_id, status')
+        .from(T_ENROLMENTS).select('id, student_id, class_id, status, trial_start_date')
         .in('class_id', classIds).in('status', ['active', 'trial'])
       if (enrErr) throw new Error(enrErr.message)
       const activeIds = new Set((enr || []).filter(e => e.status === 'active').map(e => e.student_id))
       const trialEnr = (enr || []).filter(e => e.status === 'trial' && !activeIds.has(e.student_id))
       if (!trialEnr.length) { setStudents([]); setLoading(false); return }
 
-      // First lesson date per class, so the reminder can name the exact date.
+      // Lesson dates per class, so the reminder can name the exact trial dates.
       const trialClassIds = [...new Set(trialEnr.map(e => e.class_id))]
       const { data: lessonRows } = await supabase
         .from('lessons').select('class_id, lesson_date')
-        .in('class_id', trialClassIds).eq('is_makeup', false)
+        .in('class_id', trialClassIds).eq('is_makeup', false).neq('status', 'cancelled')
         .order('lesson_date', { ascending: true })
-      const firstLessonByClass = {}
-      for (const l of lessonRows || []) {
-        if (!(l.class_id in firstLessonByClass)) firstLessonByClass[l.class_id] = l.lesson_date
-      }
+      const lessonsByClass = {}
+      for (const l of lessonRows || []) (lessonsByClass[l.class_id] ||= []).push(l.lesson_date)
+      const trialDates = (e) => (lessonsByClass[e.class_id] || [])
+        .filter(d => !e.trial_start_date || d >= e.trial_start_date)
+        .slice(0, TRIAL_LESSONS)
 
       const studentIds = [...new Set(trialEnr.map(e => e.student_id))]
       const { data: studs } = await supabase
@@ -247,6 +258,7 @@ function TrialsEmailPageInner() {
       }
 
       const rows = trialEnr.map(e => {
+        const dates = trialDates(e)
         const s = studMap[e.student_id] || {}
         const c = classMap[e.class_id]  || {}
         const p = parentMap[e.student_id] || {}
@@ -260,8 +272,9 @@ function TrialsEmailPageInner() {
           class_day:    c.day_of_week || '',
           class_start:  c.start_time?.slice(0, 5) || '',
           class_end:    c.end_time?.slice(0, 5)   || '',
-          first_lesson:       firstLessonByClass[e.class_id] || null,
-          first_lesson_label: firstLessonLabel(firstLessonByClass[e.class_id]),
+          first_lesson:       dates[0] || null,
+          first_lesson_label: firstLessonLabel(dates[0]),
+          trial_dates_label:  trialDatesLabel(dates),
           enr_status:   'trial',
           parent_name:  p.full_name || '',
           parent_email: p.email || '',
@@ -327,9 +340,9 @@ function TrialsEmailPageInner() {
           ...f,
           family_id:   f.family_id || null,
           student_ids: f.students.map(s => s.student_id).filter(Boolean),
-          // The route rebuilds class_details from students — feed it the
-          // first-lesson label as the "day" so the exact date is in the email.
-          students:    f.students.map(s => ({ ...s, class_day: s.first_lesson_label || s.class_day, enr_status: 'active' })),
+          // The route rebuilds class_details from students — feed it the whole
+          // trial line (both dates + time) as the "day" so it lands as written.
+          students:    f.students.map(s => ({ ...s, class_day: trialWhen(s), class_start: '', class_end: '', enr_status: 'active' })),
           custom_body: overrides[familyKey(f)] || null,
         })),
       }),
@@ -410,7 +423,7 @@ function TrialsEmailPageInner() {
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-[#062E63]">Trials</h1>
-            <p className="text-sm text-[#325099]/60 mt-1">Trial reminders for new students — first lesson details, no invoice. Existing students trialling an extra course stay in the Term Start email.</p>
+            <p className="text-sm text-[#325099]/60 mt-1">Trial reminders for new students — the two trial lesson dates, no invoice. Existing students trialling an extra course stay in the Term Start email.</p>
           </div>
           <select
             value={termId}
@@ -477,10 +490,10 @@ function TrialsEmailPageInner() {
               <p className="text-xs text-[#325099]/60 mb-3">
                 Placeholders: <code className="bg-[#F0F4FF] px-1 rounded">{'{{parent_name}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{student_names}}'}</code>{' '}
-                <code className="bg-[#F0F4FF] px-1 rounded" title="Schedule cards with the first lesson date">{'{{class_details}}'}</code>{' '}
+                <code className="bg-[#F0F4FF] px-1 rounded" title="Schedule cards with the two trial lesson dates">{'{{class_details}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_name}}'}</code>{' '}
                 <code className="bg-[#F0F4FF] px-1 rounded">{'{{term_short}}'}</code>{' '}
-                <span className="text-[#325099]/40">· Use **bold** for bold text · schedule shows the first lesson date</span>
+                <span className="text-[#325099]/40">· Use **bold** for bold text · schedule shows the first two lesson dates</span>
               </p>
               <textarea
                 value={template}
@@ -530,7 +543,7 @@ function TrialsEmailPageInner() {
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {f.students.map(s => (
                               <span key={`${s.student_id}_${s.class_id}`} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">
-                                {s.student_name.split(' ')[0]} · {s.class_name}{s.first_lesson_label ? ` · ${s.first_lesson_label}` : ''}
+                                {s.student_name.split(' ')[0]} · {s.class_name}{s.trial_dates_label ? ` · ${s.trial_dates_label}` : ''}
                               </span>
                             ))}
                           </div>
