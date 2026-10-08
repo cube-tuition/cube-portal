@@ -1,6 +1,6 @@
 'use client'
 import { authedFetch } from '../../../../lib/authedFetch'
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
@@ -14,6 +14,7 @@ import { AddCreditModal } from '../../../../components/invoices/AddCreditModal'
 import { ReferralModal } from '../../../../components/invoices/ReferralModal'
 import { buildEmailBody, SendEmailModal } from '../../../../components/invoices/SendEmailModal'
 import { SendReceiptModal } from '../../../../components/invoices/SendReceiptModal'
+import { applyInvoiceFilters, activeFacetCount, QueueCards, FacetBar } from '../../../../components/invoices/InvoiceFilters'
 import { logReferralWithCredits } from '../../../../lib/referralCredits'
 import {
   invoiceTotalsPatch, isCashDiscountLine, isManualCashLine,
@@ -182,7 +183,11 @@ function InvoiceDashboardInner() {
   const [addCreditLessons,       setAddCreditLessons]       = useState([])
   const [addCreditLessonsLoading,setAddCreditLessonsLoading]= useState(false)
   const [addCreditSelectedLesson,setAddCreditSelectedLesson]= useState(null)
-  const [filterTab,             setFilterTab]             = useState('all')
+  // Filters — see components/invoices/InvoiceFilters for the queue/facet model.
+  const [queue,       setQueue]       = useState('all')
+  const [facetSel,    setFacetSel]    = useState({})
+  const [search,      setSearch]      = useState('')
+  const [sortBy,      setSortBy]      = useState('number')
 
   // Xero
   const [xeroConnected, setXeroConnected] = useState(null)  // null=loading, true, false
@@ -290,7 +295,8 @@ function InvoiceDashboardInner() {
         .from('invoices')
         .select('*')
         .eq('term_id', termId)
-        .not('status', 'eq', 'voided')
+        // Voided ones load too, but stay out of every view, count and bulk
+        // action unless the Stage → Voided filter asks for them.
         .order('invoice_number', { ascending: true })
       if (invErr) throw invErr
 
@@ -468,7 +474,7 @@ function InvoiceDashboardInner() {
       // Auto-set overdue: any unpaid invoice whose due_date is in the past
       const today = new Date().toISOString().slice(0, 10)
       const nowOverdue = enriched.filter(
-        i => i.payment_status === 'unpaid' && i.due_date && i.due_date < today
+        i => i.status !== 'voided' && i.payment_status === 'unpaid' && i.due_date && i.due_date < today
       )
       if (nowOverdue.length) {
         const ids = nowOverdue.map(i => i.id)
@@ -830,17 +836,15 @@ function InvoiceDashboardInner() {
     } catch (e) { setError(e.message) } finally { setPdfGenId(null) }
   }
 
-  // ── Summary stats ─────────────────────────────────────────────────────────
-  const stats = {
-    total:    invoices.length,
-    draft:    invoices.filter(i => i.status === 'draft').length,
-    approved: invoices.filter(i => ['approved', 'synced_to_xero'].includes(i.status)).length,
-    paid:     invoices.filter(i => i.payment_status === 'paid').length,
-    unpaid:   invoices.filter(i => i.payment_status === 'unpaid').length,
-    overdue:  invoices.filter(i => i.payment_status === 'overdue').length,
-    revenue:  invoices.filter(i => i.status !== 'voided' && i.status !== 'draft').reduce((s, i) => s + (Number(i.total) || 0), 0),
-    warnings: invoices.filter(i => getWarnings(i, i.prev_unpaid).length > 0).length,
-  }
+  // ── Summary stats + filtering ─────────────────────────────────────────────
+  const liveInvoices = useMemo(() => invoices.filter(i => i.status !== 'voided'), [invoices])
+  const revenue = liveInvoices.filter(i => i.status !== 'draft').reduce((s, i) => s + (Number(i.total) || 0), 0)
+  const filtered = useMemo(
+    () => applyInvoiceFilters(invoices, { queue, sel: facetSel, search, sort: sortBy }, (i) => getWarnings(i, i.prev_unpaid)),
+    [invoices, queue, facetSel, search, sortBy],
+  )
+  const filtersActive = queue !== 'all' || activeFacetCount(facetSel) > 0 || !!search.trim()
+  const clearFilters = () => { setQueue('all'); setFacetSel({}); setSearch('') }
 
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
@@ -916,33 +920,16 @@ function InvoiceDashboardInner() {
 
         {termId && (
           <>
-            {/* Stats / filter tabs */}
-            <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 md:gap-3 mb-5 md:mb-6">
-              {[
-                { id: 'all',      label: 'Total',    value: stats.total,    cls: 'text-[#062E63]' },
-                { id: 'draft',    label: 'Draft',    value: stats.draft,    cls: 'text-[#325099]' },
-                { id: 'approved', label: 'Approved', value: stats.approved, cls: 'text-[#5B21B6]' },
-                { id: 'paid',     label: 'Paid',     value: stats.paid,     cls: 'text-[#065F46]' },
-                { id: 'unpaid',   label: 'Unpaid',   value: stats.unpaid,   cls: stats.unpaid > 0 ? 'text-[#92400E]' : 'text-[#325099]' },
-                { id: 'overdue',  label: 'Overdue',  value: stats.overdue,  cls: stats.overdue > 0 ? 'text-red-600' : 'text-[#325099]' },
-                { id: 'warnings', label: 'Warnings', value: stats.warnings, cls: stats.warnings > 0 ? 'text-[#92400E]' : 'text-[#325099]' },
-                { id: 'revenue',  label: 'Revenue',  value: `$${stats.revenue.toLocaleString('en-AU', { minimumFractionDigits: 0 })}`, cls: 'text-[#062E63]', noFilter: true },
-              ].map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => !s.noFilter && setFilterTab(f => f === s.id ? 'all' : s.id)}
-                  className={`min-w-0 bg-white border rounded-xl px-1 md:px-3 py-2.5 md:py-3 text-center transition ${
-                    !s.noFilter ? 'hover:border-[#325099]/40 cursor-pointer' : 'cursor-default'
-                  } ${filterTab === s.id ? 'border-[#325099] ring-2 ring-[#325099]/20' : 'border-[#DEE7FF]'}`}
-                >
-                  <div className={`text-base md:text-lg font-bold tabular-nums truncate ${s.cls}`}>{s.value}</div>
-                  <div className="text-[9px] md:text-[10px] text-[#325099]/60 font-semibold mt-0.5 uppercase tracking-wide md:tracking-wider truncate">{s.label}</div>
-                </button>
-              ))}
-            </div>
+            {/* Workflow queues (cards) + facet filters */}
+            {liveInvoices.length > 0 && <>
+              <QueueCards queue={queue} onQueue={setQueue} counts={filtered.queueCounts} revenue={revenue} />
+              <FacetBar sel={facetSel} setSel={setFacetSel} counts={filtered.optionCounts}
+                search={search} setSearch={setSearch} sort={sortBy} setSort={setSortBy}
+                anyActive={filtersActive} onClearAll={clearFilters} />
+            </>}
 
             {/* Generate button */}
-            {invoices.length === 0 && !loading && (
+            {liveInvoices.length === 0 && !loading && (
               <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-10 text-center mb-6">
                 <p className="text-4xl mb-4">📄</p>
                 <p className="text-sm font-semibold text-[#062E63] mb-1">No invoices for {term?.name}</p>
@@ -957,26 +944,17 @@ function InvoiceDashboardInner() {
               </div>
             )}
 
-            {invoices.length > 0 && (() => {
-              const filteredInvoices = filterTab === 'all'      ? invoices
-                : filterTab === 'draft'    ? invoices.filter(i => i.status === 'draft')
-                : filterTab === 'approved' ? invoices.filter(i => ['approved', 'synced_to_xero'].includes(i.status))
-                : filterTab === 'paid'     ? invoices.filter(i => i.payment_status === 'paid')
-                : filterTab === 'unpaid'   ? invoices.filter(i => i.payment_status === 'unpaid')
-                : filterTab === 'overdue'  ? invoices.filter(i => i.payment_status === 'overdue')
-                : filterTab === 'warnings' ? invoices.filter(i => getWarnings(i, i.prev_unpaid).length > 0)
-                : invoices
+            {liveInvoices.length > 0 && (() => {
+              const filteredInvoices = filtered.list
+              const listTotal = filteredInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)
               return <>
             {/* eslint-disable-next-line no-unused-vars */}
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-[#325099]/60">
-                    {filteredInvoices.length}{filteredInvoices.length !== invoices.length ? ` of ${invoices.length}` : ''} invoice{invoices.length !== 1 ? 's' : ''}
-                    {filterTab !== 'all' && <span className="ml-1.5 text-xs font-semibold text-[#325099] bg-[#EEF4FF] px-2 py-0.5 rounded-full capitalize">{filterTab}</span>}
+                    {filteredInvoices.length}{filtersActive ? ` of ${liveInvoices.length}` : ''} invoice{filteredInvoices.length !== 1 ? 's' : ''}
+                    <span className="text-[#325099]/40"> · ${listTotal.toLocaleString('en-AU', { maximumFractionDigits: 2 })}</span>
                   </span>
-                  {filterTab !== 'all' && (
-                    <button onClick={() => setFilterTab('all')} className="text-[10px] text-[#325099]/50 hover:text-[#325099] transition py-2 md:py-0">✕ Clear filter</button>
-                  )}
                 </div>
                 <button
                   onClick={handleGenerate}
@@ -991,7 +969,10 @@ function InvoiceDashboardInner() {
             {loading ? (
               <div className="text-center py-16 text-[#325099]/40 text-sm">Loading invoices…</div>
             ) : filteredInvoices.length === 0 ? (
-              <div className="text-center py-12 text-[#325099]/40 text-sm">No invoices match this filter.</div>
+              <div className="text-center py-12 text-[#325099]/40 text-sm">
+                No invoices match these filters.{' '}
+                <button onClick={clearFilters} className="font-semibold text-[#325099] hover:underline">Clear filters</button>
+              </div>
             ) : (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start">
                 {filteredInvoices.map(inv => {
