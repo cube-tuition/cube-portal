@@ -357,7 +357,8 @@ export default function AbsencesInbox({ staff }) {
 
       {logging && (
         <LogAbsenceModal staff={staff} onClose={() => setLogging(false)}
-          onLogged={(id) => { setLogging(false); setTab('new'); setOpenId(id); reload() }} />
+          onLogged={(ids) => { setLogging(false); setTab('new'); setOpenId(ids.length === 1 ? ids[0] : null); reload() }}
+          onPartial={reload} />
       )}
 
       {openCase && (
@@ -896,10 +897,12 @@ function EmailForm({ c, student, cls, ml, mlCls, guardians, onSent }) {
   )
 }
 
-// ── Log an absence ahead of time ─────────────────────────────────────────────
-// A family says their child will miss a lesson: open the case now, with what
-// they said. The tutor's roll then shows the student as away ("parent told
-// us"), and the case is ready for a makeup or an email before the day.
+// ── Log absences ahead of time ───────────────────────────────────────────────
+// A family says their child will miss lessons: open the cases now, with what
+// they said. One modal can log several — the same student across a week, or
+// a few students at once — one row per absence. The tutor's roll then shows
+// each student as away ("parent told us"), and each case is ready for a
+// makeup or an email before the day.
 // The trigger for a SearchSelectPopover — the same button the trials and
 // database pages open their searchable dropdowns from.
 function PickButton({ value, placeholder, onOpen, disabled = false }) {
@@ -913,14 +916,33 @@ function PickButton({ value, placeholder, onOpen, disabled = false }) {
   )
 }
 
-function LogAbsenceModal({ staff, onClose, onLogged }) {
+let _rowSeq = 0
+const blankRow = () => ({ key: `r${++_rowSeq}`, student: null, classes: null, classId: '', sessions: null, date: '' })
+
+// The student's classes in the term running now and the next teaching term
+// (during the holidays that is the holiday courses and next term).
+async function loadStudentClasses(studentId) {
+  const terms = await fetchAllTerms()
+  const termIds = [...new Set([getCurrentTerm(terms)?.id, getRegularEnrolmentTerm(terms)?.id].filter(Boolean))]
+  const rows = []
+  for (const tid of termIds) {
+    const { data } = await enrolledClassesForTerm(studentId, tid, 'id, class_name, day_of_week, start_time, term_id')
+      .in('status', ['active', 'trial'])
+    rows.push(...(data || []).map(r => r.classes))
+  }
+  return [...new Map(rows.map(r => [r.id, r])).values()]
+}
+async function loadClassSessions(classId) {
+  const { data } = await supabase.from('lessons').select('id, lesson_date, start_time').eq('class_id', classId)
+    .eq('is_makeup', false).neq('status', 'cancelled').gte('lesson_date', isoDate(new Date()))
+    .order('lesson_date').limit(20)
+  return data || []
+}
+
+function LogAbsenceModal({ staff, onClose, onLogged, onPartial }) {
   const [students, setStudents] = useState(null)
-  const [picker, setPicker] = useState(null)       // { kind: 'student' | 'class' | 'session', rect }
-  const [student, setStudent] = useState(null)
-  const [classes, setClasses] = useState(null)
-  const [classId, setClassId] = useState('')
-  const [sessions, setSessions] = useState(null)
-  const [date, setDate] = useState('')
+  const [rows, setRows] = useState(() => [blankRow()])
+  const [picker, setPicker] = useState(null)       // { rowKey, kind: 'student' | 'class' | 'session', rect }
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -932,134 +954,161 @@ function LogAbsenceModal({ staff, onClose, onLogged }) {
     return () => { alive = false }
   }, [])
 
-  // The student's classes in the term running now and the next teaching term
-  // (during the holidays that is the holiday courses and next term).
-  useEffect(() => {
-    if (!student) return
-    let alive = true
-    ;(async () => {
-      const terms = await fetchAllTerms()
-      const termIds = [...new Set([getCurrentTerm(terms)?.id, getRegularEnrolmentTerm(terms)?.id].filter(Boolean))]
-      const rows = []
-      for (const tid of termIds) {
-        const { data } = await enrolledClassesForTerm(student.id, tid, 'id, class_name, day_of_week, start_time, term_id')
-          .in('status', ['active', 'trial'])
-        rows.push(...(data || []).map(r => r.classes))
-      }
-      if (!alive) return
-      const uniq = [...new Map(rows.map(r => [r.id, r])).values()]
-      setClasses(uniq)
-      setClassId(uniq.length === 1 ? String(uniq[0].id) : '')
-    })()
-    return () => { alive = false }
-  }, [student])
+  const patchRow = (key, patch) => setRows(rs => rs.map(r => (r.key === key ? { ...r, ...patch } : r)))
 
-  useEffect(() => {
-    if (!classId) return
-    let alive = true
-    supabase.from('lessons').select('id, lesson_date, start_time').eq('class_id', classId)
-      .eq('is_makeup', false).neq('status', 'cancelled').gte('lesson_date', isoDate(new Date()))
-      .order('lesson_date').limit(12)
-      .then(({ data }) => { if (alive) { setSessions(data || []); setDate(data?.[0]?.lesson_date || '') } })
-    return () => { alive = false }
-  }, [classId])
+  const pickClass = async (key, classId) => {
+    patchRow(key, { classId: String(classId), sessions: null, date: '' })
+    const sessions = await loadClassSessions(classId)
+    patchRow(key, { sessions, date: sessions[0]?.lesson_date || '' })
+  }
+  const pickStudent = async (key, id) => {
+    const st = (students || []).find(x => x.id === id)
+    if (!st) return
+    patchRow(key, { student: st, classes: null, classId: '', sessions: null, date: '' })
+    const classes = await loadStudentClasses(st.id)
+    patchRow(key, { classes })
+    if (classes.length === 1) pickClass(key, classes[0].id)
+  }
 
-  const pickStudent = (id) => {
-    const s = (students || []).find(x => x.id === id)
-    if (!s || s.id === student?.id) return
-    setStudent(s); setClasses(null); setClassId(''); setSessions(null); setDate('')
+  // Another row: same student and class as the last one, on their next lesson
+  // after it — "away all week" is a couple of clicks. Change any of it.
+  const addRow = () => {
+    const last = rows[rows.length - 1]
+    if (!last?.student) { setRows(rs => [...rs, blankRow()]); return }
+    const taken = new Set(rows.filter(r => r.classId === last.classId).map(r => r.date))
+    const next = (last.sessions || []).find(l => l.lesson_date > (last.date || '') && !taken.has(l.lesson_date))
+    setRows(rs => [...rs, { ...blankRow(), student: last.student, classes: last.classes, classId: last.classId, sessions: last.sessions, date: next?.lesson_date || '' }])
   }
-  const pickClass = (id) => {
-    if (String(id) === classId) return
-    setClassId(String(id)); setSessions(null); setDate('')
-  }
-  const classOf = (classes || []).find(k => String(k.id) === classId)
+  const removeRow = (key) => setRows(rs => (rs.length > 1 ? rs.filter(r => r.key !== key) : rs))
+
+  const complete = rows.filter(r => r.student && r.classId && r.date)
+  const ready = rows.length > 0 && complete.length === rows.length
 
   const save = async () => {
-    if (!student || !classId || !date) return
+    if (!ready) return
+    const seen = new Set()
+    for (const r of rows) {
+      const k = `${r.student.id}|${r.classId}|${r.date}`
+      if (seen.has(k)) { setMsg(`${r.student.full_name} on ${fmtDay(r.date)} is listed twice.`); return }
+      seen.add(k)
+    }
     setBusy(true); setMsg(null)
-    try {
-      const lesson = (sessions || []).find(l => l.lesson_date === date)
-      const { data: made, error } = await supabase.from('absence_cases').insert({
-        student_id: student.id, class_id: Number(classId), session_date: date,
+    const made = [], failed = []
+    for (const r of rows) {
+      const lesson = (r.sessions || []).find(l => l.lesson_date === r.date)
+      const { data, error } = await supabase.from('absence_cases').insert({
+        student_id: r.student.id, class_id: Number(r.classId), session_date: r.date,
         lesson_id: lesson?.id || null, source: 'manual',
-        notice_given: date >= isoDate(new Date()),
+        notice_given: r.date >= isoDate(new Date()),
       }).select('id').single()
-      if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'That absence is already logged.' : error.message)
+      if (error) {
+        failed.push({ row: r, why: /duplicate|unique/i.test(error.message) ? 'already logged' : error.message })
+        continue
+      }
       await supabase.from('absence_case_notes').insert({
-        case_id: made.id, kind: 'contact',
+        case_id: data.id, kind: 'contact',
         body: note.trim() || 'Family let us know they will be away.',
         author_id: staff?.id || null, author_name: staff?.full_name || null,
       })
-      onLogged(made.id)
-    } catch (e) { setMsg(e.message) } finally { setBusy(false) }
+      made.push({ id: data.id, key: r.key })
+    }
+    setBusy(false)
+    if (!failed.length) { onLogged(made.map(m => m.id)); return }
+    // Keep only the rows that didn't save, and say why.
+    const madeKeys = new Set(made.map(m => m.key))
+    setRows(rs => rs.filter(r => !madeKeys.has(r.key)))
+    setMsg(`${made.length ? `Logged ${made.length}. ` : ''}Not logged: ${failed.map(f => `${f.row.student.full_name} ${fmtDay(f.row.date)} (${f.why})`).join('; ')}.`)
+    if (made.length) onPartial?.()
   }
 
   const field = 'w-full border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-[#325099] bg-white'
+  const pr = picker ? rows.find(r => r.key === picker.rowKey) : null
   return (
     <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))]">
       <div className="absolute inset-0 bg-black/25" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-5 space-y-3">
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl p-5 space-y-3 max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <div className="flex items-start">
           <div className="flex-1">
-            <p className="text-base font-bold text-[#062E63]">Log an absence</p>
-            <p className="text-[11px] text-[#2A2035]/50">The family told us ahead — open the case now.</p>
+            <p className="text-base font-bold text-[#062E63]">Log absences</p>
+            <p className="text-[11px] text-[#2A2035]/50">The family told us ahead — open the cases now. One row per missed lesson.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none px-1">✕</button>
         </div>
 
         {students == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading students…</p> : (
-          <PickButton value={student?.full_name} placeholder="Select student…"
-            onOpen={rect => setPicker({ kind: 'student', rect })} />
+          <div className="space-y-2.5">
+            {rows.map((r, idx) => {
+              const cls = (r.classes || []).find(k => String(k.id) === r.classId)
+              return (
+                <div key={r.key} className="rounded-xl border border-[#DEE7FF] bg-[#FBFCFF] p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-[#325099]/60 flex-1">Absence {idx + 1}</span>
+                    {rows.length > 1 && (
+                      <button type="button" onClick={() => removeRow(r.key)} aria-label={`Remove absence ${idx + 1}`}
+                        className="text-[11px] text-[#2A2035]/40 hover:text-[#B91C1C]">✕ Remove</button>
+                    )}
+                  </div>
+                  <PickButton value={r.student?.full_name} placeholder="Select student…"
+                    onOpen={rect => setPicker({ rowKey: r.key, kind: 'student', rect })} />
+                  {r.student && (
+                    r.classes == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading classes…</p>
+                      : r.classes.length === 0 ? <p className="text-xs text-[#B91C1C]">No current classes for {r.student.full_name}.</p>
+                      : <PickButton value={cls && classLabel(cls)} placeholder="Which class?"
+                          onOpen={rect => setPicker({ rowKey: r.key, kind: 'class', rect })} />
+                  )}
+                  {r.student && r.classId && (
+                    r.sessions == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading lessons…</p>
+                      : r.sessions.length ? (
+                        <PickButton value={r.date && fmtDayLong(r.date)} placeholder="Which lesson?"
+                          onOpen={rect => setPicker({ rowKey: r.key, kind: 'session', rect })} />
+                      ) : (
+                        <div>
+                          <input type="date" value={r.date} onChange={e => patchRow(r.key, { date: e.target.value })} className={field} />
+                          <p className="text-[10px] text-[#92400E] mt-1">No upcoming lessons found for this class (next term’s may not be created yet) — pick the date. Makeups and credits unlock once the lesson exists.</p>
+                        </div>
+                      )
+                  )}
+                </div>
+              )
+            })}
+            <button type="button" onClick={addRow}
+              className="w-full px-3 py-2 rounded-xl border border-dashed border-[#BACBFF] text-xs font-semibold text-[#325099] hover:bg-[#F4F7FF]">
+              + Add another absence
+            </button>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+              placeholder="What did the family say? e.g. “Mum texted — away for a school camp” (added to every absence logged here)"
+              className={`${field} resize-y`} />
+          </div>
         )}
-        {student && (
-          classes == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading classes…</p>
-            : classes.length === 0 ? <p className="text-xs text-[#B91C1C]">No current classes for {student.full_name}.</p>
-            : <PickButton value={classOf && classLabel(classOf)} placeholder="Which class?"
-                onOpen={rect => setPicker({ kind: 'class', rect })} />
-        )}
-        {student && classId && (
-          sessions == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading sessions…</p>
-            : sessions.length ? (
-              <PickButton value={date && fmtDayLong(date)} placeholder="Which lesson?"
-                onOpen={rect => setPicker({ kind: 'session', rect })} />
-            ) : (
-              <div>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} className={field} />
-                <p className="text-[10px] text-[#92400E] mt-1">No upcoming lessons found for this class (next term’s may not be created yet) — pick the date. Makeups and credits unlock once the lesson exists.</p>
-              </div>
-            )
-        )}
-        {student && (
-          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
-            placeholder="What did the family say? e.g. “Mum texted — away for a school camp”"
-            className={`${field} resize-y`} />
-        )}
-        {picker && (
+
+        {picker && pr && (
           <SearchSelectPopover
             anchor={picker.rect}
             placeholder={picker.kind === 'student' ? 'Search student…' : picker.kind === 'class' ? 'Search class…' : 'Search date…'}
             options={picker.kind === 'student'
               ? (students || []).map(x => ({ value: x.id, label: x.full_name, sub: [x.year != null && `Year ${x.year}`, x.status === 'trial' && 'trial'].filter(Boolean).join(' · ') }))
               : picker.kind === 'class'
-                ? (classes || []).map(k => ({ value: k.id, label: classLabel(k) }))
-                : (sessions || []).map(l => ({ value: l.lesson_date, label: fmtDayLong(l.lesson_date), sub: fmtTime(l.start_time) }))}
-            currentValue={picker.kind === 'student' ? student?.id : picker.kind === 'class' ? classId : date}
+                ? (pr.classes || []).map(k => ({ value: k.id, label: classLabel(k) }))
+                : (pr.sessions || []).map(l => ({ value: l.lesson_date, label: fmtDayLong(l.lesson_date), sub: fmtTime(l.start_time) }))}
+            currentValue={picker.kind === 'student' ? pr.student?.id : picker.kind === 'class' ? pr.classId : pr.date}
             onClose={() => setPicker(null)}
             onSelect={v => {
-              const kind = picker.kind
+              const { kind, rowKey } = picker
               setPicker(null)
-              if (kind === 'student') pickStudent(v)
-              else if (kind === 'class') pickClass(v)
-              else setDate(v)
+              if (kind === 'student') { if (v !== pr.student?.id) pickStudent(rowKey, v) }
+              else if (kind === 'class') { if (String(v) !== pr.classId) pickClass(rowKey, v) }
+              else patchRow(rowKey, { date: v })
             }}
           />
         )}
+
         {msg && <p className="text-xs font-semibold text-[#B91C1C]">{msg}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#DEE7FF] text-[#2A2035]/60">Cancel</button>
-          <button type="button" disabled={busy || !student || !classId || !date} onClick={save}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#062E63] text-white disabled:opacity-50">{busy ? 'Saving…' : 'Log absence'}</button>
+          <button type="button" disabled={busy || !ready} onClick={save}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#062E63] text-white disabled:opacity-50">
+            {busy ? 'Saving…' : `Log ${rows.length} absence${rows.length === 1 ? '' : 's'}`}
+          </button>
         </div>
       </div>
     </div>
