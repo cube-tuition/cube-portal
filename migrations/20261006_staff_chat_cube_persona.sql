@@ -44,3 +44,14 @@ alter table public.chat_members add column if not exists muted boolean not null 
 drop policy if exists chat_members_mute on public.chat_members;
 create policy chat_members_mute on public.chat_members for update to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Quiet channels (2026-10-08): directors can mark a channel so nobody is pushed
+-- for its messages unless @mentioned.
+alter table public.chat_channels add column if not exists quiet boolean not null default false;
+create or replace function public.chat_set_quiet(p_channel uuid, p_on boolean)
+ returns void language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if not exists (select 1 from public.directors d where d.id = auth.uid()) then raise exception 'Only a director can change a channel''s notifications'; end if;
+  update public.chat_channels set quiet = p_on where id = p_channel and kind = 'channel';
+end $function$;

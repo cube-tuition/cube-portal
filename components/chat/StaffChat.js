@@ -7,7 +7,7 @@ import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, setMuted, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
-  loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly,
+  loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
   loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, shortcutFits, loadTermClasses, classesTextFor,
 } from '../../lib/chat'
 import CubeLogo from '../CubeLogo'
@@ -350,6 +350,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const toggleMute = async (c) => {
     try { await setMuted(c.id, me.id, !c.muted); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
   }
+  const toggleQuiet = async (c) => {
+    try { await setQuiet(c.id, !c.quiet); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
+  }
   const toggleAnnounce = async (c) => {
     try { await setDirectorsOnly(c.id, !c.directors_only); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
   }
@@ -458,7 +461,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           : null}
         <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}</span>
         {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
-        {c.muted && <span className="text-[10px] opacity-50" title="Muted — only @mentions notify you">🔕</span>}
+        {(c.muted || c.quiet) && <span className="text-[10px] opacity-50" title={c.quiet ? 'Quiet channel — only @mentions notify anyone' : 'Muted — only @mentions notify you'}>🔕</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
       </button>
       {c.mine && (
@@ -675,6 +678,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                             { label: current.muted ? '🔔 Unmute notifications' : '🔕 Mute notifications', run: () => toggleMute(current) },
                             ...(current.kind === 'channel' ? [{ label: `👥 Members · ${current.members.length}`, run: () => setMembersOpen(o => !o) }] : []),
                             ...(current.kind === 'channel' && me.isAdmin ? [{ label: current.directors_only ? '📣 Let everyone post' : '📣 Only directors post', run: () => toggleAnnounce(current) }] : []),
+                            ...(current.kind === 'channel' && me.isAdmin ? [{ label: current.quiet ? '🔔 Notify everyone of new messages' : '🔕 Quiet channel (notify only @mentions)', run: () => toggleQuiet(current) }] : []),
                             ...(canManage(current) ? [{ label: '✏️ Rename', run: () => rename(current) }] : []),
                             ...(canManage(current) && !current.is_default ? [{ label: '🗑 Delete channel', run: () => setDeleting({ channel: current, step: 1, typed: '' }), danger: true }] : []),
                             ...(current.kind === 'channel' && !current.is_default ? [{ label: '🚪 Leave channel', run: () => leave(current), danger: true }] : []),
