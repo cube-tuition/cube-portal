@@ -757,8 +757,10 @@ function InvoiceDashboardInner() {
         ? { ...i, line_items: data.line_items, subtotal: data.total, total: data.total }
         : i
       ))
-      if (data.updated === 0) setSuccessMsg('Prices already up to date.')
-      else setSuccessMsg(`Refreshed ${data.updated} line item${data.updated !== 1 ? 's' : ''} with latest prices.`)
+      const msgs = []
+      if (data.added) msgs.push(`Added ${data.added} new enrolment${data.added !== 1 ? 's' : ''} and updated the discounts.`)
+      if (data.updated) msgs.push(`Refreshed ${data.updated} line item${data.updated !== 1 ? 's' : ''} with latest prices.`)
+      setSuccessMsg([...(msgs.length ? msgs : ['Invoice already up to date.']), ...(data.notes || [])].join(' '))
     } catch (e) { setError(e.message) }
     finally { setRefreshingId(null) }
   }

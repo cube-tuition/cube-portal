@@ -6,10 +6,37 @@ import { syncCashDiscountLines, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, B
  * POST /api/refresh-invoice
  * Body: { invoice_id }
  *
- * Re-syncs every enrolment line item with the current price from the
- * enrolments table, then recalculates subtotal and total.
- * Only works on draft invoices — approved/synced ones are left untouched.
+ * Makes a draft (or approved, unsynced) invoice match reality:
+ *  - adds a line for any ACTIVE enrolment the family has in the invoice's term
+ *    that is not on the invoice yet (e.g. a class added after generation —
+ *    Generate skips families that already have an invoice, so this is the only
+ *    way such an enrolment reaches the bill);
+ *  - re-prices every enrolment line from the enrolments table;
+ *  - recalculates the sibling and multi-course discounts when enrolments were
+ *    added, unless those lines were edited by hand (then they are kept and the
+ *    response says so);
+ *  - re-syncs the cash discount, then subtotal and total.
  */
+
+// Same rules as /api/generate-draft-invoices.
+const siblingLines = (enrolLines) => {
+  const n = new Set(enrolLines.map(l => l.student_id)).size
+  return n >= 2 ? [{ type: 'discount', reason: `Sibling discount (${n} students)`, amount: -(n * 50) }] : []
+}
+const multiCourseLines = (enrolLines) => {
+  const byStudent = {}
+  for (const l of enrolLines) (byStudent[l.student_id] ||= { n: 0, name: l.student_name }).n++
+  return Object.values(byStudent).filter(s => s.n >= 2).map(s => ({
+    type: 'discount',
+    reason: `Multi-course discount (${String(s.name || 'student').split(' ')[0]}, ${s.n} courses)`,
+    amount: -(s.n * 50),
+  }))
+}
+const isSiblingLine = (l) => l.type === 'discount' && /^Sibling discount/i.test(l.reason || '')
+const isMultiLine = (l) => l.type === 'discount' && /^Multi-course discount/i.test(l.reason || '')
+const sameLines = (a, b) => a.length === b.length
+  && a.every((x, i) => x.reason === b[i].reason && Number(x.amount) === Number(b[i].amount))
+
 export async function POST(req) {
   try {
     const auth = await requireApiRole(req, ['admin', 'director'])
@@ -34,7 +61,67 @@ export async function POST(req) {
     }
     if (inv.payment_status === 'paid') return Response.json({ error: 'Invoice already paid' }, { status: 400 })
 
-    const lineItems = inv.line_items || []
+    let lineItems = inv.line_items || []
+    const notes = []
+
+    // ── Add active enrolments in this term that are missing from the invoice ──
+    let added = 0
+    if (inv.term_id && (inv.family_id != null || inv.student_id)) {
+      const { data: members, error: memErr } = inv.family_id != null
+        ? await sb.from('students').select('id, full_name').eq('family_id', inv.family_id)
+        : await sb.from('students').select('id, full_name').eq('id', inv.student_id)
+      if (memErr) return Response.json({ error: `Could not load the family: ${memErr.message}` }, { status: 500 })
+      const memberIds = (members || []).map(m => m.id)
+      const nameOf = Object.fromEntries((members || []).map(m => [m.id, m.full_name]))
+      if (memberIds.length) {
+        const { data: termEnrols, error: teErr } = await sb.from('enrolments')
+          .select('student_id, class_id, price, classes!inner(id, class_name, day_of_week, start_time, term_id, courses(course_price))')
+          .in('student_id', memberIds).eq('status', 'active').eq('classes.term_id', inv.term_id)
+        if (teErr) return Response.json({ error: `Could not load enrolments: ${teErr.message}` }, { status: 500 })
+        const onInvoice = new Set(lineItems.filter(l => l.type === 'enrolment').map(l => `${l.student_id}__${l.class_id}`))
+        const oldEnrolLines = lineItems.filter(l => l.type === 'enrolment')
+        const newLines = []
+        for (const e of termEnrols || []) {
+          if (onInvoice.has(`${e.student_id}__${e.class_id}`)) continue
+          const cls = e.classes
+          const fee = (e.price != null ? parseFloat(e.price) : parseFloat(cls?.courses?.course_price)) || 0
+          newLines.push({
+            student_id: e.student_id, student_name: nameOf[e.student_id] || '—',
+            class_id: e.class_id, class_name: cls?.class_name || '—',
+            day: cls?.day_of_week || '', start_time: cls?.start_time || '',
+            unit_price: fee, quantity: 1, amount: fee, type: 'enrolment',
+          })
+        }
+        if (newLines.length) {
+          added = newLines.length
+          // Enrolment lines stay together at the top, as the generator writes them.
+          const lastEnrol = lineItems.map(l => l.type).lastIndexOf('enrolment')
+          lineItems = [...lineItems.slice(0, lastEnrol + 1), ...newLines, ...lineItems.slice(lastEnrol + 1)]
+          const allEnrol = [...oldEnrolLines, ...newLines]
+
+          // Discounts follow the enrolments — but only replace lines that still
+          // hold what the generator would have written (not hand-edited ones).
+          // A line that is new goes where the generator puts it: enrolments,
+          // then sibling, then multi-course (`after` says which lines precede it).
+          const swap = (isLine, oldExpected, next, label, after) => {
+            const current = lineItems.filter(isLine)
+            if (!sameLines(current, oldExpected)) {
+              if (!sameLines(current, next)) notes.push(`${label} was edited by hand, so it was left as is — check it.`)
+              return
+            }
+            const at = lineItems.findIndex(isLine)
+            const rest = lineItems.filter(l => !isLine(l))
+            const insertAt = at >= 0 ? at : rest.map(after).lastIndexOf(true) + 1
+            lineItems = [...rest.slice(0, insertAt), ...next, ...rest.slice(insertAt)]
+          }
+          const isEnrol = (l) => l.type === 'enrolment'
+          swap(isSiblingLine, siblingLines(oldEnrolLines), siblingLines(allEnrol), 'The sibling discount', isEnrol)
+          swap(isMultiLine, multiCourseLines(oldEnrolLines), multiCourseLines(allEnrol), 'The multi-course discount',
+            (l) => isEnrol(l) || isSiblingLine(l))
+        }
+      }
+    }
+
     const enrolLines = lineItems.filter(l => l.type === 'enrolment')
 
     if (!enrolLines.length) return Response.json({ updated: 0, message: 'No enrolment lines to refresh' })
@@ -93,9 +180,11 @@ export async function POST(req) {
     // Recalculate total = sum of all line item amounts (inc-GST, discounts already negative)
     const newTotal = totalFromLineItems(newLineItems)
 
+    const sumOf = (pred) => -newLineItems.filter(pred).reduce((s, l) => s + (Number(l.amount) || 0), 0)
     const { error: updateErr } = await sb.from('invoices')
       .update({
         line_items: newLineItems, subtotal: newTotal, total: newTotal,
+        sibling_discount: sumOf(isSiblingLine), multi_course_discount: sumOf(isMultiLine),
         payment_method: isCashFamily ? 'cash' : 'bank',
         payment_instructions: isCashFamily ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS,
       })
@@ -103,7 +192,7 @@ export async function POST(req) {
 
     if (updateErr) return Response.json({ error: updateErr.message }, { status: 500 })
 
-    return Response.json({ updated, total: newTotal, line_items: newLineItems })
+    return Response.json({ updated, added, notes, total: newTotal, line_items: newLineItems })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })
   }
