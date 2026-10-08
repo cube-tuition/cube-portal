@@ -11,10 +11,14 @@ import { syncCashDiscountLines, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, B
  *    that is not on the invoice yet (e.g. a class added after generation —
  *    Generate skips families that already have an invoice, so this is the only
  *    way such an enrolment reaches the bill);
+ *  - removes class lines with no live (active/trial) enrolment behind them —
+ *    a dropped or deleted class, or a student who left — but never empties
+ *    the invoice;
  *  - re-prices every enrolment line from the enrolments table;
- *  - recalculates the sibling and multi-course discounts when enrolments were
- *    added, unless those lines were edited by hand (then they are kept and the
- *    response says so);
+ *  - recalculates the sibling and multi-course discounts when classes were
+ *    added or removed, unless those lines were edited by hand (then they are
+ *    kept and the response says so);
+ *  - keeps every hand-added line (credits, referral/other discounts, adjustments);
  *  - re-syncs the cash discount, then subtotal and total.
  */
 
@@ -64,8 +68,12 @@ export async function POST(req) {
     let lineItems = inv.line_items || []
     const notes = []
 
-    // ── Add active enrolments in this term that are missing from the invoice ──
+    // ── Match the class lines to this term's enrolments ──
+    // Adds classes the family is enrolled in but not billed for, and removes
+    // class lines whose enrolment has ended. Lines added by hand (credits,
+    // referral and other discounts, adjustments) are never touched.
     let added = 0
+    const removedNames = []
     if (inv.term_id && (inv.family_id != null || inv.student_id)) {
       const { data: members, error: memErr } = inv.family_id != null
         ? await sb.from('students').select('id, full_name').eq('family_id', inv.family_id)
@@ -74,15 +82,28 @@ export async function POST(req) {
       const memberIds = (members || []).map(m => m.id)
       const nameOf = Object.fromEntries((members || []).map(m => [m.id, m.full_name]))
       if (memberIds.length) {
+        // Trial enrolments count as live (as the invoice page treats them) so a
+        // line is never dropped mid-trial — but only active ones are added,
+        // as the generator does.
         const { data: termEnrols, error: teErr } = await sb.from('enrolments')
-          .select('student_id, class_id, price, classes!inner(id, class_name, day_of_week, start_time, term_id, courses(course_price))')
-          .in('student_id', memberIds).eq('status', 'active').eq('classes.term_id', inv.term_id)
+          .select('student_id, class_id, price, status, classes!inner(id, class_name, day_of_week, start_time, term_id, courses(course_price))')
+          .in('student_id', memberIds).in('status', ['active', 'trial']).eq('classes.term_id', inv.term_id)
         if (teErr) return Response.json({ error: `Could not load enrolments: ${teErr.message}` }, { status: 500 })
-        const onInvoice = new Set(lineItems.filter(l => l.type === 'enrolment').map(l => `${l.student_id}__${l.class_id}`))
+        const pairKey = (sid, cid) => `${sid}__${cid}`
+        const live = new Set((termEnrols || []).map(e => pairKey(e.student_id, e.class_id)))
         const oldEnrolLines = lineItems.filter(l => l.type === 'enrolment')
+        const onInvoice = new Set(oldEnrolLines.map(l => pairKey(l.student_id, l.class_id)))
+
+        // Lines to drop: a class line for a family member with no live
+        // enrolment behind it (dropped class, deleted class, student left).
+        // Lines without a class, or for someone outside the family, are left.
+        const memberSet = new Set(memberIds)
+        const isDead = (l) => l.type === 'enrolment' && l.class_id != null
+          && memberSet.has(l.student_id) && !live.has(pairKey(l.student_id, l.class_id))
+
         const newLines = []
         for (const e of termEnrols || []) {
-          if (onInvoice.has(`${e.student_id}__${e.class_id}`)) continue
+          if (e.status !== 'active' || onInvoice.has(pairKey(e.student_id, e.class_id))) continue
           const cls = e.classes
           const fee = (e.price != null ? parseFloat(e.price) : parseFloat(cls?.courses?.course_price)) || 0
           newLines.push({
@@ -92,12 +113,24 @@ export async function POST(req) {
             unit_price: fee, quantity: 1, amount: fee, type: 'enrolment',
           })
         }
-        if (newLines.length) {
+
+        let dead = oldEnrolLines.filter(isDead)
+        // Never empty an invoice: with nothing live left it should be voided,
+        // which is a decision for a person, not for Refresh.
+        if (dead.length && dead.length === oldEnrolLines.length && !newLines.length) {
+          notes.push('None of the classes on this invoice are current enrolments any more — void it if the family has left.')
+          dead = []
+        }
+
+        if (newLines.length || dead.length) {
           added = newLines.length
+          for (const l of dead) removedNames.push(`${String(l.student_name || 'student').split(' ')[0]} – ${l.class_name || `class #${l.class_id}`}`)
+          const deadSet = new Set(dead)
+          lineItems = lineItems.filter(l => !deadSet.has(l))
           // Enrolment lines stay together at the top, as the generator writes them.
           const lastEnrol = lineItems.map(l => l.type).lastIndexOf('enrolment')
           lineItems = [...lineItems.slice(0, lastEnrol + 1), ...newLines, ...lineItems.slice(lastEnrol + 1)]
-          const allEnrol = [...oldEnrolLines, ...newLines]
+          const allEnrol = lineItems.filter(l => l.type === 'enrolment')
 
           // Discounts follow the enrolments — but only replace lines that still
           // hold what the generator would have written (not hand-edited ones).
@@ -192,7 +225,7 @@ export async function POST(req) {
 
     if (updateErr) return Response.json({ error: updateErr.message }, { status: 500 })
 
-    return Response.json({ updated, added, notes, total: newTotal, line_items: newLineItems })
+    return Response.json({ updated, added, removed: removedNames, notes, total: newTotal, line_items: newLineItems })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })
   }

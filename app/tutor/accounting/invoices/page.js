@@ -759,13 +759,18 @@ function InvoiceDashboardInner() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
+      const msgs = []
+      if (data.added) msgs.push(`Added ${data.added} new class${data.added !== 1 ? 'es' : ''}.`)
+      if (data.removed?.length) msgs.push(`Removed ${data.removed.join(', ')} (no longer enrolled).`)
+      if (data.added || data.removed?.length) msgs.push('Sibling and multi-course discounts recalculated.')
+      if (data.updated) msgs.push(`Refreshed ${data.updated} line item${data.updated !== 1 ? 's' : ''} with latest prices.`)
+      // stale_reasons (the "no longer a class" warnings) describe exactly the
+      // lines Refresh removes, so they go with them.
       setInvoices(prev => prev.map(i => i.id === inv.id
-        ? { ...i, line_items: data.line_items, subtotal: data.total, total: data.total }
+        ? { ...i, line_items: data.line_items, subtotal: data.total, total: data.total,
+            ...(data.removed?.length ? { stale_reasons: [] } : {}) }
         : i
       ))
-      const msgs = []
-      if (data.added) msgs.push(`Added ${data.added} new enrolment${data.added !== 1 ? 's' : ''} and updated the discounts.`)
-      if (data.updated) msgs.push(`Refreshed ${data.updated} line item${data.updated !== 1 ? 's' : ''} with latest prices.`)
       setSuccessMsg([...(msgs.length ? msgs : ['Invoice already up to date.']), ...(data.notes || [])].join(' '))
     } catch (e) { setError(e.message) }
     finally { setRefreshingId(null) }
