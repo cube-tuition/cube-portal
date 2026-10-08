@@ -292,7 +292,7 @@ export default function ExamBuilderPage() {
    */
   const previewSig = useMemo(() => JSON.stringify({
     m: buildMeta(),
-    s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.page_breaks, sl.image_width, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
+    s: (exam?.sections || []).map((s) => ({ t: s.type, a: s.allow_time, q: s.slots.map((sl) => [sl.question_id, sl.working_lines, sl.page_breaks, sl.image_width, sl.image_pos, sl.rubric_id, sl.custom_rubric, sl.show_notes, sl.notes]) })),
     q: (exam?.sections || []).flatMap((s) => s.slots.map((sl) => {
       const q = qById[sl.question_id]
       return q ? [q.id, q.updated_at] : sl.question_id || 0
@@ -828,6 +828,16 @@ function SlotRow({ n, section, slot, scopeTopics, tax, maps, qById, usageMap, pa
                 <span>%</span>
               </label>
               <span className="text-[10px] text-[#2A2035]/35">of the text width · blank = auto</span>
+              {(chosen.qtype || section.type) === 'mcq' && (
+                <label className="flex items-center gap-1 text-[11px] text-[#2A2035]/55 ml-2">
+                  <span className="font-semibold text-[#2A2035]/60">Position:</span>
+                  <select value={slot.image_pos || ''} onChange={(e) => onCriteria({ image_pos: e.target.value || null })} className={selCls}>
+                    <option value="">Centred</option>
+                    <option value="left">Left — text wraps</option>
+                    <option value="right">Right — text wraps</option>
+                  </select>
+                </label>
+              )}
             </div>
           )}
           {section.type !== 'mcq' && paperEnglish && (
