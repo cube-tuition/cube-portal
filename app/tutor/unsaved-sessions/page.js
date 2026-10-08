@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import { normalizeDays, fmtTime, isoDate } from '../../../lib/format'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/terms'
+import { fetchAllTerms, getRunningTerm, formatTermLabel } from '../../../lib/terms'
 import { T_ATTENDANCE, T_CLASSES } from '../../../lib/tables'
 
 /*
@@ -41,7 +41,9 @@ export default function UnsavedSessionsPage() {
       setStaff(profile)
 
       const terms = await fetchAllTerms()
-      const t = getCurrentTerm(terms)
+      // Sessions that have already happened — the term running today, a
+      // holiday course included, not the upcoming one pages default to.
+      const t = getRunningTerm(terms)
       setTerm(t)
       if (!t) { setLoading(false); return }
 

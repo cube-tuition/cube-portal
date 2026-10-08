@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { getAuthProfile } from '../../lib/getProfile'
 import TutorNav from '../../components/TutorNav'
 import { normalizeDays, fmtTime, isoDate } from '../../lib/format'
-import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../lib/terms'
+import { fetchAllTerms, getCurrentTerm, getRunningTerm, formatTermLabel } from '../../lib/terms'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS } from '../../lib/tables'
 import { buildClassLabelMap } from '../../lib/classLabels'
 import { isCurrentMember } from '../../lib/enrolments'
@@ -73,6 +73,14 @@ export default function TutorHome() {
       const terms = await fetchAllTerms()
       const term = getCurrentTerm(terms)
       setCurrentTerm(term)
+      // During a holiday the page shows next term, but holiday courses are
+      // being taught today — their classes are included too, so today's
+      // lessons still appear.
+      const running = getRunningTerm(terms)
+      const shownTerms = [term, running].filter((t, i, a) => t && a.findIndex(x => x?.id === t.id) === i)
+      const termIds = shownTerms.map(t => t.id)
+      const rangeStart = shownTerms.map(t => t.start_date).sort()[0]
+      const rangeEnd = shownTerms.map(t => t.end_date).sort().at(-1)
 
       // Classes — admin sees all, tutor sees their own:
       //   1. Classes where they are the main teacher (matched by first name)
@@ -85,24 +93,24 @@ export default function TutorHome() {
       let primaryClasses = []
       if (isAdmin) {
         let q = supabase.from(T_CLASSES).select('*')
-        if (term) q = q.eq('term_id', term.id)
+        if (termIds.length) q = q.in('term_id', termIds)
         const { data } = await q
         primaryClasses = data || []
       } else {
         // Fetch by main teacher name (current term only)
         let q = supabase.from(T_CLASSES).select('*').ilike('teacher', firstName + '%')
-        if (term) q = q.eq('term_id', term.id)
+        if (termIds.length) q = q.in('term_id', termIds)
         const { data: ownCls } = await q
         primaryClasses = ownCls || []
 
         // Also fetch classes where this tutor is a scheduled_teacher this term
-        if (term) {
+        if (termIds.length) {
           const { data: subLessons } = await supabase
             .from(T_LESSONS)
             .select('class_id')
             .eq('scheduled_teacher_id', user.id)
-            .gte('lesson_date', term.start_date)
-            .lte('lesson_date', term.end_date)
+            .gte('lesson_date', rangeStart)
+            .lte('lesson_date', rangeEnd)
           const subClassIds = [...new Set((subLessons || []).map(l => l.class_id))]
           // Exclude class IDs already in primaryClasses
           const existingIds = new Set(primaryClasses.map(c => c.id))

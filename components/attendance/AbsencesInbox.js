@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
-import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm } from '../../lib/terms'
+import { fetchAllTerms, getCurrentTerm, getRunningTerm } from '../../lib/terms'
 import { enrolledClassesForTerm } from '../../lib/classes'
 import { fmtTime, fmtTimeRange, isoDate } from '../../lib/format'
 import { isOneToOneClass, CLASS_CAPACITY } from '../../lib/classFormat'
@@ -923,7 +923,7 @@ const blankRow = () => ({ key: `r${++_rowSeq}`, student: null, classes: null, cl
 // (during the holidays that is the holiday courses and next term).
 async function loadStudentClasses(studentId) {
   const terms = await fetchAllTerms()
-  const termIds = [...new Set([getCurrentTerm(terms)?.id, getRegularEnrolmentTerm(terms)?.id].filter(Boolean))]
+  const termIds = [...new Set([getRunningTerm(terms)?.id, getCurrentTerm(terms)?.id].filter(Boolean))]
   const rows = []
   for (const tid of termIds) {
     const { data } = await enrolledClassesForTerm(studentId, tid, 'id, class_name, day_of_week, start_time, term_id')

@@ -17,6 +17,8 @@ bug). Fetch classes through the helpers in `lib/classes.js`:
 - `enrolledClassesForTerm(studentId, termId, cols)` — a student's classes via
   enrolments (student-facing pages)
 
-Pick the term with `getCurrentTerm(terms)` (what's taught now; dashboards,
-results) or `getEnrolmentTerm(terms)` (the term a new student would join;
-trial/enrolment pickers) from `lib/terms.js`.
+Pick the term with `getCurrentTerm(terms)` (the teaching term running now, or
+the next one during holidays — what pages show by default) or
+`getEnrolmentTerm(terms)` (the term a new student would join; same answer)
+from `lib/terms.js`. `getRunningTerm(terms)` is the literal term running today,
+holiday periods included — only for logic about today's lessons.
