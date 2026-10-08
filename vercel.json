@@ -24,10 +24,6 @@
     {
       "path": "/api/sync-booklets",
       "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/chat/digest",
-      "schedule": "0 22 * * *"
     }
   ]
 }
