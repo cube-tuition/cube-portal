@@ -7,6 +7,7 @@ import { enrolledClassesForTerm } from '../../lib/classes'
 import { fmtTime, fmtTimeRange, isoDate } from '../../lib/format'
 import { isOneToOneClass, CLASS_CAPACITY } from '../../lib/classFormat'
 import { bookGuestMakeup, bookOneToOneMakeup, cancelMakeup } from '../../lib/makeups'
+import SearchSelectPopover from '../SearchSelectPopover'
 import { buildAbsenceEmailHtml, defaultAbsenceContent, fillAbsenceVars } from '../../lib/absenceEmail'
 
 /*
@@ -899,9 +900,22 @@ function EmailForm({ c, student, cls, ml, mlCls, guardians, onSent }) {
 // A family says their child will miss a lesson: open the case now, with what
 // they said. The tutor's roll then shows the student as away ("parent told
 // us"), and the case is ready for a makeup or an email before the day.
+// The trigger for a SearchSelectPopover — the same button the trials and
+// database pages open their searchable dropdowns from.
+function PickButton({ value, placeholder, onOpen, disabled = false }) {
+  return (
+    <button type="button" disabled={disabled}
+      onClick={e => onOpen(e.currentTarget.getBoundingClientRect())}
+      className="w-full text-left border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white hover:border-[#325099] focus:outline-none focus:border-[#325099] flex items-center justify-between gap-2 disabled:opacity-50">
+      <span className={`truncate ${value ? 'text-[#2A2035] font-semibold' : 'text-[#2A2035]/40'}`}>{value || placeholder}</span>
+      <span className="text-[#2A2035]/30 shrink-0">▾</span>
+    </button>
+  )
+}
+
 function LogAbsenceModal({ staff, onClose, onLogged }) {
   const [students, setStudents] = useState(null)
-  const [q, setQ] = useState('')
+  const [picker, setPicker] = useState(null)       // { kind: 'student' | 'class' | 'session', rect }
   const [student, setStudent] = useState(null)
   const [classes, setClasses] = useState(null)
   const [classId, setClassId] = useState('')
@@ -950,7 +964,16 @@ function LogAbsenceModal({ staff, onClose, onLogged }) {
     return () => { alive = false }
   }, [classId])
 
-  const matches = (students || []).filter(s => q.trim() && s.full_name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
+  const pickStudent = (id) => {
+    const s = (students || []).find(x => x.id === id)
+    if (!s || s.id === student?.id) return
+    setStudent(s); setClasses(null); setClassId(''); setSessions(null); setDate('')
+  }
+  const pickClass = (id) => {
+    if (String(id) === classId) return
+    setClassId(String(id)); setSessions(null); setDate('')
+  }
+  const classOf = (classes || []).find(k => String(k.id) === classId)
 
   const save = async () => {
     if (!student || !classId || !date) return
@@ -985,51 +1008,52 @@ function LogAbsenceModal({ staff, onClose, onLogged }) {
           <button type="button" onClick={onClose} aria-label="Close" className="text-[#2A2035]/40 hover:text-[#2A2035] text-lg leading-none px-1">✕</button>
         </div>
 
-        {!student ? (
-          <div>
-            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Student name" className={field} />
-            {students == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse mt-2">Loading students…</p> : (
-              <div className="mt-1 divide-y divide-[#F4F7FF]">
-                {matches.map(s => (
-                  <button key={s.id} type="button" onClick={() => setStudent(s)}
-                    className="w-full text-left px-2 py-1.5 text-sm hover:bg-[#F8FAFF] rounded-lg">
-                    {s.full_name} <span className="text-[11px] text-[#2A2035]/40">Y{s.year}{s.status === 'trial' ? ' · trial' : ''}</span>
-                  </button>
-                ))}
+        {students == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading students…</p> : (
+          <PickButton value={student?.full_name} placeholder="Select student…"
+            onOpen={rect => setPicker({ kind: 'student', rect })} />
+        )}
+        {student && (
+          classes == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading classes…</p>
+            : classes.length === 0 ? <p className="text-xs text-[#B91C1C]">No current classes for {student.full_name}.</p>
+            : <PickButton value={classOf && classLabel(classOf)} placeholder="Which class?"
+                onOpen={rect => setPicker({ kind: 'class', rect })} />
+        )}
+        {student && classId && (
+          sessions == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading sessions…</p>
+            : sessions.length ? (
+              <PickButton value={date && fmtDayLong(date)} placeholder="Which lesson?"
+                onOpen={rect => setPicker({ kind: 'session', rect })} />
+            ) : (
+              <div>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className={field} />
+                <p className="text-[10px] text-[#92400E] mt-1">No upcoming lessons found for this class (next term’s may not be created yet) — pick the date. Makeups and credits unlock once the lesson exists.</p>
               </div>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-semibold text-[#062E63]">{student.full_name}</span>
-              <button type="button" onClick={() => { setStudent(null); setClasses(null); setClassId(''); setSessions(null); setDate('') }}
-                className="text-[11px] text-[#325099] hover:underline">change</button>
-            </div>
-            {classes == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading classes…</p>
-              : classes.length === 0 ? <p className="text-xs text-[#B91C1C]">No current classes for {student.full_name}.</p> : (
-                <select value={classId} onChange={e => setClassId(e.target.value)} className={field}>
-                  <option value="">Which class?</option>
-                  {classes.map(k => <option key={k.id} value={k.id}>{classLabel(k)}</option>)}
-                </select>
-              )}
-            {classId && (
-              sessions == null ? <p className="text-xs text-[#2A2035]/40 animate-pulse">Loading sessions…</p>
-                : sessions.length ? (
-                  <select value={date} onChange={e => setDate(e.target.value)} className={field}>
-                    {sessions.map(l => <option key={l.id} value={l.lesson_date}>{fmtDayLong(l.lesson_date)}</option>)}
-                  </select>
-                ) : (
-                  <div>
-                    <input type="date" value={date} onChange={e => setDate(e.target.value)} className={field} />
-                    <p className="text-[10px] text-[#92400E] mt-1">No upcoming lessons found for this class (next term’s may not be created yet) — pick the date. Makeups and credits unlock once the lesson exists.</p>
-                  </div>
-                )
-            )}
-            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
-              placeholder="What did the family say? e.g. “Mum texted — away for a school camp”"
-              className={`${field} resize-y`} />
-          </>
+            )
+        )}
+        {student && (
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+            placeholder="What did the family say? e.g. “Mum texted — away for a school camp”"
+            className={`${field} resize-y`} />
+        )}
+        {picker && (
+          <SearchSelectPopover
+            anchor={picker.rect}
+            placeholder={picker.kind === 'student' ? 'Search student…' : picker.kind === 'class' ? 'Search class…' : 'Search date…'}
+            options={picker.kind === 'student'
+              ? (students || []).map(x => ({ value: x.id, label: x.full_name, sub: [x.year != null && `Year ${x.year}`, x.status === 'trial' && 'trial'].filter(Boolean).join(' · ') }))
+              : picker.kind === 'class'
+                ? (classes || []).map(k => ({ value: k.id, label: classLabel(k) }))
+                : (sessions || []).map(l => ({ value: l.lesson_date, label: fmtDayLong(l.lesson_date), sub: fmtTime(l.start_time) }))}
+            currentValue={picker.kind === 'student' ? student?.id : picker.kind === 'class' ? classId : date}
+            onClose={() => setPicker(null)}
+            onSelect={v => {
+              const kind = picker.kind
+              setPicker(null)
+              if (kind === 'student') pickStudent(v)
+              else if (kind === 'class') pickClass(v)
+              else setDate(v)
+            }}
+          />
         )}
         {msg && <p className="text-xs font-semibold text-[#B91C1C]">{msg}</p>}
         <div className="flex justify-end gap-2">
