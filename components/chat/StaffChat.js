@@ -5,7 +5,7 @@ import { authedFetch } from '../../lib/authedFetch'
 import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm, weekOfTerm, formatTermRange, formatTermStart } from '../../lib/terms'
 import {
   loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
-  markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, renameChannel, deleteChannel, addMember, removeMember, renderBody,
+  markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, setMuted, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly,
   loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, shortcutFits, loadTermClasses, classesTextFor,
@@ -347,6 +347,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       await refreshChannels(me.id); selectChannel(id)
     } catch (e) { setErr(e.message) }
   }
+  const toggleMute = async (c) => {
+    try { await setMuted(c.id, me.id, !c.muted); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
+  }
   const toggleAnnounce = async (c) => {
     try { await setDirectorsOnly(c.id, !c.directors_only); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
   }
@@ -455,6 +458,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           : null}
         <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}</span>
         {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
+        {c.muted && <span className="text-[10px] opacity-50" title="Muted — only @mentions notify you">🔕</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
       </button>
       {c.mine && (
@@ -668,6 +672,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         <div className="absolute right-0 top-full mt-1 z-40 w-56 bg-white border border-[#DEE7FF] rounded-2xl shadow-xl py-1.5 text-sm">
                           {[
                             { label: pins.includes(current.id) ? '📌 Unpin' : '📌 Pin to top', run: () => togglePin(current.id) },
+                            { label: current.muted ? '🔔 Unmute notifications' : '🔕 Mute notifications', run: () => toggleMute(current) },
                             ...(current.kind === 'channel' ? [{ label: `👥 Members · ${current.members.length}`, run: () => setMembersOpen(o => !o) }] : []),
                             ...(current.kind === 'channel' && me.isAdmin ? [{ label: current.directors_only ? '📣 Let everyone post' : '📣 Only directors post', run: () => toggleAnnounce(current) }] : []),
                             ...(canManage(current) ? [{ label: '✏️ Rename', run: () => rename(current) }] : []),

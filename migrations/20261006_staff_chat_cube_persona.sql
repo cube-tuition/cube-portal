@@ -37,3 +37,10 @@ end $function$;
 -- The kind check predates CUBE threads.
 alter table public.chat_channels drop constraint if exists chat_channels_kind_check;
 alter table public.chat_channels add constraint chat_channels_kind_check check (kind in ('channel', 'dm', 'cube_dm'));
+
+-- Per-person channel mute (2026-10-08): a muted member gets no push for that
+-- channel's messages unless they are @mentioned.
+alter table public.chat_members add column if not exists muted boolean not null default false;
+drop policy if exists chat_members_mute on public.chat_members;
+create policy chat_members_mute on public.chat_members for update to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
