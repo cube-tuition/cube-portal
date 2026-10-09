@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { requireCronSecret } from '../../../../lib/apiAuth'
+import { requireCronSecret, requireApiRole } from '../../../../lib/apiAuth'
 import { sendPushToAll } from '../../../../lib/push'
 import { DUE_DATES } from '../../../../lib/complianceDates'
 import { getRunningTerm, isHolidayTerm } from '../../../../lib/terms'
@@ -108,4 +108,13 @@ export async function GET(request) {
     try { const r = await sendPushToAll(p); sent += r?.sent || r?.native || 0 } catch (e) { console.error('[reminders]', p.title, e?.message) }
   }
   return Response.json({ today, reminders: pushes.map(p => p.title), sent })
+}
+
+/** POST { sample: 'payroll' } — a director sends themselves (and the other
+ *  directors) one example reminder, to see what the morning push looks like. */
+export async function POST(request) {
+  const auth = await requireApiRole(request, ['admin', 'director'])
+  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+  const r = await sendPushToAll({ title: 'Bank payroll due tomorrow', body: 'Wk 1–2: $1,685.00 across 4 tutors. Send the transfers on Monday 12 Oct.', url: '/tutor/payroll', tag: 'payroll-sample' })
+  return Response.json({ sent: r?.sent ?? 0 })
 }

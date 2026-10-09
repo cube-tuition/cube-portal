@@ -11,6 +11,7 @@ import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
 import { CASH_RETAINERS, RETAINERS_FROM, fortnightlyRetainerFor } from '../../../lib/cashRetainers'
 import { loadDirectorBalances, balancesByStaff, ledgerFor, addLedgerEntry, deleteLedgerEntry } from '../../../lib/directorBalances'
 import { classesAllTerms } from '../../../lib/classes'
+import { authedFetch } from '../../../lib/authedFetch'
 import { financeByTerm } from '../../../lib/termFinance'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 
@@ -139,6 +140,7 @@ export default function AccountingDashboard() {
   const [noPrice, setNoPrice] = useState(0)           // active enrolments without price (current term)
   const [noEmailFamilies, setNoEmailFamilies] = useState(0)
   const [complianceDone, setComplianceDone] = useState({})
+  const [testPush, setTestPush] = useState('')   // '' | 'sending' | 'sent' | 'failed' — the example reminder button
   // Unpaid teacher pay, accumulated per teacher per pay run. Anything not yet
   // marked paid is money still owed — being on the board at all means overdue.
   const [unpaidPay, setUnpaidPay] = useState({ rows: [], allSquare: [], owed: 0, draft: 0 })
@@ -480,6 +482,12 @@ export default function AccountingDashboard() {
               {checkedAt && <span className="text-[#2A2035]/35"> · checked {checkedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}</span>}
             </p>
           </div>
+          {/* Sends the directors one example of the 8am reminder push, so they can see it on their phones. */}
+          <button onClick={async () => { setTestPush('sending'); try { const r = await authedFetch('/api/reminders/daily', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sample: 'payroll' }) }); setTestPush(r.ok ? 'sent' : 'failed') } catch { setTestPush('failed') } }}
+            disabled={testPush === 'sending'} title="Send yourself an example of the morning payroll reminder"
+            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 md:px-3.5 py-2.5 md:py-1.5 rounded-lg hover:bg-[#F0F4FF] transition disabled:opacity-50">
+            {testPush === 'sending' ? 'Sending…' : testPush === 'sent' ? '🔔 Sent to your phone' : testPush === 'failed' ? 'Could not send' : '🔔 Test reminder'}
+          </button>
           <button onClick={load} disabled={loading} className="text-xs font-semibold text-white bg-[#062E63] px-4 md:px-3.5 py-2.5 md:py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-50">
             {loading ? 'Checking…' : '↻ Refresh'}
           </button>
