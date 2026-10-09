@@ -139,7 +139,9 @@ export const activeFacetCount = (sel) => Object.values(sel).reduce((n, v) => n +
 
 // ── UI ────────────────────────────────────────────────────────────────────────
 
-export function QueueCards({ queue, onQueue, counts, revenue }) {
+const money = (n) => (Number(n) || 0).toLocaleString('en-AU', { maximumFractionDigits: 0 })
+
+export function QueueCards({ queue, onQueue, counts, revenue, potential }) {
   return (
     <div className="grid grid-cols-4 lg:grid-cols-8 gap-2 md:gap-3 mb-3">
       {QUEUES.map((x) => {
@@ -156,10 +158,15 @@ export function QueueCards({ queue, onQueue, counts, revenue }) {
           </button>
         )
       })}
+      {/* Revenue = invoices past draft; Potential adds the drafts too, i.e. what
+          the term brings in once every draft is approved. Voided never count. */}
       <div className="min-w-0 bg-white border border-[#DEE7FF] rounded-xl px-1 md:px-3 py-2.5 md:py-3 text-center cursor-default"
-        title="Approved, in-Xero and paid invoices this term (not drafts or voided)">
-        <div className="text-base md:text-lg font-bold tabular-nums truncate text-[#062E63]">${revenue.toLocaleString('en-AU', { minimumFractionDigits: 0 })}</div>
+        title={`Revenue: approved, in-Xero and paid invoices this term.\nPotential: also counts drafts not yet approved.\nVoided invoices are never counted.`}>
+        <div className="text-base md:text-lg font-bold tabular-nums truncate text-[#062E63]">${money(revenue)}</div>
         <div className="text-[9px] md:text-[10px] text-[#325099]/60 font-semibold mt-0.5 uppercase tracking-wide md:tracking-wider truncate">Revenue</div>
+        {potential > revenue && (
+          <div className="text-[9px] md:text-[10px] text-[#325099]/45 font-semibold mt-1 tabular-nums leading-tight">${money(potential)} potential</div>
+        )}
       </div>
     </div>
   )

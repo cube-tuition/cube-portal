@@ -844,6 +844,7 @@ function InvoiceDashboardInner() {
   // ── Summary stats + filtering ─────────────────────────────────────────────
   const liveInvoices = useMemo(() => invoices.filter(i => i.status !== 'voided'), [invoices])
   const revenue = liveInvoices.filter(i => i.status !== 'draft').reduce((s, i) => s + (Number(i.total) || 0), 0)
+  const potentialRevenue = liveInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)   // drafts too
   const filtered = useMemo(
     () => applyInvoiceFilters(invoices, { queue, sel: facetSel, search, sort: sortBy }, (i) => getWarnings(i, i.prev_unpaid)),
     [invoices, queue, facetSel, search, sortBy],
@@ -927,7 +928,7 @@ function InvoiceDashboardInner() {
           <>
             {/* Workflow queues (cards) + facet filters */}
             {liveInvoices.length > 0 && <>
-              <QueueCards queue={queue} onQueue={setQueue} counts={filtered.queueCounts} revenue={revenue} />
+              <QueueCards queue={queue} onQueue={setQueue} counts={filtered.queueCounts} revenue={revenue} potential={potentialRevenue} />
               <FacetBar sel={facetSel} setSel={setFacetSel} counts={filtered.optionCounts}
                 search={search} setSearch={setSearch} sort={sortBy} setSort={setSortBy}
                 anyActive={filtersActive} onClearAll={clearFilters} />
