@@ -472,7 +472,7 @@ export default function ForecastPage() {
         // Left join on enrolments: a class with NO students yet must still show —
         // its teacher is being paid against zero income, the board's worst case.
         classesForTerm(termId, `id, class_name, course_id, teacher, day_of_week, start_time, end_time,
-            enrolments(id, student_id, price, status, students(full_name))`)
+            courses(course_price), enrolments(id, student_id, price, status, students(full_name))`)
           .or('status.eq.active,status.is.null'),
         supabase.from('invoices')
           .select('sibling_discount, multi_course_discount, total, payment_method, student_id, line_items')
@@ -530,6 +530,16 @@ export default function ForecastPage() {
       const totalTeacherCost  = termlyTeacherFee + superAmount
       const termProfit        = termIncome - totalTeacherCost
 
+      // Trials are not income yet — they stay out of termIncome — but a class
+      // whose only students are on trial isn't loss-making, it's undecided.
+      // trialIncome is what it brings in if they convert (their enrolment price,
+      // else the course price, as an invoice would bill it).
+      const trialEnrols = (cls.enrolments || []).filter(e => e.status === 'trial')
+      const trialIncome = trialEnrols.reduce((s, e) =>
+        s + ((e.price != null ? Number(e.price) : Number(cls.courses?.course_price)) || 0), 0)
+      const trialOnly   = studentCount === 0 && trialEnrols.length > 0
+      const trialNames  = trialEnrols.map(e => (e.students?.full_name || '').split(' ')[0]).filter(Boolean)
+
       const oneOnOne = isOneToOneClass(cls, courseModes)
       const studentName = oneOnOne && activeEnrols.length === 1
         ? activeEnrols[0].students?.full_name || null
@@ -543,6 +553,7 @@ export default function ForecastPage() {
         weeklyTeacherFee, termlyTeacherFee, superApplies, superAmount,
         totalTeacherCost, termProfit,
         is1on1: oneOnOne, studentName,
+        trialCount: trialEnrols.length, trialIncome, trialOnly, trialNames,
         studentId: oneOnOne && activeEnrols.length === 1 ? activeEnrols[0].student_id : null,
       }
     }).map((c, _i, all) => ({ ...c, label: classLabel(c, all) }))
@@ -670,8 +681,17 @@ export default function ForecastPage() {
     const groups = metrics.filter(c => !c.is1on1)
     const ones   = metrics.filter(c => c.is1on1)
 
+    // 0. Classes running on trial students only — not a loss until they decide.
+    for (const c of metrics.filter(c => c.trialOnly)) {
+      const who = c.trialNames.length ? c.trialNames.join(', ') : `${c.trialCount} student${c.trialCount === 1 ? '' : 's'}`
+      const ifConverted = c.trialIncome - c.totalTeacherCost
+      add(ifConverted < 0 ? 'amber' : 'blue', '🧪', `${c.label} — ${who} on trial`,
+        c.trialIncome > 0
+          ? `Converting at ${fmt(c.trialIncome)}/term ${ifConverted >= 0 ? `gives +${fmt(ifConverted)}/term` : `still loses ${fmt(Math.abs(ifConverted))}/term`} against ${fmt(c.totalTeacherCost)} tutor cost.`
+          : `No price on the trial or the course — set one to see what converting is worth against ${fmt(c.totalTeacherCost)} tutor cost.`)
+    }
     // 1. Loss-making group classes — break-even framing
-    for (const c of groups.filter(c => c.termProfit < 0)) {
+    for (const c of groups.filter(c => c.termProfit < 0 && !c.trialOnly)) {
       const breakEven = c.termFee > 0 ? Math.ceil(c.totalTeacherCost / c.termFee) : null
       add('red', '🔻', `${c.label} runs at ${fmt(c.termProfit)}/term`,
         breakEven
@@ -679,7 +699,7 @@ export default function ForecastPage() {
           : 'No fee recorded for this class — set enrolment prices to assess it.')
     }
     // 2. Loss-making / thin 1:1s
-    for (const c of ones.filter(c => c.termProfit < 0)) {
+    for (const c of ones.filter(c => c.termProfit < 0 && !c.trialOnly)) {
       add('red', '👤', `1:1 ${c.studentName || c.label} loses ${fmt(Math.abs(c.termProfit))}/term`,
         `Fee ${fmt(c.termFee)} vs tutor cost ${fmt(c.totalTeacherCost)} — reprice or change tutor allocation.`,
         c.studentId ? { student: { id: c.studentId, name: c.studentName } } : {})
