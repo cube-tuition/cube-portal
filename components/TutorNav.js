@@ -7,84 +7,28 @@ import { supabase } from '../lib/supabase'
 import GlobalUndo from './GlobalUndo'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
 import { useIsNativeApp, signOutEverywhere } from '../lib/nativeApp'
-import { SUBJECTS } from '../lib/resourceSubjects'
 import CubeLogo from './CubeLogo'
+import DirectorSidebar from './DirectorSidebar'
+import { ADMIN_FLAT_LINKS, ADMIN_GROUPS, BASE_LINKS, RESOURCES_GROUP, TUTOR_GROUPS, TUTOR_LINKS } from '../lib/portalNavLinks'
 
 /*
  * Nav for the tutor / admin portal.
  *
- * Admin layout (5 items):
- *   Home · Info · Classes · Operations ▾ · Admin ▾
- *
- * Operations dropdown: Drop-ins, Reports, Payroll
- * Admin dropdown:      Booklets, Database, Transition
+ * Admin (director) layout: the top bar carries only the daily four —
+ *   Home · Classes · Resources ▾ · Database
+ * — and EVERYTHING lives in the collapsible left sidebar
+ * (components/DirectorSidebar.js), in hierarchical sections. Desktop only;
+ * the phone menu sheet still lists it all.
  *
  * Messages is not in a dropdown: it's the bubble button on the right of the
  * bar, and it opens in its own tab, because it is the one page you keep open
  * beside whatever else you are doing.
  *
- * Tutor layout (4 items):
- *   Home · Info · Classes · My pay
+ * Tutor layout (unchanged):
+ *   Home · Info · Classes · Materials ▾ · Curriculum · My pay · Availability
  */
 
-const BASE_LINKS = [
-  { label: 'Home',    href: '/tutor',         icon: '🏠' },
-  { label: 'Info',    href: '/tutor/hub',     icon: '📌' },
-  { label: 'Classes', href: '/tutor/classes', icon: '🏫' },
-]
 const SHARED_GROUPS = []
-/*
- * One row per subject hub, built from the hub config rather than typed out
- * twice here: a subject added to lib/resourceSubjects reaches both dropdowns
- * (and its own pages) without a nav list to remember.
- */
-const subjectLinks = (suffix = '') => Object.entries(SUBJECTS).map(([slug, s]) => ({
-  label: s.label, href: `/tutor/resources/${slug}${suffix}`, icon: s.icon,
-}))
-// Tutors get Materials only — each subject goes straight to its Materials
-// page (read-only there: no builder, view-only booklet info). The rest of
-// Resources (tests, syllabus, question bank) is directors' territory.
-const TUTOR_GROUPS = [
-  { label: 'Materials', links: subjectLinks('/materials') },
-]
-const TUTOR_LINKS = [
-  { label: 'Curriculum',  href: '/tutor/booklets',     icon: '📚' },
-  { label: 'My pay',      href: '/tutor/pay',          icon: '💰' },
-  { label: 'Availability', href: '/tutor/availability', icon: '📅' },
-]
-const ADMIN_FLAT_LINKS = [
-  { label: 'Database', href: '/tutor/database', icon: '🗄️' },
-]
-const ADMIN_GROUPS = [
-  { label: 'Resources', links: subjectLinks() },
-  {
-    label: 'Admin',
-    links: [
-      { label: 'Availabilities', href: '/tutor/admin/availabilities', icon: '📅' },
-      { label: 'Drop-ins',      href: '/tutor/dropin',               icon: '☕' },
-      { label: 'Emails',        href: '/tutor/emails',               icon: '✉️'  },
-      { label: 'Forms',         href: '/tutor/admin/forms',         icon: '📝' },
-      { label: 'Marketing',     href: '/tutor/admin/marketing',     icon: '📣' },
-      // Portal analytics, Trials and Flags all live under Monitoring now — the
-      // hub links to all three, so they are not repeated here.
-      { label: 'Monitoring',    href: '/tutor/admin/monitoring',     icon: '📶' },
-      { label: 'Reports',       href: '/tutor/reports',              icon: '📊' },
-      { label: 'Timetable',     href: '/tutor/admin/timetable',      icon: '🗓️' },
-      // desktopOnly: the term-transition wizard is a sit-down job; the phone menu skips it.
-      { label: 'Transition',    href: '/tutor/transition',           icon: '🔄', desktopOnly: true },
-    ],
-  },
-  {
-    label: 'Accounting',
-    links: [
-      { label: 'Dashboard',  href: '/tutor/accounting',            icon: '🧮' },
-      { label: 'Invoices',   href: '/tutor/accounting/invoices',   icon: '🧾' },
-      { label: 'Forecast',   href: '/tutor/accounting/forecast',   icon: '📊' },
-      { label: 'Cash Log',   href: '/tutor/accounting/cash-log',   icon: '💵' },
-      { label: 'Payroll',    href: '/tutor/payroll',               icon: '💳' },
-    ],
-  },
-]
 
 // ── Dropdown component ────────────────────────────────────────────────────────
 function NavDropdown({ group, pathname }) {
@@ -192,6 +136,10 @@ export default function TutorNav({ staffName, isAdmin = false }) {
   }
 
   return (
+    <>
+    {/* Directors: the collapsible everything-sidebar (desktop only). Rendered
+        from the nav so every page gets it without touching the page itself. */}
+    {isAdmin && <DirectorSidebar pathname={pathname} />}
     <nav className="sticky top-0 z-50 bg-white/95 app:bg-white backdrop-blur-md app:backdrop-blur-none border-b border-[#DEE7FF] app:pt-[env(safe-area-inset-top)]">
       {/* Portal-wide Ctrl/Cmd+Z undo + toast (TutorNav is on every tutor page) */}
       <GlobalUndo />
@@ -210,7 +158,9 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
         {/* Desktop links */}
         <div className="hidden md:flex items-center gap-1">
-          {BASE_LINKS.map(link => {
+          {/* Directors keep only the daily four up top (Home · Classes ·
+              Resources ▾ · Database) — the sidebar carries the rest. */}
+          {BASE_LINKS.filter(link => !isAdmin || link.label !== 'Info').map(link => {
             const active = link.href === '/tutor' ? pathname === '/tutor' : pathname?.startsWith(link.href)
             return (
               <Link key={link.href} href={link.href}
@@ -225,9 +175,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
           {!isAdmin && TUTOR_GROUPS.map(group => (
             <NavDropdown key={group.label} group={group} pathname={pathname} />
           ))}
-          {isAdmin && ADMIN_GROUPS.map(group => (
-            <NavDropdown key={group.label} group={group} pathname={pathname} />
-          ))}
+          {isAdmin && <NavDropdown group={RESOURCES_GROUP} pathname={pathname} />}
           {isAdmin && ADMIN_FLAT_LINKS.map(link => {
             const active = pathname?.startsWith(link.href)
             return (
@@ -308,9 +256,10 @@ export default function TutorNav({ staffName, isAdmin = false }) {
         sections={[
           ...(!isAdmin ? TUTOR_GROUPS : []),
           ...(!isAdmin ? [{ label: 'My work', links: TUTOR_LINKS }] : []),
-          ...(isAdmin ? ADMIN_GROUPS : []),
+          ...(isAdmin ? [RESOURCES_GROUP, ...ADMIN_GROUPS] : []),
           ...(isAdmin ? [{ label: 'Data', links: ADMIN_FLAT_LINKS }] : []),
         ].map((g) => ({ ...g, links: g.links.filter((l) => !l.desktopOnly) }))} />
     </nav>
+    </>
   )
 }
