@@ -122,9 +122,10 @@ export default function TutorNav({ staffName, isAdmin = false }) {
     return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', onWake); window.removeEventListener('focus', onWake) }
   }, [pathname])
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [sideOpen, setSideOpen] = useState(false)   // director menu drawer
 
-  // Close mobile menu on route change
-  useEffect(() => { setMobileOpen(false) }, [pathname])
+  // Close menus on route change
+  useEffect(() => { setMobileOpen(false); setSideOpen(false) }, [pathname])
 
   // Page-level tracking. Declared after `pathname` exists, unlike the
   // heartbeat above which needs nothing from the component.
@@ -137,9 +138,10 @@ export default function TutorNav({ staffName, isAdmin = false }) {
 
   return (
     <>
-    {/* Directors: the collapsible everything-sidebar (desktop only). Rendered
-        from the nav so every page gets it without touching the page itself. */}
-    {isAdmin && <DirectorSidebar pathname={pathname} />}
+    {/* Directors: the everything-menu drawer (desktop only), opened from the
+        panel icon next to Logout. Rendered from the nav so every page gets it
+        without touching the page itself. */}
+    {isAdmin && <DirectorSidebar open={sideOpen} onClose={() => setSideOpen(false)} pathname={pathname} />}
     <nav className="sticky top-0 z-50 bg-white/95 app:bg-white backdrop-blur-md app:backdrop-blur-none border-b border-[#DEE7FF] app:pt-[env(safe-area-inset-top)]">
       {/* Portal-wide Ctrl/Cmd+Z undo + toast (TutorNav is on every tutor page) */}
       <GlobalUndo />
@@ -236,6 +238,19 @@ export default function TutorNav({ staffName, isAdmin = false }) {
             className="hidden md:block text-sm font-semibold text-[#062E63] hover:text-[#325099] px-3 py-2 rounded-full transition">
             Logout
           </button>
+          {/* Director menu drawer toggle — everything else lives in there */}
+          {isAdmin && (
+            <button onClick={() => setSideOpen(o => !o)}
+              title="Menu — everything else"
+              aria-label="Open the menu drawer"
+              className={`hidden md:flex items-center justify-center w-9 h-9 rounded-xl transition ${sideOpen ? 'bg-[#DEE7FF] text-[#062E63]' : 'text-[#062E63] hover:bg-[#F8FAFF]'}`}>
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" />
+                <path d="M12.5 3.5v13" />
+                <path d="M5.5 7h3.5M5.5 10h3.5" />
+              </svg>
+            </button>
+          )}
           {/* Hamburger — mobile only */}
           <button onClick={() => setMobileOpen(o => !o)}
             className="md:hidden flex flex-col justify-center items-center w-9 h-9 gap-1.5 rounded-xl hover:bg-[#F8FAFF] transition"
