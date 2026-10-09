@@ -398,15 +398,18 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                 const prevTrialClassId = sub.trial_class_id ?? null
                 let prevEnrol = null
                 if (sub.enrolment_id) {
-                  const { data } = await supabase.from('enrolments').select('class_id, trial_start_date').eq('id', sub.enrolment_id).maybeSingle()
+                  const { data } = await supabase.from('enrolments').select('class_id, trial_start_date, price').eq('id', sub.enrolment_id).maybeSingle()
                   prevEnrol = data
+                  // price: null → the database fills the new class's course
+                  // price (enrolment_default_price), like a class change in the
+                  // database explorer.
                   await supabase.from('enrolments')
-                    .update({ class_id: val, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
+                    .update({ class_id: val, price: null, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
                     .eq('id', sub.enrolment_id)
                 } else if (studentId) {
                   // Fallback: update by student_id if no enrolment_id yet
                   await supabase.from('enrolments')
-                    .update({ class_id: val, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
+                    .update({ class_id: val, price: null, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
                     .eq('student_id', studentId)
                     .eq('status', 'trial')
                     .is('class_id', null)
@@ -422,7 +425,7 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                 registerUndoAction('trial class assignment', async () => {
                   if (sub.enrolment_id && prevEnrol) {
                     await supabase.from('enrolments')
-                      .update({ class_id: prevEnrol.class_id, trial_start_date: prevEnrol.trial_start_date })
+                      .update({ class_id: prevEnrol.class_id, trial_start_date: prevEnrol.trial_start_date, price: prevEnrol.price ?? null })
                       .eq('id', sub.enrolment_id)
                   }
                   await supabase.from('trial_submissions').update({ trial_class_id: prevTrialClassId }).eq('id', sub.id)
