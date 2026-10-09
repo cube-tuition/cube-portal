@@ -140,7 +140,7 @@ export default function AccountingDashboard() {
   const [noPrice, setNoPrice] = useState(0)           // active enrolments without price (current term)
   const [noEmailFamilies, setNoEmailFamilies] = useState(0)
   const [complianceDone, setComplianceDone] = useState({})
-  const [testPush, setTestPush] = useState('')   // '' | 'sending' | 'sent' | 'failed' — the example reminder button
+  const [upcoming, setUpcoming] = useState(null)   // the morning push reminders of the next 6 weeks (null = loading)
   // Unpaid teacher pay, accumulated per teacher per pay run. Anything not yet
   // marked paid is money still owed — being on the board at all means overdue.
   const [unpaidPay, setUnpaidPay] = useState({ rows: [], allSquare: [], owed: 0, draft: 0 })
@@ -383,6 +383,11 @@ export default function AccountingDashboard() {
     })
   }, [router, load])
 
+  // Upcoming phone reminders — what /api/reminders/daily will push, by day.
+  useEffect(() => {
+    authedFetch('/api/reminders/daily?preview=42').then(r => r.json()).then(j => setUpcoming(j.upcoming || [])).catch(() => setUpcoming([]))
+  }, [])
+
   // ── Compliance done-marking ──────────────────────────────────────────────────
   const markComplianceDone = async (label) => {
     const next = { ...complianceDone, [label]: todayIso() }
@@ -482,12 +487,6 @@ export default function AccountingDashboard() {
               {checkedAt && <span className="text-[#2A2035]/35"> · checked {checkedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}</span>}
             </p>
           </div>
-          {/* Sends the directors one example of the 8am reminder push, so they can see it on their phones. */}
-          <button onClick={async () => { setTestPush('sending'); try { const r = await authedFetch('/api/reminders/daily', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sample: 'payroll' }) }); setTestPush(r.ok ? 'sent' : 'failed') } catch { setTestPush('failed') } }}
-            disabled={testPush === 'sending'} title="Send yourself an example of the morning payroll reminder"
-            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 md:px-3.5 py-2.5 md:py-1.5 rounded-lg hover:bg-[#F0F4FF] transition disabled:opacity-50">
-            {testPush === 'sending' ? 'Sending…' : testPush === 'sent' ? '🔔 Sent to your phone' : testPush === 'failed' ? 'Could not send' : '🔔 Test reminder'}
-          </button>
           <button onClick={load} disabled={loading} className="text-xs font-semibold text-white bg-[#062E63] px-4 md:px-3.5 py-2.5 md:py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-50">
             {loading ? 'Checking…' : '↻ Refresh'}
           </button>
@@ -673,6 +672,24 @@ export default function AccountingDashboard() {
             </ResponsiveContainer>
           )}
         </div>
+
+        {/* Phone reminders the directors will get at 8am, over the next six weeks */}
+        <Panel icon="🔔" title="Upcoming phone reminders" badge={upcoming ? `${upcoming.length} in 6 weeks` : '…'} badgeCls={SEV.blue.chip}>
+          {upcoming === null ? <p className="px-4 py-3 text-xs text-[#2A2035]/45">Loading…</p>
+            : upcoming.length === 0 ? <p className="px-4 py-3 text-xs text-[#2A2035]/45">Nothing scheduled in the next six weeks.</p>
+            : <div className="divide-y divide-[#F0F4FF] max-h-80 overflow-y-auto">
+              {upcoming.map((r, i) => (
+                <div key={i} className="flex items-start gap-3 px-4 py-2.5">
+                  <span className="shrink-0 w-24 text-[11px] font-semibold text-[#325099] pt-0.5">{new Date(r.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-[#2A2035]">{r.title}</span>
+                    <span className="block text-[10px] text-[#2A2035]/50">{r.body}</span>
+                  </span>
+                </div>
+              ))}
+            </div>}
+          <p className="px-4 py-2 text-[10px] text-[#2A2035]/40 border-t border-[#F0F4FF]">Sent to the directors&rsquo; phones at 8am on the day shown. Payroll items disappear once marked done; compliance items once ticked off above.</p>
+        </Panel>
 
         {/* Compliance calendar — full list (replaces the old Due Dates page) */}
         <Panel icon="📆" title="Compliance calendar" badge={`${DUE_DATES.filter(d => !complianceDone[d.label] && daysUntil(d.due) >= 0).length} upcoming`} badgeCls={SEV.blue.chip}>
