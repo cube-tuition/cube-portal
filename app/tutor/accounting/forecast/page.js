@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -283,6 +283,19 @@ function SummaryGrid({ s, yearly = false }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 const INSIGHT_EXCLUDE_KEY = 'forecast_insight_excluded_students'
 
+// Play Around: one saved set of edits per term (see playEdits below).
+const PLAY_KEY = (termId) => `forecast_play:${termId}`
+const EMPTY_PLAY = { classes: {}, fixed: {} }
+// A class as Play Around starts it: the live figures it lets you change, plus
+// what it needs to price GST the way the Overview tab does (cashShare).
+const playRowFromLive = (c) => ({
+  id: c.id, class_name: c.class_name, label: c.label, teacher: c.teacher,
+  studentCount: c.studentCount, termFee: c.termFee, cashShare: c.cashShare,
+  lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
+  teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
+  is1on1: c.is1on1, studentName: c.studentName,
+})
+
 /*
  * A class's name as the forecast shows it. Two classes can share a name —
  * Term 4 runs two "Y10 English" on Thursday (David at 6pm, Jeremia at 7:30) —
@@ -345,9 +358,14 @@ export default function ForecastPage() {
   const [editingCost,  setEditingCost]  = useState(null) // cost id being edited
 
   // Play-around state (initialised from live data)
-  const [playClasses,    setPlayClasses]    = useState([])
-  const [playFixedCosts, setPlayFixedCosts] = useState([])
-  const [playInit,       setPlayInit]       = useState(false)
+  // Play Around edits, saved per term and shared between directors
+  // (portal_settings 'forecast_play:<termId>'). Only what was changed is kept —
+  // { classes: { [classId]: { field: value } }, fixed: { [costId]: { field: value } } }
+  // — and laid over live data, so new enrolments and prices still flow in.
+  const [playEdits,      setPlayEdits]      = useState(EMPTY_PLAY)
+  const [playLoadedFor,  setPlayLoadedFor]  = useState(null)   // termId the edits belong to
+  const [playSave,       setPlaySave]       = useState(null)   // { state: 'saving'|'saved'|'error', at, by, msg }
+  const playDirty = useRef(false)
 
   // Surfaces a failed supporting query in the page's error banner instead of
   // silently rendering $0s — a broken auth session once made every figure on
@@ -592,20 +610,58 @@ export default function ForecastPage() {
     return out.sort((a, b) => order[a.severity] - order[b.severity])
   }, [classMetrics, summary, trend, insightExcluded])
 
-  // ── Initialise play-around — only when Play tab opens, so all data is loaded ──
+  // ── Play-around: load this term's saved edits ────────────────────────────────
   useEffect(() => {
-    if (tab === 'play' && !playInit && classMetrics.length > 0 && tutors.length > 0) {
-      setPlayClasses(classMetrics.map(c => ({
-        id: c.id, class_name: c.class_name, label: c.label, teacher: c.teacher,
-        studentCount: c.studentCount, termFee: c.termFee, cashShare: c.cashShare,
-        lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
-        teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
-        is1on1: c.is1on1, studentName: c.studentName,
-      })))
-      setPlayFixedCosts(fixedCosts.map(fc => ({ ...fc })))
-      setPlayInit(true)
-    }
-  }, [tab, classMetrics, fixedCosts, tutors, playInit])
+    if (!termId) return
+    let alive = true
+    supabase.from('portal_settings').select('value, updated_at').eq('key', PLAY_KEY(termId)).maybeSingle()
+      .then(({ data }) => {
+        if (!alive) return
+        let saved = EMPTY_PLAY
+        try { saved = { ...EMPTY_PLAY, ...(JSON.parse(data?.value || 'null') || {}) } } catch { /* keep none */ }
+        playDirty.current = false
+        setPlayEdits(saved)
+        setPlayLoadedFor(termId)
+        setPlaySave(data ? { state: 'saved', at: saved.savedAt || data.updated_at, by: saved.savedBy } : null)
+      })
+    return () => { alive = false }
+  }, [termId])
+
+  // ── Play-around: save edits shortly after the last change ────────────────────
+  useEffect(() => {
+    if (!playDirty.current || playLoadedFor !== termId) return
+    const t = setTimeout(async () => {
+      playDirty.current = false
+      const empty = !Object.keys(playEdits.classes).length && !Object.keys(playEdits.fixed).length
+      const at = new Date().toISOString()
+      const by = profile?.full_name || null
+      setPlaySave({ state: 'saving' })
+      const { error: err } = empty
+        ? await supabase.from('portal_settings').delete().eq('key', PLAY_KEY(termId))
+        : await supabase.from('portal_settings').upsert({
+            key: PLAY_KEY(termId), updated_at: at,
+            value: JSON.stringify({ ...playEdits, savedAt: at, savedBy: by }),
+          })
+      setPlaySave(err ? { state: 'error', msg: err.message } : empty ? null : { state: 'saved', at, by })
+    }, 700)
+    return () => clearTimeout(t)
+  }, [playEdits, playLoadedFor, termId, profile])
+
+  // The scenario = live data with this term's edits laid over it.
+  const playClasses = useMemo(() => classMetrics.map(c => ({
+    ...playRowFromLive(c),
+    ...(playLoadedFor === termId ? playEdits.classes[c.id] : null),
+  })), [classMetrics, playEdits, playLoadedFor, termId])
+  const playFixedCosts = useMemo(() => fixedCosts.map(fc => ({
+    ...fc,
+    ...(playLoadedFor === termId ? playEdits.fixed[fc.id] : null),
+  })), [fixedCosts, playEdits, playLoadedFor, termId])
+  const editPlay = (kind, id, field, value) => {
+    playDirty.current = true
+    setPlayEdits(prev => ({ ...prev, [kind]: { ...prev[kind], [id]: { ...(prev[kind][id] || {}), [field]: value } } }))
+  }
+  const playEditCount = Object.values(playEdits.classes).reduce((n, o) => n + Object.keys(o).length, 0)
+    + Object.values(playEdits.fixed).reduce((n, o) => n + Object.keys(o).length, 0)
 
   // ── Play-around metrics ──────────────────────────────────────────────────────
   const playMetrics = useMemo(() => {
@@ -671,7 +727,7 @@ export default function ForecastPage() {
   const playOnes   = useMemo(() => sortByYear(playMetrics.filter(c => c.is1on1)),  [playMetrics])
   const editPlayClass = (rows) => (i, field, value) => {
     const id = rows[i]?.id
-    if (id != null) setPlayClasses(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
+    if (id != null) editPlay('classes', id, field, value)
   }
 
   // ── Fixed cost handlers ──────────────────────────────────────────────────────
@@ -706,16 +762,11 @@ export default function ForecastPage() {
     await handleSaveCost(id, field, value)
   }
 
-  // ── Play-around reset ────────────────────────────────────────────────────────
+  // ── Play-around reset: drop this term's saved edits ──────────────────────────
   const handleResetPlay = () => {
-    setPlayClasses(classMetrics.map(c => ({
-      id: c.id, class_name: c.class_name, label: c.label, teacher: c.teacher,
-      studentCount: c.studentCount, termFee: c.termFee,
-      lessonHrs: c.lessonHrs, lessonCount: c.lessonCount,
-      teacherRate: c.teacherRate || 0, superApplies: c.superApplies,
-      is1on1: c.is1on1, studentName: c.studentName,
-    })))
-    setPlayFixedCosts(fixedCosts.map(fc => ({ ...fc })))
+    if (playEditCount && !window.confirm('Clear every Play Around edit for this term and go back to live data?')) return
+    playDirty.current = true
+    setPlayEdits(EMPTY_PLAY)
   }
 
   // ── Tutor pay method handler ─────────────────────────────────────────────────
@@ -1206,7 +1257,13 @@ export default function ForecastPage() {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0">
               <div>
                 <h2 className="text-sm font-bold text-[#062E63]">Play Around</h2>
-                <p className="text-xs text-[#325099]/60 mt-0.5">Edit any value freely — nothing is saved. Reset to reload from live data.</p>
+                <p className="text-xs text-[#325099]/60 mt-0.5">Edits save automatically for this term and are shared between directors. They sit on top of live data — reset to go back to it.</p>
+                <p className="text-[11px] mt-1 text-[#2A2035]/50">
+                  {playSave?.state === 'saving' ? 'Saving…'
+                    : playSave?.state === 'error' ? <span className="text-[#B23A3A] font-semibold">Couldn’t save: {playSave.msg}</span>
+                    : playEditCount ? `${playEditCount} edit${playEditCount === 1 ? '' : 's'} saved${playSave?.at ? ` · ${new Date(playSave.at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}${playSave?.by ? ` by ${playSave.by.split(' ')[0]}` : ''}`
+                    : 'Showing live data — no edits yet.'}
+                </p>
               </div>
               <button type="button" onClick={handleResetPlay}
                 className="self-start md:self-auto shrink-0 bg-white md:bg-transparent text-xs px-4 md:px-3 py-2.5 md:py-1.5 border border-[#DEE7FF] rounded-lg text-[#325099] hover:bg-[#F0F4FF] transition">
@@ -1259,12 +1316,12 @@ export default function ForecastPage() {
                         <td data-label="" className="px-4 py-2 max-md:font-semibold max-md:text-[#062E63]">{fc.name}</td>
                         <td data-label="Amount" className="px-4 py-2">
                           <input type="number" value={fc.amount}
-                            onChange={e => setPlayFixedCosts(prev => prev.map((c, idx) => idx === i ? { ...c, amount: parseFloat(e.target.value) || 0 } : c))}
+                            onChange={e => editPlay('fixed', fc.id, 'amount', parseFloat(e.target.value) || 0)}
                             className="w-24 border border-[#DEE7FF] rounded px-2 py-0.5 text-xs focus:outline-none" />
                         </td>
                         <td data-label="Frequency" className="px-4 py-2">
                           <select value={fc.frequency}
-                            onChange={e => setPlayFixedCosts(prev => prev.map((c, idx) => idx === i ? { ...c, frequency: e.target.value } : c))}
+                            onChange={e => editPlay('fixed', fc.id, 'frequency', e.target.value)}
                             className="border border-[#DEE7FF] rounded px-2 py-0.5 text-xs bg-white focus:outline-none">
                             <option value="monthly">Monthly</option>
                             <option value="yearly">Yearly</option>
