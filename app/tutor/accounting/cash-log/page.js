@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
-import { getCurrentTerm, normaliseTerms } from '@/lib/terms'
+import { normaliseTerms } from '@/lib/terms'
 
 /*
  * Cash Log — /tutor/accounting/cash-log
@@ -12,8 +12,10 @@ import { getCurrentTerm, normaliseTerms } from '@/lib/terms'
  * cash invoice is marked paid), gifts and withdrawals in; cash wages and returns
  * out. The Forecast page reads this table for the term's actual outflows.
  *
- * The term picker sets the default date range and stamps new entries with a
- * term; an edit never moves an entry to another term.
+ * Always shows all time, newest first; From/To narrows the rows shown. The
+ * Balance column is the true running balance over the whole log either way.
+ * A new entry is filed under the term its date falls in; an edit never moves
+ * an entry to another term.
  */
 
 function fmt(n) { return `$${Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
@@ -22,7 +24,6 @@ export default function CashLogPage() {
   const router = useRouter()
   const [profile, setProfile] = useState(null)
   const [terms,   setTerms]   = useState([])
-  const [termId,  setTermId]  = useState('')
   const [error,   setError]   = useState(null)
 
   useEffect(() => {
@@ -36,7 +37,6 @@ export default function CashLogPage() {
   const [cashLogLoading,   setCashLogLoading]   = useState(false)
   const [clDateFrom,       setClDateFrom]       = useState('')
   const [clDateTo,         setClDateTo]         = useState('')
-  const [clShowAll,        setClShowAll]        = useState(false)
   // null = closed, 'new' = adding, otherwise the id of the row being edited.
   const [entryModal,       setEntryModal]        = useState(null)
   const [entryForm,        setEntryForm]         = useState({ date: '', direction: 'inflow', type: 'invoice', description: '', amount: '' })
@@ -46,37 +46,29 @@ export default function CashLogPage() {
     if (error) setError(`${label}: ${error.message}`)
   }, [])
 
-  // Same term list and default as the Forecast page: the term being taught now.
+  // Terms only file new entries: an entry belongs to the term its date is in.
   useEffect(() => {
     supabase.from('terms').select('id, name, year, term_number, start_date, end_date')
-      .order('start_date', { ascending: false })
       .then(({ data, error }) => {
         reportError('Terms failed to load')(error)
         setTerms(normaliseTerms(data || []))
-        const current = getCurrentTerm(data || [])
-        if (current) setTermId(current.id)
-        else if (data?.length) setTermId(data[0].id)
       })
   }, [reportError])
+  const termForDate = (iso) => terms.find(t => t.start_date && t.end_date && t.start_date <= iso && iso <= t.end_date)?.id || null
 
   // ── Cash log helpers ─────────────────────────────────────────────────────────
+  // The whole log loads (oldest first, so the running balance can be summed);
+  // the date range filters on screen, which keeps Balance true to all time.
   const loadCashLog = useCallback(async () => {
     setCashLogLoading(true)
-    const term = terms.find(t => t.id === termId)
-    let query = supabase.from('cash_log').select('*').order('date', { ascending: true }).order('id', { ascending: true })
-    if (!clShowAll) {
-      const from = clDateFrom || term?.start_date
-      const to   = clDateTo   || term?.end_date
-      if (from) query = query.gte('date', from)
-      if (to)   query = query.lte('date', to)
-    }
-    const { data, error: err } = await query
+    const { data, error: err } = await supabase.from('cash_log').select('*')
+      .order('date', { ascending: true }).order('id', { ascending: true })
     reportError('Cash log failed to load')(err)
     setCashLog(data || [])
     setCashLogLoading(false)
-  }, [termId, terms, clDateFrom, clDateTo, clShowAll, reportError])
+  }, [reportError])
 
-  useEffect(() => { if (terms.length) loadCashLog() }, [terms.length, loadCashLog])
+  useEffect(() => { loadCashLog() }, [loadCashLog])
 
   const openAddEntry = () => {
     setEntryForm({ date: new Date().toISOString().slice(0, 10), direction: 'inflow', type: 'invoice', description: '', amount: '' })
@@ -100,10 +92,11 @@ export default function CashLogPage() {
       date: entryForm.date, direction: entryForm.direction, type: entryForm.type,
       description: entryForm.description.trim() || null, amount: signed,
     }
-    // A new row is stamped with the term being viewed; an edit leaves term_id
-    // alone, so re-dating a line can't silently move it to another term's books.
+    // A new row is filed under the term its date falls in; an edit leaves
+    // term_id alone, so re-dating a line can't silently move it to another
+    // term's books.
     const { error: err } = entryModal === 'new'
-      ? await supabase.from('cash_log').insert({ ...fields, term_id: terms.find(t => t.id === termId)?.id || null })
+      ? await supabase.from('cash_log').insert({ ...fields, term_id: termForDate(fields.date) })
       : await supabase.from('cash_log').update(fields).eq('id', entryModal)
     setEntrySaving(false)
     if (err) { setError(err.message); return }
@@ -132,49 +125,40 @@ export default function CashLogPage() {
             <h1 className="text-2xl font-bold text-[#062E63]">Cash Log</h1>
             <p className="text-sm text-[#325099]/60 mt-0.5">Track all cash inflows and outflows</p>
           </div>
-          <div className="flex w-full md:w-auto items-center gap-2">
-            <select value={termId} onChange={e => setTermId(e.target.value)}
-              className="flex-1 md:flex-none md:w-auto border border-[#DEE7FF] rounded-xl px-4 py-2 text-sm text-[#062E63] bg-white focus:outline-none focus:ring-2 focus:ring-[#325099]/30">
-              {terms.map(t => <option key={t.id} value={t.id}>{t.name || `Term ${t.term_number} ${t.year}`}</option>)}
-            </select>
-            <button onClick={openAddEntry}
-              className="shrink-0 flex items-center gap-1.5 px-4 py-2.5 md:py-2 bg-[#062E63] text-white text-xs font-semibold rounded-xl hover:bg-[#325099] transition">
-              + Add Entry
-            </button>
-          </div>
+          <button onClick={openAddEntry}
+            className="w-full md:w-auto justify-center flex items-center gap-1.5 px-4 py-2.5 md:py-2 bg-[#062E63] text-white text-xs font-semibold rounded-xl hover:bg-[#325099] transition">
+            + Add Entry
+          </button>
         </div>
 
         {error && <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{error}</div>}
 
         {(() => {
-          // Running balance
-          const rows = cashLog.reduce((acc, e) => {
+          // Running balance over the whole log (oldest first), then the date
+          // range, then newest at the top.
+          const withBalance = cashLog.reduce((acc, e) => {
             acc.push({ ...e, running: (acc.at(-1)?.running || 0) + Number(e.amount) })
             return acc
           }, [])
-          const net = rows.at(-1)?.running || 0
+          const ranged = !!(clDateFrom || clDateTo)
+          const rows = withBalance
+            .filter(e => (!clDateFrom || e.date >= clDateFrom) && (!clDateTo || e.date <= clDateTo))
+            .reverse()
+          const net = rows.reduce((s, e) => s + Number(e.amount), 0)
 
           return (
             <div className="space-y-5">
               {/* Filters */}
-              <div className="flex flex-wrap items-center gap-3 md:gap-4">
-                <label className="flex items-center gap-2 cursor-pointer select-none py-1 md:py-0">
-                  <input type="checkbox" checked={clShowAll} onChange={e => setClShowAll(e.target.checked)} className="accent-[#325099] w-3.5 h-3.5" />
-                  <span className="text-xs font-semibold text-[#325099]">Show all time</span>
-                </label>
-                {!clShowAll && (
-                  <div className="flex flex-wrap md:flex-nowrap items-center gap-1.5 text-xs text-[#325099]/60">
-                    <span className="font-semibold">From</span>
-                    <input type="date" value={clDateFrom} onChange={e => setClDateFrom(e.target.value)}
-                      className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] focus:outline-none" />
-                    <span className="font-semibold">To</span>
-                    <input type="date" value={clDateTo} onChange={e => setClDateTo(e.target.value)}
-                      className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] focus:outline-none" />
-                    {(clDateFrom || clDateTo) && (
-                      <button onClick={() => { setClDateFrom(''); setClDateTo('') }}
-                        className="text-[#325099]/50 hover:text-[#325099] underline ml-1">Reset</button>
-                    )}
-                  </div>
+              <div className="flex flex-wrap md:flex-nowrap items-center gap-1.5 text-xs text-[#325099]/60">
+                <span className="font-semibold">From</span>
+                <input type="date" value={clDateFrom} onChange={e => setClDateFrom(e.target.value)}
+                  className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] focus:outline-none" />
+                <span className="font-semibold">To</span>
+                <input type="date" value={clDateTo} onChange={e => setClDateTo(e.target.value)}
+                  className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-xs text-[#062E63] focus:outline-none" />
+                {(clDateFrom || clDateTo) && (
+                  <button onClick={() => { setClDateFrom(''); setClDateTo('') }}
+                    className="text-[#325099]/50 hover:text-[#325099] underline ml-1">Show all</button>
                 )}
               </div>
 
@@ -237,7 +221,7 @@ export default function CashLogPage() {
                     {rows.length > 0 && (
                       <tfoot className="max-md:block">
                         <tr className="bg-[#F8FAFF] border-t-2 border-[#DEE7FF] max-md:flex max-md:items-center max-md:justify-between max-md:border-2 max-md:rounded-[14px]">
-                          <td colSpan={4} className="px-4 py-3 text-xs font-bold text-[#062E63]">Net Total</td>
+                          <td colSpan={4} className="px-4 py-3 text-xs font-bold text-[#062E63]">{ranged ? 'Net for these dates' : 'Net Total'}</td>
                           <td colSpan={2} className={`px-4 py-3 text-sm font-bold tabular-nums ${net >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
                             {net >= 0 ? '+' : ''}{fmt(net)}
                           </td>
