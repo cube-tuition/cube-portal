@@ -40,6 +40,12 @@ export async function GET(request) {
   const tomorrow = addDays(today, 1), inAWeek = addDays(today, 7)
   const pushes = []   // { title, body, url, tag }
 
+  // ?sample=payroll — send one example payroll reminder right now (to show what it looks like).
+  if (params.get('sample') === 'payroll') {
+    const r = await sendPushToAll({ title: 'Bank payroll due tomorrow', body: 'Wk 1–2: $1,685.00 across 4 tutors. Send the transfers on Monday 12 Oct.', url: '/tutor/payroll', tag: 'payroll-sample' })
+    return Response.json({ sample: 'payroll', sent: r?.sent ?? 0 })
+  }
+
   // ── Payroll ────────────────────────────────────────────────────────────────
   const [{ data: termRows }, { data: tutors }, { data: directors }, { data: doneRow }] = await Promise.all([
     admin.from('terms').select('*'),
