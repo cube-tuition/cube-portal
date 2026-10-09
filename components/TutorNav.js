@@ -80,6 +80,7 @@ const ADMIN_GROUPS = [
       { label: 'Dashboard',  href: '/tutor/accounting',            icon: '🧮' },
       { label: 'Invoices',   href: '/tutor/accounting/invoices',   icon: '🧾' },
       { label: 'Forecast',   href: '/tutor/accounting/forecast',   icon: '📊' },
+      { label: 'Cash Log',   href: '/tutor/accounting/cash-log',   icon: '💵' },
       { label: 'Payroll',    href: '/tutor/payroll',               icon: '💳' },
     ],
   },

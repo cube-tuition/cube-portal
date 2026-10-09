@@ -429,7 +429,7 @@ export default function AccountingDashboard() {
 
     // — Bookkeeping —
     if (!cashLast || (nowMs - new Date(cashLast + 'T00:00:00').getTime()) > 14 * 86400000) {
-      missing.push({ key: 'cash-stale', severity: 'amber', title: cashLast ? `Cash log last updated ${fmtD(cashLast)}` : 'Cash log has no entries', detail: 'Bookkeeping gap — pull wages and log income/expenses so BAS prep isn’t a scramble.', href: '/tutor/accounting/forecast' })
+      missing.push({ key: 'cash-stale', severity: 'amber', title: cashLast ? `Cash log last updated ${fmtD(cashLast)}` : 'Cash log has no entries', detail: 'Bookkeeping gap — pull wages and log income/expenses so BAS prep isn’t a scramble.', href: '/tutor/accounting/cash-log' })
     }
     if (noPrice > 0) missing.push({ key: 'no-price', severity: 'red', title: `${noPrice} active enrolment${noPrice === 1 ? '' : 's'} with no price`, detail: 'These students can’t be invoiced — set prices in the database explorer.', href: '/tutor/database' })
     if (noEmailFamilies > 0) missing.push({ key: 'no-email', severity: 'amber', title: `${noEmailFamilies} active student${noEmailFamilies === 1 ? '' : 's'} with no guardian email`, detail: 'Invoices to these families can’t be delivered.', href: '/tutor/database' })
