@@ -145,9 +145,25 @@ export default function CashLogPage() {
             .filter(e => (!clDateFrom || e.date >= clDateFrom) && (!clDateTo || e.date <= clDateTo))
             .reverse()
           const net = rows.reduce((s, e) => s + Number(e.amount), 0)
+          const totalIn  = rows.reduce((s, e) => s + Math.max(0, Number(e.amount)), 0)
+          const totalOut = rows.reduce((s, e) => s + Math.min(0, Number(e.amount)), 0)
+          const signed = (n) => `${n < 0 ? '−' : '+'}${fmt(Math.abs(n))}`
+          const stat = (label, value, cls, wrapCls = '') => (
+            <div className={`min-w-0 bg-white border border-[#DEE7FF] rounded-xl px-3 md:px-4 py-3 ${wrapCls}`}>
+              <div className={`text-base md:text-lg font-bold tabular-nums truncate ${cls}`}>{value}</div>
+              <div className="text-[10px] text-[#325099]/60 font-semibold uppercase tracking-wider mt-0.5">{label}</div>
+            </div>
+          )
 
           return (
             <div className="space-y-5">
+              {/* Totals — up top so they don't need a scroll to the bottom */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 max-w-xl">
+                {stat(ranged ? 'Net for these dates' : 'Net total', signed(net), net >= 0 ? 'text-emerald-700' : 'text-red-600', 'col-span-2 md:col-span-1')}
+                {stat('Cash in', signed(totalIn), 'text-[#062E63]')}
+                {stat('Cash out', signed(totalOut), 'text-[#062E63]')}
+              </div>
+
               {/* Filters */}
               <div className="flex flex-wrap md:flex-nowrap items-center gap-1.5 text-xs text-[#325099]/60">
                 <span className="font-semibold">From</span>
@@ -218,17 +234,6 @@ export default function CashLogPage() {
                         </tr>
                       ))}
                     </tbody>
-                    {rows.length > 0 && (
-                      <tfoot className="max-md:block">
-                        <tr className="bg-[#F8FAFF] border-t-2 border-[#DEE7FF] max-md:flex max-md:items-center max-md:justify-between max-md:border-2 max-md:rounded-[14px]">
-                          <td colSpan={4} className="px-4 py-3 text-xs font-bold text-[#062E63]">{ranged ? 'Net for these dates' : 'Net Total'}</td>
-                          <td colSpan={2} className={`px-4 py-3 text-sm font-bold tabular-nums ${net >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                            {net >= 0 ? '+' : ''}{fmt(net)}
-                          </td>
-                          <td className="max-md:hidden" />
-                        </tr>
-                      </tfoot>
-                    )}
                   </table>
                 </div>
               )}
