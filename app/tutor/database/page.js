@@ -74,7 +74,10 @@ const VIRTUAL = {
 
 const GUARDIAN_COLS    = ['guardian_name','guardian_relationship','guardian_email','guardian_phone']
 const PARENT_COL_MAP   = { guardian_name:'full_name', guardian_relationship:'relationship', guardian_email:'email', guardian_phone:'phone' }
-const ENROLMENT_NAME_COLS = ['student_name','class_name']
+// Enrolments grid: the Student column is the linked student_id badge (name, link,
+// picker). Class stays a resolved name because its cell is the term-aware class
+// picker. student_name is still joined onto each row for search and wording.
+const ENROLMENT_NAME_COLS = ['class_name']
 const END_REASONS = [
   'Graduated / Year 12 finished',
   'Paused — may return next term',
@@ -103,7 +106,7 @@ const STUDENT_LOGIN_COL = 'portal_login'
 const READONLY_JOIN_COLS = {
   students:   [STUDENT_LOGIN_COL],
   tutors:     [STUDENT_LOGIN_COL],
-  enrolments: ['student_name', 'class_name'],
+  enrolments: ['class_name'],
   classes:    ['term_name', 'course_name'],
   invoices:   ['term_name'],
   lessons:    ['class_label', 'week', 'main_teacher'],
@@ -1986,10 +1989,13 @@ export default function DatabasePage() {
         // Show name cols first (after id), then the raw FK cols at the end.
         // next_term_status is retired (everyone rolls over at transition) —
         // drop it from the grid entirely, even for saved column layouts.
-        const base = cols.filter(c => !ENROLMENT_NAME_COLS.includes(c) && c !== 'next_term_status')
+        // One column per thing: Student is the linked student_id, Class is the
+        // picker on the resolved name, so the raw class_id and the joined
+        // student_name do not get a column of their own.
+        const base = cols.filter(c => !ENROLMENT_NAME_COLS.includes(c) && !['next_term_status', 'student_name', 'class_id', 'student_id'].includes(c))
         const idCol = base.includes('id') ? ['id'] : []
         const rest  = base.filter(c => c !== 'id')
-        cols = [...idCol, ...ENROLMENT_NAME_COLS, ...rest]
+        cols = [...idCol, 'student_id', ...ENROLMENT_NAME_COLS, ...rest]
       }
 
       if (v?.joinTermName && r.length > 0) {
