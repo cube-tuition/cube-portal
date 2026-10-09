@@ -303,12 +303,6 @@ function SummaryGrid({ s, yearly = false }) {
               <div className="flex justify-between text-xs"><span className="text-[#325099]/70">1-on-1 (after GST − teacher)</span><span className="font-semibold">{fmt(oneOnOneP)}</span></div>
               {fixedCost > 0 && <div className="flex justify-between text-xs text-red-500"><span>Fixed Costs</span><span>−{fmt(fixedCost)}</span></div>}
               {discount  > 0 && <div className="flex justify-between text-xs text-red-500"><span>Discounts</span><span>−{fmt(discount)}</span></div>}
-              {s.cashPosition != null && (
-                <div className="flex justify-between text-xs border-t border-[#DEE7FF] pt-1 mt-1">
-                  <span className="text-[#325099]/70">Cash taken in − cash wages out</span>
-                  <span className={`font-semibold ${s.cashPosition < 0 ? 'text-red-600' : ''}`}>{fmt(s.cashPosition * m)}</span>
-                </div>
-              )}
               <div className="flex justify-between text-xs font-bold border-t border-[#DEE7FF] pt-1 mt-1"><span>Total Profit</span><span className={s.totalProfit * m >= 0 ? 'text-emerald-700' : 'text-red-600'}>{fmt(s.totalProfit * m)}</span></div>
               {s.cashProfit != null && (
                 <div className="flex justify-between text-xs"><span className="text-[#325099]/70 pl-2">↳ Cash profit (untaxed)</span><span className="font-semibold">{fmt(s.cashProfit * m)}</span></div>
@@ -578,10 +572,6 @@ export default function ForecastPage() {
     const classTeacherCost   = grouped.reduce((s, c) => s + c.totalTeacherCost, 0)
     const oneOnOneTeacherCost = oneOnOne.reduce((s, c) => s + c.totalTeacherCost, 0)
 
-    // Wages paid out in physical cash (cash tutors get no super, so superApplies
-    // doubles as the pay-method flag). Used for the cash-flow line only.
-    const cashTeacherCost = classMetrics.filter(c => !c.superApplies).reduce((s, c) => s + c.totalTeacherCost, 0)
-
     // Fixed costs annualised to term — paid from the bank account.
     const fixedTermly = fixedCosts.reduce((s, fc) => {
       const amt = Number(fc.amount || 0)
@@ -617,18 +607,11 @@ export default function ForecastPage() {
     // Only the bank side is taxed, and a loss on it pays no tax.
     const afterTax     = totalProfit - Math.max(0, bankProfit) * TAX_RATE
 
-    // Physical cash flow, NOT a profit split: money taken in cash from families
-    // against wages paid out in cash to tutors. Which families pay cash and which
-    // tutors are paid cash are unrelated facts, so netting them says nothing about
-    // profitability — it only answers "is there enough cash on hand to pay wages,
-    // or does it have to come out of the bank?".
-    const cashPosition = cashEnrolIncome - cashTeacherCost
-
     return {
       classIncome, oneOnOneIncome, totalIncome, afterGst,
       classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
       siblingDiscount, multiCourseDiscount, cashDiscount, referralDiscount, creditsOther, totalDiscount,
-      classProfit, oneOnOneProfit, cashPosition, cashProfit, bankProfit, totalProfit, afterTax,
+      classProfit, oneOnOneProfit, cashProfit, bankProfit, totalProfit, afterTax,
     }
   }, [classMetrics, fixedCosts, invoices])
 
