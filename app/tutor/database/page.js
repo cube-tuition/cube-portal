@@ -10,6 +10,7 @@ import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import { buildClassLabelMap } from '../../../lib/classLabels'
 import { bookGuestMakeup, bookOneToOneMakeup } from '../../../lib/makeups'
+import TutorsView from '../../../components/db/TutorsView'
 import { invoiceTotalsPatch } from '../../../lib/cashDiscount'
 import { normalizeDays } from '../../../lib/format'
 import { T_ADMINS, T_ATTENDANCE, T_BOOKLETS, T_CLASSES, T_CLASS_BOOKLETS, T_COURSES, T_CURRENT_TUTOR_RATES, T_DROPIN_SESSIONS, T_DROPIN_SIGNINS, T_ENROLMENTS, T_EXAMS, T_FAQ_CATEGORIES, T_FAQ_ITEMS, T_INFO_PAGES, T_INVOICES, T_LESSONS, T_PARENTS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_PREPOST_SCORES, T_PREPOST_TESTS, T_QUIZ_RESULTS, T_REFERRALS, T_RESULTS, T_SHIFTS, T_STUDENT_CREDITS, T_STUDENTS, T_SUB_ASSIGNMENTS, T_TERMS, T_TERM_COMMENTS, T_TERM_CRITERIA, T_TIMETABLE, T_TUTORS, T_TUTOR_RATE_MATRIX } from '../../../lib/tables'
@@ -1685,6 +1686,7 @@ export default function DatabasePage() {
   const [dbTermFilter, setDbTermFilter] = useState(null) // term id | null = all terms
   const [termPickerRect, setTermPickerRect] = useState(null) // anchor rect while the term popover is open
   const [tutorStatusTab, setTutorStatusTab] = useState('active') // tutors view: 'active' | 'inactive' | 'all'
+  const [tutorViewMode, setTutorViewMode]   = useState('cards')  // 'cards' | 'data'
   const [studentStatusTab, setStudentStatusTab] = useState('active') // students view: 'active' | 'inactive' | 'all'
   const [courseStatusTab, setCourseStatusTab]   = useState('active') // courses view: 'active' | 'inactive' | 'all'
   const [classStatusTab, setClassStatusTab]     = useState('active') // classes view: 'active' | 'inactive' | 'all'
@@ -4536,6 +4538,14 @@ export default function DatabasePage() {
                 </div>
               )}
 
+              {/* Cards / Data toggle — tutors only */}
+              {selectedTable === T_TUTORS && (
+                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                  <button onClick={() => setTutorViewMode('cards')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${tutorViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Tutors</button>
+                  <button onClick={() => setTutorViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${tutorViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                </div>
+              )}
+
               {/* Active / Inactive tabs — tutors only */}
               {selectedTable === T_TUTORS && (
                 <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
@@ -4708,6 +4718,11 @@ export default function DatabasePage() {
             {/* ── Families view (guardians table) ────────────────────────────── */}
             {selectedTable === T_PARENTS && guardianViewMode === 'families' ? (
               <FamiliesView key={reloadKey} />
+            ) :
+
+            /* ── Tutors card view (tutors table) ────────────────────────────── */
+            selectedTable === T_TUTORS && tutorViewMode === 'cards' ? (
+              <TutorsView key={reloadKey} statusTab={tutorStatusTab} />
             ) :
 
             /* ── Student Directory view ─────────────────────────────────────── */
@@ -5256,6 +5271,7 @@ export default function DatabasePage() {
                 <LevelTestsView rows={rows.filter(r => r.lesson_type === 'level_test')} onOpen={(lid) => router.push(`/tutor/lessons/${lid}`)} onDelete={handleDeleteLevelTest} />
               )
             ) : (selectedTable === T_PARENTS && guardianViewMode === 'families') ? null
+            : (selectedTable === T_TUTORS && tutorViewMode === 'cards') ? null
             : (selectedTable === T_STUDENTS && studentViewMode === 'cards') ? null
             : loading ? (
               <div className="flex items-center justify-center h-full">
