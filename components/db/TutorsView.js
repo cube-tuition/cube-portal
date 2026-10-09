@@ -159,7 +159,6 @@ export default function TutorsView({ statusTab = 'active' }) {
                 className={`w-full text-left bg-white rounded-xl border px-4 py-3 transition shadow-sm hover:shadow-md ${selectedId === s.id ? 'border-[#325099] ring-1 ring-[#BACBFF]' : 'border-[#E8EDF8]'}`}>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold text-[#2A2035] truncate min-w-0">{s.full_name}</span>
-                  {s.tutor_code && <span className="text-[9px] font-semibold bg-[#DEE7FF] text-[#062E63] px-1.5 py-0.5 rounded-full shrink-0">{s.tutor_code}</span>}
                   {s.staff_table === 'directors' && <span className="text-[9px] font-semibold bg-[#EDE9FE] text-[#5B21B6] px-1.5 py-0.5 rounded-full shrink-0">Director</span>}
                   {s.active === false && <span className="text-[9px] font-semibold bg-gray-100 text-gray-500 border border-gray-200 px-1.5 py-0.5 rounded-full shrink-0">inactive</span>}
                   {s.pay_method === 'cash' && <span className="text-[9px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-full shrink-0">💵 cash</span>}
@@ -196,7 +195,7 @@ export default function TutorsView({ statusTab = 'active' }) {
                 <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">{sel.staff_table === 'directors' ? 'Director' : 'Tutor'}</p>
                 <div className="bg-white rounded-xl border border-[#E8EDF8] px-4 py-3">
                   <p className="text-sm font-bold text-[#2A2035]">{sel.full_name}
-                    {sel.tutor_code && <span className="text-[10px] font-semibold text-[#062E63] bg-[#DEE7FF] px-1.5 py-0.5 rounded-full ml-1.5">{sel.tutor_code}</span>}
+                    
                   </p>
                   <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] break-all">
                     {sel.email && <a href={`mailto:${sel.email}`} className="text-[#325099] hover:underline">✉ {sel.email}</a>}
