@@ -1,6 +1,7 @@
 'use client'
 import { authedFetch } from '../../../lib/authedFetch'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import './dark.css'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
@@ -1375,6 +1376,23 @@ function CancelLessonModal({ row, onClose, onCancelled }) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function DatabasePage() {
+  // Dark mode for the explorer only: a class on <html> (so portalled popovers
+  // and modals pick it up too) that app/tutor/database/dark.css keys off.
+  // Remembered per browser; first visit follows the system setting.
+  const [dark, setDark] = useState(false)
+  useEffect(() => {
+    let saved = null
+    try { saved = localStorage.getItem('cube_db_theme') } catch {}
+    const initial = saved ? saved === 'dark' : window.matchMedia?.('(prefers-color-scheme: dark)').matches
+    // Deferred so the first paint is not a synchronous state write inside the effect.
+    const t = setTimeout(() => setDark(initial), 0)
+    return () => clearTimeout(t)
+  }, [])
+  useEffect(() => {
+    document.documentElement.classList.toggle('db-dark', dark)
+    return () => document.documentElement.classList.remove('db-dark')
+  }, [dark])
+  const toggleDark = () => setDark(d => { const n = !d; try { localStorage.setItem('cube_db_theme', n ? 'dark' : 'light') } catch {} return n })
   const router = useRouter()
 
   const [staff, setStaff]           = useState(null)
@@ -3872,7 +3890,7 @@ export default function DatabasePage() {
   const vConfig  = VIRTUAL[selectedTable]
 
   return (
-    <div className="flex flex-col" style={{ height:'100dvh' }}>
+    <div className="db-explorer flex flex-col" style={{ height:'100dvh' }}>
       <TutorNav staffName={staff.full_name} isAdmin={true} />
 
       {/* Column context menu */}
@@ -4320,9 +4338,13 @@ export default function DatabasePage() {
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
         <aside className="w-full md:w-52 bg-[#F7F9FD] border-b md:border-b-0 md:border-r border-[#E6ECF7] flex flex-col shrink-0 md:overflow-y-auto">
-          <div className="hidden md:block px-4 pt-5 pb-3 shrink-0">
-            <p className="text-[9px] tracking-[0.35em] uppercase font-bold text-[#325099]/50 mb-0.5">Admin</p>
-            <p className="text-base font-semibold tracking-tight text-[#062E63] font-display">Database</p>
+          <div className="hidden md:flex items-end justify-between px-4 pt-5 pb-3 shrink-0">
+            <div>
+              <p className="text-[9px] tracking-[0.35em] uppercase font-bold text-[#325099]/50 mb-0.5">Admin</p>
+              <p className="text-base font-semibold tracking-tight text-[#062E63] font-display">Database</p>
+            </div>
+            <button onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label="Toggle dark mode"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-sm text-[#2A2035]/50 hover:text-[#062E63] hover:bg-white/70 transition">{dark ? '☀️' : '🌙'}</button>
           </div>
           <div className="flex md:block gap-3 flex-1 px-2 py-2 md:px-0 md:py-1 overflow-x-auto md:overflow-y-auto">
             {tableGroups.map(group => (
@@ -4418,6 +4440,7 @@ export default function DatabasePage() {
                 </div>
               </div>
               {rowCounts[selectedTable] !== undefined && <span className="text-[10px] font-semibold text-[#2A2035]/40 shrink-0">{rowCounts[selectedTable].toLocaleString()} rows</span>}
+              <button onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label="Toggle dark mode" className="md:hidden w-7 h-7 rounded-lg flex items-center justify-center text-sm">{dark ? '☀️' : '🌙'}</button>
               {saving && <span className="text-[10px] font-semibold text-[#325099]/60 shrink-0 animate-pulse">Saving…</span>}
             </div>
 
@@ -5441,7 +5464,7 @@ export default function DatabasePage() {
 
                     return (
                       <tr key={String(rowId)} className={`group ${rowBg} hover:bg-[#F7F9FD] transition-colors`}>
-                        <td className="border-b border-r border-[#EEF2F9] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: '#ffffff' }}>
+                        <td className="border-b border-r border-[#EEF2F9] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: 'var(--db-surface, #ffffff)' }}>
                           {selectedTable === T_LESSONS ? (
                             <button
                               title="Open lesson details"
