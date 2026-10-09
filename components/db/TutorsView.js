@@ -124,6 +124,7 @@ export default function TutorsView({ statusTab = 'active' }) {
       pay: cls.reduce((s, c) => s + c.termlyTeacherFee, 0),
       superAmt: cls.reduce((s, c) => s + c.superAmount, 0),
       income: cls.reduce((s, c) => s + c.termIncome, 0),
+      profit: cls.reduce((s, c) => s + c.termProfit, 0),
       hours: cls.reduce((s, c) => s + c.lessonHrs, 0),
       missingRate: cls.filter(c => !c.teacherRate).length,
     }
@@ -231,22 +232,25 @@ export default function TutorsView({ statusTab = 'active' }) {
               {/* Term summary */}
               <section>
                 <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">{formatTermLabel(terms.find(t => t.id === termId))}</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
                     ['Classes', selTotals.classes],
                     ['Students', `${selTotals.students}${selTotals.trials ? ` +${selTotals.trials} trial` : ''}`],
                     ['Hours / week', selTotals.hours.toFixed(1)],
+                    ['Term income', money(selTotals.income)],
                     ['Term pay', money(selTotals.pay + selTotals.superAmt)],
-                  ].map(([label, value]) => (
+                    ['Term profit', money(selTotals.profit), selTotals.profit < 0 ? 'text-rose-700' : 'text-emerald-700'],
+                  ].map(([label, value, cls]) => (
                     <div key={label} className="bg-white rounded-xl border border-[#E8EDF8] px-3 py-2.5">
                       <p className="text-[9px] font-semibold uppercase tracking-wide text-[#325099]/60">{label}</p>
-                      <p className="text-base font-bold text-[#062E63] tabular-nums">{value}</p>
+                      <p className={`text-base font-bold tabular-nums ${cls || 'text-[#062E63]'}`}>{value}</p>
                     </div>
                   ))}
                 </div>
-                {selTotals.superAmt > 0 && (
-                  <p className="text-[10px] text-[#2A2035]/45 mt-1.5">{money(selTotals.pay)} pay + {money(selTotals.superAmt)} super · {LESSONS_PER_TERM} lessons a term · their classes bring in {money(selTotals.income)}</p>
-                )}
+                <p className="text-[10px] text-[#2A2035]/45 mt-1.5">
+                  Profit = what their classes bring in ({money(selTotals.income)}) − {money(selTotals.pay)} pay{selTotals.superAmt > 0 ? ` − ${money(selTotals.superAmt)} super` : ''} · {LESSONS_PER_TERM} lessons a term
+                  {selTotals.income > 0 ? ` · ${Math.round(selTotals.profit / selTotals.income * 100)}% margin` : ''}
+                </p>
                 {selTotals.missingRate > 0 && (
                   <p className="text-[11px] font-semibold text-amber-700 mt-1.5">⚠ {selTotals.missingRate} class{selTotals.missingRate === 1 ? ' has' : 'es have'} no pay rate on file — their pay shows as $0. Add it in <a href="/tutor/payroll/rates" className="underline">Payroll → Rates</a>.</p>
                 )}
@@ -254,7 +258,7 @@ export default function TutorsView({ statusTab = 'active' }) {
 
               {/* Classes */}
               <section>
-                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Classes &amp; pay</p>
+                <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Classes, pay &amp; profit</p>
                 {selClasses.length === 0 ? (
                   <p className="text-[11px] text-[#2A2035]/40 italic">Not teaching a class this term.</p>
                 ) : (
@@ -264,7 +268,12 @@ export default function TutorsView({ statusTab = 'active' }) {
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-[#2A2035] flex-1 min-w-0 truncate">{c.class_name}</span>
                           {c.is1on1 && <span className="text-[9px] font-semibold bg-[#EDE9FE] text-[#5B21B6] px-1.5 py-0.5 rounded-full shrink-0">1:1</span>}
-                          <span className="text-xs font-bold text-[#062E63] tabular-nums shrink-0">{c.teacherRate ? money2(c.totalTeacherCost) : '—'}</span>
+                          <span className={`text-xs font-bold tabular-nums shrink-0 ${c.termProfit < 0 ? 'text-rose-700' : 'text-emerald-700'}`} title="Term profit on this class">{c.teacherRate ? money(c.termProfit) : '—'}</span>
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-[#2A2035]/55 tabular-nums">
+                          <span>Income {money(c.termIncome)}</span>
+                          <span>Pay {c.teacherRate ? money(c.totalTeacherCost) : '—'}{c.superAmount ? ' incl. super' : ''}</span>
+                          {c.teacherRate && c.termIncome > 0 && <span>{Math.round(c.termProfit / c.termIncome * 100)}% margin</span>}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[#2A2035]/55">
                           <span>{[DAY_SHORT[c.day_of_week] || c.day_of_week, fmtTimeRange(c.start_time, c.end_time)].filter(Boolean).join(' ')}{c.room ? ` · ${c.room}` : ''}</span>
