@@ -982,7 +982,7 @@ function FamiliesView() {
                       <button
                         key={m}
                         onClick={() => setFamilyPayMethod(sel, m)}
-                        className={`px-4 py-2 md:py-1.5 text-xs font-semibold transition ${familyPayMethod(sel) === m
+                        className={`px-4 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${familyPayMethod(sel) === m
                           ? (m === 'cash' ? 'bg-emerald-600 text-white' : 'bg-[#325099] text-white')
                           : 'bg-white text-[#2A2035]/50 hover:bg-[#F8FAFF]'}`}
                       >
@@ -4319,15 +4319,15 @@ export default function DatabasePage() {
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
-        <aside className="w-full md:w-52 bg-[#111827] flex flex-col shrink-0 md:overflow-y-auto">
-          <div className="hidden md:block px-4 pt-5 pb-3 border-b border-white/10 shrink-0">
-            <p className="text-[9px] tracking-[0.35em] uppercase font-bold text-white/30 mb-0.5">Admin</p>
-            <p className="text-sm font-bold text-white font-display">Database</p>
+        <aside className="w-full md:w-52 bg-[#F7F9FD] border-b md:border-b-0 md:border-r border-[#E6ECF7] flex flex-col shrink-0 md:overflow-y-auto">
+          <div className="hidden md:block px-4 pt-5 pb-3 shrink-0">
+            <p className="text-[9px] tracking-[0.35em] uppercase font-bold text-[#325099]/50 mb-0.5">Admin</p>
+            <p className="text-base font-semibold tracking-tight text-[#062E63] font-display">Database</p>
           </div>
           <div className="flex md:block gap-3 flex-1 px-2 py-2 md:px-0 md:py-1 overflow-x-auto md:overflow-y-auto">
             {tableGroups.map(group => (
               <div key={group.label} className="flex md:block items-center gap-1 shrink-0 md:mb-1">
-                <p className="px-1.5 md:px-4 md:pt-3 md:pb-1 text-[9px] tracking-[0.3em] uppercase font-bold text-white/25 whitespace-nowrap">{group.label}</p>
+                <p className="px-1.5 md:px-4 md:pt-3 md:pb-1 text-[9px] tracking-[0.3em] uppercase font-bold text-[#2A2035]/35 whitespace-nowrap">{group.label}</p>
                 {group.tables.map(t => {
                   const active     = t === selectedTable
                   const count      = rowCounts[t]
@@ -4360,22 +4360,22 @@ export default function DatabasePage() {
                       }}
                     >
                       {/* Drop indicator lines */}
-                      {dropBefore && <div className="absolute top-0 left-2 right-2 h-0.5 bg-[#BACBFF] rounded-full z-10 pointer-events-none" />}
-                      {dropAfter  && <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-[#BACBFF] rounded-full z-10 pointer-events-none" />}
+                      {dropBefore && <div className="absolute top-0 left-2 right-2 h-0.5 bg-[#325099] rounded-full z-10 pointer-events-none" />}
+                      {dropAfter  && <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-[#325099] rounded-full z-10 pointer-events-none" />}
 
                       {isRenaming ? (
                         <div className="px-2 py-1 flex flex-col gap-0.5">
                           <div className="flex items-center gap-1">
-                            <input ref={renameInputRef} type="text" value={renameValue} onChange={e => setRenameValue(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,'_'))} onKeyDown={e => { if (e.key==='Enter') commitRename(); if (e.key==='Escape') cancelRename() }} disabled={renameWorking} className="flex-1 min-w-0 px-2 py-1 rounded text-xs font-mono bg-white/10 text-white border border-white/20 focus:outline-none focus:border-[#BACBFF] disabled:opacity-50" />
+                            <input ref={renameInputRef} type="text" value={renameValue} onChange={e => setRenameValue(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,'_'))} onKeyDown={e => { if (e.key==='Enter') commitRename(); if (e.key==='Escape') cancelRename() }} disabled={renameWorking} className="flex-1 min-w-0 px-2 py-1 rounded text-xs font-mono bg-white text-[#2A2035] border border-[#DEE7FF] focus:outline-none focus:border-[#325099] disabled:opacity-50" />
                             <button onClick={commitRename} disabled={renameWorking} className="w-5 h-5 flex items-center justify-center rounded bg-[#325099] text-white text-[10px] hover:bg-[#4A6CC0] transition disabled:opacity-40">{renameWorking ? '…' : '✓'}</button>
-                            <button onClick={cancelRename} className="w-5 h-5 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/10 transition text-xs">✕</button>
+                            <button onClick={cancelRename} className="w-5 h-5 flex items-center justify-center rounded text-[#2A2035]/40 hover:text-[#2A2035] hover:bg-[#DEE7FF] transition text-xs">✕</button>
                           </div>
                           {renameError && <p className="text-[9px] text-red-400 px-1 leading-tight">{renameError}</p>}
                         </div>
                       ) : (
                         <button
                           onClick={() => setSelectedTable(t)}
-                          className={`md:w-full text-left px-3 py-2 md:pl-2 md:pr-4 md:py-1.5 rounded-lg md:rounded-none whitespace-nowrap flex items-center justify-between gap-1.5 transition-colors ${isDragging ? 'opacity-30' : ''} ${active ? 'bg-[#325099] text-white' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
+                          className={`md:w-[calc(100%-1rem)] md:mx-2 text-left px-3 py-2 md:pl-2 md:pr-3 md:py-1.5 rounded-lg whitespace-nowrap flex items-center justify-between gap-1.5 transition-colors ${isDragging ? 'opacity-30' : ''} ${active ? 'bg-white text-[#062E63] shadow-sm ring-1 ring-[#E6ECF7]' : 'text-[#2A2035]/60 hover:text-[#062E63] hover:bg-white/70'}`}
                         >
                           {/* Drag handle */}
                           <span
@@ -4384,15 +4384,15 @@ export default function DatabasePage() {
                           >⠿</span>
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
                             <span className="text-xs font-medium truncate">{t}</span>
-                            {isVirtual && <span className={`text-[8px] shrink-0 ${active ? 'text-white/50' : 'text-white/20'}`}>⊂</span>}
+                            {isVirtual && <span className={`text-[8px] shrink-0 text-[#2A2035]/30`}>⊂</span>}
                           </div>
                           {count !== undefined && !hovered && (
-                            <span className={`text-[9px] tabular-nums shrink-0 font-semibold ${active ? 'text-white/60' : 'text-white/25'}`}>{count.toLocaleString()}</span>
+                            <span className={`text-[9px] tabular-nums shrink-0 font-semibold ${active ? 'text-[#325099]/70' : 'text-[#2A2035]/30'}`}>{count.toLocaleString()}</span>
                           )}
                           {canEdit && hovered && (
                             <div className="flex items-center gap-0.5 shrink-0">
-                              <span onClick={e => { e.stopPropagation(); startRename(t) }} title={`Rename "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-white/25 hover:text-blue-300 hover:bg-blue-900/30 transition text-[10px] cursor-pointer">✏️</span>
-                              <span onClick={e => { e.stopPropagation(); setDropConfirmTable(t); setDropTableInput(''); setDdlError(null) }} title={`Drop "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-white/25 hover:text-red-400 hover:bg-red-900/30 transition text-[10px] cursor-pointer">🗑</span>
+                              <span onClick={e => { e.stopPropagation(); startRename(t) }} title={`Rename "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-[#2A2035]/30 hover:text-[#325099] hover:bg-[#DEE7FF] transition text-[10px] cursor-pointer">✏️</span>
+                              <span onClick={e => { e.stopPropagation(); setDropConfirmTable(t); setDropTableInput(''); setDdlError(null) }} title={`Drop "${t}"`} className="w-5 h-5 flex items-center justify-center rounded text-[#2A2035]/30 hover:text-rose-600 hover:bg-rose-50 transition text-[10px] cursor-pointer">🗑</span>
                             </div>
                           )}
                         </button>
@@ -4409,12 +4409,11 @@ export default function DatabasePage() {
         <main className="flex-1 flex flex-col overflow-hidden bg-white">
 
           {/* Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 md:px-5 py-3 border-b border-[#DEE7FF] bg-[#F8FAFF] shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 md:px-5 py-2.5 border-b border-[#E6ECF7] bg-white shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="min-w-0">
-                <p className="text-[9px] tracking-[0.25em] uppercase text-[#325099] font-bold">Table</p>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-bold text-[#2A2035] font-display leading-tight truncate">{selectedTable}</h2>
+                  <h2 className="text-base font-semibold tracking-tight text-[#062E63] font-display leading-tight truncate">{selectedTable}</h2>
                   {vConfig && <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] shrink-0 whitespace-nowrap">view of {vConfig.realTable}</span>}
                 </div>
               </div>
@@ -4429,14 +4428,14 @@ export default function DatabasePage() {
               {/* Rename button removed — rename via the ✏️ that appears when hovering a table name in the sidebar */}
 
               {/* Data quality (read-only checks) */}
-              <button onClick={() => router.push('/tutor/database/quality')} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-[#065F46] border border-[#A7F3D0] text-xs font-semibold rounded-lg hover:bg-[#ECFDF5] transition" title="Read-only data quality checks — duplicates, orphans, invalid emails/phones, inconsistent values">
+              <button onClick={() => router.push('/tutor/database/quality')} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-[#2A2035]/65 border border-[#E6ECF7] text-xs font-semibold rounded-lg hover:bg-[#F7F9FD] hover:text-[#062E63] transition" title="Read-only data quality checks — duplicates, orphans, invalid emails/phones, inconsistent values">
                 ✓ Data Quality
               </button>
 
               {/* Sort */}
               <div className="relative">
                 <button ref={sortBtnRef} onClick={() => { setSortOpen(o => !o); setFilterOpen(false) }}
-                  className={`flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-xs font-semibold rounded-lg border transition ${sortRules.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
+                  className={`flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-xs font-semibold rounded-lg border transition ${sortRules.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#2A2035]/65 border-[#E6ECF7] hover:bg-[#F7F9FD] hover:text-[#062E63]'}`}
                   title="Sort rows by one or more columns">
                   ⇅ Sort{sortRules.length > 0 && <span className="text-[10px] font-bold bg-[#325099] text-white rounded-full px-1.5">{sortRules.length}</span>}
                 </button>
@@ -4455,7 +4454,7 @@ export default function DatabasePage() {
               {/* Filter */}
               <div className="relative">
                 <button ref={filterBtnRef} onClick={() => { setFilterOpen(o => !o); setSortOpen(false) }}
-                  className={`flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-xs font-semibold rounded-lg border transition ${filterCfg.conds.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}
+                  className={`flex items-center gap-1.5 px-3 py-2 md:py-1.5 text-xs font-semibold rounded-lg border transition ${filterCfg.conds.length ? 'bg-[#DEE7FF] text-[#062E63] border-[#BACBFF]' : 'text-[#2A2035]/65 border-[#E6ECF7] hover:bg-[#F7F9FD] hover:text-[#062E63]'}`}
                   title="Filter rows by conditions">
                   ≋ Filter{filterCfg.conds.length > 0 && <span className="text-[10px] font-bold bg-[#325099] text-white rounded-full px-1.5">{filterCfg.conds.length}</span>}
                 </button>
@@ -4475,7 +4474,7 @@ export default function DatabasePage() {
               {/* Search */}
               <div className="relative w-full md:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#325099]/40 text-xs pointer-events-none">🔍</span>
-                <input type="text" placeholder="Search rows…" value={search} onChange={e => setSearch(e.target.value)} className="pl-7 pr-7 py-1.5 text-xs rounded-lg border border-[#DEE7FF] bg-white text-[#2A2035] placeholder-[#2A2035]/30 focus:outline-none focus:border-[#BACBFF] w-full md:w-44 transition" />
+                <input type="text" placeholder="Search rows…" value={search} onChange={e => setSearch(e.target.value)} className="pl-7 pr-7 py-1.5 text-xs rounded-lg border border-[#E6ECF7] bg-[#F7F9FD] text-[#2A2035] placeholder-[#2A2035]/30 focus:outline-none focus:bg-white focus:border-[#BACBFF] w-full md:w-44 transition" />
                 {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#2A2035]/30 hover:text-[#2A2035]/60 text-xs">✕</button>}
               </div>
 
@@ -4488,7 +4487,7 @@ export default function DatabasePage() {
                   <button
                     type="button"
                     onClick={e => setTermPickerRect(termPickerRect ? null : e.currentTarget.getBoundingClientRect())}
-                    className={`flex items-center justify-between gap-1.5 border rounded-lg px-2 py-1.5 text-xs bg-white w-[150px] transition ${termPickerRect ? 'border-[#325099]' : 'border-[#DEE7FF] hover:border-[#BACBFF]'}`}
+                    className={`flex items-center justify-between gap-1.5 border rounded-lg px-2 py-1.5 text-xs bg-white w-[150px] transition ${termPickerRect ? 'border-[#325099]' : 'border-[#E6ECF7] hover:border-[#BACBFF]'}`}
                   >
                     <span className={`truncate ${dbTermFilter ? 'text-[#2A2035] font-semibold' : 'text-[#2A2035]/50'}`}>
                       {dbTermFilter ? (termLabel(allTerms.find(t => t.id === dbTermFilter)) || 'All terms') : 'All terms'}
@@ -4500,13 +4499,13 @@ export default function DatabasePage() {
 
               {/* Status tabs — enrolments only */}
               {selectedTable === T_ENROLMENTS && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['pending', 'Pending'], ['trial', 'Trial'], ['disenrol', 'Disenrolled'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setEnrolStatusTab(v)}
                       title={v === 'inactive' || v === 'pending' ? `Enrolments of students marked ${v}` : undefined}
-                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${enrolStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${enrolStatusTab === v ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}
                     >
                       {label}
                     </button>
@@ -4516,12 +4515,12 @@ export default function DatabasePage() {
 
               {/* Active / Inactive tabs — courses only */}
               {selectedTable === T_COURSES && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setCourseStatusTab(v)}
-                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${courseStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${courseStatusTab === v ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}
                     >
                       {label}
                     </button>
@@ -4531,12 +4530,12 @@ export default function DatabasePage() {
 
               {/* Active / Inactive tabs — classes only */}
               {selectedTable === T_CLASSES && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setClassStatusTab(v)}
-                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${classStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${classStatusTab === v ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}
                     >
                       {label}
                     </button>
@@ -4546,20 +4545,20 @@ export default function DatabasePage() {
 
               {/* Cards / Data toggle — tutors only */}
               {selectedTable === T_TUTORS && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
-                  <button onClick={() => setTutorViewMode('cards')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${tutorViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Tutors</button>
-                  <button onClick={() => setTutorViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${tutorViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                  <button onClick={() => setTutorViewMode('cards')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${tutorViewMode === 'cards' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>◧ Tutors</button>
+                  <button onClick={() => setTutorViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${tutorViewMode === 'data' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>⊞ Data</button>
                 </div>
               )}
 
               {/* Active / Inactive tabs — tutors only */}
               {selectedTable === T_TUTORS && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setTutorStatusTab(v)}
-                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${tutorStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${tutorStatusTab === v ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}
                     >
                       {label}
                     </button>
@@ -4569,12 +4568,12 @@ export default function DatabasePage() {
 
               {/* Status tabs — students only */}
               {selectedTable === T_STUDENTS && (
-                <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
                   {[['active', 'Active'], ['pending', 'Pending'], ['trial', 'Trial'], ['inactive', 'Inactive'], ['all', 'All']].map(([v, label], i) => (
                     <button
                       key={v}
                       onClick={() => setStudentStatusTab(v)}
-                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${i > 0 ? 'border-l border-[#DEE7FF]' : ''} ${studentStatusTab === v ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}
+                      className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${studentStatusTab === v ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}
                     >
                       {label}
                     </button>
@@ -4585,9 +4584,9 @@ export default function DatabasePage() {
               {selectedTable === 'lessons' ? (
                 <>
                   {/* Lessons / Level Tests tab toggle */}
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
-                    <button onClick={() => setLessonViewMode('lessons')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${lessonViewMode === 'lessons' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Lessons</button>
-                    <button onClick={() => { setLessonViewMode('level_tests'); setLessonClassFilter('') }} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${lessonViewMode === 'level_tests' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>📝 Level Tests</button>
+                  <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setLessonViewMode('lessons')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${lessonViewMode === 'lessons' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>⊞ Lessons</button>
+                    <button onClick={() => { setLessonViewMode('level_tests'); setLessonClassFilter('') }} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${lessonViewMode === 'level_tests' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>📝 Level Tests</button>
                   </div>
                   {lessonViewMode === 'lessons' && (
                   <select
@@ -4628,9 +4627,9 @@ export default function DatabasePage() {
               ) : selectedTable === T_STUDENTS ? (
                 <>
                   {/* Data / Cards toggle */}
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
-                    <button onClick={() => setStudentViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${studentViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
-                    <button onClick={() => setStudentViewMode('cards')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${studentViewMode === 'cards' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Directory</button>
+                  <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setStudentViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${studentViewMode === 'data' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>⊞ Data</button>
+                    <button onClick={() => setStudentViewMode('cards')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${studentViewMode === 'cards' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>◧ Directory</button>
                   </div>
                   {studentViewMode === 'cards' ? (
                     <button onClick={() => setShowAddStudentModal(true)} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
@@ -4644,9 +4643,9 @@ export default function DatabasePage() {
                 </>
               ) : selectedTable === T_DROPIN_SESSIONS ? (
                 <>
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
-                    <button onClick={() => setDropinViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${dropinViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
-                    <button onClick={() => setDropinViewMode('sessions')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${dropinViewMode === 'sessions' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Sessions</button>
+                  <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setDropinViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${dropinViewMode === 'data' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>⊞ Data</button>
+                    <button onClick={() => setDropinViewMode('sessions')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${dropinViewMode === 'sessions' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>◧ Sessions</button>
                   </div>
                   {dropinViewMode === 'sessions' ? (
                     <button onClick={() => setShowAddSession(true)} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition">
@@ -4674,9 +4673,9 @@ export default function DatabasePage() {
               ) : selectedTable === T_PARENTS ? (
                 <>
                   {/* Families / Data toggle */}
-                  <div className="flex items-center rounded-lg border border-[#DEE7FF] max-w-full overflow-x-auto md:overflow-hidden shrink-0">
-                    <button onClick={() => setGuardianViewMode('families')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition ${guardianViewMode === 'families' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>◧ Families</button>
-                    <button onClick={() => setGuardianViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition border-l border-[#DEE7FF] ${guardianViewMode === 'data' ? 'bg-[#325099] text-white' : 'text-[#325099] hover:bg-[#F0F4FF]'}`}>⊞ Data</button>
+                  <div className="flex items-center rounded-lg bg-[#F0F3FA] p-0.5 gap-0.5 max-w-full overflow-x-auto md:overflow-hidden shrink-0">
+                    <button onClick={() => setGuardianViewMode('families')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${guardianViewMode === 'families' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>◧ Families</button>
+                    <button onClick={() => setGuardianViewMode('data')} className={`shrink-0 whitespace-nowrap px-3 py-2 md:py-1.5 text-xs font-semibold transition rounded-md ${guardianViewMode === 'data' ? 'bg-white text-[#062E63] shadow-sm' : 'text-[#2A2035]/55 hover:text-[#062E63]'}`}>⊞ Data</button>
                   </div>
                   {guardianViewMode === 'data' && (
                     <button onClick={() => { setAddingRow(true); setNewRowData({}); setDeleteConfirm(null) }} disabled={loading || !!tableError} className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 bg-[#325099] text-white text-xs font-semibold rounded-lg hover:bg-[#062E63] transition disabled:opacity-40 disabled:cursor-not-allowed">
@@ -5300,7 +5299,7 @@ export default function DatabasePage() {
               <table className="text-xs border-separate border-spacing-0" style={{ tableLayout:'fixed', minWidth:'max-content' }}>
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-30 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] text-center text-[10px] font-bold text-[#325099]/40 select-none" style={{ width:42, minWidth:42, left:0 }}>#</th>
+                    <th className="sticky top-0 z-30 bg-[#FAFBFE] border-b border-r border-[#E6ECF7] text-center text-[10px] font-bold text-[#325099]/40 select-none" style={{ width:42, minWidth:42, left:0 }}>#</th>
 
                     {columnOrder.filter(visibleCol).map(col => {
                       const isPk          = col === pkCol
@@ -5325,14 +5324,14 @@ export default function DatabasePage() {
                           onDragEnd={!isColRenaming ? handleDragEnd : undefined}
                           onContextMenu={e => !isColRenaming && handleColContextMenu(e, col)}
                           onDoubleClick={() => !isColRenaming && !isPk && hideCol(col)}
-                          className={`sticky top-0 border-b-2 border-r border-[#DEE7FF] text-left select-none transition-colors ${
+                          className={`sticky top-0 border-b border-r border-[#E6ECF7] text-left select-none transition-colors ${
                             isStickyCol ? 'z-30' : 'z-20'
                           } ${
                             isColRenaming ? 'bg-[#EEF4FF] border-b-[#325099]'
                             : isDragTarget ? 'bg-[#BACBFF] border-l-2 border-l-[#325099]'
                             : isGuardian   ? 'bg-[#FEF9EC]'
                             : isName       ? 'bg-[#ECFDF5]'
-                            : 'bg-[#EEF1F8]'
+                            : 'bg-[#FAFBFE]'
                           }`}
                           style={{
                             width:w, minWidth:w, maxWidth:w,
@@ -5364,7 +5363,7 @@ export default function DatabasePage() {
                               {isName     && ((selectedTable === T_ENROLMENTS && col === 'class_name') || (selectedTable === T_CLASSES && col === COURSE_NAME_COL)
                                 ? <span className="text-[9px] text-emerald-600/70 shrink-0" title={selectedTable === T_CLASSES ? 'Editable — click a cell to pick a course' : 'Editable — click a cell to pick a class'}>▾</span>
                                 : <span className="text-[9px] text-emerald-600/70 shrink-0">🔗</span>)}
-                              <span className={`text-[10px] font-bold tracking-[0.06em] uppercase truncate flex-1 min-w-0 ${isName ? 'text-emerald-800' : 'text-[#062E63]'}`}>
+                              <span className={`text-[10px] font-semibold tracking-[0.08em] uppercase truncate flex-1 min-w-0 ${isName ? 'text-emerald-800/80' : 'text-[#2A2035]/60'}`}>
                                 {columnLabel(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col)}
                                 {isRequired(VIRTUAL[selectedTable]?.realTable ?? selectedTable, col) && <span className="text-rose-400 ml-0.5">*</span>}
                               </span>
@@ -5378,7 +5377,7 @@ export default function DatabasePage() {
 
                     {/* Enrolments column — classes table only */}
                     {selectedTable === 'classes' && (
-                      <th className="sticky top-0 z-20 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] select-none" style={{ width: 300, minWidth: 300 }}>
+                      <th className="sticky top-0 z-20 bg-[#FAFBFE] border-b border-r border-[#E6ECF7] select-none" style={{ width: 300, minWidth: 300 }}>
                         <div className="flex items-center gap-2 px-3 py-2.5">
                           <span className="text-[10px] font-bold text-[#062E63] tracking-[0.06em] uppercase">Students</span>
                           <span className="text-[9px] text-[#325099]/40 font-normal normal-case tracking-normal">enrolled</span>
@@ -5388,7 +5387,7 @@ export default function DatabasePage() {
 
                     {/* Siblings column — students table only */}
                     {selectedTable === 'students' && (
-                      <th className="sticky top-0 z-20 bg-[#EEF1F8] border-b-2 border-r border-[#DEE7FF] select-none" style={{ width: 260, minWidth: 260 }}>
+                      <th className="sticky top-0 z-20 bg-[#FAFBFE] border-b border-r border-[#E6ECF7] select-none" style={{ width: 260, minWidth: 260 }}>
                         <div className="flex items-center gap-2 px-3 py-2.5">
                           <span className="text-[10px] font-bold text-[#062E63] tracking-[0.06em] uppercase">Siblings</span>
                           <span className="text-[9px] text-[#325099]/40 font-normal normal-case tracking-normal">family group</span>
@@ -5396,7 +5395,7 @@ export default function DatabasePage() {
                       </th>
                     )}
 
-                    <th className="sticky top-0 z-20 bg-[#EEF1F8] border-b-2 border-[#DEE7FF]" style={{ width:56, minWidth:56 }} />
+                    <th className="sticky top-0 z-20 bg-[#FAFBFE] border-b border-[#E6ECF7]" style={{ width:56, minWidth:56 }} />
                   </tr>
                 </thead>
 
@@ -5438,11 +5437,11 @@ export default function DatabasePage() {
                   {filteredRows.map((row, ri) => {
                     const rowId     = pkCol ? row[pkCol] : ri
                     const isConfirm = deleteConfirm === rowId
-                    const rowBg     = ri % 2 === 0 ? 'bg-white' : 'bg-[#FAFBFF]'
+                    const rowBg     = 'bg-white'
 
                     return (
-                      <tr key={String(rowId)} className={`group ${rowBg} hover:bg-[#F0F4FF] transition-colors`}>
-                        <td className="border-b border-r border-[#E8EDF8] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: ri % 2 === 0 ? '#ffffff' : '#F9FAFB' }}>
+                      <tr key={String(rowId)} className={`group ${rowBg} hover:bg-[#F7F9FD] transition-colors`}>
+                        <td className="border-b border-r border-[#EEF2F9] px-2 py-1.5 text-center text-[#2A2035]/25 font-mono text-[10px] select-none" style={{ width:42, position:'sticky', left:0, zIndex:2, background: '#ffffff' }}>
                           {selectedTable === T_LESSONS ? (
                             <button
                               title="Open lesson details"
@@ -5498,7 +5497,7 @@ export default function DatabasePage() {
                           }
 
                           return (
-                            <td key={col} className={`border-b border-r border-[#E8EDF8] p-0 ${!isStickyCol && isPk ? 'bg-[#F8FAFF]/60' : !isStickyCol && isGuardian ? 'bg-[#FFFBEB]/40' : !isStickyCol && isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w, ...(isStickyCol ? { position:'sticky', left: stickyLeft, zIndex: 2, background: stickyBg, boxShadow: col === 'full_name' ? '2px 0 4px -1px rgba(0,0,0,0.06)' : 'none' } : {}) }} onClick={e => !isPk && !isName && handleCellClick(rowId, col, val, e.currentTarget.getBoundingClientRect())}>
+                            <td key={col} className={`border-b border-r border-[#EEF2F9] p-0 ${!isStickyCol && isPk ? 'bg-[#F8FAFF]/60' : !isStickyCol && isGuardian ? 'bg-[#FFFBEB]/40' : !isStickyCol && isName ? 'bg-[#F0FDF4]/60' : ''}`} style={{ width:w, maxWidth:w, ...(isStickyCol ? { position:'sticky', left: stickyLeft, zIndex: 2, background: stickyBg, boxShadow: col === 'full_name' ? '2px 0 4px -1px rgba(0,0,0,0.06)' : 'none' } : {}) }} onClick={e => !isPk && !isName && handleCellClick(rowId, col, val, e.currentTarget.getBoundingClientRect())}>
                               {selectedTable === T_ENROLMENTS && col === 'class_name' ? (
                                 // Editable class selector — opens a searchable popover picker;
                                 // reassigns class_id, price follows the new class's course price.
@@ -5788,7 +5787,7 @@ export default function DatabasePage() {
 
                         {/* Enrolments cell — classes table only */}
                         {selectedTable === 'classes' && (
-                          <td className="border-b border-r border-[#E8EDF8] p-0 align-top" style={{ width: 300, minWidth: 300 }}>
+                          <td className="border-b border-r border-[#EEF2F9] p-0 align-top" style={{ width: 300, minWidth: 300 }}>
                             <div className="px-2 py-1.5 flex flex-wrap gap-1 items-center min-h-[34px]">
                               {(enrolmentMap[rowId] || []).map(s => (
                                 <span key={s.id} className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-[#DEE7FF] text-[#062E63] px-2 py-0.5 rounded-full whitespace-nowrap">
@@ -5815,7 +5814,7 @@ export default function DatabasePage() {
 
                         {/* Siblings cell — students table only */}
                         {selectedTable === 'students' && (
-                          <td className="border-b border-r border-[#E8EDF8] p-0 align-top" style={{ width: 260, minWidth: 260 }}>
+                          <td className="border-b border-r border-[#EEF2F9] p-0 align-top" style={{ width: 260, minWidth: 260 }}>
                             <div className="px-2 py-1.5 flex flex-wrap gap-1 items-center min-h-[34px]">
                               {(siblingMap[rowId] || []).map(s => (
                                 <span key={s.id} className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] px-2 py-0.5 rounded-full whitespace-nowrap">
@@ -5842,7 +5841,7 @@ export default function DatabasePage() {
 
                         {/* Cancel button — lessons only */}
                         {selectedTable === T_LESSONS && (
-                          <td className="border-b border-r border-[#E8EDF8] px-1 py-1" style={{ width: 70 }}>
+                          <td className="border-b border-r border-[#EEF2F9] px-1 py-1" style={{ width: 70 }}>
                             {(lessonCancellations[rowId] || []).length > 0 ? (
                               <div className="flex flex-col gap-0.5">
                                 {(lessonCancellations[rowId] || []).map(c => (
