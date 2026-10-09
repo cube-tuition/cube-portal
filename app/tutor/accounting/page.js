@@ -5,11 +5,14 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { fetchAllTerms, getEnrolmentTerm, formatTermLabel } from '../../../lib/terms'
+import { fetchAllTerms, getEnrolmentTerm, formatTermLabel, isHolidayTerm } from '../../../lib/terms'
 import { DUE_DATES, daysUntil } from '../../../lib/complianceDates'
 import { projectedTeacherPay, LESSONS_PER_TERM } from '../../../lib/teacherCost'
 import { CASH_RETAINERS, RETAINERS_FROM, fortnightlyRetainerFor } from '../../../lib/cashRetainers'
 import { loadDirectorBalances, balancesByStaff, ledgerFor, addLedgerEntry, deleteLedgerEntry } from '../../../lib/directorBalances'
+import { classesAllTerms } from '../../../lib/classes'
+import { financeByTerm } from '../../../lib/termFinance'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 
 /*
  * Accounting Dashboard — /tutor/accounting
@@ -142,6 +145,8 @@ export default function AccountingDashboard() {
   // What each director owes CUBE (director_balances ledger) — shown against their overdue pay.
   const [ledger, setLedger] = useState([])
   const [directors, setDirectors] = useState([])
+  // Revenue + profit per term, the same model as the Forecast (lib/termFinance).
+  const [termFinance, setTermFinance] = useState([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -150,9 +155,9 @@ export default function AccountingDashboard() {
     const cur = getEnrolmentTerm(allTerms)
     setTerm(cur)
 
-    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes, unpaidRes, allRunsRes, cashPaidRes, ledgerRows] = await Promise.all([
+    const [invRes, shiftsRes, runsRes, cashRes, cashTermRes, enrolRes, studRes, guardRes, doneRes, dirRes, classesRes, tutorsRes, ratesRes, coursesRes, unpaidRes, allRunsRes, cashPaidRes, ledgerRows, allClassesRes, fixedCostsRes] = await Promise.all([
       supabase.from('invoices')
-        .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status, payment_method')
+        .select('id, invoice_number, family_id, student_id, status, delivery_status, payment_status, due_date, total, term_id, created_at, xero_invoice_id, xero_status, payment_method, line_items')
         .neq('status', 'voided'),
       supabase.from('shifts').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
       supabase.from('pay_runs').select('*').order('period_end', { ascending: false }).limit(4),
@@ -174,6 +179,13 @@ export default function AccountingDashboard() {
       // as owed forever.
       supabase.from('cash_pay_status').select('pay_run_id, tutor_id, amount'),
       loadDirectorBalances(),
+      // Every term's classes, for the revenue/profit-by-term chart — keyed by
+      // term_id there, so the cross-term fetch is deliberate. Same class filter
+      // as the Forecast: finished (inactive) classes aren't costed.
+      classesAllTerms(`id, class_name, course_id, teacher, day_of_week, start_time, end_time, term_id,
+          courses(course_price), enrolments(id, student_id, price, status, students(full_name))`)
+        .or('status.eq.active,status.is.null'),
+      supabase.from('fixed_costs').select('amount, frequency'),
     ])
     setLedger(ledgerRows || [])
     setDirectors(dirRes.data || [])
@@ -206,6 +218,14 @@ export default function AccountingDashboard() {
     setCashInvoices(cashInvs)
     // Termly cash expenses — projected full-term pay for cash-paid teachers.
     const courseModes = Object.fromEntries((coursesRes.data || []).map(c => [c.id, c.delivery_mode]))
+    // School terms only: fixed costs are a year's worth split four ways, so a
+    // holiday period charged a full share reads as a large phantom loss.
+    setTermFinance(financeByTerm({
+      terms: allTerms.filter(t => !isHolidayTerm(t)), classes: allClassesRes.data || [], invoices: invRes.data || [],
+      fixedCosts: fixedCostsRes.data || [],
+      tutors: [...(tutorsRes.data || []), ...(dirRes.data || [])],
+      rateMatrix: ratesRes.data || [], courseModes,
+    }))
     // Teachers = tutors + directors (both can be paid in cash).
     setCashTeacherPay(projectedTeacherPay(classesRes.data || [], {
       tutors: [...(tutorsRes.data || []), ...(dirRes.data || [])],
@@ -618,6 +638,33 @@ export default function AccountingDashboard() {
           )
         })()}
 
+        {/* Revenue and profit by term — line graph */}
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-1">
+            <p className="text-xs font-bold text-[#062E63]">📈 Revenue &amp; profit by term</p>
+            <Link href="/tutor/accounting/forecast" className="text-[11px] font-semibold text-[#325099] hover:underline">Full forecast →</Link>
+          </div>
+          <p className="text-[11px] text-[#325099]/50 mb-4">
+            Revenue = active-enrolment income. Profit = the Forecast&apos;s total profit (after GST and discounts, before tax). School terms only. Past terms use today&apos;s pay rates and fixed costs.
+          </p>
+          {termFinance.length === 0 ? (
+            <p className="text-xs text-[#2A2035]/40 py-8 text-center">{loading ? 'Loading…' : 'No terms with enrolments yet.'}</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={termFinance} margin={{ top: 6, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#DEE7FF" />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6B7280' }} stroke="#DEE7FF" />
+                <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} stroke="#DEE7FF" width={44} tickFormatter={v => `$${Math.round(v / 1000)}k`} />
+                <Tooltip formatter={(v, n) => [`${v < 0 ? '−' : ''}${fmtMoney(v)}`, n]}
+                  contentStyle={{ borderRadius: 12, border: '1px solid #DEE7FF', background: '#fff', fontSize: 12 }} />
+                <Legend iconType="plainline" wrapperStyle={{ fontSize: 11 }} />
+                <ReferenceLine y={0} stroke="#C9D3EA" />
+                <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#062E63" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="profit" name="Profit" stroke="#047857" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
 
         {/* Compliance calendar — full list (replaces the old Due Dates page) */}
         <Panel icon="📆" title="Compliance calendar" badge={`${DUE_DATES.filter(d => !complianceDone[d.label] && daysUntil(d.due) >= 0).length} upcoming`} badgeCls={SEV.blue.chip}>

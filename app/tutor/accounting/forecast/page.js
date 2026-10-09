@@ -7,14 +7,13 @@ import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
 import { getCurrentTerm, normaliseTerms } from '@/lib/terms'
 import { classesForTerm } from '@/lib/classes'
-import { isOneToOneClass } from '@/lib/classFormat'
-import { LESSONS_PER_TERM, SUPER_RATE, lessonHoursFromClass, rateForClass } from '@/lib/teacherCost'
+import { TAX_RATE, cashStudentIdsFrom, classMetricsFor, termSummary } from '@/lib/termFinance'
+import { SUPER_RATE } from '@/lib/teacherCost'
 import {
   ComposedChart, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, LabelList,
 } from 'recharts'
 
-const TAX_RATE   = 0.25   // 25% company tax
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 // Lesson hours, year bands, hourly rates and super all come from lib/teacherCost,
@@ -33,44 +32,6 @@ function sortByYear(rows) {
 function fmt(n) { return `$${Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 function fmtN(n) { return Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
-/*
- * Every reduction actually applied to a term's invoices: sibling and multi-course
- * discounts, the 10% cash discount, referral rewards, absence credits and manual
- * adjustments. Income here is projected from enrolment prices, so anything an
- * invoice knocks off has to be subtracted or the forecast counts money that will
- * never arrive.
- *
- * Line items are the source of truth. The sibling_discount / multi_course_discount
- * columns duplicate a subset of them and go stale when an invoice is regenerated
- * (live data has invoices whose column says $100 while the line items — which
- * reconcile to invoice.total — say nothing), so reading both would double-count.
- * Anything that is not an enrolment line and carries a negative amount counts,
- * which means new reduction types are picked up without touching this.
- */
-function invoiceReductions(invoices = []) {
-  const r = { sibling: 0, multiCourse: 0, cash: 0, referral: 0, creditsOther: 0 }
-  for (const inv of invoices) {
-    for (const l of inv.line_items || []) {
-      if (l.type === 'enrolment') continue
-      const amt = -Number(l.amount || 0)          // reductions are stored negative
-      if (!amt) continue
-      const reason = l.reason || ''
-      if (l.type === 'discount' && l.cash) r.cash += amt
-      else if (l.type === 'discount' && /sibling/i.test(reason)) r.sibling += amt
-      else if (l.type === 'discount' && /multi[- ]?course/i.test(reason)) r.multiCourse += amt
-      // Referrals are discounts (revenue forgone); credits are money owed back
-      // for absences. They post to different Xero accounts, so count them apart.
-      else if (/referral/i.test(reason)) r.referral += amt
-      else r.creditsOther += amt
-    }
-  }
-  // The forecast assumes full attendance, so credits and adjustments — absence
-  // make-goods, balance transfers, one-off goodwill — are deliberately NOT in
-  // the total the projection subtracts. Pricing discounts are; they apply
-  // regardless of attendance. creditsOther is kept for display only.
-  r.total = r.sibling + r.multiCourse + r.cash + r.referral
-  return r
-}
 
 // ── Waterfall chart ───────────────────────────────────────────────────────────
 function WaterfallChart({ s }) {
@@ -481,139 +442,20 @@ export default function ForecastPage() {
 
   useEffect(() => { loadTerm() }, [loadTerm])
 
-  // ── Rate lookup helper ───────────────────────────────────────────────────────
-  const getRateForClass = useCallback(
-    (cls) => rateForClass(cls, { tutors, rateMatrix, courseModes }),
-    [tutors, rateMatrix, courseModes]
-  )
-
   // ── Cash-paying students ─────────────────────────────────────────────────────
   // Cash income is treated as GST-exempt across this page — deliberately, to show
   // the potential value of taking payment in cash. Bank income attracts GST
   // (÷ 1.1). Which families pay cash comes from the invoice payment_method.
-  const cashStudentIds = useMemo(() => new Set(
-    invoices
-      .filter(i => i.payment_method === 'cash')
-      .flatMap(i => {
-        if (i.student_id) return [i.student_id]
-        return (i.line_items || []).filter(l => l.type === 'enrolment').map(l => l.student_id)
-      })
-      .filter(Boolean)
-  ), [invoices])
+  const cashStudentIds = useMemo(() => cashStudentIdsFrom(invoices), [invoices])
 
   // ── Compute class-level metrics ──────────────────────────────────────────────
-  const classMetrics = useMemo(() => {
-    return classes.map(cls => {
-      const activeEnrols = (cls.enrolments || []).filter(e => e.status === 'active')
-      const studentCount = activeEnrols.length
-      const termFee      = studentCount > 0
-        ? activeEnrols.reduce((s, e) => s + Number(e.price || 0), 0) / studentCount
-        : 0
-      const termIncome   = activeEnrols.reduce((s, e) => s + Number(e.price || 0), 0)
-      // How much of this class's income comes from cash-paying families. The Play
-      // tab carries the share so a hypothetical scenario applies GST the same way.
-      const cashIncome   = activeEnrols.reduce((s, e) => s + (cashStudentIds.has(e.student_id) ? Number(e.price || 0) : 0), 0)
-      const cashShare    = termIncome > 0 ? cashIncome / termIncome : 0
-      const lessonHrs    = lessonHoursFromClass(cls)
-      const lessonCount  = LESSONS_PER_TERM
-      const { rate, tutor } = getRateForClass(cls) || {}
-      const weeklyTeacherFee  = rate ? lessonHrs * rate : 0
-      const termlyTeacherFee  = weeklyTeacherFee * lessonCount
-      const superApplies      = tutor?.pay_method !== 'cash'
-      const superAmount       = superApplies ? termlyTeacherFee * SUPER_RATE : 0
-      const totalTeacherCost  = termlyTeacherFee + superAmount
-      const termProfit        = termIncome - totalTeacherCost
-
-      // Trials are not income yet — they stay out of termIncome — but a class
-      // whose only students are on trial isn't loss-making, it's undecided.
-      // trialIncome is what it brings in if they convert (their enrolment price,
-      // else the course price, as an invoice would bill it).
-      const trialEnrols = (cls.enrolments || []).filter(e => e.status === 'trial')
-      const trialIncome = trialEnrols.reduce((s, e) =>
-        s + ((e.price != null ? Number(e.price) : Number(cls.courses?.course_price)) || 0), 0)
-      const trialOnly   = studentCount === 0 && trialEnrols.length > 0
-      const trialNames  = trialEnrols.map(e => (e.students?.full_name || '').split(' ')[0]).filter(Boolean)
-
-      const oneOnOne = isOneToOneClass(cls, courseModes)
-      const studentName = oneOnOne && activeEnrols.length === 1
-        ? activeEnrols[0].students?.full_name || null
-        : null
-
-      return {
-        ...cls,
-        studentCount, termFee, termIncome, cashIncome, cashShare, lessonHrs, lessonCount,
-        teacherRate: rate, teacherName: cls.teacher,
-        tutorId: tutor?.id ?? null, tutorName: tutor?.full_name ?? null,
-        weeklyTeacherFee, termlyTeacherFee, superApplies, superAmount,
-        totalTeacherCost, termProfit,
-        is1on1: oneOnOne, studentName,
-        trialCount: trialEnrols.length, trialIncome, trialOnly, trialNames,
-        studentId: oneOnOne && activeEnrols.length === 1 ? activeEnrols[0].student_id : null,
-      }
-    }).map((c, _i, all) => ({ ...c, label: classLabel(c, all) }))
-  }, [classes, getRateForClass, courseModes, cashStudentIds])
+  const classMetrics = useMemo(() =>
+    classMetricsFor(classes, { tutors, rateMatrix, courseModes, cashStudentIds })
+      .map((c, _i, all) => ({ ...c, label: classLabel(c, all) })),
+  [classes, tutors, rateMatrix, courseModes, cashStudentIds])
 
   // ── Compute summary totals ───────────────────────────────────────────────────
-  const summary = useMemo(() => {
-    const grouped  = classMetrics.filter(c => !c.is1on1)
-    const oneOnOne = classMetrics.filter(c => c.is1on1)
-
-    const classIncome   = grouped.reduce((s, c) => s + c.termIncome, 0)
-    const oneOnOneIncome = oneOnOne.reduce((s, c) => s + c.termIncome, 0)
-    const totalIncome   = classIncome + oneOnOneIncome
-
-    // Cash is GST-exempt, bank attracts GST (÷ 1.1). Per-class cash income comes
-    // from classMetrics, which uses enrolment prices — the same source as
-    // totalIncome — so afterGst can never exceed it.
-    const cashEnrolIncome = classMetrics.reduce((s, c) => s + c.cashIncome, 0)
-    const bankEnrolIncome = totalIncome - cashEnrolIncome
-    const afterGst = cashEnrolIncome + bankEnrolIncome / 1.1
-
-    const classTeacherCost   = grouped.reduce((s, c) => s + c.totalTeacherCost, 0)
-    const oneOnOneTeacherCost = oneOnOne.reduce((s, c) => s + c.totalTeacherCost, 0)
-
-    // Fixed costs annualised to term — paid from the bank account.
-    const fixedTermly = fixedCosts.reduce((s, fc) => {
-      const amt = Number(fc.amount || 0)
-      return s + (fc.frequency === 'monthly' ? amt * 3 : amt / 4)
-    }, 0)
-    const totalExpenses = classTeacherCost + oneOnOneTeacherCost + fixedTermly
-
-    const reductions         = invoiceReductions(invoices)
-    const siblingDiscount    = reductions.sibling
-    const multiCourseDiscount = reductions.multiCourse
-    const cashDiscount       = reductions.cash
-    const referralDiscount   = reductions.referral
-    const creditsOther       = reductions.creditsOther
-    const totalDiscount      = reductions.total
-
-    const classProfit    = classIncome - classTeacherCost
-    const oneOnOneProfit = oneOnOneIncome - oneOnOneTeacherCost
-
-    // Hypothetical split: cash income is modelled as untaxed, bank income taxed at
-    // the company rate — the same "what is cash potentially worth" framing as the
-    // GST treatment above. (Company tax is really payable on profit however it is
-    // collected; this is a projection, not a tax position.)
-    //
-    // Costs are apportioned by each side's share of GROSS income, because a
-    // cash-paying student consumes the same teaching as a bank-paying one on the
-    // same fee. Splitting them by tutor pay method — as this once did — compares
-    // two unrelated facts and makes the cash side look ruinous.
-    const totalCosts   = totalExpenses + totalDiscount
-    const cashShareOfIncome = totalIncome > 0 ? cashEnrolIncome / totalIncome : 0
-    const cashProfit   = cashEnrolIncome - totalCosts * cashShareOfIncome
-    const bankProfit   = bankEnrolIncome / 1.1 - totalCosts * (1 - cashShareOfIncome)
-    const totalProfit  = cashProfit + bankProfit
-    // Only the bank side is taxed, and a loss on it pays no tax.
-    const afterTax     = totalProfit - Math.max(0, bankProfit) * TAX_RATE
-
-    return {
-      classIncome, oneOnOneIncome, totalIncome, afterGst,
-      classTeacherCost, oneOnOneTeacherCost, fixedTermly, totalExpenses,
-      siblingDiscount, multiCourseDiscount, cashDiscount, referralDiscount, creditsOther, totalDiscount,
-      classProfit, oneOnOneProfit, cashProfit, bankProfit, totalProfit, afterTax,
-    }
-  }, [classMetrics, fixedCosts, invoices])
+  const summary = useMemo(() => termSummary(classMetrics, fixedCosts, invoices), [classMetrics, fixedCosts, invoices])
 
   // ── Actual outflows for the term (cash log → expense analysis) ──────────────
   const [termOutflows, setTermOutflows] = useState([])
@@ -983,27 +825,8 @@ export default function ForecastPage() {
               )}
             </div>
 
-            {/* Charts row: trend + waterfall */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-              <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
-                <h3 className="text-xs font-bold text-[#062E63] mb-1">Revenue by term</h3>
-                <p className="text-[11px] text-[#325099]/50 mb-4">Active-enrolment income per term · current term highlighted</p>
-                {trend.rows.length === 0 ? (
-                  <p className="text-xs text-[#2A2035]/40 py-8 text-center">No historical terms yet.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={trend.rows}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#DEE7FF" />
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6B7280' }} stroke="#DEE7FF" />
-                      <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} stroke="#DEE7FF" tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(v) => fmt(v)} contentStyle={{ borderRadius: 12, border: '1px solid #DEE7FF', background: '#fff', fontSize: 12 }} />
-                      <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
-                        {trend.rows.map((r, i) => <Cell key={i} fill={r.current ? '#062E63' : '#BACBFF'} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+            {/* Waterfall (revenue & profit by term lives on the accounting dashboard) */}
+            <div>
               <div className="bg-white border border-[#DEE7FF] rounded-2xl p-4 md:p-5">
                 <h3 className="text-xs font-bold text-[#062E63] mb-1">Where the money goes</h3>
                 <p className="text-[11px] text-[#325099]/50 mb-4">Income → costs → profit waterfall for this term</p>
