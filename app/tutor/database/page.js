@@ -5496,10 +5496,10 @@ export default function DatabasePage() {
                           const isStickyCol = stickyLeft !== undefined
 
                           // Sticky cells must have a fully opaque background so scrolled columns
-                          // don't bleed through. Use the same even/odd row colours as the row bg.
-                          const baseBg = ri % 2 === 0 ? '#ffffff' : '#F9FAFB'
-                          const stickyBg = isPk ? (ri % 2 === 0 ? '#F4F7FF' : '#EFF3FF')
-                                         : isName ? (ri % 2 === 0 ? '#F0FDF4' : '#E8FAF0')
+                          // don't bleed through. The vars let dark mode (dark.css) recolour them.
+                          const baseBg = 'var(--db-surface, #ffffff)'
+                          const stickyBg = isPk ? 'var(--db-surface-pk, #F4F7FF)'
+                                         : isName ? 'var(--db-surface-name, #F0FDF4)'
                                          : baseBg
 
                           // Derive week from lesson_date when the stored week is blank
