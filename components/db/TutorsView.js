@@ -25,6 +25,17 @@ const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: '
 const BAND_LABEL = { '1-6': 'Y1–6', '7-8': 'Y7–8', '9-10': 'Y9–10', '11-12': 'Y11–12', other: 'Other' }
 const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString('en-AU')}`
 const money2 = (v) => `$${(Number(v) || 0).toFixed(2)}`
+/** "2.5 yrs" / "8 mo" since a start date; '' when none. */
+const tenure = (iso) => {
+  if (!iso) return ''
+  const start = new Date(iso), now = new Date()
+  const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) - (now.getDate() < start.getDate() ? 1 : 0)
+  if (months < 0) return 'starts soon'
+  if (months < 12) return `${months} mo`
+  const yrs = Math.floor(months / 6) / 2   // half-year steps: 1, 1.5, 2 …
+  return `${yrs} yr${yrs === 1 ? '' : 's'}`
+}
+const sinceLabel = (iso) => iso ? new Date(iso).toLocaleDateString('en-AU', { month: 'short', year: 'numeric' }) : ''
 
 export default function TutorsView({ statusTab = 'active' }) {
   const [loading, setLoading] = useState(true)
@@ -45,8 +56,8 @@ export default function TutorsView({ statusTab = 'active' }) {
     ;(async () => {
       try {
         const [t, d, r, c, allTerms] = await Promise.all([
-          supabase.from('tutors').select('id, full_name, email, phone, university, pay_method, active, tutor_code, system'),
-          supabase.from('directors').select('id, full_name, email, pay_method'),
+          supabase.from('tutors').select('id, full_name, email, phone, university, pay_method, active, tutor_code, system, started_on'),
+          supabase.from('directors').select('id, full_name, email, phone, pay_method, started_on'),
           supabase.from('current_tutor_rates').select('tutor_id, year_band, mode, hourly_rate'),
           supabase.from('courses').select('id, delivery_mode'),
           fetchAllTerms(),
@@ -132,6 +143,11 @@ export default function TutorsView({ statusTab = 'active' }) {
   const selClasses = sel ? (byTutor[sel.id] || []) : []
   const selTotals = sel ? totalsFor(sel.id) : null
   const selRates = sel ? rateMatrix.filter(r => r.tutor_id === sel.id) : []
+  const setStartedOn = async (person, value) => {
+    setStaff(list => list.map(x => (x.id === person.id ? { ...x, started_on: value } : x)))
+    const { error } = await supabase.from(person.staff_table).update({ started_on: value }).eq('id', person.id)
+    if (error) alert(`Could not save start date: ${error.message}`)
+  }
   const bands = ['1-6', '7-8', '9-10', '11-12', 'other']
 
   return (
@@ -162,6 +178,7 @@ export default function TutorsView({ statusTab = 'active' }) {
                   {s.staff_table === 'directors' && <span className="text-[9px] font-semibold bg-[#EDE9FE] text-[#5B21B6] px-1.5 py-0.5 rounded-full shrink-0">Director</span>}
                   {s.active === false && <span className="text-[9px] font-semibold bg-gray-100 text-gray-500 border border-gray-200 px-1.5 py-0.5 rounded-full shrink-0">inactive</span>}
                   {s.pay_method === 'cash' && <span className="text-[9px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-full shrink-0">💵 cash</span>}
+                  {s.started_on && <span className="ml-auto text-[10px] font-semibold text-[#2A2035]/50 shrink-0" title={`With CUBE since ${sinceLabel(s.started_on)}`}>{tenure(s.started_on)} with CUBE</span>}
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {t.classes === 0 ? (
@@ -202,6 +219,11 @@ export default function TutorsView({ statusTab = 'active' }) {
                     {sel.phone && <a href={`tel:${sel.phone}`} className="text-[#325099] hover:underline">☎ {sel.phone}</a>}
                     {sel.university && <span className="text-[#2A2035]/55">🎓 {sel.university}</span>}
                     <span className="text-[#2A2035]/55">{sel.pay_method === 'cash' ? '💵 Paid in cash (no super)' : '🏦 Paid by bank (+ super)'}</span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2 text-[11px] text-[#2A2035]/55">
+                    <span>📅 {sel.started_on ? <>With CUBE since <span className="font-semibold text-[#2A2035]">{sinceLabel(sel.started_on)}</span> · {tenure(sel.started_on)}</> : <span className="italic">Start date not recorded</span>}</span>
+                    <input type="date" value={sel.started_on || ''} onChange={e => setStartedOn(sel, e.target.value || null)}
+                      className="ml-auto border border-[#DEE7FF] rounded-lg px-2 py-0.5 text-[11px] text-[#2A2035] focus:outline-none focus:border-[#325099]" title="Set their first day with CUBE" />
                   </div>
                 </div>
               </section>
