@@ -163,7 +163,6 @@ export default function TutorsView({ statusTab = 'active' }) {
                   {s.staff_table === 'directors' && <span className="text-[9px] font-semibold bg-[#EDE9FE] text-[#5B21B6] px-1.5 py-0.5 rounded-full shrink-0">Director</span>}
                   {s.active === false && <span className="text-[9px] font-semibold bg-gray-100 text-gray-500 border border-gray-200 px-1.5 py-0.5 rounded-full shrink-0">inactive</span>}
                   {s.pay_method === 'cash' && <span className="text-[9px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-full shrink-0">💵 cash</span>}
-                  {t.classes > 0 && <span className="ml-auto text-xs font-bold text-[#062E63] tabular-nums shrink-0">{money(t.pay + t.superAmt)}</span>}
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {t.classes === 0 ? (
