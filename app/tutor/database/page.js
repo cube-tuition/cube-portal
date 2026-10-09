@@ -21,6 +21,7 @@ import LinkedRecordBadge from '../../../components/db/LinkedRecordBadge'
 import LevelTestsView from '../../../components/db/LevelTestsView'
 import LinkedRecordPicker from '../../../components/db/LinkedRecordPicker'
 import RecordDetailPanel from '../../../components/db/RecordDetailPanel'
+import LastConversation from '../../../components/db/LastConversation'
 
 /*
  * Admin-only: Database Explorer — /tutor/database
@@ -990,12 +991,10 @@ function FamiliesView() {
                   </p>
                 </div>
               </section>
-              {/* Last conversation — placeholder */}
+              {/* Last conversation — the family's text thread on the office number */}
               <section>
                 <p className="text-[10px] tracking-[0.2em] uppercase text-[#325099] font-semibold mb-2">Last Conversation</p>
-                <div className="bg-white rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 text-[11px] text-[#2A2035]/40 italic">
-                  Coming soon — communication tracking hasn&rsquo;t been wired up yet. This panel will show the most recent email/call with this family.
-                </div>
+                <LastConversation key={sel.key} people={[sel.head, ...sel.otherGuardians].filter(Boolean).map(g => ({ name: g.full_name, phone: g.phone }))} />
               </section>
               {/* Invoices */}
               <section>
