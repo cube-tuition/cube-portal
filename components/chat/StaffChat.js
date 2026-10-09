@@ -448,9 +448,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   if (!me) return null
 
   const pinnedSet = new Set(pins)
-  const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && inProfile(c))
+  const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && c.kind === 'channel' && inProfile(c))
   const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id))
-  const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && inProfile(c) && !pinnedSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
+  const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && inProfile(c)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
   const Row = ({ c }) => (
     <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
       <button onClick={() => selectChannel(c.id)} className={`flex-1 min-w-0 text-left pl-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'text-[#062E63] font-semibold' : 'text-[#2A2035]/80'}`}>
@@ -464,7 +464,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         {(c.muted || c.quiet) && <span className="text-[10px] opacity-50" title={c.quiet ? 'Quiet channel — only @mentions notify anyone' : 'Muted — only @mentions notify you'}>🔕</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
       </button>
-      {c.mine && (
+      {c.mine && c.kind === 'channel' && (
         <button onClick={() => togglePin(c.id)} title={pinnedSet.has(c.id) ? 'Unpin' : 'Pin'}
           className={`text-[11px] px-2 py-2 md:px-1 md:py-0 ${pinnedSet.has(c.id) ? 'opacity-70' : 'opacity-40 md:opacity-0 md:group-hover:opacity-60'} hover:!opacity-100`}>📌</button>
       )}
@@ -674,7 +674,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
                         <div className="absolute right-0 top-full mt-1 z-40 w-56 bg-white border border-[#DEE7FF] rounded-2xl shadow-xl py-1.5 text-sm">
                           {[
-                            { label: pins.includes(current.id) ? '📌 Unpin' : '📌 Pin to top', run: () => togglePin(current.id) },
+                            ...(current.kind === 'channel' ? [{ label: pins.includes(current.id) ? '📌 Unpin' : '📌 Pin to top', run: () => togglePin(current.id) }] : []),
                             { label: current.muted ? '🔔 Unmute notifications' : '🔕 Mute notifications', run: () => toggleMute(current) },
                             ...(current.kind === 'channel' ? [{ label: `👥 Members · ${current.members.length}`, run: () => setMembersOpen(o => !o) }] : []),
                             ...(current.kind === 'channel' && me.isAdmin ? [{ label: current.directors_only ? '📣 Let everyone post' : '📣 Only directors post', run: () => toggleAnnounce(current) }] : []),
