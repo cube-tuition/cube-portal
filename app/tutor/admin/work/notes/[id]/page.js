@@ -33,6 +33,7 @@ const TOOLS = [
   { sep: true },
   { cmd: 'insertUnorderedList', label: '• list',  title: 'Bullet list' },
   { cmd: 'insertOrderedList',   label: '1. list', title: 'Numbered list' },
+  { cmd: 'checklist',           label: '☐ checklist', title: 'Checklist — click a box to tick it' },
 ]
 
 const tbtn = 'px-2.5 py-1 rounded-lg text-xs font-semibold text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F0F4FF] transition select-none'
@@ -166,7 +167,53 @@ export default function WorkNotePage() {
     document.execCommand('insertHTML', false, insert)
     onInput()
   }
-  const exec = (cmd, arg) => { edRef.current?.focus(); document.execCommand(cmd, false, arg); onInput() }
+  // ── Checklists: a <ul class="checklist">, each ticked item <li class="done">.
+  const listAtCaret = () => {
+    const sel = window.getSelection()
+    let n = sel?.anchorNode
+    while (n && n !== edRef.current) { if (n.nodeName === 'UL' || n.nodeName === 'OL') return n; n = n.parentNode }
+    return null
+  }
+  // The toolbar button turns the current line(s) into a checklist, or a
+  // checklist back into plain text — the same toggle the list buttons give.
+  const toggleChecklist = () => {
+    edRef.current?.focus()
+    const cur = listAtCaret()
+    if (cur?.classList.contains('checklist')) {
+      document.execCommand('insertUnorderedList')            // out of the list
+    } else {
+      if (!cur || cur.nodeName !== 'UL') document.execCommand('insertUnorderedList')
+      const ul = listAtCaret()
+      if (ul) { ul.className = 'checklist'; for (const li of ul.children) li.classList.remove('done') }
+    }
+    onInput()
+  }
+  const exec = (cmd, arg) => {
+    if (cmd === 'checklist') return toggleChecklist()
+    edRef.current?.focus(); document.execCommand(cmd, false, arg); onInput()
+  }
+  // Clicking the box (the item's left gutter) ticks or unticks it; clicking the
+  // words just places the caret, as usual.
+  const onEditorMouseDown = (e) => {
+    const li = e.target.closest?.('ul.checklist > li')
+    if (!li || !edRef.current?.contains(li)) return
+    if (e.clientX - li.getBoundingClientRect().left > 24) return
+    e.preventDefault()
+    li.classList.toggle('done')
+    onInput()
+  }
+  // Enter on a ticked item starts an unticked one (browsers copy the class
+  // onto the new item when they split it).
+  const onEditorKeyDown = (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return
+    setTimeout(() => {
+      let n = window.getSelection()?.anchorNode
+      while (n && n.nodeName !== 'LI' && n !== edRef.current) n = n.parentNode
+      if (n?.nodeName === 'LI' && n.parentNode?.classList?.contains('checklist') && !n.textContent.trim()) {
+        n.classList.remove('done'); if (!n.className) n.removeAttribute('class'); onInput()
+      }
+    }, 0)
+  }
 
   const deleteNote = async () => {
     if (!confirm(`Delete "${note?.title || 'this note'}"? This can't be undone.`)) return
@@ -243,6 +290,8 @@ export default function WorkNotePage() {
               data-placeholder="Agenda, decisions, who does what…"
               onInput={onInput}
               onPaste={onPaste}
+              onMouseDown={onEditorMouseDown}
+              onKeyDown={onEditorKeyDown}
               className="worknote-editor bg-white border border-[#DEE7FF] rounded-2xl shadow-sm px-8 md:px-14 py-10 min-h-[68vh] text-[15px] leading-[1.75] text-[#2A2035] focus:outline-none"
             />
             <style jsx global>{`
@@ -253,6 +302,11 @@ export default function WorkNotePage() {
               .worknote-editor h3 { font-size: 15px; font-weight: 700; margin: 10px 0 4px; }
               .worknote-editor ul { list-style: disc; padding-left: 24px; margin: 4px 0 8px; }
               .worknote-editor ol { list-style: decimal; padding-left: 24px; margin: 4px 0 8px; }
+              .worknote-editor ul.checklist { list-style: none; padding-left: 2px; }
+              .worknote-editor ul.checklist > li { position: relative; padding-left: 28px; }
+              .worknote-editor ul.checklist > li::before { content: ''; position: absolute; left: 2px; top: 6px; width: 16px; height: 16px; border: 1.5px solid #325099; border-radius: 4px; background: #fff; cursor: pointer; box-sizing: border-box; }
+              .worknote-editor ul.checklist > li.done::before { background: #325099 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 13px no-repeat; }
+              .worknote-editor ul.checklist > li.done { color: rgba(42,32,53,.45); text-decoration: line-through; }
               .worknote-editor u { text-decoration: underline; }
               .worknote-editor table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; table-layout: fixed; }
               .worknote-editor th, .worknote-editor td { border: 1px solid #C7D5F8; padding: 5px 8px; vertical-align: top; overflow-wrap: anywhere; }
