@@ -10,24 +10,20 @@ import { htmlToText } from '../../../../lib/richNotes'
 import { authedFetch } from '../../../../lib/authedFetch'
 
 /*
- * The recurring automation schedule — the human-readable face of
- * vercel.json's crons plus the rules inside /api/reminders/daily. Kept here
- * by hand: if a cron is added or retimed there, update this list.
- * Times are Sydney (the UTC crons land an hour later during DST).
+ * Every kind of push the directors' phones get — one line each. Kept by hand:
+ * if a push is added (lib/push.js sendPushToAll / sendPushToUsers callers) or
+ * its timing changes in /api/reminders/daily, update this list.
  */
-const RECURRING = [
-  {
-    icon: '📲', title: 'Daily reminders push', when: 'Every morning · ~7–8am',
-    detail: 'To the directors\' iPhones. Bank payroll — the Monday after each term fortnight, with the total. Cash payroll — each cash teacher\'s chosen weekday in the fortnight\'s last week. Compliance (BAS, company tax, ASIC) — a week before and the day before, unless ticked off. Term start — the day before.',
-  },
-  {
-    icon: '🔄', title: 'Xero payroll reconcile', when: 'Every morning · ~6–7am',
-    detail: 'Pulls posted pay runs back from Xero: posted runs flip their shifts and portal pay runs to paid, so the books agree before the day starts.',
-  },
-  {
-    icon: '🗄️', title: 'Data syncs', when: 'Every night · ~12–1am',
-    detail: 'Students, classes, quizzes and booklets sync jobs.',
-  },
+const NOTIFICATION_TYPES = [
+  { icon: '🏦', title: 'Bank payroll',         when: 'The day before the Monday after each term fortnight, with the total' },
+  { icon: '💵', title: 'Cash payroll',         when: 'The day before each cash teacher’s pay day' },
+  { icon: '🧾', title: 'BAS',                  when: 'A week before and the day before each quarterly BAS' },
+  { icon: '🏢', title: 'Company tax return',   when: 'A week before and the day before it’s due' },
+  { icon: '🏛️', title: 'ASIC annual review',   when: 'A week before and the day before it’s due' },
+  { icon: '🏫', title: 'Term start',           when: 'The day before each term starts' },
+  { icon: '💬', title: 'Staff chat',           when: 'New messages in your channels and direct messages' },
+  { icon: '📱', title: 'Text messages',        when: 'A text to the office number' },
+  { icon: '📞', title: 'Missed calls & voicemail', when: 'When the office number rings out or someone leaves a message' },
 ]
 
 /*
@@ -346,22 +342,21 @@ export default function WorkPage() {
               )}
             </div>
 
-            {/* The standing schedule */}
+            {/* Every kind of notification we get */}
             <div>
-              <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#325099]/55 mb-2">Recurring schedule</p>
-              <div className="space-y-3">
-                {RECURRING.map(r => (
-                  <div key={r.title} className="flex items-start gap-2.5">
-                    <span className="text-base leading-none mt-0.5 shrink-0">{r.icon}</span>
+              <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#325099]/55 mb-2">Notifications we get</p>
+              <ol className="space-y-2">
+                {NOTIFICATION_TYPES.map((n, i) => (
+                  <li key={n.title} className="flex items-start gap-2.5">
+                    <span className="text-[11px] font-semibold text-[#325099]/45 w-4 text-right shrink-0 mt-[1px]">{i + 1}.</span>
+                    <span className="text-sm leading-none mt-0.5 shrink-0">{n.icon}</span>
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-[#062E63]">
-                        {r.title} <span className="font-normal text-[#325099]/60">· {r.when}</span>
-                      </p>
-                      <p className="text-[11px] text-[#2A2035]/55 leading-relaxed">{r.detail}</p>
+                      <p className="text-xs font-semibold text-[#062E63]">{n.title}</p>
+                      <p className="text-[11px] text-[#2A2035]/50 leading-snug">{n.when}</p>
                     </div>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ol>
             </div>
           </div>
         </div>
