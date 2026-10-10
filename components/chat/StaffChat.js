@@ -768,7 +768,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         : <span className="w-8 h-8 rounded-full text-[11px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(m.sender_id) }}>{initials(m.sender_name || nameOf(m.sender_id))}</span>)}
                     </div>
                     <div className="min-w-0 flex-1">
-                      {!grouped && <p className="text-[12px] leading-tight"><span className="font-bold text-[#062E63]">{m.as_cube ? 'CUBE' : (m.sender_name || nameOf(m.sender_id))}</span>{m.as_cube && isAdmin && <span className="text-[10px] text-[#2A2035]/40 ml-1">via {nameOf(m.sender_id).split(' ')[0]}</span>} <span className="text-[10px] text-[#2A2035]/40 ml-1">{fmtTime(m.created_at)}</span></p>}
+                      {!grouped && <p className="text-[12px] leading-tight"><span className="font-bold text-[#062E63]">{m.as_cube ? 'CUBE' : (m.sender_name || nameOf(m.sender_id))}</span> <span className="text-[10px] text-[#2A2035]/40 ml-1">{fmtTime(m.created_at)}</span></p>}
                       {m.deleted_at
                         ? <p className="text-[13px] italic text-[#2A2035]/35">message deleted</p>
                         : <p className={`text-[14px] leading-relaxed text-[#2A2035] break-words ${editing === m.id ? 'bg-[#FFFBEB] rounded px-1 -mx-1' : ''}`} dangerouslySetInnerHTML={{ __html: renderBody(m.body, staffNames) + (m.edited_at ? ' <span class="text-[10px] text-[#2A2035]/35">(edited)</span>' : '') }} />}
