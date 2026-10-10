@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
@@ -104,6 +104,11 @@ export default function WorkPage() {
     tasks.filter(t => t.status !== 'done').sort((a, b) =>
       (a.due_date || '9999').localeCompare(b.due_date || '9999') || (a.created_at || '').localeCompare(b.created_at || '')),
     [tasks])
+  // One column per person: a task with no assignee (or anyone else) is for both.
+  const TASK_COLUMNS = ['Both', 'Aiden', 'Ryan']
+  const columnOf = (t) => (t.assignee === 'Aiden' || t.assignee === 'Ryan' ? t.assignee : 'Both')
+  const titleInput = useRef(null)
+  const addTo = (who) => { setTWho(who); titleInput.current?.focus() }
   const doneTasks = useMemo(() =>
     tasks.filter(t => t.status === 'done').sort((a, b) => (b.done_at || '').localeCompare(a.done_at || '')).slice(0, 15),
     [tasks])
@@ -183,6 +188,7 @@ export default function WorkPage() {
           {/* Add */}
           <div className="flex flex-wrap gap-2">
             <input
+              ref={titleInput}
               value={tTitle}
               onChange={e => setTTitle(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') addTask() }}
@@ -201,34 +207,47 @@ export default function WorkPage() {
             </button>
           </div>
 
-          {/* Open list */}
-          {openTasks.length === 0 ? (
-            <p className="text-xs text-[#2A2035]/40 py-4 text-center">All clear — nothing open.</p>
-          ) : (
-            <div className="divide-y divide-[#F0F4FF]">
-              {openTasks.map(t => {
-                const days = t.due_date ? daysUntil(t.due_date) : null
-                return (
-                  <div key={t.id} className="flex items-center gap-3 py-2.5 group">
-                    <input type="checkbox" checked={false} onChange={() => setTaskDone(t, true)}
-                      className="accent-[#325099] w-4 h-4 shrink-0 cursor-pointer" title="Mark done" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-[#2A2035] truncate">{t.title}</p>
-                      {t.detail && <p className="text-[11px] text-[#2A2035]/45 truncate">{t.detail}</p>}
-                    </div>
-                    {t.assignee && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F0F4FF] text-[#325099] shrink-0">{t.assignee}</span>
-                    )}
-                    {t.due_date && (
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${dueCls(days)}`}>{dueLabel(days, t.due_date)}</span>
-                    )}
-                    <button onClick={() => deleteTask(t)} title="Delete"
-                      className="opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition shrink-0">×</button>
+          {/* Open tasks — a column each for both directors, Aiden and Ryan */}
+          <div className="grid md:grid-cols-3 gap-3">
+            {TASK_COLUMNS.map(col => {
+              const list = openTasks.filter(t => columnOf(t) === col)
+              return (
+                <div key={col} className="rounded-xl border border-[#E4EAFB] bg-[#F8FAFF] p-3 min-w-0">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[11px] font-bold text-[#062E63] uppercase tracking-wider">
+                      {col} <span className="text-[#325099]/50 font-semibold normal-case tracking-normal">· {list.length}</span>
+                    </p>
+                    <button onClick={() => addTo(col)} title={`Add a task for ${col === 'Both' ? 'both of you' : col}`}
+                      className="text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099]">+ Add</button>
                   </div>
-                )
-              })}
-            </div>
-          )}
+                  {list.length === 0 ? (
+                    <p className="text-[11px] text-[#2A2035]/35 py-3 text-center">Nothing open</p>
+                  ) : (
+                    <div className="divide-y divide-[#E8EDF8]">
+                      {list.map(t => {
+                        const days = t.due_date ? daysUntil(t.due_date) : null
+                        return (
+                          <div key={t.id} className="flex items-start gap-2.5 py-2 group">
+                            <input type="checkbox" checked={false} onChange={() => setTaskDone(t, true)}
+                              className="accent-[#325099] w-4 h-4 mt-0.5 shrink-0 cursor-pointer" title="Mark done" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-[#2A2035] break-words">{t.title}</p>
+                              {t.detail && <p className="text-[11px] text-[#2A2035]/45 break-words">{t.detail}</p>}
+                              {t.due_date && (
+                                <span className={`inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${dueCls(days)}`}>{dueLabel(days, t.due_date)}</span>
+                              )}
+                            </div>
+                            <button onClick={() => deleteTask(t)} title="Delete"
+                              className="md:opacity-0 md:group-hover:opacity-100 text-red-300 hover:text-red-500 transition shrink-0">×</button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
 
           {/* Done */}
           {doneTasks.length > 0 && (
@@ -244,6 +263,7 @@ export default function WorkPage() {
                       <input type="checkbox" checked onChange={() => setTaskDone(t, false)}
                         className="accent-[#325099] w-4 h-4 shrink-0 cursor-pointer" title="Reopen" />
                       <p className="text-sm text-[#2A2035]/40 line-through truncate flex-1">{t.title}</p>
+                      <span className="text-[10px] text-[#2A2035]/35 shrink-0">{columnOf(t)}</span>
                       <span className="text-[10px] text-[#2A2035]/35 shrink-0">{t.done_at ? fmtD(t.done_at.slice(0, 10)) : ''}</span>
                     </div>
                   ))}
