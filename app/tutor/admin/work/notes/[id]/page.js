@@ -243,7 +243,7 @@ export default function WorkNotePage() {
 
         {/* Doc header */}
         <div className="flex items-center gap-3 mb-1">
-          <Link href="/tutor/admin/work" className="text-xs font-semibold text-[#325099] hover:underline shrink-0">← Work</Link>
+          <Link href="/tutor/admin/work" className="text-xs font-semibold text-[#325099] hover:underline shrink-0">← Operations</Link>
           <span className="text-[11px] text-[#2A2035]/40 min-w-0 truncate">
             {failing ? <span className="text-[#B23A3A] font-semibold">Not saved — retrying…</span>
               : saving ? 'Saving…'

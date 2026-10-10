@@ -108,7 +108,12 @@ export default function WorkPage() {
   const TASK_COLUMNS = ['Both', 'Aiden', 'Ryan']
   const columnOf = (t) => (t.assignee === 'Aiden' || t.assignee === 'Ryan' ? t.assignee : 'Both')
   const titleInput = useRef(null)
-  const addTo = (who) => { setTWho(who); titleInput.current?.focus() }
+  // The add bar stays hidden until a column's + Add asks for it.
+  const [adding, setAdding] = useState(false)
+  const addTo = (who) => {
+    setTWho(who); setAdding(true)
+    setTimeout(() => titleInput.current?.focus(), 0)
+  }
   const doneTasks = useMemo(() =>
     tasks.filter(t => t.status === 'done').sort((a, b) => (b.done_at || '').localeCompare(a.done_at || '')).slice(0, 15),
     [tasks])
@@ -170,7 +175,7 @@ export default function WorkPage() {
       <div className="max-w-7xl mx-auto px-4 md:px-10 py-8 space-y-6">
 
         <div>
-          <h1 className="text-2xl font-bold text-[#062E63]">Work</h1>
+          <h1 className="text-2xl font-bold text-[#062E63]">Operations</h1>
           <p className="text-sm text-[#325099]/60 mt-0.5">The running to-do between directors, and CUBE notes</p>
         </div>
 
@@ -185,27 +190,34 @@ export default function WorkPage() {
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
           <p className="text-xs font-bold text-[#062E63]">✅ Tasks</p>
 
-          {/* Add */}
-          <div className="flex flex-wrap gap-2">
-            <input
-              ref={titleInput}
-              value={tTitle}
-              onChange={e => setTTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addTask() }}
-              placeholder="Add a task — Enter to save"
-              className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#325099]"
-            />
-            <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
-              className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs text-[#062E63] focus:outline-none focus:border-[#325099]" />
-            <select value={tWho} onChange={e => setTWho(e.target.value)}
-              className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs bg-white text-[#062E63] focus:outline-none focus:border-[#325099]">
-              {ASSIGNEES.map(a => <option key={a}>{a}</option>)}
-            </select>
-            <button onClick={addTask} disabled={!tTitle.trim()}
-              className="text-xs font-semibold bg-[#062E63] text-white px-4 py-2 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
-              Add
-            </button>
-          </div>
+          {/* Add — appears only when a column's + Add asks for it */}
+          {adding && (
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={titleInput}
+                value={tTitle}
+                onChange={e => setTTitle(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') addTask()
+                  if (e.key === 'Escape') { setAdding(false); setTTitle('') }
+                }}
+                placeholder="Add a task — Enter to save, Esc to close"
+                className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#325099]"
+              />
+              <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
+                className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs text-[#062E63] focus:outline-none focus:border-[#325099]" />
+              <select value={tWho} onChange={e => setTWho(e.target.value)}
+                className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs bg-white text-[#062E63] focus:outline-none focus:border-[#325099]">
+                {ASSIGNEES.map(a => <option key={a}>{a}</option>)}
+              </select>
+              <button onClick={addTask} disabled={!tTitle.trim()}
+                className="text-xs font-semibold bg-[#062E63] text-white px-4 py-2 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                Add
+              </button>
+              <button onClick={() => { setAdding(false); setTTitle('') }} title="Close"
+                className="text-xs font-semibold text-[#2A2035]/40 hover:text-[#2A2035] px-2">×</button>
+            </div>
+          )}
 
           {/* Open tasks — a column each for both directors, Aiden and Ryan */}
           <div className="grid md:grid-cols-3 gap-3">
