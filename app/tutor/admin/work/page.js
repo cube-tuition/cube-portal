@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
-import { DUE_DATES, daysUntil } from '../../../../lib/complianceDates'
+import { daysUntil } from '../../../../lib/complianceDates'
 import { htmlToText } from '../../../../lib/richNotes'
 import { authedFetch } from '../../../../lib/authedFetch'
 
@@ -34,13 +34,10 @@ const RECURRING = [
  * Work — /tutor/admin/work (directors only)
  *
  * The directors' work centre: the running to-do between Ryan and Aiden
- * (ops_tasks — add, assign, tick off), meeting notes (work_notes), and every
- * upcoming due date in one strip — open task deadlines merged with the
- * compliance calendar (BAS, super, tax), honouring the same done-marks the
- * Accounting page keeps in portal_settings.
+ * (ops_tasks — add, assign, tick off) and meeting notes (work_notes).
+ * Compliance due dates live on the Accounting dashboard, not here.
  */
 
-const COMPLIANCE_DONE_KEY = 'compliance_done'
 const ASSIGNEES = ['Ryan', 'Aiden', 'Both']
 
 const fmtD = (iso) => iso
@@ -65,7 +62,6 @@ export default function WorkPage() {
   const [loading, setLoading] = useState(true)
   const [tasks, setTasks]     = useState([])
   const [notes, setNotes]     = useState([])
-  const [complianceDone, setComplianceDone] = useState({})
   const [error, setError]     = useState(null)
 
   // Task add form
@@ -78,10 +74,9 @@ export default function WorkPage() {
   const [pushes, setPushes] = useState(null)   // null = loading; [{date,title,body}] otherwise
 
   const load = useCallback(async () => {
-    const [t, n, c] = await Promise.all([
+    const [t, n] = await Promise.all([
       supabase.from('ops_tasks').select('*').order('created_at', { ascending: false }),
       supabase.from('work_notes').select('*').order('meeting_date', { ascending: false }).order('created_at', { ascending: false }),
-      supabase.from('portal_settings').select('value').eq('key', COMPLIANCE_DONE_KEY).maybeSingle(),
     ])
     if (t.error) setError(`Tasks failed to load: ${t.error.message}`)
     if (n.error) setError(`Notes failed to load: ${n.error.message}`)
@@ -92,7 +87,6 @@ export default function WorkPage() {
     authedFetch('/api/reminders/daily?preview=14')
       .then(r => r.json()).then(j => setPushes(j.upcoming || []))
       .catch(() => setPushes([]))
-    try { setComplianceDone(JSON.parse(c.data?.value || '{}')) } catch { setComplianceDone({}) }
   }, [])
 
   useEffect(() => {
@@ -104,22 +98,6 @@ export default function WorkPage() {
       setLoading(false)
     })()
   }, [router, load])
-
-  // ── Due dates strip: open task deadlines + un-done compliance dates ────────
-  const upcoming = useMemo(() => {
-    const items = []
-    for (const t of tasks) {
-      if (t.status === 'done' || !t.due_date) continue
-      items.push({ key: `task-${t.id}`, icon: '✅', label: t.title, due: t.due_date, kind: t.assignee || 'task' })
-    }
-    for (const d of DUE_DATES) {
-      if (complianceDone[d.label]) continue
-      const days = daysUntil(d.due)
-      if (days < -60 || days > 90) continue        // keep the strip current
-      items.push({ key: `comp-${d.label}`, icon: d.icon || '📆', label: d.label, due: d.due, kind: d.category })
-    }
-    return items.sort((a, b) => a.due.localeCompare(b.due)).slice(0, 10)
-  }, [tasks, complianceDone])
 
   // ── Tasks ──────────────────────────────────────────────────────────────────
   const openTasks = useMemo(() =>
@@ -197,27 +175,6 @@ export default function WorkPage() {
             <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-3">×</button>
           </div>
         )}
-
-        {/* ── Due dates strip ── */}
-        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
-          <p className="text-xs font-bold text-[#062E63] mb-3">📆 Coming up</p>
-          {upcoming.length === 0 ? (
-            <p className="text-xs text-[#2A2035]/40">Nothing due — task deadlines and compliance dates land here.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {upcoming.map(u => {
-                const days = daysUntil(u.due)
-                return (
-                  <span key={u.key} className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-full ${dueCls(days)}`}>
-                    <span>{u.icon}</span>
-                    <span className="max-w-[220px] truncate">{u.label}</span>
-                    <span className="opacity-70">· {dueLabel(days, u.due)}</span>
-                  </span>
-                )
-              })}
-            </div>
-          )}
-        </div>
 
         <div className="grid lg:grid-cols-2 gap-6 items-start">
 
