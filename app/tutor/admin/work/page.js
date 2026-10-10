@@ -176,116 +176,113 @@ export default function WorkPage() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-2 gap-6 items-start">
+        {/* ── Tasks ── */}
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
+          <p className="text-xs font-bold text-[#062E63]">✅ Tasks</p>
 
-          {/* ── Tasks ── */}
-          <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
-            <p className="text-xs font-bold text-[#062E63]">✅ Tasks</p>
+          {/* Add */}
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={tTitle}
+              onChange={e => setTTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addTask() }}
+              placeholder="Add a task — Enter to save"
+              className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#325099]"
+            />
+            <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
+              className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs text-[#062E63] focus:outline-none focus:border-[#325099]" />
+            <select value={tWho} onChange={e => setTWho(e.target.value)}
+              className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs bg-white text-[#062E63] focus:outline-none focus:border-[#325099]">
+              {ASSIGNEES.map(a => <option key={a}>{a}</option>)}
+            </select>
+            <button onClick={addTask} disabled={!tTitle.trim()}
+              className="text-xs font-semibold bg-[#062E63] text-white px-4 py-2 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+              Add
+            </button>
+          </div>
 
-            {/* Add */}
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={tTitle}
-                onChange={e => setTTitle(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addTask() }}
-                placeholder="Add a task — Enter to save"
-                className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#325099]"
-              />
-              <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
-                className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs text-[#062E63] focus:outline-none focus:border-[#325099]" />
-              <select value={tWho} onChange={e => setTWho(e.target.value)}
-                className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs bg-white text-[#062E63] focus:outline-none focus:border-[#325099]">
-                {ASSIGNEES.map(a => <option key={a}>{a}</option>)}
-              </select>
-              <button onClick={addTask} disabled={!tTitle.trim()}
-                className="text-xs font-semibold bg-[#062E63] text-white px-4 py-2 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
-                Add
-              </button>
-            </div>
-
-            {/* Open list */}
-            {openTasks.length === 0 ? (
-              <p className="text-xs text-[#2A2035]/40 py-4 text-center">All clear — nothing open.</p>
-            ) : (
-              <div className="divide-y divide-[#F0F4FF]">
-                {openTasks.map(t => {
-                  const days = t.due_date ? daysUntil(t.due_date) : null
-                  return (
-                    <div key={t.id} className="flex items-center gap-3 py-2.5 group">
-                      <input type="checkbox" checked={false} onChange={() => setTaskDone(t, true)}
-                        className="accent-[#325099] w-4 h-4 shrink-0 cursor-pointer" title="Mark done" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-[#2A2035] truncate">{t.title}</p>
-                        {t.detail && <p className="text-[11px] text-[#2A2035]/45 truncate">{t.detail}</p>}
-                      </div>
-                      {t.assignee && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F0F4FF] text-[#325099] shrink-0">{t.assignee}</span>
-                      )}
-                      {t.due_date && (
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${dueCls(days)}`}>{dueLabel(days, t.due_date)}</span>
-                      )}
-                      <button onClick={() => deleteTask(t)} title="Delete"
-                        className="opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition shrink-0">×</button>
+          {/* Open list */}
+          {openTasks.length === 0 ? (
+            <p className="text-xs text-[#2A2035]/40 py-4 text-center">All clear — nothing open.</p>
+          ) : (
+            <div className="divide-y divide-[#F0F4FF]">
+              {openTasks.map(t => {
+                const days = t.due_date ? daysUntil(t.due_date) : null
+                return (
+                  <div key={t.id} className="flex items-center gap-3 py-2.5 group">
+                    <input type="checkbox" checked={false} onChange={() => setTaskDone(t, true)}
+                      className="accent-[#325099] w-4 h-4 shrink-0 cursor-pointer" title="Mark done" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-[#2A2035] truncate">{t.title}</p>
+                      {t.detail && <p className="text-[11px] text-[#2A2035]/45 truncate">{t.detail}</p>}
                     </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Done */}
-            {doneTasks.length > 0 && (
-              <div>
-                <button onClick={() => setShowDone(s => !s)}
-                  className="text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099]">
-                  {showDone ? '− Hide done' : `+ Done (${doneTasks.length} recent)`}
-                </button>
-                {showDone && (
-                  <div className="mt-2 divide-y divide-[#F0F4FF]">
-                    {doneTasks.map(t => (
-                      <div key={t.id} className="flex items-center gap-3 py-2 group">
-                        <input type="checkbox" checked onChange={() => setTaskDone(t, false)}
-                          className="accent-[#325099] w-4 h-4 shrink-0 cursor-pointer" title="Reopen" />
-                        <p className="text-sm text-[#2A2035]/40 line-through truncate flex-1">{t.title}</p>
-                        <span className="text-[10px] text-[#2A2035]/35 shrink-0">{t.done_at ? fmtD(t.done_at.slice(0, 10)) : ''}</span>
-                      </div>
-                    ))}
+                    {t.assignee && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F0F4FF] text-[#325099] shrink-0">{t.assignee}</span>
+                    )}
+                    {t.due_date && (
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${dueCls(days)}`}>{dueLabel(days, t.due_date)}</span>
+                    )}
+                    <button onClick={() => deleteTask(t)} title="Delete"
+                      className="opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition shrink-0">×</button>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ── Meeting notes — each opens as its own document page ── */}
-          <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-[#062E63]">📝 Meeting notes</p>
-              <button onClick={newNote} disabled={creatingNote}
-                className="text-xs font-semibold bg-[#062E63] text-white px-3.5 py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
-                {creatingNote ? 'Opening…' : '+ New note'}
-              </button>
+                )
+              })}
             </div>
+          )}
 
-            {notes.length === 0 ? (
-              <p className="text-xs text-[#2A2035]/40 py-4 text-center">No notes yet — start with this week’s meeting.</p>
-            ) : (
-              <div className="space-y-2">
-                {notes.map(n => (
-                  <div key={n.id} className="group relative">
-                    <Link href={`/tutor/admin/work/notes/${n.id}`}
-                      className="block border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 bg-[#F8FAFF] hover:border-[#325099]/50 transition">
-                      <p className="text-sm font-semibold text-[#062E63] truncate pr-6">{n.title}</p>
-                      <p className="text-[10px] text-[#2A2035]/45">{fmtDLong(n.meeting_date)}</p>
-                      {n.body && (
-                        <p className="text-[11px] text-[#2A2035]/50 truncate mt-0.5">{htmlToText(n.body).slice(0, 120)}</p>
-                      )}
-                    </Link>
-                    <button onClick={() => deleteNote(n)} title="Delete"
-                      className="absolute top-2 right-2.5 opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition">×</button>
-                  </div>
-                ))}
-              </div>
-            )}
+          {/* Done */}
+          {doneTasks.length > 0 && (
+            <div>
+              <button onClick={() => setShowDone(s => !s)}
+                className="text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099]">
+                {showDone ? '− Hide done' : `+ Done (${doneTasks.length} recent)`}
+              </button>
+              {showDone && (
+                <div className="mt-2 divide-y divide-[#F0F4FF]">
+                  {doneTasks.map(t => (
+                    <div key={t.id} className="flex items-center gap-3 py-2 group">
+                      <input type="checkbox" checked onChange={() => setTaskDone(t, false)}
+                        className="accent-[#325099] w-4 h-4 shrink-0 cursor-pointer" title="Reopen" />
+                      <p className="text-sm text-[#2A2035]/40 line-through truncate flex-1">{t.title}</p>
+                      <span className="text-[10px] text-[#2A2035]/35 shrink-0">{t.done_at ? fmtD(t.done_at.slice(0, 10)) : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Meeting notes — each opens as its own document page ── */}
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-[#062E63]">📝 Meeting notes</p>
+            <button onClick={newNote} disabled={creatingNote}
+              className="text-xs font-semibold bg-[#062E63] text-white px-3.5 py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+              {creatingNote ? 'Opening…' : '+ New note'}
+            </button>
           </div>
+
+          {notes.length === 0 ? (
+            <p className="text-xs text-[#2A2035]/40 py-4 text-center">No notes yet — start with this week’s meeting.</p>
+          ) : (
+            <div className="space-y-2">
+              {notes.map(n => (
+                <div key={n.id} className="group relative">
+                  <Link href={`/tutor/admin/work/notes/${n.id}`}
+                    className="block border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 bg-[#F8FAFF] hover:border-[#325099]/50 transition">
+                    <p className="text-sm font-semibold text-[#062E63] truncate pr-6">{n.title}</p>
+                    <p className="text-[10px] text-[#2A2035]/45">{fmtDLong(n.meeting_date)}</p>
+                    {n.body && (
+                      <p className="text-[11px] text-[#2A2035]/50 truncate mt-0.5">{htmlToText(n.body).slice(0, 120)}</p>
+                    )}
+                  </Link>
+                  <button onClick={() => deleteNote(n)} title="Delete"
+                    className="absolute top-2 right-2.5 opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition">×</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Notification centre ── */}
