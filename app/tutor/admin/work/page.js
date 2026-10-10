@@ -1,10 +1,12 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
 import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { DUE_DATES, daysUntil } from '../../../../lib/complianceDates'
+import { htmlToText } from '../../../../lib/richNotes'
 
 /*
  * Work — /tutor/admin/work (directors only)
@@ -50,13 +52,7 @@ export default function WorkPage() {
   const [tWho, setTWho]       = useState('Both')
   const [showDone, setShowDone] = useState(false)
 
-  // Note editor: null = closed, 'new' = adding, else the note id being edited
-  const [editing, setEditing] = useState(null)
-  const [nTitle, setNTitle]   = useState('')
-  const [nDate, setNDate]     = useState(todayISO())
-  const [nBody, setNBody]     = useState('')
-  const [expanded, setExpanded] = useState(null)   // note id open for reading
-  const [saving, setSaving]   = useState(false)
+  const [creatingNote, setCreatingNote] = useState(false)
 
   const load = useCallback(async () => {
     const [t, n, c] = await Promise.all([
@@ -131,34 +127,21 @@ export default function WorkPage() {
     setTasks(prev => prev.filter(t => t.id !== task.id))
   }
 
-  // ── Notes ──────────────────────────────────────────────────────────────────
-  const openEditor = (note) => {
-    if (note) {
-      setEditing(note.id); setNTitle(note.title); setNDate(note.meeting_date || todayISO()); setNBody(note.body)
-    } else {
-      setEditing('new')
-      setNTitle(`Meeting — ${fmtDLong(todayISO())}`)
-      setNDate(todayISO()); setNBody('')
-    }
-  }
-  const saveNote = async () => {
-    setSaving(true)
-    const row = { title: nTitle.trim() || 'Untitled note', body: nBody, meeting_date: nDate || todayISO(), updated_at: new Date().toISOString() }
-    const { data, error: err } = editing === 'new'
-      ? await supabase.from('work_notes').insert({ ...row, created_by: profile?.full_name || null }).select('*').single()
-      : await supabase.from('work_notes').update(row).eq('id', editing).select('*').single()
-    setSaving(false)
-    if (err) { setError(`Could not save the note: ${err.message}`); return }
-    setNotes(prev => editing === 'new' ? [data, ...prev] : prev.map(n => n.id === data.id ? data : n))
-    setExpanded(data.id)
-    setEditing(null)
+  // ── Notes — each one is its own document page ──────────────────────────────
+  const newNote = async () => {
+    setCreatingNote(true)
+    const { data, error: err } = await supabase.from('work_notes')
+      .insert({ title: `Meeting — ${fmtDLong(todayISO())}`, body: '', meeting_date: todayISO(), created_by: profile?.full_name || null })
+      .select('id').single()
+    setCreatingNote(false)
+    if (err) { setError(`Could not create the note: ${err.message}`); return }
+    router.push(`/tutor/admin/work/notes/${data.id}`)
   }
   const deleteNote = async (note) => {
     if (!confirm(`Delete "${note.title}"? This can't be undone.`)) return
     const { error: err } = await supabase.from('work_notes').delete().eq('id', note.id)
     if (err) { setError(`Could not delete the note: ${err.message}`); return }
     setNotes(prev => prev.filter(n => n.id !== note.id))
-    if (editing === note.id) setEditing(null)
   }
 
   if (loading) {
@@ -287,77 +270,36 @@ export default function WorkPage() {
             )}
           </div>
 
-          {/* ── Meeting notes ── */}
+          {/* ── Meeting notes — each opens as its own document page ── */}
           <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-bold text-[#062E63]">📝 Meeting notes</p>
-              <button onClick={() => openEditor(null)}
-                className="text-xs font-semibold bg-[#062E63] text-white px-3.5 py-1.5 rounded-lg hover:bg-[#325099] transition">
-                + New note
+              <button onClick={newNote} disabled={creatingNote}
+                className="text-xs font-semibold bg-[#062E63] text-white px-3.5 py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
+                {creatingNote ? 'Opening…' : '+ New note'}
               </button>
             </div>
 
-            {/* Editor */}
-            {editing && (
-              <div className="border border-[#325099]/40 rounded-xl p-3 space-y-2 bg-[#F8FAFF]">
-                <div className="flex gap-2">
-                  <input value={nTitle} onChange={e => setNTitle(e.target.value)}
-                    className="flex-1 border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm font-semibold text-[#062E63] focus:outline-none focus:border-[#325099]" />
-                  <input type="date" value={nDate} onChange={e => setNDate(e.target.value)}
-                    className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs text-[#062E63] focus:outline-none focus:border-[#325099]" />
-                </div>
-                <textarea
-                  value={nBody}
-                  onChange={e => setNBody(e.target.value)}
-                  onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveNote() }}
-                  rows={10}
-                  placeholder={'Agenda, decisions, who does what…'}
-                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] resize-y"
-                />
-                <div className="flex items-center justify-end gap-2">
-                  <button onClick={() => setEditing(null)} className="text-xs font-semibold text-[#2A2035]/50 hover:text-[#2A2035] px-3 py-2">Cancel</button>
-                  <button onClick={saveNote} disabled={saving}
-                    className="text-xs font-semibold bg-[#325099] text-white px-4 py-2 rounded-lg hover:bg-[#062E63] transition disabled:opacity-40">
-                    {saving ? 'Saving…' : 'Save note'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* List */}
-            {notes.length === 0 && !editing ? (
+            {notes.length === 0 ? (
               <p className="text-xs text-[#2A2035]/40 py-4 text-center">No notes yet — start with this week’s meeting.</p>
             ) : (
               <div className="space-y-2">
-                {notes.map(n => {
-                  const open = expanded === n.id
-                  return (
-                    <div key={n.id} className="border border-[#DEE7FF] rounded-xl overflow-hidden">
-                      <button onClick={() => setExpanded(open ? null : n.id)}
-                        className="w-full flex items-center gap-3 px-3.5 py-2.5 bg-[#F8FAFF] text-left">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-[#062E63] truncate">{n.title}</p>
-                          <p className="text-[10px] text-[#2A2035]/45">
-                            {fmtDLong(n.meeting_date)}{n.created_by ? ` · ${n.created_by.split(' ')[0]}` : ''}
-                          </p>
-                        </div>
-                        <svg className={`w-3 h-3 text-[#325099]/50 transition-transform ${open ? 'rotate-180' : ''} shrink-0`}
-                          viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </button>
-                      {open && (
-                        <div className="px-3.5 py-3 space-y-2">
-                          <p className="text-sm text-[#2A2035] whitespace-pre-wrap leading-relaxed">{n.body || <span className="text-[#2A2035]/35">No content.</span>}</p>
-                          <div className="flex items-center gap-3 pt-1 border-t border-[#F0F4FF]">
-                            <button onClick={() => openEditor(n)} className="text-[11px] font-semibold text-[#325099] hover:underline">Edit</button>
-                            <button onClick={() => deleteNote(n)} className="text-[11px] font-semibold text-red-400 hover:text-red-600">Delete</button>
-                          </div>
-                        </div>
+                {notes.map(n => (
+                  <div key={n.id} className="group relative">
+                    <Link href={`/tutor/admin/work/notes/${n.id}`}
+                      className="block border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 bg-[#F8FAFF] hover:border-[#325099]/50 transition">
+                      <p className="text-sm font-semibold text-[#062E63] truncate pr-6">{n.title}</p>
+                      <p className="text-[10px] text-[#2A2035]/45">
+                        {fmtDLong(n.meeting_date)}{n.created_by ? ` · ${n.created_by.split(' ')[0]}` : ''}
+                      </p>
+                      {n.body && (
+                        <p className="text-[11px] text-[#2A2035]/50 truncate mt-0.5">{htmlToText(n.body).slice(0, 120)}</p>
                       )}
-                    </div>
-                  )
-                })}
+                    </Link>
+                    <button onClick={() => deleteNote(n)} title="Delete"
+                      className="absolute top-2 right-2.5 opacity-0 group-hover:opacity-100 text-red-300 hover:text-red-500 transition">×</button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
