@@ -65,7 +65,6 @@ export default function WorkPage() {
 
   // Task add form
   const [tTitle, setTTitle]   = useState('')
-  const [tDue, setTDue]       = useState('')
   const [showDone, setShowDone] = useState(false)
 
   const [creatingNote, setCreatingNote] = useState(false)
@@ -109,8 +108,8 @@ export default function WorkPage() {
   // card at the top of that column, Enter saves into it (and stays open for
   // the next task), Esc or × closes. No global add bar.
   const [addingCol, setAddingCol] = useState(null)   // 'Both' | 'Aiden' | 'Ryan' | null
-  const openAdd  = (col) => { setAddingCol(col); setTTitle(''); setTDue('') }
-  const closeAdd = () => { setAddingCol(null); setTTitle(''); setTDue('') }
+  const openAdd  = (col) => { setAddingCol(col); setTTitle('') }
+  const closeAdd = () => { setAddingCol(null); setTTitle('') }
   const doneTasks = useMemo(() =>
     tasks.filter(t => t.status === 'done').sort((a, b) => (b.done_at || '').localeCompare(a.done_at || '')).slice(0, 15),
     [tasks])
@@ -119,13 +118,13 @@ export default function WorkPage() {
     const title = tTitle.trim()
     if (!title || !addingCol) return
     const row = {
-      title, due_date: tDue || null, assignee: addingCol === 'Both' ? null : addingCol,
+      title, due_date: null, assignee: addingCol === 'Both' ? null : addingCol,
       status: 'open', source: 'manual', created_by: profile?.full_name || null,
     }
     const { data, error: err } = await supabase.from('ops_tasks').insert(row).select('*').single()
     if (err) { setError(`Could not add the task: ${err.message}`); return }
     setTasks(prev => [data, ...prev])
-    setTTitle(''); setTDue('')          // composer stays open for the next one
+    setTTitle('')          // composer stays open for the next one
   }
   const setTaskDone = async (task, done) => {
     const patch = done ? { status: 'done', done_at: new Date().toISOString() } : { status: 'open', done_at: null }
@@ -220,9 +219,6 @@ export default function WorkPage() {
                         className="w-full border-0 bg-transparent px-1 py-0.5 text-sm text-[#2A2035] focus:outline-none placeholder:text-[#2A2035]/35"
                       />
                       <div className="flex items-center gap-1.5">
-                        <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
-                          title="Due date (optional)"
-                          className="border border-[#DEE7FF] rounded-md px-1.5 py-1 text-[11px] text-[#062E63] focus:outline-none focus:border-[#325099]" />
                         <span className="flex-1" />
                         <button onClick={addTask} disabled={!tTitle.trim()}
                           className="text-[11px] font-semibold bg-[#062E63] text-white px-3 py-1 rounded-md hover:bg-[#325099] transition disabled:opacity-40">
