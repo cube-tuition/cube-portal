@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../../../../lib/supabase'
@@ -38,7 +38,6 @@ const RECURRING = [
  * Compliance due dates live on the Accounting dashboard, not here.
  */
 
-const ASSIGNEES = ['Ryan', 'Aiden', 'Both']
 
 const fmtD = (iso) => iso
   ? new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
@@ -67,7 +66,6 @@ export default function WorkPage() {
   // Task add form
   const [tTitle, setTTitle]   = useState('')
   const [tDue, setTDue]       = useState('')
-  const [tWho, setTWho]       = useState('Both')
   const [showDone, setShowDone] = useState(false)
 
   const [creatingNote, setCreatingNote] = useState(false)
@@ -107,28 +105,27 @@ export default function WorkPage() {
   // One column per person: a task with no assignee (or anyone else) is for both.
   const TASK_COLUMNS = ['Both', 'Aiden', 'Ryan']
   const columnOf = (t) => (t.assignee === 'Aiden' || t.assignee === 'Ryan' ? t.assignee : 'Both')
-  const titleInput = useRef(null)
-  // The add bar stays hidden until a column's + Add asks for it.
-  const [adding, setAdding] = useState(false)
-  const addTo = (who) => {
-    setTWho(who); setAdding(true)
-    setTimeout(() => titleInput.current?.focus(), 0)
-  }
+  // The composer lives INSIDE the column being added to: + Add opens a small
+  // card at the top of that column, Enter saves into it (and stays open for
+  // the next task), Esc or × closes. No global add bar.
+  const [addingCol, setAddingCol] = useState(null)   // 'Both' | 'Aiden' | 'Ryan' | null
+  const openAdd  = (col) => { setAddingCol(col); setTTitle(''); setTDue('') }
+  const closeAdd = () => { setAddingCol(null); setTTitle(''); setTDue('') }
   const doneTasks = useMemo(() =>
     tasks.filter(t => t.status === 'done').sort((a, b) => (b.done_at || '').localeCompare(a.done_at || '')).slice(0, 15),
     [tasks])
 
   const addTask = async () => {
     const title = tTitle.trim()
-    if (!title) return
+    if (!title || !addingCol) return
     const row = {
-      title, due_date: tDue || null, assignee: tWho === 'Both' ? null : tWho,
+      title, due_date: tDue || null, assignee: addingCol === 'Both' ? null : addingCol,
       status: 'open', source: 'manual', created_by: profile?.full_name || null,
     }
     const { data, error: err } = await supabase.from('ops_tasks').insert(row).select('*').single()
     if (err) { setError(`Could not add the task: ${err.message}`); return }
     setTasks(prev => [data, ...prev])
-    setTTitle(''); setTDue('')
+    setTTitle(''); setTDue('')          // composer stays open for the next one
   }
   const setTaskDone = async (task, done) => {
     const patch = done ? { status: 'done', done_at: new Date().toISOString() } : { status: 'open', done_at: null }
@@ -190,34 +187,6 @@ export default function WorkPage() {
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
           <p className="text-xs font-bold text-[#062E63]">✅ Tasks</p>
 
-          {/* Add — appears only when a column's + Add asks for it */}
-          {adding && (
-            <div className="flex flex-wrap gap-2">
-              <input
-                ref={titleInput}
-                value={tTitle}
-                onChange={e => setTTitle(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') addTask()
-                  if (e.key === 'Escape') { setAdding(false); setTTitle('') }
-                }}
-                placeholder="Add a task — Enter to save, Esc to close"
-                className="flex-1 min-w-[180px] border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#325099]"
-              />
-              <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
-                className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs text-[#062E63] focus:outline-none focus:border-[#325099]" />
-              <select value={tWho} onChange={e => setTWho(e.target.value)}
-                className="border border-[#DEE7FF] rounded-lg px-2.5 py-2 text-xs bg-white text-[#062E63] focus:outline-none focus:border-[#325099]">
-                {ASSIGNEES.map(a => <option key={a}>{a}</option>)}
-              </select>
-              <button onClick={addTask} disabled={!tTitle.trim()}
-                className="text-xs font-semibold bg-[#062E63] text-white px-4 py-2 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
-                Add
-              </button>
-              <button onClick={() => { setAdding(false); setTTitle('') }} title="Close"
-                className="text-xs font-semibold text-[#2A2035]/40 hover:text-[#2A2035] px-2">×</button>
-            </div>
-          )}
 
           {/* Open tasks — a column each for both directors, Aiden and Ryan */}
           <div className="grid md:grid-cols-3 gap-3">
@@ -229,10 +198,42 @@ export default function WorkPage() {
                     <p className="text-[11px] font-bold text-[#062E63] uppercase tracking-wider">
                       {col} <span className="text-[#325099]/50 font-semibold normal-case tracking-normal">· {list.length}</span>
                     </p>
-                    <button onClick={() => addTo(col)} title={`Add a task for ${col === 'Both' ? 'both of you' : col}`}
-                      className="text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099]">+ Add</button>
+                    <button onClick={() => (addingCol === col ? closeAdd() : openAdd(col))}
+                      title={`Add a task for ${col === 'Both' ? 'both of you' : col}`}
+                      className="text-[11px] font-semibold text-[#325099]/60 hover:text-[#325099]">
+                      {addingCol === col ? '× Close' : '+ Add'}
+                    </button>
                   </div>
-                  {list.length === 0 ? (
+
+                  {/* In-column composer */}
+                  {addingCol === col && (
+                    <div className="mb-2 bg-white border border-[#325099]/40 rounded-lg p-2 space-y-1.5 shadow-sm">
+                      <input
+                        autoFocus
+                        value={tTitle}
+                        onChange={e => setTTitle(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') addTask()
+                          if (e.key === 'Escape') closeAdd()
+                        }}
+                        placeholder={`Task for ${col === 'Both' ? 'both of you' : col}…`}
+                        className="w-full border-0 bg-transparent px-1 py-0.5 text-sm text-[#2A2035] focus:outline-none placeholder:text-[#2A2035]/35"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <input type="date" value={tDue} onChange={e => setTDue(e.target.value)}
+                          title="Due date (optional)"
+                          className="border border-[#DEE7FF] rounded-md px-1.5 py-1 text-[11px] text-[#062E63] focus:outline-none focus:border-[#325099]" />
+                        <span className="flex-1" />
+                        <button onClick={addTask} disabled={!tTitle.trim()}
+                          className="text-[11px] font-semibold bg-[#062E63] text-white px-3 py-1 rounded-md hover:bg-[#325099] transition disabled:opacity-40">
+                          Add
+                        </button>
+                      </div>
+                      <p className="text-[9.5px] text-[#2A2035]/35 px-1">Enter saves and keeps going · Esc closes</p>
+                    </div>
+                  )}
+
+                  {list.length === 0 && addingCol !== col ? (
                     <p className="text-[11px] text-[#2A2035]/35 py-3 text-center">Nothing open</p>
                   ) : (
                     <div className="divide-y divide-[#E8EDF8]">
