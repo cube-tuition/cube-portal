@@ -6,6 +6,7 @@ import { runActionChecks } from '../lib/actionCentre'
 import { markCadenceDone } from '../lib/emailCadence'
 import { markPayrollDone } from '../lib/payrollAlerts'
 import { resolveFlag } from '../lib/studentFlags'
+import { supabase } from '../lib/supabase'
 
 /*
  * ActionCentre — "what needs my attention" boxes for directors, shown at the
@@ -15,7 +16,15 @@ import { resolveFlag } from '../lib/studentFlags'
  *
  * To add a category: tag checks with a section name in lib/actionCentre.js
  * and add it to SECTIONS below.
+ *
+ * Any item can be dismissed (✕). A dismissal is keyed on what the item says —
+ * section, label and count — so it lasts only until the item changes: a new
+ * enquiry bumps the count and the item is back. Shared between directors
+ * (portal_settings 'action_centre_dismissed'); keys for items that no longer
+ * exist are dropped on the next dismissal, so the list never grows stale.
  */
+const DISMISS_KEY = 'action_centre_dismissed'
+const itemKey = (item) => `${item.section ?? 'Operations'}|${item.label}|${item.count}`
 
 const SECTIONS = [
   { id: 'Operations', icon: '⚙️', title: 'Operations' },
@@ -31,7 +40,7 @@ const SEV = {
   blue:  { label: 'Worth knowing', chip: 'bg-blue-100 text-blue-700 border-blue-200',     dot: 'bg-blue-400' },
 }
 
-function SectionCard({ section, items, loading, onDone }) {
+function SectionCard({ section, items, loading, onDone, onDismiss, isDismissed }) {
   const reds = items.filter(i => i.severity === 'red').length
   const clear = !loading && items.length === 0
   return (
@@ -53,7 +62,7 @@ function SectionCard({ section, items, loading, onDone }) {
       ) : (
         <div className="flex-1 overflow-y-auto divide-y divide-[#F0F4FF]">
           {items.map((item, i) => (
-            <Link key={i} href={item.href} className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-[#F8FAFF] transition group">
+            <Link key={i} href={item.href} className={`flex items-center gap-2.5 px-4 py-2.5 hover:bg-[#F8FAFF] transition group ${isDismissed?.(item) ? 'opacity-45' : ''}`}>
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SEV[item.severity].dot}`} />
               <span className="text-base shrink-0">{item.icon}</span>
               <span className="flex-1 min-w-0">
@@ -69,7 +78,13 @@ function SectionCard({ section, items, loading, onDone }) {
                   title={item.done.flagId ? 'Resolve this flag — it stays on the student’s record' : 'Mark as sent — hides this for the rest of the term'}
                 >{item.done.flagId ? '✓ Resolve' : '✓ Done'}</button>
               )}
-              <span className="text-[#325099] text-xs shrink-0 opacity-0 group-hover:opacity-100 transition">{item.done ? 'Open →' : 'Fix →'}</span>
+              <span className="text-[#325099] text-xs shrink-0 opacity-0 group-hover:opacity-100 transition max-md:hidden">{item.done ? 'Open →' : 'Fix →'}</span>
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDismiss(item) }}
+                className="text-[11px] leading-none text-[#2A2035]/30 hover:text-[#2A2035]/70 hover:bg-[#F0F4FF] w-6 h-6 max-md:w-8 max-md:h-8 rounded-full flex items-center justify-center shrink-0 transition"
+                title={isDismissed?.(item) ? 'Restore — show this again' : 'Dismiss — hides it until it changes'}
+                aria-label={isDismissed?.(item) ? 'Restore item' : 'Dismiss item'}
+              >{isDismissed?.(item) ? '↺' : '✕'}</button>
             </Link>
           ))}
         </div>
@@ -89,15 +104,40 @@ export default function ActionCentre({ authorized }) {
   const [items, setItems] = useState([])
   const [generatedAt, setGeneratedAt] = useState(null)
   const [error, setError] = useState(null)
+  const [dismissed, setDismissed] = useState({})       // itemKey → { at, by }
+  const [showDismissed, setShowDismissed] = useState(false)
 
   const load = async () => {
     setLoading(true); setError(null)
     try {
-      const { items, generatedAt } = await runActionChecks()
-      setItems(items); setGeneratedAt(generatedAt)
+      const [{ items, generatedAt }, { data: dis }] = await Promise.all([
+        runActionChecks(),
+        supabase.from('portal_settings').select('value').eq('key', DISMISS_KEY).maybeSingle(),
+      ])
+      let d = {}
+      try { d = JSON.parse(dis?.value || '{}') || {} } catch { /* none */ }
+      setItems(items); setGeneratedAt(generatedAt); setDismissed(d)
     } catch (e) { setError(e.message || 'Checks failed') }
     finally { setLoading(false) }
   }
+
+  // Dismiss (or restore) one item. Saving prunes keys for items that are no
+  // longer in the list — they changed or were dealt with.
+  const toggleDismiss = async (item) => {
+    const k = itemKey(item)
+    const live = new Set(items.map(itemKey))
+    const next = Object.fromEntries(Object.entries(dismissed).filter(([key]) => live.has(key)))
+    if (next[k]) delete next[k]
+    else {
+      const { profile } = await getAuthProfile().catch(() => ({}))
+      next[k] = { at: new Date().toISOString(), by: profile?.full_name || null }
+    }
+    setDismissed(next)
+    const { error: err } = await supabase.from('portal_settings')
+      .upsert({ key: DISMISS_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() })
+    if (err) setError('Could not save dismissal: ' + err.message)
+  }
+  const isDismissed = (item) => !!dismissed[itemKey(item)]
 
   useEffect(() => {
     // Access already verified by the parent — just run the checks. Deferred to a
@@ -128,7 +168,9 @@ export default function ActionCentre({ authorized }) {
 
   if (!visible) return null
 
-  const totalReds = items.filter(i => i.severity === 'red').length
+  const shownItems = showDismissed ? items : items.filter(i => !isDismissed(i))
+  const dismissedCount = items.filter(isDismissed).length
+  const totalReds = items.filter(i => i.severity === 'red' && !isDismissed(i)).length
 
   return (
     <div className="mb-8">
@@ -137,11 +179,16 @@ export default function ActionCentre({ authorized }) {
           ⚡ Action Centre
           {!loading && (totalReds > 0
             ? <span className="text-rose-600 font-semibold text-xs ml-2">{totalReds} item{totalReds === 1 ? '' : 's'} need{totalReds === 1 ? 's' : ''} action now</span>
-            : items.length === 0
+            : items.filter(i => !isDismissed(i)).length === 0
               ? <span className="text-emerald-700 font-semibold text-xs ml-2">all clear</span>
               : null)}
         </p>
         <div className="flex items-center gap-3">
+          {dismissedCount > 0 && (
+            <button onClick={() => setShowDismissed(v => !v)} className="text-[10px] font-semibold text-[#2A2035]/45 hover:text-[#325099]">
+              {dismissedCount} dismissed · {showDismissed ? 'hide' : 'show'}
+            </button>
+          )}
           {generatedAt && <span className="text-[10px] text-[#2A2035]/35">checked {generatedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}</span>}
           <button onClick={load} disabled={loading} className="text-[11px] font-semibold text-[#325099] hover:underline disabled:opacity-40">
             {loading ? 'Checking…' : '↻ Refresh'}
@@ -154,8 +201,10 @@ export default function ActionCentre({ authorized }) {
           <SectionCard
             key={section.id}
             section={section}
-            items={items.filter(i => (i.section ?? 'Operations') === section.id)}
+            items={shownItems.filter(i => (i.section ?? 'Operations') === section.id)}
             loading={loading}
+            onDismiss={toggleDismiss}
+            isDismissed={isDismissed}
             onDone={async (d) => {
               if (d?.payrollKey) { await markPayrollDone(d.payrollKey); load() }
               else if (d?.flagId) { await resolveFlag(d.flagId); load() }
