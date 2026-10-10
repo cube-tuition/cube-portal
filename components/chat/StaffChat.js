@@ -69,7 +69,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [termClasses, setTermClasses] = useState([]) // its active classes, for {classes}
   const [reactions, setReactions] = useState({})   // messageId → [{ emoji, user_id }]
   const [picker, setPicker] = useState(null)       // message id with the emoji picker open
-  const [reactorsOpen, setReactorsOpen] = useState(null)   // message id whose reactions list names
+  const [reactorsOpen, setReactorsOpen] = useState(null)   // `${messageId}:${emoji}` whose names are showing (phones: after a long press)
+  const longPress = useRef(null)
   const [online, setOnline] = useState(new Set())  // user ids present right now
   const [typing, setTyping] = useState({})         // user id → channel id they are typing in
   const [query, setQuery] = useState('')
@@ -778,19 +779,23 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         for (const r of rs) (byEmoji[r.emoji] ||= []).push(r.user_id)
                         return (
                           <div className="flex flex-wrap items-center gap-1 mt-1">
-                            {Object.entries(byEmoji).map(([emoji, uids]) => (
-                              <button key={emoji} onClick={() => react(m, emoji)} title={uids.map(nameOf).join(', ')}
+                            {Object.entries(byEmoji).map(([emoji, uids]) => {
+                              const key = `${m.id}:${emoji}`
+                              return (
+                              <span key={emoji} className="relative group/rx">
+                              {/* Hover (desktop) or press-and-hold (phone) shows who reacted. */}
+                              <span className={`${reactorsOpen === key ? 'block' : 'hidden group-hover/rx:block'} absolute bottom-full left-0 mb-1 z-20 whitespace-nowrap rounded-lg bg-[#062E63] text-white text-[11px] px-2 py-1 shadow-lg pointer-events-none`}>
+                                {uids.map(nameOf).join(', ')}
+                              </span>
+                              <button onClick={() => react(m, emoji)}
+                                onTouchStart={() => { clearTimeout(longPress.current); longPress.current = setTimeout(() => { setReactorsOpen(key); setTimeout(() => setReactorsOpen(o => (o === key ? null : o)), 2500) }, 450) }}
+                                onTouchEnd={() => clearTimeout(longPress.current)} onTouchMove={() => clearTimeout(longPress.current)}
                                 className={`text-[12px] rounded-full px-2 py-0.5 border ${uids.includes(me.id) ? 'bg-[#DEE7FF] border-[#325099] text-[#062E63]' : 'bg-white border-[#DEE7FF] text-[#2A2035]/70 hover:border-[#325099]'}`}>
                                 {emoji} <span className="text-[11px] font-semibold">{uids.length}</span>
                               </button>
-                            ))}
-                            <button onClick={() => setReactorsOpen(reactorsOpen === m.id ? null : m.id)} title="Who reacted"
-                              className={`text-[11px] px-1.5 py-0.5 rounded-full ${reactorsOpen === m.id ? 'bg-[#EEF4FF] text-[#062E63]' : 'text-[#2A2035]/40 hover:text-[#325099]'}`}>👥</button>
-                            {reactorsOpen === m.id && (
-                              <p className="basis-full text-[11px] text-[#2A2035]/60 mt-0.5">
-                                {Object.entries(byEmoji).map(([emoji, uids]) => `${emoji} ${uids.map(nameOf).join(', ')}`).join('   ·   ')}
-                              </p>
-                            )}
+                              </span>
+                              )
+                            })}
                           </div>
                         )
                       })()}
