@@ -463,6 +463,10 @@ function MasterDatabaseInner() {
   const [search,     setSearch]     = useState('')
   const [groupFilter, setGroupFilter] = useState('')   // '' = every topic/module
   const [showAdd,    setShowAdd]    = useState(false)
+  // Workbooks-in-progress strip: other tabs' drafts, and a long list's tail,
+  // stay folded away until asked for.
+  const [draftsAllTabs, setDraftsAllTabs] = useState(false)
+  const [draftsExpanded, setDraftsExpanded] = useState(false)
 
   const [infoFor,        setInfoFor]        = useState(null)   // booklet whose info modal is open
   const [previewChoice,  setPreviewChoice]  = useState(null)   // booklet asking "Student or Teacher?"
@@ -739,6 +743,16 @@ function MasterDatabaseInner() {
     && (!scope || SUBJECT_FAMILIES[scope].includes(wb.subject)))
   const buildByBookletId = {}
   for (const wb of builds) if (wb.booklet_id) buildByBookletId[wb.booklet_id] = wb
+  // The strip follows the year/subject tabs like the booklets below it. A draft
+  // with no year or subject yet belongs to no tab, so it shows on every tab
+  // (otherwise it could never be found). Newest first; long lists are cut to
+  // DRAFTS_SHOWN with a "show all" toggle.
+  const DRAFTS_SHOWN = 5
+  const unplaced = (wb) => !wb.year || !wb.subject
+  const tabDrafts = draftBuilds.filter(wb => unplaced(wb) || (Number(wb.year) === Number(activeYear) && wb.subject === activeSub))
+  const otherTabDrafts = draftBuilds.length - tabDrafts.length
+  const stripDrafts = draftsAllTabs ? draftBuilds : tabDrafts
+  const shownDrafts = draftsExpanded ? stripDrafts : stripDrafts.slice(0, DRAFTS_SHOWN)
 
   if (!scope || !staff) return null
 
@@ -833,14 +847,24 @@ function MasterDatabaseInner() {
         </div>
 
         {/* Workbooks in progress (builder drafts not yet saved to the database) */}
-        {draftBuilds.length > 0 && (
+        {(stripDrafts.length > 0 || otherTabDrafts > 0) && (
           <div className="mb-7 bg-white rounded-2xl border border-[#DEE7FF] overflow-hidden shadow-sm">
-            <div className="bg-[#F8FAFF] border-b border-[#DEE7FF] px-4 md:px-5 py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-0.5 md:gap-3">
-              <span className="text-xs font-bold text-[#325099]">📝 Workbooks in progress · {draftBuilds.length}</span>
-              <span className="text-[11px] text-[#2A2035]/40">Save to curriculum from the builder to add them to the database below</span>
+            <div className={`bg-[#F8FAFF] px-4 md:px-5 py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-0.5 md:gap-3 ${stripDrafts.length ? 'border-b border-[#DEE7FF]' : ''}`}>
+              <span className="text-xs font-bold text-[#325099]">
+                📝 Workbooks in progress · {draftsAllTabs ? `all years · ${draftBuilds.length}` : `Year ${activeYear} ${activeSub} · ${tabDrafts.length}`}
+              </span>
+              <span className="flex items-center gap-3 text-[11px]">
+                {otherTabDrafts > 0 && (
+                  <button onClick={() => { setDraftsAllTabs(v => !v); setDraftsExpanded(false) }}
+                    className="font-semibold text-[#325099] hover:underline">
+                    {draftsAllTabs ? 'Only this tab' : `+ ${otherTabDrafts} in other years/courses`}
+                  </button>
+                )}
+                {stripDrafts.length > 0 && <span className="text-[#2A2035]/40 max-md:hidden">Save to curriculum from the builder to add them below</span>}
+              </span>
             </div>
             <div className="divide-y divide-[#F0F4FF]">
-              {draftBuilds.map(wb => (
+              {shownDrafts.map(wb => (
                 <div key={wb.id} className="px-4 md:px-5 py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-1 md:gap-3">
                   <a href={`/tutor/booklets/builder/${wb.id}`} target="_blank" rel="noopener noreferrer" className="text-left min-w-0 max-w-full truncate">
                     <span className="font-semibold text-sm text-[#062E63]">{buildLabel(wb)}</span>
@@ -854,6 +878,12 @@ function MasterDatabaseInner() {
                 </div>
               ))}
             </div>
+            {stripDrafts.length > DRAFTS_SHOWN && (
+              <button onClick={() => setDraftsExpanded(v => !v)}
+                className="w-full border-t border-[#F0F4FF] px-4 md:px-5 py-2 text-[11px] font-semibold text-[#325099] hover:bg-[#F8FAFF] text-left">
+                {draftsExpanded ? 'Show fewer' : `Show all ${stripDrafts.length}`}
+              </button>
+            )}
           </div>
         )}
 
