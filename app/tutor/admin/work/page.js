@@ -289,9 +289,7 @@ export default function WorkPage() {
                     <Link href={`/tutor/admin/work/notes/${n.id}`}
                       className="block border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 bg-[#F8FAFF] hover:border-[#325099]/50 transition">
                       <p className="text-sm font-semibold text-[#062E63] truncate pr-6">{n.title}</p>
-                      <p className="text-[10px] text-[#2A2035]/45">
-                        {fmtDLong(n.meeting_date)}{n.created_by ? ` · ${n.created_by.split(' ')[0]}` : ''}
-                      </p>
+                      <p className="text-[10px] text-[#2A2035]/45">{fmtDLong(n.meeting_date)}</p>
                       {n.body && (
                         <p className="text-[11px] text-[#2A2035]/50 truncate mt-0.5">{htmlToText(n.body).slice(0, 120)}</p>
                       )}

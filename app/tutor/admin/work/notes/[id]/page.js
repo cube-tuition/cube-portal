@@ -204,7 +204,6 @@ export default function WorkNotePage() {
               : ''}
           </span>
           <span className="flex-1" />
-          {note?.created_by && <span className="text-[11px] text-[#2A2035]/40 shrink-0">by {note.created_by.split(' ')[0]}</span>}
           <input
             type="date"
             value={note?.meeting_date || ''}
