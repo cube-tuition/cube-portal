@@ -7,6 +7,28 @@ import { getAuthProfile } from '../../../../lib/getProfile'
 import TutorNav from '../../../../components/TutorNav'
 import { DUE_DATES, daysUntil } from '../../../../lib/complianceDates'
 import { htmlToText } from '../../../../lib/richNotes'
+import { authedFetch } from '../../../../lib/authedFetch'
+
+/*
+ * The recurring automation schedule — the human-readable face of
+ * vercel.json's crons plus the rules inside /api/reminders/daily. Kept here
+ * by hand: if a cron is added or retimed there, update this list.
+ * Times are Sydney (the UTC crons land an hour later during DST).
+ */
+const RECURRING = [
+  {
+    icon: '📲', title: 'Daily reminders push', when: 'Every morning · ~7–8am',
+    detail: 'To the directors\' iPhones. Bank payroll — the Monday after each term fortnight, with the total. Cash payroll — each cash teacher\'s chosen weekday in the fortnight\'s last week. Compliance (BAS, company tax, ASIC) — a week before and the day before, unless ticked off. Term start — the day before.',
+  },
+  {
+    icon: '🔄', title: 'Xero payroll reconcile', when: 'Every morning · ~6–7am',
+    detail: 'Pulls posted pay runs back from Xero: posted runs flip their shifts and portal pay runs to paid, so the books agree before the day starts.',
+  },
+  {
+    icon: '🗄️', title: 'Data syncs', when: 'Every night · ~12–1am',
+    detail: 'Students, classes, quizzes and booklets sync jobs.',
+  },
+]
 
 /*
  * Work — /tutor/admin/work (directors only)
@@ -53,6 +75,7 @@ export default function WorkPage() {
   const [showDone, setShowDone] = useState(false)
 
   const [creatingNote, setCreatingNote] = useState(false)
+  const [pushes, setPushes] = useState(null)   // null = loading; [{date,title,body}] otherwise
 
   const load = useCallback(async () => {
     const [t, n, c] = await Promise.all([
@@ -64,6 +87,11 @@ export default function WorkPage() {
     if (n.error) setError(`Notes failed to load: ${n.error.message}`)
     setTasks(t.data || [])
     setNotes(n.data || [])
+    // What the phones will actually buzz about — straight from the reminder
+    // engine's own preview, so this list can never drift from what sends.
+    authedFetch('/api/reminders/daily?preview=14')
+      .then(r => r.json()).then(j => setPushes(j.upcoming || []))
+      .catch(() => setPushes([]))
     try { setComplianceDone(JSON.parse(c.data?.value || '{}')) } catch { setComplianceDone({}) }
   }, [])
 
@@ -300,6 +328,58 @@ export default function WorkPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* ── Notification centre ── */}
+        <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5">
+          <p className="text-xs font-bold text-[#062E63] mb-4">🔔 Notifications</p>
+          <div className="grid md:grid-cols-2 gap-6 items-start">
+
+            {/* Live: the next fortnight of pushes, from the reminder engine itself */}
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#325099]/55 mb-2">Coming to your phone · next 14 days</p>
+              {pushes === null ? (
+                <p className="text-xs text-[#2A2035]/40 py-3">Loading…</p>
+              ) : pushes.length === 0 ? (
+                <p className="text-xs text-[#2A2035]/40 py-3">Nothing scheduled to push in the next fortnight.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {pushes.map((p, i) => {
+                    const days = daysUntil(p.date)
+                    return (
+                      <div key={i} className="flex items-start gap-2.5 text-xs" title={p.body || ''}>
+                        <span className={`shrink-0 mt-[1px] text-[10px] font-semibold px-2 py-0.5 rounded-full ${dueCls(days)}`}>
+                          {days === 0 ? 'today' : days === 1 ? 'tomorrow' : fmtD(p.date)}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[#2A2035] font-medium truncate">{p.title}</p>
+                          {p.body && <p className="text-[11px] text-[#2A2035]/50 truncate">{p.body}</p>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* The standing schedule */}
+            <div>
+              <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#325099]/55 mb-2">Recurring schedule</p>
+              <div className="space-y-3">
+                {RECURRING.map(r => (
+                  <div key={r.title} className="flex items-start gap-2.5">
+                    <span className="text-base leading-none mt-0.5 shrink-0">{r.icon}</span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[#062E63]">
+                        {r.title} <span className="font-normal text-[#325099]/60">· {r.when}</span>
+                      </p>
+                      <p className="text-[11px] text-[#2A2035]/55 leading-relaxed">{r.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>

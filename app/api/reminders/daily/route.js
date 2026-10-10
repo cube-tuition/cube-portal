@@ -62,7 +62,7 @@ function remindersFor(ctx, today, { ignoreDone = false } = {}) {
       }
     }
   }
-  for (const t of ctx.terms) {
+  for (const t of ctx.rawTerms || ctx.terms) {
     if (t.start_date === tomorrow && !isHolidayTerm(t)) pushes.push({ title: `Term ${t.term_number} starts tomorrow`, body: `First day is ${fmtDay(t.start_date)}. Check the timetable and class lists today.`, url: '/tutor/admin/timetable', tag: `term-start-${t.start_date}` })
   }
   for (const d of DUE_DATES) {
@@ -89,6 +89,11 @@ async function loadContext(admin, from, to) {
   try { complianceDone = JSON.parse(compRow?.value || '{}') } catch { /* none marked */ }
   return {
     terms: normaliseTerms(termRows || []),
+    // Raw rows too: normaliseTerms moves starts back to the Monday for the
+    // payroll fortnight grid, but "Term N starts tomorrow" must use the REAL
+    // first teaching day (a Tuesday-starting term fired a day early, naming
+    // the wrong date).
+    rawTerms: termRows || [],
     staff: [...(directors || []), ...(tutors || []).filter(t => !t.system)],
     shifts: shifts || [], payrollDone, complianceDone,
   }
