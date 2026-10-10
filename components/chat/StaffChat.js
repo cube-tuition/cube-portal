@@ -69,6 +69,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [termClasses, setTermClasses] = useState([]) // its active classes, for {classes}
   const [reactions, setReactions] = useState({})   // messageId → [{ emoji, user_id }]
   const [picker, setPicker] = useState(null)       // message id with the emoji picker open
+  const [reactorsOpen, setReactorsOpen] = useState(null)   // message id whose reactions list names
   const [online, setOnline] = useState(new Set())  // user ids present right now
   const [typing, setTyping] = useState({})         // user id → channel id they are typing in
   const [query, setQuery] = useState('')
@@ -91,6 +92,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     return () => ro.disconnect()
   }, [])
   const taRef = useRef(null)
+  // Size the reply box to its text — and back to one line once it is cleared.
+  useEffect(() => { const ta = taRef.current; if (!ta) return; ta.style.height = 'auto'; ta.style.height = Math.min(160, Math.max(42, ta.scrollHeight)) + 'px' }, [text, active])
   const activeRef = useRef(active)
   // Directors post as "CUBE" (a shared voice, the default) or as themselves:
   // their pick is remembered per browser. In a CUBE thread it is always CUBE.
@@ -774,13 +777,20 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         const byEmoji = {}
                         for (const r of rs) (byEmoji[r.emoji] ||= []).push(r.user_id)
                         return (
-                          <div className="flex flex-wrap gap-1 mt-1">
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
                             {Object.entries(byEmoji).map(([emoji, uids]) => (
                               <button key={emoji} onClick={() => react(m, emoji)} title={uids.map(nameOf).join(', ')}
                                 className={`text-[12px] rounded-full px-2 py-0.5 border ${uids.includes(me.id) ? 'bg-[#DEE7FF] border-[#325099] text-[#062E63]' : 'bg-white border-[#DEE7FF] text-[#2A2035]/70 hover:border-[#325099]'}`}>
                                 {emoji} <span className="text-[11px] font-semibold">{uids.length}</span>
                               </button>
                             ))}
+                            <button onClick={() => setReactorsOpen(reactorsOpen === m.id ? null : m.id)} title="Who reacted"
+                              className={`text-[11px] px-1.5 py-0.5 rounded-full ${reactorsOpen === m.id ? 'bg-[#EEF4FF] text-[#062E63]' : 'text-[#2A2035]/40 hover:text-[#325099]'}`}>👥</button>
+                            {reactorsOpen === m.id && (
+                              <p className="basis-full text-[11px] text-[#2A2035]/60 mt-0.5">
+                                {Object.entries(byEmoji).map(([emoji, uids]) => `${emoji} ${uids.map(nameOf).join(', ')}`).join('   ·   ')}
+                              </p>
+                            )}
                           </div>
                         )
                       })()}
