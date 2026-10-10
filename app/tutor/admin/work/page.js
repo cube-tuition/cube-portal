@@ -34,7 +34,7 @@ const RECURRING = [
  * Work — /tutor/admin/work (directors only)
  *
  * The directors' work centre: the running to-do between Ryan and Aiden
- * (ops_tasks — add, assign, tick off) and meeting notes (work_notes).
+ * (ops_tasks — add, assign, tick off) and CUBE notes (work_notes).
  * Compliance due dates live on the Accounting dashboard, not here.
  */
 
@@ -166,7 +166,7 @@ export default function WorkPage() {
 
         <div>
           <h1 className="text-2xl font-bold text-[#062E63]">Work</h1>
-          <p className="text-sm text-[#325099]/60 mt-0.5">Meeting notes, due dates and the running to-do between directors</p>
+          <p className="text-sm text-[#325099]/60 mt-0.5">The running to-do between directors, and CUBE notes</p>
         </div>
 
         {error && (
@@ -253,10 +253,10 @@ export default function WorkPage() {
           )}
         </div>
 
-        {/* ── Meeting notes — each opens as its own document page ── */}
+        {/* ── CUBE notes (work_notes) — each opens as its own document page ── */}
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-[#062E63]">📝 Meeting notes</p>
+            <p className="text-xs font-bold text-[#062E63]">📝 CUBE notes</p>
             <button onClick={newNote} disabled={creatingNote}
               className="text-xs font-semibold bg-[#062E63] text-white px-3.5 py-1.5 rounded-lg hover:bg-[#325099] transition disabled:opacity-40">
               {creatingNote ? 'Opening…' : '+ New note'}
@@ -264,7 +264,7 @@ export default function WorkPage() {
           </div>
 
           {notes.length === 0 ? (
-            <p className="text-xs text-[#2A2035]/40 py-4 text-center">No notes yet — start with this week’s meeting.</p>
+            <p className="text-xs text-[#2A2035]/40 py-4 text-center">No CUBE notes yet.</p>
           ) : (
             <div className="space-y-2">
               {notes.map(n => (

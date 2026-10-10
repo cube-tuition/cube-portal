@@ -8,7 +8,7 @@ import TutorNav from '../../../../../../components/TutorNav'
 import { toHtml, sanitizeHtml } from '../../../../../../lib/richNotes'
 
 /*
- * One meeting note as its own document — /tutor/admin/work/notes/[id]
+ * One CUBE note as its own document — /tutor/admin/work/notes/[id]
  * (directors only). Docs-style: a borderless title, a formatting toolbar,
  * a page-shaped canvas you type straight into, and autosave — no Save button.
  *
