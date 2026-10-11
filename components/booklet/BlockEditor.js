@@ -567,9 +567,6 @@ export function MathObjFields({ obj, upd }) {
               <input type="checkbox" checked={obj.vnUniversal !== false} onChange={e => upd({ vnUniversal: e.target.checked })} className="accent-[#325099]" />
               Universal set box
             </label>
-            {obj.vnUniversal !== false && (
-              <div className="w-24"><label className={L}>Box label</label><LiftedInput className={I} value={obj.vnULabel ?? ''} onCommit={v => upd({ vnULabel: v })} placeholder="ξ" /></div>
-            )}
             <div className="flex-1 min-w-[160px]"><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.vnTitle ?? ''} onCommit={v => upd({ vnTitle: v })} placeholder="" /></div>
           </div>
           <p className="text-[10px] text-[#2A2035]/45">A blank template — the regions are left empty for students to fill in.</p>
@@ -593,7 +590,7 @@ export function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-export const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '', vnSets: '2', vnLabels: 'A, B', vnUniversal: true, vnULabel: 'ξ', vnTitle: '' }
+export const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '', vnSets: '2', vnLabels: 'A, B', vnUniversal: true, vnTitle: '' }
 // A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
 const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', cellAlign: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
 
