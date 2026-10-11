@@ -1090,9 +1090,12 @@ function TableEditor({ block, set }) {
   // The two neighbours TRADE width, keeping their combined size constant, so
   // every other column is untouched and the handle tracks the cursor exactly
   // (freezing an auto neighbour to its current share leaves the layout
-  // unchanged, so nothing jumps when a drag begins). ~56px is the trailing
-  // spacer column holding the per-row buttons.
-  const SPACER = 56
+  // unchanged, so nothing jumps when a drag begins). SPACER is the trailing
+  // column holding the per-row buttons.
+  // The column on the right of each row holding ▲ ▼ ＋ ✕ (4 × 24px buttons
+  // and their gaps). It was 56px, which cut the strip off at the table's edge
+  // and hid ✕ — "Delete this row" — entirely.
+  const SPACER = 112
   const tableRef = useRef(null)
   const resizeRef = useRef(null)
   const startResize = (ci) => (e) => {
@@ -1313,7 +1316,7 @@ function TableEditor({ block, set }) {
                 {/* Per-row controls — insert a row below this one, or delete it
                     (the last remaining row can't be removed). */}
                 <td className="p-0.5 align-middle">
-                  <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition">
+                  <div className="flex items-center gap-1 md:opacity-30 md:group-hover:opacity-100 md:focus-within:opacity-100 transition">
                     {rows.length > 1 && (
                       <button type="button" onClick={() => moveRow(ri, -1)} disabled={ri === 0} title="Move this row up"
                         className="w-6 h-6 flex items-center justify-center rounded text-[#325099] hover:bg-[#F0F4FF] disabled:opacity-25 disabled:hover:bg-transparent text-sm leading-none">▲</button>
