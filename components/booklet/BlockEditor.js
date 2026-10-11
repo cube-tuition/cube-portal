@@ -373,6 +373,7 @@ export function MathObjFields({ obj, upd }) {
             <option value="dotplot">Dot plot</option>
             <option value="stemleaf">Stem-and-leaf plot</option>
             <option value="xytable">Table of values</option>
+            <option value="venn">Venn diagram</option>
           </select>
         </div>
         <div>
@@ -542,6 +543,38 @@ export function MathObjFields({ obj, upd }) {
           <p className="text-[10px] text-[#2A2035]/45">Leaves are sorted automatically and empty stems in between are kept. A key is generated for you.</p>
         </>
       )}
+      {obj.objType === 'venn' && (
+        <>
+          <div className="grid grid-cols-[auto_1fr] max-md:grid-cols-1 gap-2 items-end">
+            <div>
+              <label className={L}>Sets</label>
+              <select className={I} value={String(obj.vnSets || '2')}
+                onChange={e => {
+                  const n = e.target.value
+                  // Keep the names typed so far; fill in the default for a new set.
+                  const names = String(obj.vnLabels ?? '').split(',').map(t => t.trim()).filter(Boolean)
+                  const next = ['A', 'B', 'C'].map((d, i) => names[i] || d).slice(0, Number(n))
+                  upd({ vnSets: n, vnLabels: next.join(', ') })
+                }}>
+                <option value="2">2 sets</option>
+                <option value="3">3 sets</option>
+              </select>
+            </div>
+            <div><label className={L}>Set names (comma separated)</label><LiftedInput className={I} value={obj.vnLabels ?? ''} onCommit={v => upd({ vnLabels: v })} placeholder={String(obj.vnSets) === '3' ? 'A, B, C' : 'A, B'} /></div>
+          </div>
+          <div className="flex items-end gap-3 flex-wrap">
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-[#2A2035]/70 select-none pb-2">
+              <input type="checkbox" checked={obj.vnUniversal !== false} onChange={e => upd({ vnUniversal: e.target.checked })} className="accent-[#325099]" />
+              Universal set box
+            </label>
+            {obj.vnUniversal !== false && (
+              <div className="w-24"><label className={L}>Box label</label><LiftedInput className={I} value={obj.vnULabel ?? ''} onCommit={v => upd({ vnULabel: v })} placeholder="ξ" /></div>
+            )}
+            <div className="flex-1 min-w-[160px]"><label className={L}>Title (optional)</label><LiftedInput className={I} value={obj.vnTitle ?? ''} onCommit={v => upd({ vnTitle: v })} placeholder="" /></div>
+          </div>
+          <p className="text-[10px] text-[#2A2035]/45">A blank template — the regions are left empty for students to fill in.</p>
+        </>
+      )}
       {obj.objType === 'xytable' && (
         <>
           <div className="flex gap-2 items-end">
@@ -560,7 +593,7 @@ export function MathObjFields({ obj, upd }) {
 
 // Embed extras inside a callout box (Definition, Formula, Note, …): a maths
 // object and/or a plain blank space beneath the text.
-export const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '' }
+export const EMPTY_MATHOBJ = { objType: 'cartesian', width: '55', pos: '', xMin: '-5', xMax: '5', yMin: '-5', yMax: '5', grid: true, intercepts: true, interceptLabels: true, points: [], lines: [], nlMin: '0', nlMax: '10', nlStep: '1', nlPoints: '', bpTitle: '', bpUnits: '', bpPlots: [], bpMin: '', bpQ1: '', bpMed: '', bpQ3: '', bpMax: '', bpOutliers: '', hgTitle: '', hgBars: [], hgValues: '', hgFreqs: '', hgXLabel: '', hgYLabel: '', dpTitle: '', dpData: '', dpMin: '', dpMax: '', dpStep: '1', dpXLabel: '', tbX: '0, 1, 2, 3', tbY: '', tbXLabel: 'x', tbYLabel: 'y', slTitle: '', slData: '', slLeaf: '1', slHeaders: true, slBack: false, slData2: '', slLeft: '', slRight: '', vnSets: '2', vnLabels: 'A, B', vnUniversal: true, vnULabel: 'ξ', vnTitle: '' }
 // A fresh embedded table (same shape as a standalone 'table' block, minus id/type).
 const EMPTY_TABLE = () => ({ headerRow: false, headerCol: false, width: '', align: '', cellAlign: '', colWidths: [], rows: [['', '', ''], ['', '', '']] })
 
