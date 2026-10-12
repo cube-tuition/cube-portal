@@ -271,7 +271,10 @@ export default function TutorNav({ staffName, isAdmin = false }) {
         sections={[
           ...(!isAdmin ? TUTOR_GROUPS : []),
           ...(!isAdmin ? [{ label: 'My work', links: TUTOR_LINKS }] : []),
-          ...(isAdmin ? [RESOURCES_GROUP, ...ADMIN_GROUPS] : []),
+          // Admin's sub-groups become their own labelled sections on the phone.
+          ...(isAdmin ? [RESOURCES_GROUP, ...ADMIN_GROUPS.flatMap(g => g.subgroups
+            ? g.subgroups.map(sub => ({ label: `${g.label} · ${sub.label}`, links: sub.links }))
+            : [g])] : []),
           ...(isAdmin ? [{ label: 'Data', links: ADMIN_FLAT_LINKS }] : []),
         ].map((g) => ({ ...g, links: g.links.filter((l) => !l.desktopOnly) }))} />
     </nav>

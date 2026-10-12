@@ -10,6 +10,9 @@ import { ADMIN_FLAT_LINKS, ADMIN_GROUPS, BASE_LINKS, RESOURCES_GROUP } from '../
  * in from the RIGHT, over the page: nothing shifts, nothing to re-layout.
  * Desktop only (hidden below md; the phone menu sheet lists everything).
  *
+ * A section with sub-groups (Admin: Operations / Staff / Students/Parents)
+ * shows each as its own collapsible sub-dropdown, keyed "Admin/Staff" etc.
+ *
  * Per-section expansion is a per-browser convenience kept in localStorage —
  * never state that matters. The drawer closes on backdrop click, Escape, or
  * navigation (TutorNav closes it on route change).
@@ -56,6 +59,22 @@ export default function DirectorSidebar({ open, onClose, pathname }) {
   // yourself is the whole point of a menu.
   const forcedOpen = (section) => section.links.some(l => isActive(l.href))
 
+  const renderLink = (link) => {
+    const active = isActive(link.href)
+    return (
+      <Link key={link.href} href={link.href} onClick={onClose}
+        className={`flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] transition ${
+          active
+            ? 'bg-[#F0F4FF] text-[#062E63] font-semibold'
+            : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'
+        }`}>
+        <span className="text-[15px] leading-none w-5 text-center shrink-0">{link.icon}</span>
+        <span className="truncate">{link.label}</span>
+        {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099] shrink-0" />}
+      </Link>
+    )
+  }
+
   return (
     <div className="hidden md:block fixed inset-0 z-[70]">
       {/* Backdrop */}
@@ -89,21 +108,27 @@ export default function DirectorSidebar({ open, onClose, pathname }) {
                     <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </button>
-                {!shut && section.links.map(link => {
-                  const active = isActive(link.href)
-                  return (
-                    <Link key={link.href} href={link.href} onClick={onClose}
-                      className={`flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] transition ${
-                        active
-                          ? 'bg-[#F0F4FF] text-[#062E63] font-semibold'
-                          : 'text-[#2A2035]/70 hover:text-[#062E63] hover:bg-[#F8FAFF] font-medium'
-                      }`}>
-                      <span className="text-[15px] leading-none w-5 text-center shrink-0">{link.icon}</span>
-                      <span className="truncate">{link.label}</span>
-                      {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#325099] shrink-0" />}
-                    </Link>
-                  )
-                })}
+                {!shut && (section.subgroups
+                  ? section.subgroups.map(sub => {
+                      const key = `${section.label}/${sub.label}`
+                      const subShut = collapsed[key] && !forcedOpen(sub)
+                      return (
+                        <div key={key} className="pl-1.5">
+                          <button
+                            onClick={() => toggleSection(key)}
+                            className="w-full flex items-center justify-between px-2 py-1.5 text-[11px] font-semibold text-[#2A2035]/50 hover:text-[#325099] transition"
+                          >
+                            {sub.label}
+                            <svg className={`w-2.5 h-2.5 transition-transform duration-150 ${subShut ? '-rotate-90' : ''}`}
+                              viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M2 4l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          {!subShut && sub.links.map(renderLink)}
+                        </div>
+                      )
+                    })
+                  : section.links.map(renderLink))}
               </div>
             )
           })}
