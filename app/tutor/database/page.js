@@ -845,7 +845,11 @@ function FamiliesView() {
           ...Object.entries(byFam).map(([fid, members]) => buildFamily(`f_${fid}`, Number(fid), members)),
           ...unlinked.map(s => buildFamily(`s_${s.id}`, null, [s])),
         ]
-        result.sort((a, b) => (a.familyId === null) - (b.familyId === null)
+        // Families whose students have all left go last; then linked before
+        // unlinked, then by guardian name.
+        const formerOnly = (f) => f.students.every(st => st.status === 'inactive')
+        result.sort((a, b) => formerOnly(a) - formerOnly(b)
+          || (a.familyId === null) - (b.familyId === null)
           || (a.head?.full_name ?? a.students[0]?.full_name ?? '').localeCompare(b.head?.full_name ?? b.students[0]?.full_name ?? ''))
         setFamilies(result)
       } catch (e) { setErr(e.message || 'Failed to load families.') }
@@ -1944,7 +1948,7 @@ export default function DatabasePage() {
       if (selectedTable === T_PARENTS && r.length > 0) {
         const sIds = [...new Set(r.map(g => g.student_id).filter(Boolean))]
         const { data: studs } = sIds.length
-          ? await supabase.from(T_STUDENTS).select('id, full_name, payment_method').in('id', sIds)
+          ? await supabase.from(T_STUDENTS).select('id, full_name, payment_method, status').in('id', sIds)
           : { data: [] }
         const sMap = Object.fromEntries((studs || []).map(s => [String(s.id), s]))
         const norm = s => (s ?? '').trim().toLowerCase()
@@ -1964,7 +1968,11 @@ export default function DatabasePage() {
           ...grp,
           students: grp._students.map(s => s.full_name).join(', ') || null,
           payment_method: grp._students.some(s => s.payment_method === 'cash') ? 'cash' : 'bank',
+          // Every child has left (or none is linked): this guardian is history,
+          // so they're listed after everyone with a current student.
+          _inactiveOnly: grp._students.every(s => s.status === 'inactive'),
         }))
+        enrichedRows.sort((a, b) => a._inactiveOnly - b._inactiveOnly)
         cols = ['id', 'full_name', 'relationship', 'email', 'phone', 'students', 'payment_method']
       }
 
@@ -3873,6 +3881,9 @@ export default function DatabasePage() {
         return 0
       })
     }
+    // Guardians whose students have all left stay at the bottom, whatever the
+    // sort — the sort applies within the current and former groups.
+    if (selectedTable === T_PARENTS) out = [...out].sort((a, b) => (a._inactiveOnly ? 1 : 0) - (b._inactiveOnly ? 1 : 0))
     return out
   }, [rows, search, filterCfg, sortRules, selectedTable, tutorStatusTab, studentStatusTab, courseStatusTab, classStatusTab, enrolStatusTab, enrolStudentStatus])
 
