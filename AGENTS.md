@@ -22,3 +22,16 @@ the next one during holidays — what pages show by default) or
 `getEnrolmentTerm(terms)` (the term a new student would join; same answer)
 from `lib/terms.js`. `getRunningTerm(terms)` is the literal term running today,
 holiday periods included — only for logic about today's lessons.
+
+## Money tests gate every deploy
+
+`npm test` runs before every Vercel build (`vercel.json` buildCommand); a
+failing test stops the deploy and production stays on the last good version.
+
+- Invoice rules live in `lib/billing.js` + `lib/cashDiscount.js`, the Xero
+  payroll push in `lib/payroll.js` — change the rule there, never inline in a
+  route, and update `tests/*.test.mjs` with it.
+- Shift and pay-run rules are database functions, tested on an in-memory
+  Postgres from `tests/db/payroll-schema.sql`. After changing any of them (or
+  their tables), run `npm run test:db:snapshot` and commit the snapshot with
+  the migration — locally `npm test` fails until you do.

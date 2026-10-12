@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "smoke": "node scripts/smoke-student-routes.mjs",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test 'tests/**/*.test.mjs'",
+    "test": "node scripts/run-tests.mjs",
     "test:db:snapshot": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/test-db-snapshot.mjs"
   },
   "dependencies": {

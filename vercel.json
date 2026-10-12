@@ -1,4 +1,5 @@
 {
+  "buildCommand": "npm test && npm run build",
   "functions": {
     "app/api/xero/push/route.js": {
       "maxDuration": 60
