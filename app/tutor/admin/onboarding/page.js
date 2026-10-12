@@ -8,7 +8,7 @@ import TutorNav from '../../../../components/TutorNav'
 import { SUPER_RATE } from '../../../../lib/teacherCost'
 import { buildPayRatesPdfBase64, rateRows } from '../../../../lib/payRatesPdf'
 import {
-  DOCS, TEMPLATES, STATUS_LABEL, ONBOARDING_BUCKET,
+  DOCS, TEMPLATES, STATUS_LABEL, ONBOARDING_BUCKET, PORTAL_URL,
   buildOnboardingEmailHtml, onboardingSubject,
 } from '../../../../lib/onboarding'
 
@@ -171,6 +171,7 @@ function Composer({ pack, onClose, onSent }) {
   const [prepared, setPrepared] = useState(null)   // { onboarding, tutor, tutorCreated }
   const [rates, setRates] = useState(null)
   const [noRatesOk, setNoRatesOk] = useState(false)
+  const [includeLogin, setIncludeLogin] = useState(true)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
   const [savedNote, setSavedNote] = useState(null)   // what the pack row holds; null until prepared
@@ -235,7 +236,7 @@ function Composer({ pack, onClose, onSent }) {
       const payRatesPdf = await payRatesPdfFor(prepared.tutor, rates || [])
       const res = await authedFetch('/api/onboarding/send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ onboardingId: prepared.onboarding.id, note: form.note, payRatesPdf, test }),
+        body: JSON.stringify({ onboardingId: prepared.onboarding.id, note: form.note, payRatesPdf, includeLogin, test }),
       })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Send failed')
@@ -248,7 +249,11 @@ function Composer({ pack, onClose, onSent }) {
   const canSend = prepared && (rows.length > 0 || noRatesOk)
   const link = prepared ? `${window.location.origin}/onboarding/${prepared.onboarding.token}` : ''
   const attached = [...TEMPLATES.map(t => t.label), ...(rows.length ? ['CUBE Pay Rates'] : [])]
-  const preview = prepared ? buildOnboardingEmailHtml({ ...prepared.onboarding, note: form.note }, link, attached) : ''
+  // The preview's set-password button points at the sign-in page; the real
+  // email gets a fresh single-use link.
+  const portal = prepared && includeLogin
+    ? { username: prepared.tutor.email || prepared.onboarding.email, portalUrl: PORTAL_URL, setPasswordUrl: PORTAL_URL } : null
+  const preview = prepared ? buildOnboardingEmailHtml({ ...prepared.onboarding, note: form.note }, link, attached, portal) : ''
 
   return (
     <div className="fixed inset-0 z-50 bg-[#062E63]/40 flex items-start justify-center overflow-y-auto px-3 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
@@ -311,6 +316,14 @@ function Composer({ pack, onClose, onSent }) {
                 </table>
               )}
           </div>
+
+          <label className="flex items-start gap-2 rounded-xl border border-[#DEE7FF] bg-[#FBFCFF] px-4 py-3 cursor-pointer">
+            <input type="checkbox" checked={includeLogin} onChange={e => setIncludeLogin(e.target.checked)} className="mt-0.5" />
+            <span className="text-xs text-[#2A2035]">
+              <span className="font-semibold text-[#062E63]">🔑 Include their portal login</span>
+              <span className="block text-[11px] text-[#2A2035]/55 mt-0.5">Adds their username, the portal address, what the portal is for and a link to set their password. Creates the login if they don’t have one yet — a test send doesn’t.</span>
+            </span>
+          </label>
 
           <label className="block text-[11px] font-semibold text-[#325099]/70">
             <span className="flex items-center justify-between">Personal note in the email (optional)
@@ -393,7 +406,7 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
         {pack.submitted_at ? ` · all in ${fmtDay(pack.submitted_at)}` : ''}
         {pack.completed_at ? ` · completed ${fmtDay(pack.completed_at)}${pack.completed_by_name ? ` by ${pack.completed_by_name.split(' ')[0]}` : ''}` : ''}
       </p>
-      {pack.tutor_id && <PortalLogin tutorId={pack.tutor_id} name={pack.full_name} />}
+      {pack.tutor_id && <PortalLogin key={pack.sent_at || 'unsent'} tutorId={pack.tutor_id} name={pack.full_name} />}
       <div className="flex flex-wrap gap-1.5">
         {pack.status !== 'complete' && (
           <>
