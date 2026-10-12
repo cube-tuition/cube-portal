@@ -366,6 +366,7 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
         {pack.submitted_at ? ` · all in ${fmtDay(pack.submitted_at)}` : ''}
         {pack.completed_at ? ` · completed ${fmtDay(pack.completed_at)}${pack.completed_by_name ? ` by ${pack.completed_by_name.split(' ')[0]}` : ''}` : ''}
       </p>
+      {pack.tutor_id && <PortalLogin tutorId={pack.tutor_id} name={pack.full_name} />}
       <div className="flex flex-wrap gap-1.5">
         {pack.status !== 'complete' && (
           <>
@@ -384,6 +385,53 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
           <button type="button" disabled={busy} onClick={remove} className={`${btn} ${BTN_DANGER} ml-auto`}>Delete</button>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── The tutor's portal login ─────────────────────────────────────────────────
+// Creates their login (tutors.id = auth id, role 'tutor') and emails them a
+// link to choose a password; once it exists, re-sends that email.
+function PortalLogin({ tutorId, name }) {
+  const [login, setLogin] = useState(undefined)   // undefined = loading · null = none
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const load = useCallback(async () => {
+    const res = await authedFetch(`/api/tutor-login?tutor_id=${encodeURIComponent(tutorId)}`)
+    const j = await res.json().catch(() => ({}))
+    setLogin(res.ok ? j.login : null)
+  }, [tutorId])
+  useEffect(() => { Promise.resolve().then(load) }, [load])
+
+  const go = async () => {
+    const q = login
+      ? `Email ${name} a new link to set their portal password?`
+      : `Create a portal login for ${name}? They'll get an email with their username and a link to choose a password.`
+    if (!window.confirm(q)) return
+    setBusy(true); setMsg(null)
+    try {
+      const res = await authedFetch('/api/tutor-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tutor_id: tutorId }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Could not create the login')
+      setMsg(`${j.created ? 'Login created — ' : ''}email sent to ${j.sentTo}.`)
+      await load()
+    } catch (e) { setMsg(e.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="rounded-xl bg-[#F8FAFF] border border-[#EEF2FB] px-3 py-2 flex flex-wrap items-center gap-2">
+      <span className="text-xs flex-1 min-w-0">
+        <span className="font-semibold text-[#062E63]">🔑 Portal login</span>{' '}
+        {login === undefined ? <span className="text-[#2A2035]/40">checking…</span>
+          : login ? <span className="text-[#065F46]">✓ {login.email}{' '}<span className="text-[#2A2035]/45">· {login.last_sign_in_at ? `last signed in ${fmtDay(login.last_sign_in_at)}` : 'not signed in yet'}</span></span>
+            : <span className="text-[#2A2035]/45">not created yet</span>}
+      </span>
+      {login !== undefined && (
+        <button type="button" disabled={busy} onClick={go} className={`${btn} ${login ? BTN_SECONDARY : BTN_PRIMARY}`}>
+          {busy ? 'Working…' : login ? 'Resend login email' : 'Create portal login'}
+        </button>
+      )}
+      {msg && <p className={`w-full text-[11px] font-semibold ${/sent to/.test(msg) ? 'text-[#065F46]' : 'text-[#B91C1C]'}`}>{msg}</p>}
     </div>
   )
 }
