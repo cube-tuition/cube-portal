@@ -156,7 +156,7 @@ export default function OnboardingPage() {
         <Templates />
       </div>
       {composer && (
-        <Composer key={composer.pack?.id || 'new'} pack={composer.pack} onClose={() => setComposer(null)}
+        <Composer key={composer.pack?.id || 'new'} pack={composer.pack} onClose={() => { setComposer(null); reload() }}
           onSent={() => { setComposer(null); reload() }} />
       )}
     </div>
@@ -173,9 +173,31 @@ function Composer({ pack, onClose, onSent }) {
   const [noRatesOk, setNoRatesOk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [savedNote, setSavedNote] = useState(null)   // what the pack row holds; null until prepared
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
-  const reset = () => { setForm({ name: '', email: '', startDate: '', note: '' }); setPrepared(null); setRates(null); setNoRatesOk(false) }
+
+  // The note saves as you type (not only when the email goes), so it survives
+  // closing the modal. Debounced; flushed on blur.
+  const packId = prepared?.onboarding?.id
+  const saveNote = useCallback(async (text) => {
+    if (!packId) return
+    const { error } = await supabase.from('tutor_onboarding')
+      .update({ note: text.trim() || null, updated_at: new Date().toISOString() }).eq('id', packId)
+    if (error) setMsg(`Note not saved: ${error.message}`); else setSavedNote(text)
+  }, [packId])
+  useEffect(() => {
+    if (savedNote == null || form.note === savedNote) return
+    const t = setTimeout(() => saveNote(form.note), 700)
+    return () => clearTimeout(t)
+  }, [form.note, savedNote, saveNote])
+  const noteState = savedNote == null ? '' : form.note === savedNote ? 'Saved ✓' : 'Saving…'
+  // Closing straight after typing still keeps the note.
+  const close = async () => {
+    if (savedNote != null && form.note !== savedNote) await saveNote(form.note)
+    onClose()
+  }
+  const reset = () => { setForm({ name: '', email: '', startDate: '', note: '' }); setPrepared(null); setRates(null); setNoRatesOk(false); setSavedNote(null) }
 
   const refreshRates = useCallback(async (tutorId) => setRates(await loadRates(tutorId)), [])
 
@@ -189,7 +211,8 @@ function Composer({ pack, onClose, onSent }) {
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Could not continue')
       setPrepared(j)
-      if (j.onboarding?.note) setForm(x => (x.note ? x : { ...x, note: j.onboarding.note }))
+      setForm(x => ({ ...x, note: j.onboarding?.note || '' }))   // the saved note, not a stale card copy
+      setSavedNote(j.onboarding?.note || '')
       await refreshRates(j.tutor.id)
     } catch (e) { setMsg(e.message) } finally { setBusy(false) }
   }, [refreshRates])
@@ -199,10 +222,10 @@ function Composer({ pack, onClose, onSent }) {
     if (pack) Promise.resolve().then(() => prepare({ name: pack.full_name, email: pack.email, startDate: pack.start_date }))
   }, [pack, prepare])
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e) => { if (e.key === 'Escape') close() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  })
 
   const send = async (test) => {
     if (!prepared) return
@@ -229,13 +252,13 @@ function Composer({ pack, onClose, onSent }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-[#062E63]/40 flex items-start justify-center overflow-y-auto px-3 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
     <section className="w-full max-w-3xl bg-white rounded-2xl border border-[#DEE7FF] shadow-xl p-5 md:p-6 space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-bold text-[#062E63]">{pack ? `Onboarding pack — ${pack.full_name}` : 'New onboarding pack'}</h2>
         <div className="flex items-center gap-3">
           {prepared && !pack && <button type="button" onClick={reset} className="text-[11px] text-[#325099] hover:underline">Start again</button>}
-          <button type="button" onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-full text-[#2A2035]/50 hover:bg-[#F0F4FF] hover:text-[#2A2035]">✕</button>
+          <button type="button" onClick={close} aria-label="Close" className="w-8 h-8 rounded-full text-[#2A2035]/50 hover:bg-[#F0F4FF] hover:text-[#2A2035]">✕</button>
         </div>
       </div>
 
@@ -289,8 +312,12 @@ function Composer({ pack, onClose, onSent }) {
               )}
           </div>
 
-          <label className="block text-[11px] font-semibold text-[#325099]/70">Personal note in the email (optional)
-            <textarea value={form.note} onChange={set('note')} rows={2} className={`${field} mt-1 resize-y`} placeholder="e.g. You'll be teaching Y8 Maths on Tuesdays with Daniel." />
+          <label className="block text-[11px] font-semibold text-[#325099]/70">
+            <span className="flex items-center justify-between">Personal note in the email (optional)
+              {form.note || savedNote ? <span className={`font-normal ${noteState === 'Saved ✓' ? 'text-[#065F46]' : 'text-[#2A2035]/40'}`}>{noteState}</span> : null}
+            </span>
+            <textarea value={form.note} onChange={set('note')} onBlur={() => { if (savedNote != null && form.note !== savedNote) saveNote(form.note) }}
+              rows={3} className={`${field} mt-1 resize-y`} placeholder="e.g. You'll be teaching Y8 Maths on Tuesdays with Daniel." />
           </label>
 
           <details open className="rounded-xl border border-[#EEF2FB] bg-white">
