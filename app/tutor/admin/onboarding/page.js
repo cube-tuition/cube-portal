@@ -406,7 +406,7 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
         {pack.submitted_at ? ` · all in ${fmtDay(pack.submitted_at)}` : ''}
         {pack.completed_at ? ` · completed ${fmtDay(pack.completed_at)}${pack.completed_by_name ? ` by ${pack.completed_by_name.split(' ')[0]}` : ''}` : ''}
       </p>
-      {pack.tutor_id && <PortalLogin key={pack.sent_at || 'unsent'} tutorId={pack.tutor_id} name={pack.full_name} />}
+      {pack.tutor_id && <PortalLogin key={pack.sent_at || 'unsent'} tutorId={pack.tutor_id} name={pack.full_name} packSent={!!pack.sent_at} onOpen={onOpen} />}
       <div className="flex flex-wrap gap-1.5">
         {pack.status !== 'complete' && (
           <>
@@ -430,9 +430,11 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
 }
 
 // ── The tutor's portal login ─────────────────────────────────────────────────
-// Creates their login (tutors.id = auth id, role 'tutor') and emails them a
-// link to choose a password; once it exists, re-sends that email.
-function PortalLogin({ tutorId, name }) {
+// The onboarding email normally carries the login (it's created on send), so
+// before the pack goes out this just says so. After that: re-send a fresh
+// set-password link (they expire), or — if the pack went without the login —
+// create it and email it on its own.
+function PortalLogin({ tutorId, name, packSent, onOpen }) {
   const [login, setLogin] = useState(undefined)   // undefined = loading · null = none
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -464,9 +466,11 @@ function PortalLogin({ tutorId, name }) {
         <span className="font-semibold text-[#062E63]">🔑 Portal login</span>{' '}
         {login === undefined ? <span className="text-[#2A2035]/40">checking…</span>
           : login ? <span className="text-[#065F46]">✓ {login.email}{' '}<span className="text-[#2A2035]/45">· {login.last_sign_in_at ? `last signed in ${fmtDay(login.last_sign_in_at)}` : 'not signed in yet'}</span></span>
-            : <span className="text-[#2A2035]/45">not created yet</span>}
+            : packSent
+              ? <span className="text-[#2A2035]/45">not created — the pack was sent without it</span>
+              : <span className="text-[#2A2035]/45">created when you <button type="button" onClick={onOpen} className="text-[#325099] underline hover:text-[#062E63] cursor-pointer">send the pack</button></span>}
       </span>
-      {login !== undefined && (
+      {login !== undefined && (login || packSent) && (
         <button type="button" disabled={busy} onClick={go} className={`${btn} ${login ? BTN_SECONDARY : BTN_PRIMARY}`}>
           {busy ? 'Working…' : login ? 'Resend login email' : 'Create portal login'}
         </button>
