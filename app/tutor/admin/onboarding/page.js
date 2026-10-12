@@ -43,7 +43,10 @@ const STATUS_CHIP = {
 }
 const money = (n) => `$${(Number(n) || 0).toFixed(2)}`
 const field = 'w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#325099]'
-const btn = 'px-3 py-1.5 rounded-lg text-xs font-semibold border transition disabled:opacity-50'
+const btn = 'px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer enabled:hover:shadow-sm enabled:active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed'
+const BTN_SECONDARY = 'bg-white text-[#325099] border-[#DEE7FF] enabled:hover:bg-[#EEF3FF] enabled:hover:border-[#325099]/40'
+const BTN_PRIMARY = 'bg-[#062E63] text-white border-[#062E63] enabled:hover:bg-[#325099] enabled:hover:border-[#325099]'
+const BTN_DANGER = 'bg-white text-[#B91C1C] border-[#FCA5A5] enabled:hover:bg-[#FEF2F2] enabled:hover:border-[#B91C1C]'
 
 async function loadRates(tutorId) {
   const { data } = await supabase.from('current_tutor_rates')
@@ -299,7 +302,7 @@ function Composer({ pack, onClose, onSent }) {
             <button type="button" disabled={busy || !canSend} onClick={() => send(false)}
               className="px-4 py-2 rounded-xl text-sm font-bold bg-[#062E63] text-white disabled:opacity-50">{busy ? 'Sending…' : `✉️ Send to ${prepared.onboarding.email}`}</button>
             <button type="button" disabled={busy || !canSend} onClick={() => send(true)}
-              className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>Send test to staff</button>
+              className={`${btn} ${BTN_SECONDARY}`}>Send test to staff</button>
           </div>
         </>
       )}
@@ -337,7 +340,7 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
     <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 space-y-3">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <button type="button" onClick={onOpen} title="Open the pack — rates, email preview, send" className="block max-w-full text-left text-sm font-bold text-[#062E63] truncate hover:underline">{pack.full_name}</button>
+          <button type="button" onClick={onOpen} title="Open the pack — rates, email preview, send" className="block max-w-full text-left text-sm font-bold text-[#062E63] truncate hover:underline hover:text-[#325099] cursor-pointer">{pack.full_name}</button>
           <p className="text-[11px] text-[#2A2035]/50 truncate">{pack.email}{pack.start_date ? ` · starts ${fmtDay(pack.start_date)}` : ''}</p>
         </div>
         <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${STATUS_CHIP[pack.status]}`}>{STATUS_LABEL[pack.status]}</span>
@@ -353,7 +356,7 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
             <li key={d.key} className="flex items-center gap-2 text-xs">
               <span className={`w-4 text-center ${f ? 'text-[#10B981]' : 'text-[#2A2035]/25'}`}>{f ? '✓' : '○'}</span>
               <span className={`flex-1 min-w-0 truncate ${f ? 'text-[#2A2035]' : 'text-[#2A2035]/45'}`}>{d.label}</span>
-              {f && <button type="button" onClick={() => openSigned(`id=${f.id}`)} className="text-[11px] text-[#325099] hover:underline shrink-0" title={`${f.filename} · ${fmtDay(f.uploaded_at)}`}>View</button>}
+              {f && <button type="button" onClick={() => openSigned(`id=${f.id}`)} className="text-[11px] text-[#325099] hover:underline hover:text-[#062E63] cursor-pointer shrink-0" title={`${f.filename} · ${fmtDay(f.uploaded_at)}`}>View</button>}
             </li>
           )
         })}
@@ -366,19 +369,19 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
       <div className="flex flex-wrap gap-1.5">
         {pack.status !== 'complete' && (
           <>
-            <button type="button" disabled={busy} onClick={onOpen} className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>{pack.status === 'draft' ? '✉️ Send…' : '✉️ Resend…'}</button>
-            <button type="button" onClick={copy} className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>{copied ? 'Copied ✓' : '🔗 Copy upload link'}</button>
+            <button type="button" disabled={busy} onClick={onOpen} className={`${btn} ${BTN_SECONDARY}`}>{pack.status === 'draft' ? '✉️ Send…' : '✉️ Resend…'}</button>
+            <button type="button" onClick={copy} className={`${btn} ${BTN_SECONDARY}`}>{copied ? 'Copied ✓' : '🔗 Copy upload link'}</button>
             <button type="button" disabled={busy || done < DOCS.length} title={done < DOCS.length ? 'All six documents are needed first' : ''}
               onClick={() => update({ status: 'complete', completed_at: new Date().toISOString(), completed_by_name: profile?.full_name || null })}
-              className={`${btn} bg-[#062E63] text-white border-[#062E63]`}>✓ Mark complete</button>
+              className={`${btn} ${BTN_PRIMARY}`}>✓ Mark complete</button>
           </>
         )}
         {pack.status === 'complete' && (
           <button type="button" disabled={busy} onClick={() => update({ status: done === DOCS.length ? 'submitted' : 'sent', completed_at: null, completed_by_name: null })}
-            className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>↩ Reopen</button>
+            className={`${btn} ${BTN_SECONDARY}`}>↩ Reopen</button>
         )}
         {done === 0 && (
-          <button type="button" disabled={busy} onClick={remove} className={`${btn} bg-white text-[#B91C1C] border-[#FCA5A5] ml-auto`}>Delete</button>
+          <button type="button" disabled={busy} onClick={remove} className={`${btn} ${BTN_DANGER} ml-auto`}>Delete</button>
         )}
       </div>
     </div>
