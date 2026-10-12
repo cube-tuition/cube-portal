@@ -23,9 +23,11 @@ import {
  *   3. Send — the email carries the three CUBE documents, the pay rates and a
  *      private upload link (/onboarding/<token>, no login) for the six
  *      documents they return.
- * Below, a card per pack shows which documents are in (view each), and lets
- * you resend, copy the link, and mark onboarding complete. The pack's three
- * CUBE documents can be replaced at the bottom of the page.
+ * All three steps happen in a modal ("＋ New onboarding pack"). Below, a card
+ * per pack shows which documents are in (view each); its name or Send…/Resend…
+ * reopens the modal at the preview. Cards also copy the link and mark
+ * onboarding complete. The pack's three CUBE documents can be replaced at the
+ * bottom of the page.
  */
 
 const fmtDay = (iso) => {
@@ -71,6 +73,7 @@ export default function OnboardingPage() {
   const [files, setFiles] = useState({})          // onboarding id → { doc_key → file }
   const [reloadKey, setReloadKey] = useState(0)
   const [tab, setTab] = useState('open')
+  const [composer, setComposer] = useState(null)   // null = closed · { pack } = open (pack null for a new one)
   const reload = () => setReloadKey(k => k + 1)
 
   useEffect(() => {
@@ -122,8 +125,6 @@ export default function OnboardingPage() {
           </div>
         </div>
 
-        <NewPack profile={profile} onSent={reload} />
-
         <section>
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <h2 className="text-sm font-bold text-[#062E63] mr-2">Onboarding packs</h2>
@@ -133,6 +134,8 @@ export default function OnboardingPage() {
                 {label} <span className={tab === k ? 'text-white/70' : 'text-[#2A2035]/40'}>{counts[k]}</span>
               </button>
             ))}
+            <button type="button" onClick={() => setComposer({ pack: null })}
+              className="ml-auto px-4 py-2 rounded-xl text-sm font-bold bg-[#062E63] text-white hover:bg-[#325099] transition">＋ New onboarding pack</button>
           </div>
           {packs == null ? (
             <p className="text-sm text-[#2A2035]/40 animate-pulse py-6 text-center">Loading packs…</p>
@@ -142,20 +145,26 @@ export default function OnboardingPage() {
             </p>
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
-              {shown.map(p => <PackCard key={p.id} pack={p} files={files[p.id] || {}} profile={profile} onChanged={reload} />)}
+              {shown.map(p => <PackCard key={p.id} pack={p} files={files[p.id] || {}} profile={profile} onChanged={reload} onOpen={() => setComposer({ pack: p })} />)}
             </div>
           )}
         </section>
 
         <Templates />
       </div>
+      {composer && (
+        <Composer key={composer.pack?.id || 'new'} pack={composer.pack} onClose={() => setComposer(null)}
+          onSent={() => { setComposer(null); reload() }} />
+      )}
     </div>
   )
 }
 
-// ── Send a new pack ──────────────────────────────────────────────────────────
-function NewPack({ onSent }) {
-  const [form, setForm] = useState({ name: '', email: '', startDate: '', note: '' })
+// ── Send a pack (modal) ──────────────────────────────────────────────────────
+// New pack: details → rates → preview → send. Opened from a pack card, it starts
+// at the preview with that pack's details (prepare reuses the open pack).
+function Composer({ pack, onClose, onSent }) {
+  const [form, setForm] = useState({ name: pack?.full_name || '', email: pack?.email || '', startDate: pack?.start_date || '', note: pack?.note || '' })
   const [prepared, setPrepared] = useState(null)   // { onboarding, tutor, tutorCreated }
   const [rates, setRates] = useState(null)
   const [noRatesOk, setNoRatesOk] = useState(false)
@@ -167,20 +176,30 @@ function NewPack({ onSent }) {
 
   const refreshRates = useCallback(async (tutorId) => setRates(await loadRates(tutorId)), [])
 
-  const prepare = async () => {
+  const prepare = useCallback(async (f) => {
     setBusy(true); setMsg(null)
     try {
       const res = await authedFetch('/api/onboarding/prepare', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, email: form.email, startDate: form.startDate || null }),
+        body: JSON.stringify({ name: f.name, email: f.email, startDate: f.startDate || null }),
       })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Could not continue')
       setPrepared(j)
-      if (j.onboarding?.note && !form.note) setForm(f => ({ ...f, note: j.onboarding.note }))
+      if (j.onboarding?.note) setForm(x => (x.note ? x : { ...x, note: j.onboarding.note }))
       await refreshRates(j.tutor.id)
     } catch (e) { setMsg(e.message) } finally { setBusy(false) }
-  }
+  }, [refreshRates])
+
+  // Opened from a pack card: go straight to the preview.
+  useEffect(() => {
+    if (pack) Promise.resolve().then(() => prepare({ name: pack.full_name, email: pack.email, startDate: pack.start_date }))
+  }, [pack, prepare])
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   const send = async (test) => {
     if (!prepared) return
@@ -195,7 +214,7 @@ function NewPack({ onSent }) {
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Send failed')
       if (test) setMsg('Test sent to staff — the tutor did not receive it.')
-      else { reset(); setMsg(`Sent to ${j.sentTo}.`); onSent() }
+      else onSent()
     } catch (e) { setMsg(e.message) } finally { setBusy(false) }
   }
 
@@ -206,10 +225,15 @@ function NewPack({ onSent }) {
   const preview = prepared ? buildOnboardingEmailHtml({ ...prepared.onboarding, note: form.note }, link, attached) : ''
 
   return (
-    <section className="bg-white rounded-2xl border border-[#DEE7FF] p-5 md:p-6 space-y-4">
+    <div className="fixed inset-0 z-50 bg-[#062E63]/40 flex items-start justify-center overflow-y-auto px-3 pb-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <section className="w-full max-w-3xl bg-white rounded-2xl border border-[#DEE7FF] shadow-xl p-5 md:p-6 space-y-4">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-bold text-[#062E63]">Send an onboarding pack</h2>
-        {prepared && <button type="button" onClick={reset} className="text-[11px] text-[#325099] hover:underline">Start again</button>}
+        <h2 className="text-base font-bold text-[#062E63]">{pack ? `Onboarding pack — ${pack.full_name}` : 'New onboarding pack'}</h2>
+        <div className="flex items-center gap-3">
+          {prepared && !pack && <button type="button" onClick={reset} className="text-[11px] text-[#325099] hover:underline">Start again</button>}
+          <button type="button" onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-full text-[#2A2035]/50 hover:bg-[#F0F4FF] hover:text-[#2A2035]">✕</button>
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-3 gap-3">
@@ -225,7 +249,7 @@ function NewPack({ onSent }) {
       </div>
 
       {!prepared ? (
-        <button type="button" disabled={busy || !form.name.trim() || !form.email.trim()} onClick={prepare}
+        <button type="button" disabled={busy || !form.name.trim() || !form.email.trim()} onClick={() => prepare(form)}
           className="px-4 py-2 rounded-xl text-sm font-bold bg-[#062E63] text-white disabled:opacity-50">{busy ? 'Working…' : 'Continue'}</button>
       ) : (
         <>
@@ -266,7 +290,7 @@ function NewPack({ onSent }) {
             <textarea value={form.note} onChange={set('note')} rows={2} className={`${field} mt-1 resize-y`} placeholder="e.g. You'll be teaching Y8 Maths on Tuesdays with Daniel." />
           </label>
 
-          <details className="rounded-xl border border-[#EEF2FB] bg-white">
+          <details open className="rounded-xl border border-[#EEF2FB] bg-white">
             <summary className="px-3 py-2 text-[11px] font-semibold text-[#325099] cursor-pointer">Preview the email — “{onboardingSubject()}”</summary>
             <iframe title="Onboarding email preview" srcDoc={preview} className="w-full h-[640px] border-0" />
           </details>
@@ -281,11 +305,12 @@ function NewPack({ onSent }) {
       )}
       {msg && <p className={`text-xs font-semibold ${/^(Sent|Test sent)/.test(msg) ? 'text-[#065F46]' : 'text-[#B91C1C]'}`}>{msg}</p>}
     </section>
+    </div>
   )
 }
 
 // ── One pack ─────────────────────────────────────────────────────────────────
-function PackCard({ pack, files, profile, onChanged }) {
+function PackCard({ pack, files, profile, onChanged, onOpen }) {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const done = DOCS.filter(d => files[d.key]).length
@@ -296,21 +321,6 @@ function PackCard({ pack, files, profile, onChanged }) {
     const { error } = await supabase.from('tutor_onboarding').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', pack.id)
     setBusy(false)
     if (error) alert(error.message); else onChanged()
-  }
-  const resend = async () => {
-    if (!window.confirm(`Resend the onboarding pack to ${pack.email}? The upload link stays the same.`)) return
-    setBusy(true)
-    try {
-      const tutor = { full_name: pack.tutors?.full_name || pack.full_name, pay_method: pack.tutors?.pay_method }
-      const payRatesPdf = pack.tutor_id ? await payRatesPdfFor(tutor, await loadRates(pack.tutor_id)) : null
-      const res = await authedFetch('/api/onboarding/send', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ onboardingId: pack.id, note: pack.note, payRatesPdf }),
-      })
-      const j = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(j.error || 'Send failed')
-      onChanged()
-    } catch (e) { alert(e.message) } finally { setBusy(false) }
   }
   const copy = async () => {
     try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { window.prompt('Upload link:', link) }
@@ -327,7 +337,7 @@ function PackCard({ pack, files, profile, onChanged }) {
     <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 space-y-3">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-[#062E63] truncate">{pack.full_name}</p>
+          <button type="button" onClick={onOpen} title="Open the pack — rates, email preview, send" className="block max-w-full text-left text-sm font-bold text-[#062E63] truncate hover:underline">{pack.full_name}</button>
           <p className="text-[11px] text-[#2A2035]/50 truncate">{pack.email}{pack.start_date ? ` · starts ${fmtDay(pack.start_date)}` : ''}</p>
         </div>
         <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${STATUS_CHIP[pack.status]}`}>{STATUS_LABEL[pack.status]}</span>
@@ -356,7 +366,7 @@ function PackCard({ pack, files, profile, onChanged }) {
       <div className="flex flex-wrap gap-1.5">
         {pack.status !== 'complete' && (
           <>
-            <button type="button" disabled={busy} onClick={resend} className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>{pack.status === 'draft' ? '✉️ Send' : '✉️ Resend'}</button>
+            <button type="button" disabled={busy} onClick={onOpen} className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>{pack.status === 'draft' ? '✉️ Send…' : '✉️ Resend…'}</button>
             <button type="button" onClick={copy} className={`${btn} bg-white text-[#325099] border-[#DEE7FF]`}>{copied ? 'Copied ✓' : '🔗 Copy upload link'}</button>
             <button type="button" disabled={busy || done < DOCS.length} title={done < DOCS.length ? 'All six documents are needed first' : ''}
               onClick={() => update({ status: 'complete', completed_at: new Date().toISOString(), completed_by_name: profile?.full_name || null })}
