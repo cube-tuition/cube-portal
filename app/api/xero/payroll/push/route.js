@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../../../lib/apiAuth'
 import { listPayRuns, getPayRun, createDraftPayRun, setPayslipHours, setPayRunPaymentDate, PayrollScopeError } from '../../../../../lib/xeroPayroll'
+import { planPayslips, payRunPaymentDate } from '../../../../../lib/payroll'
 
 function adminSb() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
@@ -55,9 +56,7 @@ export async function POST(req) {
     // is the Monday after the period ends — or today, when pushing later than
     // that. Never moves an already-later date backwards.
     const todaySydney = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney' }).format(new Date())
-    const dayAfterEnd = new Date(payRun.periodEnd + 'T00:00:00Z')
-    dayAfterEnd.setUTCDate(dayAfterEnd.getUTCDate() + 1)
-    const targetPayDate = [dayAfterEnd.toISOString().slice(0, 10), todaySydney].sort().pop()
+    const targetPayDate = payRunPaymentDate(payRun.periodEnd, todaySydney)
     if (payRun.paymentDate && payRun.paymentDate < targetPayDate) {
       await setPayRunPaymentDate(payRun.id, targetPayDate)
       payRun.paymentDate = targetPayDate
@@ -79,12 +78,9 @@ export async function POST(req) {
       .lte('work_date', payRun.periodEnd)
     if (shiftErr) throw shiftErr
 
-    const postedRunIds = new Set(runs.filter(r => r.status === 'POSTED').map(r => r.id))
-    const eligible = (shifts || []).filter(s =>
-      !s.xero_pay_run_id || s.xero_pay_run_id === payRun.id || !postedRunIds.has(s.xero_pay_run_id))
-
     // Cash-paid staff are handled outside Xero Payroll (cash schedule + cash
-    // log) — their hours/amounts must NOT be pushed.
+    // log) — their hours/amounts must NOT be pushed. lib/payroll does the
+    // grouping, the double-pay guard and the per-rate earnings lines.
     const [{ data: tRows }, { data: dRows }] = await Promise.all([
       sb.from('tutors').select('id, full_name, pay_method'),
       sb.from('directors').select('id, full_name, pay_method'),
@@ -92,28 +88,11 @@ export async function POST(req) {
     const staffById = {}
     for (const r of [...(tRows || []), ...(dRows || [])]) staffById[r.id] = r
 
-    const byTutor = {}
-    const excludedCash = []
-    for (const s of eligible) {
-      const person = staffById[s.tutor_id]
-      if ((person?.pay_method || 'bank') === 'cash') {
-        const x = excludedCash.find(e => e.staffId === s.tutor_id)
-          || excludedCash[excludedCash.push({ staffId: s.tutor_id, name: person?.full_name || s.tutor_id, hours: 0, amount: 0 }) - 1]
-        x.hours += Number(s.hours || 0)
-        x.amount += Number(s.hours || 0) * Number(s.rate_snapshot || 0)
-        continue
-      }
-      const t = (byTutor[s.tutor_id] ||= { hours: 0, byRate: new Map(), shiftIds: [], catchupHours: 0 })
-      const hrs = Number(s.hours || 0)
-      t.hours += hrs
-      t.shiftIds.push(s.id)
-      if (s.work_date < payRun.periodStart) t.catchupHours += hrs
-      // Bucket by $/h — a fortnight commonly mixes rates and each one becomes its
-      // own earnings line, so a single blended line never reaches Xero.
-      const rate = s.rate_snapshot != null ? Number(s.rate_snapshot) : null
-      t.byRate.set(rate, (t.byRate.get(rate) || 0) + hrs)
-    }
-    if (!Object.keys(byTutor).length) {
+    const { teachers, excludedCash } = planPayslips({
+      shifts, staffById, payRun,
+      postedRunIds: new Set(runs.filter(r => r.status === 'POSTED').map(r => r.id)),
+    })
+    if (!teachers.length) {
       const cashNote = excludedCash.length
         ? ` (${excludedCash.length} cash-paid teacher${excludedCash.length === 1 ? '' : 's'} excluded)`
         : ''
@@ -126,27 +105,19 @@ export async function POST(req) {
     const payslipByEmp = Object.fromEntries((payRun.payslips || []).map(p => [p.employeeId, p]))
 
     const pushed = [], skipped = []
-    for (const [staffId, agg] of Object.entries(byTutor)) {
-      const hours = Math.round(agg.hours * 100) / 100
+    for (const { staffId, hours, catchupHours, shiftIds, lines } of teachers) {
       if (hours <= 0) continue
       const map = empByStaff[staffId]
       if (!map) { skipped.push({ staffId, reason: 'not matched to a Xero employee' }); continue }
       const slip = payslipByEmp[map.xero_employee_id]
       if (!slip) { skipped.push({ name: map.xero_name || staffId, reason: 'no payslip in the Xero pay run (is the employee on this pay calendar?)' }); continue }
-      // One earnings line per rate, highest first. Unpriced hours (rate null)
-      // fall back to the employee's Xero pay-template rate.
-      const lines = [...agg.byRate.entries()]
-        .map(([rate, hrs]) => ({ rate, hours: Math.round(hrs * 100) / 100 }))
-        .filter(l => l.hours > 0)
-        .sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))
       try {
         await setPayslipHours(slip.payslipId, { earningsRateId: settings.earnings_rate_id, lines })
         // Stamp the shifts with this Xero run so they drop out of future
         // pushes once the run is posted.
-        await sb.from('shifts').update({ xero_pay_run_id: payRun.id }).in('id', agg.shiftIds)
+        await sb.from('shifts').update({ xero_pay_run_id: payRun.id }).in('id', shiftIds)
         pushed.push({
-          name: slip.name || map.xero_name, hours, lines,
-          catchupHours: Math.round(agg.catchupHours * 100) / 100 || 0,
+          name: slip.name || map.xero_name, hours, lines, catchupHours,
         })
       } catch (e) {
         skipped.push({ name: slip.name || map.xero_name, reason: e.message })
@@ -165,11 +136,7 @@ export async function POST(req) {
       windowDiffers,
       portalPeriod: windowDiffers ? [periodStart, periodEnd] : null,
       pushed, skipped,
-      excludedCash: excludedCash.map(x => ({
-        name: x.name,
-        hours: Math.round(x.hours * 100) / 100,
-        amount: Math.round(x.amount * 100) / 100,
-      })),
+      excludedCash,
     })
   } catch (err) {
     if (err instanceof PayrollScopeError || err.scope) {

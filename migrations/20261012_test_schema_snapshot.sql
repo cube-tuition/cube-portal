@@ -1,0 +1,124 @@
+-- test_schema_snapshot(): the live DDL of the payroll objects, for the tests.
+--
+-- tests/payroll.db.test.mjs runs the real shift and pay-run functions on an
+-- in-memory Postgres (PGlite). It loads tests/db/payroll-schema.sql, which
+-- `npm run test:db:snapshot` writes from this function — and a drift test
+-- compares the file with this function's output, so the tests can never pass
+-- against a stale copy of a function that has since changed in production.
+--
+-- Read-only (catalog reads only), service role only.
+
+create or replace function public.test_schema_snapshot()
+returns text
+language plpgsql
+stable
+set search_path to 'public', 'pg_temp'
+as $function$
+declare
+  v_tables text[] := array[
+    'terms', 'tutors', 'directors', 'classes', 'lessons', 'attendance',
+    'dropin_sessions', 'tutor_rate_matrix', 'pay_runs', 'shifts'];
+  v_funcs text[] := array[
+    'touch_updated_at', 'parse_class_time', 'parse_class_year', 'parse_class_mode',
+    'year_band_for', 'is_admin', 'resolve_tutor_by_first_name', 'resolve_matrix_rate',
+    'dropin_rate_band', 'dropin_matrix_rate', 'current_tutor_rate', 'pay_period_for',
+    'sync_lesson_main_teacher', 'create_shift_from_class_attendance',
+    'create_shifts_from_dropin', 'save_dropin_shift', 'ensure_pay_run',
+    'pay_run_recompute_totals', 'approve_shift', 'unapprove_shift',
+    'approve_pay_run', 'mark_pay_run_exported'];
+  v_views text[] := array['pay_run_shifts'];
+  v_triggers text[] := array[
+    'lessons_sync_main_teacher', 'attendance_to_shift', 'dropin_to_shift', 'shifts_touch'];
+  v_out text := '';
+  r record;
+begin
+  -- Sequences behind serial-style defaults.
+  for r in
+    select distinct (regexp_match(pg_get_expr(d.adbin, d.adrelid), 'nextval\(''([^'']+)''::regclass\)'))[1] as seq
+    from pg_attrdef d join pg_class c on c.oid = d.adrelid
+    where c.relnamespace = 'public'::regnamespace and c.relname = any (v_tables)
+      and pg_get_expr(d.adbin, d.adrelid) like 'nextval(%'
+    order by 1
+  loop
+    v_out := v_out || format(E'create sequence %s;\n', r.seq);
+  end loop;
+  v_out := v_out || E'\n';
+
+  -- Tables: columns, defaults, not-null, primary/unique/check constraints.
+  for r in
+    select c.oid, c.relname
+    from unnest(v_tables) with ordinality u(name, ord)
+    join pg_class c on c.relname = u.name and c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
+    order by u.ord
+  loop
+    v_out := v_out || format(E'create table public.%I (\n', r.relname) ||
+      (select string_agg(format('  %I %s%s%s', a.attname, format_type(a.atttypid, a.atttypmod),
+                                coalesce(' default ' || pg_get_expr(d.adbin, d.adrelid), ''),
+                                case when a.attnotnull then ' not null' else '' end), E',\n' order by a.attnum)
+         from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+        where a.attrelid = r.oid and a.attnum > 0 and not a.attisdropped) ||
+      coalesce((select E',\n' || string_agg(format('  constraint %I %s', con.conname, pg_get_constraintdef(con.oid)), E',\n'
+                                            order by con.contype desc, con.conname)
+                  from pg_constraint con where con.conrelid = r.oid and con.contype in ('p', 'u', 'c')), '') ||
+      E'\n);\n\n';
+  end loop;
+
+  -- Foreign keys between the tables above (keys to tables outside the set are left out).
+  for r in
+    select c.relname, con.conname, pg_get_constraintdef(con.oid) as def
+    from pg_constraint con
+    join pg_class c on c.oid = con.conrelid
+    join pg_class f on f.oid = con.confrelid
+    where con.contype = 'f' and c.relnamespace = 'public'::regnamespace
+      and c.relname = any (v_tables) and f.relname = any (v_tables)
+    order by c.relname, con.conname
+  loop
+    v_out := v_out || format(E'alter table public.%I add constraint %I %s;\n', r.relname, r.conname, r.def);
+  end loop;
+
+  -- Unique indexes that are not constraints (ON CONFLICT targets live here).
+  for r in
+    select pg_get_indexdef(x.indexrelid) as def
+    from pg_index x join pg_class c on c.oid = x.indrelid join pg_class i on i.oid = x.indexrelid
+    where c.relnamespace = 'public'::regnamespace and c.relname = any (v_tables)
+      and x.indisunique and not exists (select 1 from pg_constraint con where con.conindid = x.indexrelid)
+    order by c.relname, i.relname
+  loop
+    v_out := v_out || r.def || E';\n';
+  end loop;
+  v_out := v_out || E'\n';
+
+  -- Functions (every overload), then views, then triggers.
+  for r in
+    select pg_get_functiondef(p.oid) as def
+    from unnest(v_funcs) with ordinality u(name, ord)
+    join pg_proc p on p.proname = u.name and p.pronamespace = 'public'::regnamespace
+    order by u.ord, pg_get_function_identity_arguments(p.oid)
+  loop
+    v_out := v_out || r.def || E';\n\n';
+  end loop;
+
+  for r in
+    select c.relname, pg_get_viewdef(c.oid, true) as def
+    from unnest(v_views) u(name)
+    join pg_class c on c.relname = u.name and c.relnamespace = 'public'::regnamespace and c.relkind = 'v'
+  loop
+    v_out := v_out || format(E'create view public.%I as\n%s\n\n', r.relname, r.def);
+  end loop;
+
+  for r in
+    select pg_get_triggerdef(t.oid) as def
+    from unnest(v_triggers) with ordinality u(name, ord)
+    join pg_trigger t on t.tgname = u.name and not t.tgisinternal
+    join pg_class c on c.oid = t.tgrelid and c.relnamespace = 'public'::regnamespace
+    order by u.ord
+  loop
+    v_out := v_out || r.def || E';\n';
+  end loop;
+
+  return v_out;
+end;
+$function$;
+
+revoke all on function public.test_schema_snapshot() from public, anon, authenticated;
+grant execute on function public.test_schema_snapshot() to service_role;
