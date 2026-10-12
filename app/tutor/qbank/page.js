@@ -84,7 +84,7 @@ function QuestionBankInner() {
     // Whole bank, paged — a plain select stops silently at 1000 rows.
     const data = await fetchAllRows(() => supabase
       .from(T_QBANK_QUESTIONS)
-      .select('*, qbank_question_parts(id, part_label, prompt_latex, marks, sort_order), qbank_question_images(id, storage_path)')
+      .select('*, qbank_question_parts(id, part_label, prompt_latex, marks, sort_order), qbank_question_images(id, storage_path, role, sort_order)')
       .order('created_at', { ascending: false }).order('id')).catch(() => [])
     setQuestions(data)
     setLoadingQ(false)
@@ -443,6 +443,20 @@ function QuestionBankInner() {
                 <div className="text-sm text-[#2A2035] phone-scroll">
                   <LatexContent text={q.stem_latex || '(no stem)'} />
                 </div>
+                {/* Stem images, laid out as the worksheet prints them:
+                    centred under the stem at readable size (280×200 max). */}
+                {imgs.some((im) => (im.role || 'stem') !== 'solution') && (
+                  <div className="flex flex-wrap justify-center items-start gap-3 my-2">
+                    {imgs
+                      .filter((im) => (im.role || 'stem') !== 'solution')
+                      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                      .map((im) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={im.id} src={qbankImageUrl(im.storage_path)} alt=""
+                          className="max-w-[280px] max-h-[200px] object-contain" />
+                      ))}
+                  </div>
+                )}
                 {/* MCQ options */}
                 {q.qtype === 'mcq' && Array.isArray(q.options) && q.options.length > 0 && (
                   <div className="mt-2 grid sm:grid-cols-2 gap-x-6 gap-y-1">
@@ -469,9 +483,11 @@ function QuestionBankInner() {
                     })}
                   </div>
                 )}
-                {imgs.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {imgs.slice(0, 4).map((im) => (
+                {/* Solution images stay small — they only print on the answer key. */}
+                {imgs.some((im) => im.role === 'solution') && (
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <span className="text-[10px] uppercase tracking-wide text-[#2A2035]/35">Solution</span>
+                    {imgs.filter((im) => im.role === 'solution').slice(0, 6).map((im) => (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img key={im.id} src={qbankImageUrl(im.storage_path)} alt="" className="h-14 w-14 object-contain rounded-lg bg-[#F8FAFF] border border-[#F0F4FF]" />
                     ))}
