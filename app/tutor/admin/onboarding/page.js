@@ -148,7 +148,7 @@ export default function OnboardingPage() {
             </p>
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
-              {shown.map(p => <PackCard key={p.id} pack={p} files={files[p.id] || {}} profile={profile} onChanged={reload} onOpen={() => setComposer({ pack: p })} />)}
+              {shown.map(p => <PackCard key={p.id} pack={p} files={files[p.id] || {}} profile={profile} onChanged={reload} onOpen={p.status === 'complete' ? null : () => setComposer({ pack: p })} />)}
             </div>
           )}
         </section>
@@ -380,7 +380,9 @@ function PackCard({ pack, files, profile, onChanged, onOpen }) {
     <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 space-y-3">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <button type="button" onClick={onOpen} title="Open the pack — rates, email preview, send" className="block max-w-full text-left text-sm font-bold text-[#062E63] truncate hover:underline hover:text-[#325099] cursor-pointer">{pack.full_name}</button>
+          {onOpen
+            ? <button type="button" onClick={onOpen} title="Open the pack — rates, email preview, send" className="block max-w-full text-left text-sm font-bold text-[#062E63] truncate hover:underline hover:text-[#325099] cursor-pointer">{pack.full_name}</button>
+            : <p className="text-sm font-bold text-[#062E63] truncate">{pack.full_name}</p>}
           <p className="text-[11px] text-[#2A2035]/50 truncate">{pack.email}{pack.start_date ? ` · starts ${fmtDay(pack.start_date)}` : ''}</p>
         </div>
         <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${STATUS_CHIP[pack.status]}`}>{STATUS_LABEL[pack.status]}</span>
