@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { syncCashDiscountLines, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
+import { reconcileEnrolmentLines, discountTotals } from '../../../lib/billing'
+
 
 /**
  * POST /api/refresh-invoice
@@ -21,25 +23,6 @@ import { syncCashDiscountLines, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, B
  *  - keeps every hand-added line (credits, referral/other discounts, adjustments);
  *  - re-syncs the cash discount, then subtotal and total.
  */
-
-// Same rules as /api/generate-draft-invoices.
-const siblingLines = (enrolLines) => {
-  const n = new Set(enrolLines.map(l => l.student_id)).size
-  return n >= 2 ? [{ type: 'discount', reason: `Sibling discount (${n} students)`, amount: -(n * 50) }] : []
-}
-const multiCourseLines = (enrolLines) => {
-  const byStudent = {}
-  for (const l of enrolLines) (byStudent[l.student_id] ||= { n: 0, name: l.student_name }).n++
-  return Object.values(byStudent).filter(s => s.n >= 2).map(s => ({
-    type: 'discount',
-    reason: `Multi-course discount (${String(s.name || 'student').split(' ')[0]}, ${s.n} courses)`,
-    amount: -(s.n * 50),
-  }))
-}
-const isSiblingLine = (l) => l.type === 'discount' && /^Sibling discount/i.test(l.reason || '')
-const isMultiLine = (l) => l.type === 'discount' && /^Multi-course discount/i.test(l.reason || '')
-const sameLines = (a, b) => a.length === b.length
-  && a.every((x, i) => x.reason === b[i].reason && Number(x.amount) === Number(b[i].amount))
 
 export async function POST(req) {
   try {
@@ -68,90 +51,32 @@ export async function POST(req) {
     let lineItems = inv.line_items || []
     const notes = []
 
-    // ── Match the class lines to this term's enrolments ──
-    // Adds classes the family is enrolled in but not billed for, and removes
-    // class lines whose enrolment has ended. Lines added by hand (credits,
-    // referral and other discounts, adjustments) are never touched.
+    // ── Match the class lines to this term's enrolments (lib/billing) ──
+    // Adds classes the family is enrolled in but not billed for, removes class
+    // lines whose enrolment has ended, and recalculates the sibling and
+    // multi-course discounts — the same rules the generator uses.
     let added = 0
-    const removedNames = []
+    let removedNames = []
     if (inv.term_id && (inv.family_id != null || inv.student_id)) {
       const { data: members, error: memErr } = inv.family_id != null
         ? await sb.from('students').select('id, full_name').eq('family_id', inv.family_id)
         : await sb.from('students').select('id, full_name').eq('id', inv.student_id)
       if (memErr) return Response.json({ error: `Could not load the family: ${memErr.message}` }, { status: 500 })
       const memberIds = (members || []).map(m => m.id)
-      const nameOf = Object.fromEntries((members || []).map(m => [m.id, m.full_name]))
       if (memberIds.length) {
-        // Trial enrolments count as live (as the invoice page treats them) so a
-        // line is never dropped mid-trial — but only active ones are added,
-        // as the generator does.
-        const { data: termEnrols, error: teErr } = await sb.from('enrolments')
+        // Trial enrolments count as live (a line is never dropped mid-trial).
+        const { data: termEnrolments, error: teErr } = await sb.from('enrolments')
           .select('student_id, class_id, price, status, classes!inner(id, class_name, day_of_week, start_time, term_id, courses(course_price))')
           .in('student_id', memberIds).in('status', ['active', 'trial']).eq('classes.term_id', inv.term_id)
         if (teErr) return Response.json({ error: `Could not load enrolments: ${teErr.message}` }, { status: 500 })
-        const pairKey = (sid, cid) => `${sid}__${cid}`
-        const live = new Set((termEnrols || []).map(e => pairKey(e.student_id, e.class_id)))
-        const oldEnrolLines = lineItems.filter(l => l.type === 'enrolment')
-        const onInvoice = new Set(oldEnrolLines.map(l => pairKey(l.student_id, l.class_id)))
-
-        // Lines to drop: a class line for a family member with no live
-        // enrolment behind it (dropped class, deleted class, student left).
-        // Lines without a class, or for someone outside the family, are left.
-        const memberSet = new Set(memberIds)
-        const isDead = (l) => l.type === 'enrolment' && l.class_id != null
-          && memberSet.has(l.student_id) && !live.has(pairKey(l.student_id, l.class_id))
-
-        const newLines = []
-        for (const e of termEnrols || []) {
-          if (e.status !== 'active' || onInvoice.has(pairKey(e.student_id, e.class_id))) continue
-          const cls = e.classes
-          const fee = (e.price != null ? parseFloat(e.price) : parseFloat(cls?.courses?.course_price)) || 0
-          newLines.push({
-            student_id: e.student_id, student_name: nameOf[e.student_id] || '—',
-            class_id: e.class_id, class_name: cls?.class_name || '—',
-            day: cls?.day_of_week || '', start_time: cls?.start_time || '',
-            unit_price: fee, quantity: 1, amount: fee, type: 'enrolment',
-          })
-        }
-
-        let dead = oldEnrolLines.filter(isDead)
-        // Never empty an invoice: with nothing live left it should be voided,
-        // which is a decision for a person, not for Refresh.
-        if (dead.length && dead.length === oldEnrolLines.length && !newLines.length) {
-          notes.push('None of the classes on this invoice are current enrolments any more — void it if the family has left.')
-          dead = []
-        }
-
-        if (newLines.length || dead.length) {
-          added = newLines.length
-          for (const l of dead) removedNames.push(`${String(l.student_name || 'student').split(' ')[0]} – ${l.class_name || `class #${l.class_id}`}`)
-          const deadSet = new Set(dead)
-          lineItems = lineItems.filter(l => !deadSet.has(l))
-          // Enrolment lines stay together at the top, as the generator writes them.
-          const lastEnrol = lineItems.map(l => l.type).lastIndexOf('enrolment')
-          lineItems = [...lineItems.slice(0, lastEnrol + 1), ...newLines, ...lineItems.slice(lastEnrol + 1)]
-          const allEnrol = lineItems.filter(l => l.type === 'enrolment')
-
-          // Discounts follow the enrolments — but only replace lines that still
-          // hold what the generator would have written (not hand-edited ones).
-          // A line that is new goes where the generator puts it: enrolments,
-          // then sibling, then multi-course (`after` says which lines precede it).
-          const swap = (isLine, oldExpected, next, label, after) => {
-            const current = lineItems.filter(isLine)
-            if (!sameLines(current, oldExpected)) {
-              if (!sameLines(current, next)) notes.push(`${label} was edited by hand, so it was left as is — check it.`)
-              return
-            }
-            const at = lineItems.findIndex(isLine)
-            const rest = lineItems.filter(l => !isLine(l))
-            const insertAt = at >= 0 ? at : rest.map(after).lastIndexOf(true) + 1
-            lineItems = [...rest.slice(0, insertAt), ...next, ...rest.slice(insertAt)]
-          }
-          const isEnrol = (l) => l.type === 'enrolment'
-          swap(isSiblingLine, siblingLines(oldEnrolLines), siblingLines(allEnrol), 'The sibling discount', isEnrol)
-          swap(isMultiLine, multiCourseLines(oldEnrolLines), multiCourseLines(allEnrol), 'The multi-course discount',
-            (l) => isEnrol(l) || isSiblingLine(l))
-        }
+        const r = reconcileEnrolmentLines({
+          lineItems, termEnrolments, memberIds,
+          nameOf: Object.fromEntries((members || []).map(m => [m.id, m.full_name])),
+        })
+        lineItems = r.lineItems
+        added = r.added
+        removedNames = r.removedNames
+        notes.push(...r.notes)
       }
     }
 
@@ -213,11 +138,11 @@ export async function POST(req) {
     // Recalculate total = sum of all line item amounts (inc-GST, discounts already negative)
     const newTotal = totalFromLineItems(newLineItems)
 
-    const sumOf = (pred) => -newLineItems.filter(pred).reduce((s, l) => s + (Number(l.amount) || 0), 0)
+    const { siblingDiscount, multiCourseDiscount } = discountTotals(newLineItems)
     const { error: updateErr } = await sb.from('invoices')
       .update({
         line_items: newLineItems, subtotal: newTotal, total: newTotal,
-        sibling_discount: sumOf(isSiblingLine), multi_course_discount: sumOf(isMultiLine),
+        sibling_discount: siblingDiscount, multi_course_discount: multiCourseDiscount,
         payment_method: isCashFamily ? 'cash' : 'bank',
         payment_instructions: isCashFamily ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS,
       })

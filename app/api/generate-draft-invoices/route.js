@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { normaliseTerm } from '../../../lib/termDates'
-import { cashDiscountFor, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
+import { totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
+import { buildInvoiceLines } from '../../../lib/billing'
 
 /*
  * POST /api/generate-draft-invoices
@@ -134,75 +135,17 @@ export async function POST(req) {
     for (const [key, family] of Object.entries(familyMap)) {
       if (existingFamilies.has(key)) { skipped++; continue }
 
-      // Build line items — prices are stored inc-GST as-is
-      const lineItems = []
-
-      for (const e of family.enrolments) {
-        const s   = studMap[e.student_id]
-        const cls = classMap[e.class_id]
-        // Use the enrolment's own price; fall back to the class's course price
-        // when it has none (otherwise the line would bill as $0).
-        const fee = (e.price != null ? parseFloat(e.price) : parseFloat(cls?.courses?.course_price)) || 0  // inc-GST
-        lineItems.push({
-          student_id:   e.student_id,
-          student_name: s?.full_name || '—',
-          class_id:     e.class_id,
-          class_name:   cls?.class_name || '—',
-          day:          cls?.day_of_week || '',
-          start_time:   cls?.start_time || '',
-          unit_price:   fee,
-          quantity:     1,
-          amount:       fee,
-          type:         'enrolment',
-        })
-      }
-
-      // ── Sibling discount: ≥2 distinct students → student_count × $50 (inc-GST) ─────
-      const distinctStudents = [...new Set(family.enrolments.map(e => e.student_id))]
-      const siblingDiscount  = distinctStudents.length >= 2 ? distinctStudents.length * 50 : 0
-      if (siblingDiscount > 0) {
-        lineItems.push({ type: 'discount', reason: `Sibling discount (${distinctStudents.length} students)`, amount: -siblingDiscount })
-      }
-
-      // ── Multi-course discount: per student with ≥2 enrolments → count × $50 (inc-GST)
-      const enrolsByStudent = {}
-      for (const e of family.enrolments) {
-        if (!enrolsByStudent[e.student_id]) enrolsByStudent[e.student_id] = 0
-        enrolsByStudent[e.student_id]++
-      }
-      let multiCourseDiscount = 0
-      for (const [sid, cnt] of Object.entries(enrolsByStudent)) {
-        if (cnt >= 2) {
-          const disc = cnt * 50
-          multiCourseDiscount += disc
-          lineItems.push({ type: 'discount', reason: `Multi-course discount (${studMap[sid]?.full_name?.split(' ')[0] || 'student'}, ${cnt} courses)`, amount: -disc })
-        }
-      }
-
-      // ── Held credits from last term (unapplied: invoice_id = null) ───────
-      // A referral is revenue forgone, so it lands as a DISCOUNT line; absence
-      // and cancellation credits are money owed back and stay CREDIT lines.
-      // The two post to different accounts in Xero.
-      const creditStudents = new Set(family.enrolments.map(e => e.student_id))
-      for (const sid of creditStudents) {
-        for (const c of creditsByStudent[sid] || []) {
-          const amt = parseFloat(c.amount) || 0
-          const isReferral = /^referral/i.test(c.reason || '')
-          // reason is a machine key for some sources ('referral_referred',
-          // 'missed_lesson'); notes carry the human wording when there is any.
-          const label = (c.notes || '').trim()
-            || (isReferral ? 'Referral discount' : String(c.reason || 'Credit').replace(/_/g, ' '))
-          lineItems.push({ type: isReferral ? 'discount' : 'credit', reason: label, amount: -amt })
-        }
-      }
-
-      // ── Cash discount: 10% off, applied LAST ─────────────────────────────
-      // The base is what is left after the sibling, multi-course and credit
-      // lines above, so this has to stay the final push.
       // Family payment method: cash if ANY family member is set to cash.
       const paymentMethod = family.enrolments.some(e => studMap[e.student_id]?.payment_method === 'cash')
         ? 'cash' : 'bank'
-      if (paymentMethod === 'cash') lineItems.push(cashDiscountFor(lineItems))
+
+      // Every line — classes, sibling and multi-course discounts, held credits
+      // and the cash discount last — comes from lib/billing, the one definition
+      // of the money rules (Refresh uses the same file).
+      const { lineItems, siblingDiscount, multiCourseDiscount, appliedCreditIds } = buildInvoiceLines({
+        enrolments: family.enrolments, classMap, studentMap: studMap,
+        credits: creditsByStudent, cash: paymentMethod === 'cash',
+      })
 
       // All amounts are inc-GST; GST is a component of the total (total ÷ 11), not added on top
       const total = totalFromLineItems(lineItems)
@@ -212,14 +155,6 @@ export async function POST(req) {
       const year2d        = String(term.year).slice(-2)  // e.g. '26'
       const invoiceNumber = `${year2d}T${term.term_number}-${String(seqNum).padStart(4, '0')}`  // e.g. '26T2-0001'
       const referenceCode = `INV${String(seqNum).padStart(4, '0')}`                             // e.g. 'INV0001'
-
-      // IDs of held credits being applied to this invoice
-      const appliedCreditIds = []
-      for (const sid of creditStudents) {
-        for (const c of creditsByStudent[sid] || []) {
-          if (c.id) appliedCreditIds.push(c.id)
-        }
-      }
 
       const { error: insErr, data: newInvoice } = await sb.from('invoices').insert({
         term_id:              term_id,
