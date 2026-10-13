@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { requireStudent } from '../../../lib/requireStudent'
+import { studentClassAccess } from '../../../lib/classAccess'
 import PortalNav from '../../../components/PortalNav'
 import CourseDetail, { inferSubject, subjectColor, subjectsMatch } from '../../../components/CourseDetail'
 import { fetchAllTerms, getEnrolmentTerm, getCurrentTerm, weekOfTerm, solutionsUnlockAt, formatTermLabel, filterByTerm } from '../../../lib/terms'
@@ -47,10 +48,13 @@ export default function ClassPage() {
       const { data: profile } = await supabase.from(T_STUDENTS).select('*').eq('id', user.id).single()
       setStudent(profile)
 
-      // Enrolment is the gate: this page only ever shows a class the student is in.
-      const { data: enrol } = await supabase.from('enrolments')
-        .select('id').eq('class_id', classId).eq('student_id', user.id).eq('status', 'active').maybeSingle()
-      if (!enrol) { setErr('That isn’t one of your classes.'); setLoading(false); return }
+      // Enrolment is the gate: this page only ever shows a class the student is
+      // in — by the one shared rule (lib/classAccess), so a trial student and a
+      // student who left mid-term are treated the same way here as on the
+      // workbook pages. Checking status = 'active' inline here locked trial
+      // students out of a class that their classes list had just shown them.
+      const access = await studentClassAccess(user.id, classId)
+      if (!access.ok) { setErr('That isn’t one of your classes.'); setLoading(false); return }
 
       // No `subject` column on classes — the subject is read off the class name.
       const { data: c, error: cErr } = await supabase.from('classes')
