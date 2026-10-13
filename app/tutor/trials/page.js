@@ -189,6 +189,15 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
               <span className="text-[11px] text-[#325099]/60">{subjects}</span>
             )}
             {stale && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Stale {age}d</span>}
+            {/* The family has been sent the trial invitation — dated from the first send. */}
+            {sub.invitation_sent_at && (
+              <span
+                className="text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full"
+                title={`Trial invitation emailed ${fmtDate(sub.invitation_sent_at)}`}
+              >
+                ✉ Invited {fmtDate(sub.invitation_sent_at)}
+              </span>
+            )}
             {/* Trial progress, counted per subject: green only once EVERY
                 trialled subject has had its lessons. Hover for the split. */}
             {progress?.lessons > 0 && (
@@ -233,6 +242,7 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
             <div><span className="font-semibold">Day pref:</span> {sub.day_preference || '—'}</div>
             <div><span className="font-semibold">Time pref:</span> {sub.time_preference || '—'}</div>
             <div><span className="font-semibold">Submitted:</span> {fmtDate(sub.submitted_at)} ({age}d ago)</div>
+            <div><span className="font-semibold">Invitation sent:</span> {sub.invitation_sent_at ? fmtDate(sub.invitation_sent_at) : '—'}</div>
             <div><span className="font-semibold">Trial date:</span> {fmtDate(sub.trial_date)}</div>
             <div><span className="font-semibold">Source:</span> {sub.source || '—'}</div>
             <div className="col-span-full flex items-center gap-2 flex-wrap">
@@ -447,9 +457,11 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
               <button
                 onClick={onInvitationEmail}
                 className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-                title="Compose the trial invitation — welcome, suggested class and trial date"
+                title={sub.invitation_sent_at
+                  ? `Already emailed ${fmtDate(sub.invitation_sent_at)} — compose and send again`
+                  : 'Compose the trial invitation — welcome, suggested class and trial date'}
               >
-                ✉ Trial invitation
+                {sub.invitation_sent_at ? '✉ Resend invitation' : '✉ Trial invitation'}
               </button>
             )}
 
@@ -905,7 +917,12 @@ export default function TrialsPage() {
           onClose={() => setInvitationSub(null)}
           onSent={(stamped) => {
             // Mirror the route's stamping locally so the card moves at once.
-            if (stamped) handleUpdate(invitationSub.id, { status: 'contacted', contacted_at: new Date().toISOString() })
+            const now = new Date().toISOString()
+            handleUpdate(invitationSub.id, {
+              // the invited date is first-send only — a resend keeps the original
+              invitation_sent_at: invitationSub.invitation_sent_at || now,
+              ...(stamped ? { status: 'contacted', contacted_at: now } : {}),
+            })
           }}
         />
       )}

@@ -50,9 +50,9 @@ export async function POST(request) {
     // Real sends move the card: guarded so a concurrent change (or a second
     // send) can't drag a converted/declined card back to Contacted.
     let stamped = false
+    const now = new Date().toISOString()
     if (!test && submissionId != null) {
       const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-      const now = new Date().toISOString()
       const { data } = await sb.from('trial_submissions')
         .update({ status: 'contacted', contacted_at: now })
         .eq('id', submissionId).eq('status', 'new')
@@ -64,9 +64,14 @@ export async function POST(request) {
           .update({ contacted_at: now })
           .eq('id', submissionId).is('contacted_at', null)
       }
+      // The family is marked as invited with the date of the FIRST send —
+      // a resend never shifts it.
+      await sb.from('trial_submissions')
+        .update({ invitation_sent_at: now })
+        .eq('id', submissionId).is('invitation_sent_at', null)
     }
 
-    return Response.json({ success: true, sentTo: test ? 'staff (test)' : parentEmail, stamped })
+    return Response.json({ success: true, sentTo: test ? 'staff (test)' : parentEmail, stamped, invitationSentAt: now })
   } catch (err) {
     console.error('[send-trial-invitation]', err)
     return Response.json({ error: err.message }, { status: 500 })
