@@ -1,5 +1,5 @@
 /*
- * Writes tests/db/payroll-schema.sql from the live database
+ * Writes tests/db/schema.sql from the live database
  * (public.test_schema_snapshot — see migrations/20261012_test_schema_snapshot.sql).
  *
  *   npm run test:db:snapshot

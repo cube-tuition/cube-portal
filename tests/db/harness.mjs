@@ -2,7 +2,7 @@
  * An in-memory Postgres (PGlite) loaded with the live payroll schema, so the
  * real shift and pay-run functions can be tested without touching production.
  *
- * tests/db/payroll-schema.sql is a snapshot of the live definitions
+ * tests/db/schema.sql is a snapshot of the live definitions
  * (`npm run test:db:snapshot`); the drift test compares it with production.
  */
 import fs from 'node:fs'
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { PGlite } from '@electric-sql/pglite'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-export const SNAPSHOT_PATH = path.join(here, 'payroll-schema.sql')
+export const SNAPSHOT_PATH = path.join(here, 'schema.sql')
 
 // Supabase's auth schema, reduced to what the functions call: the JWT claims
 // of the request, and the user id inside them.
@@ -21,6 +21,8 @@ const AUTH_STUB = `
     $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
+  create function auth.role() returns text language sql stable as
+    $$ select nullif(auth.jwt() ->> 'role', '') $$;
 `
 
 export async function freshDb() {

@@ -55,7 +55,7 @@ const t = (name, fn) => test(name, () => inTx(db, async (ctx) => { await seed(ct
 before(async () => { db = await freshDb() })
 
 // ── The snapshot is production ──────────────────────────────────────────────
-test('tests/db/payroll-schema.sql matches the live database', async (ctx) => {
+test('tests/db/schema.sql matches the live database', async (ctx) => {
   let live
   try { live = await liveSnapshot() } catch (e) { return ctx.skip(`live schema unreachable: ${e.message}`) }
   if (live == null) return ctx.skip('no Supabase credentials — drift not checked')

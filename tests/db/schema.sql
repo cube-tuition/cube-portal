@@ -299,6 +299,27 @@ AS $function$
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.is_staff()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  select
+    coalesce((auth.jwt() -> 'app_metadata' ->> 'role') in ('admin','tutor','director'), false)
+    or exists (
+      select 1 from public.directors d
+      where d.id = auth.uid()
+         or lower(d.email) = lower(nullif(auth.jwt() ->> 'email', ''))
+    )
+    or exists (
+      select 1 from public.tutors t
+      where t.id = auth.uid()
+         or lower(t.email) = lower(nullif(auth.jwt() ->> 'email', ''))
+    )
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.resolve_tutor_by_first_name(p_name text)
  RETURNS uuid
  LANGUAGE sql
@@ -893,6 +914,399 @@ begin
 
   return v_pr;
 end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.add_lessons_for_class(p_class_id integer, p_apply boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_class    classes%rowtype;
+  v_term     terms%rowtype;
+  v_days     text[];
+  v_tutor    uuid;
+  v_today    date := current_date;
+  v_missing  jsonb;
+  v_stranded jsonb;
+  v_added    integer := 0;
+begin
+  if not public.is_staff() and coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'forbidden: staff only';
+  end if;
+
+  select * into v_class from classes where id = p_class_id;
+  if not found then raise exception 'Class % not found', p_class_id; end if;
+  select * into v_term from terms where id = v_class.term_id;
+  if not found then raise exception 'No term linked to class %', p_class_id; end if;
+  -- Weeks run Monday–Sunday: a term stored as starting on a Tuesday (NSW
+  -- calendar after a long weekend) starts on that week's Monday for us.
+  v_term.start_date := date_trunc('week', v_term.start_date)::date;
+
+  select array(select btrim(d) from unnest(string_to_array(v_class.day_of_week, ',')) d
+               where btrim(d) <> '') into v_days;
+  if array_length(v_days, 1) is null then
+    raise exception 'Class % has no day_of_week set', p_class_id;
+  end if;
+
+  v_tutor := public.resolve_tutor_by_first_name(v_class.teacher);
+
+  with wanted as (
+    select d::date as lesson_date,
+           floor((d::date - v_term.start_date)::numeric / 7)::int + 1 as week
+    from generate_series(v_term.start_date, v_term.end_date, interval '1 day') d
+    where (case extract(dow from d)
+             when 0 then 'Sunday'    when 1 then 'Monday'   when 2 then 'Tuesday'
+             when 3 then 'Wednesday' when 4 then 'Thursday' when 5 then 'Friday'
+             when 6 then 'Saturday' end) = any (v_days)
+  ),
+  per_week as (
+    select week, count(*)::int as full_wanted from wanted group by week
+  ),
+  have as (
+    select floor((l.lesson_date - v_term.start_date)::numeric / 7)::int + 1 as week,
+           count(*)::int as n
+    from lessons l
+    where l.class_id = p_class_id
+      and coalesce(l.is_makeup, false) = false
+      and (l.lesson_type is null or l.lesson_type = 'class')
+      and l.lesson_date between v_term.start_date and v_term.end_date
+    group by 1
+  ),
+  owed as (
+    select p.week, p.full_wanted - coalesce(h.n, 0) as owed
+    from per_week p left join have h on h.week = p.week
+  ),
+  open_dates as (
+    select w.lesson_date, w.week,
+           row_number() over (partition by w.week order by w.lesson_date) as rn
+    from wanted w
+    where w.lesson_date >= v_today
+      and not exists (
+        select 1 from lessons l
+        where l.class_id = p_class_id and l.lesson_date = w.lesson_date
+          and coalesce(l.is_makeup, false) = false)
+  ),
+  gaps as (
+    select o.lesson_date, o.week
+    from open_dates o join owed od on od.week = o.week
+    where o.rn <= od.owed
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'lesson_date', lesson_date, 'week', week,
+           'start_time', v_class.start_time, 'end_time', v_class.end_time,
+           'room', v_class.room) order by lesson_date), '[]'::jsonb)
+    into v_missing from gaps;
+
+  select coalesce(jsonb_agg(jsonb_build_object('lesson_id', l.id, 'lesson_date', l.lesson_date)
+                            order by l.lesson_date), '[]'::jsonb)
+    into v_stranded
+  from lessons l
+  where l.class_id = p_class_id and coalesce(l.is_makeup, false) = false
+    and (l.lesson_type is null or l.lesson_type = 'class')
+    and l.lesson_date >= v_today and l.status <> 'cancelled'
+    and not exists (
+      select 1 from generate_series(v_term.start_date, v_term.end_date, interval '1 day') d
+      where d::date = l.lesson_date
+        and (case extract(dow from d)
+               when 0 then 'Sunday'    when 1 then 'Monday'   when 2 then 'Tuesday'
+               when 3 then 'Wednesday' when 4 then 'Thursday' when 5 then 'Friday'
+               when 6 then 'Saturday' end) = any (v_days));
+
+  if p_apply and jsonb_array_length(v_missing) > 0 then
+    with ins as (
+      insert into lessons (class_id, lesson_date, start_time, end_time, room,
+                           status, week, main_teacher, scheduled_teacher_id, is_makeup)
+      select p_class_id, (x->>'lesson_date')::date, v_class.start_time, v_class.end_time,
+             v_class.room, 'scheduled', (x->>'week')::int, v_class.teacher, v_tutor, false
+      from jsonb_array_elements(v_missing) x
+      on conflict (class_id, lesson_date) where (is_makeup = false) do nothing
+      returning 1
+    )
+    select count(*) into v_added from ins;
+  end if;
+
+  return jsonb_build_object(
+    'class_id', p_class_id, 'class_name', v_class.class_name,
+    'applied', p_apply, 'count', jsonb_array_length(v_missing),
+    'added', v_added, 'lessons', v_missing, 'stranded', v_stranded);
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.update_lessons_for_class(p_class_id integer, p_apply boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_class    classes%rowtype;
+  v_term     terms%rowtype;
+  v_days     text[];
+  v_today    date := current_date;
+  v_plan     jsonb;
+  v_changes  jsonb;
+  v_stranded jsonb;
+  v_applied  integer := 0;
+begin
+  if not public.is_staff() and coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'forbidden: staff only';
+  end if;
+
+  select * into v_class from classes where id = p_class_id;
+  if not found then raise exception 'Class % not found', p_class_id; end if;
+  select * into v_term from terms where id = v_class.term_id;
+  if not found then raise exception 'No term linked to class %', p_class_id; end if;
+  -- Weeks run Monday–Sunday: a term stored as starting on a Tuesday (NSW
+  -- calendar after a long weekend) starts on that week's Monday for us.
+  v_term.start_date := date_trunc('week', v_term.start_date)::date;
+
+  select array(select btrim(d) from unnest(string_to_array(v_class.day_of_week, ',')) d
+               where btrim(d) <> '') into v_days;
+  if array_length(v_days, 1) is null then
+    raise exception 'Class % has no day_of_week set', p_class_id;
+  end if;
+
+  with sched as (
+    select d::date as lesson_date,
+           floor((d::date - v_term.start_date)::numeric / 7)::int + 1 as week
+    from generate_series(v_term.start_date, v_term.end_date, interval '1 day') d
+    where (case extract(dow from d)
+             when 0 then 'Sunday'    when 1 then 'Monday'   when 2 then 'Tuesday'
+             when 3 then 'Wednesday' when 4 then 'Thursday' when 5 then 'Friday'
+             when 6 then 'Saturday' end) = any (v_days)
+      and d::date >= v_today
+  ),
+  mine as (
+    select l.* from lessons l
+    where l.class_id = p_class_id
+      and coalesce(l.is_makeup, false) = false
+      and (l.lesson_type is null or l.lesson_type = 'class')
+      and l.lesson_date >= v_today
+      and l.status <> 'cancelled'
+      and not exists (select 1 from attendance a
+                      where a.class_id = p_class_id and a.session_date = l.lesson_date)
+  ),
+  on_day as (select * from mine where lesson_date in (select lesson_date from sched)),
+  stranded as (
+    select m.*, row_number() over (order by m.lesson_date) rn
+    from mine m where m.lesson_date not in (select lesson_date from sched)
+  ),
+  free as (
+    select s.*, row_number() over (order by s.lesson_date) rn
+    from sched s
+    where not exists (select 1 from lessons l
+                      where l.class_id = p_class_id and l.lesson_date = s.lesson_date
+                        and coalesce(l.is_makeup, false) = false)
+  ),
+  -- A lesson stranded on a day the class no longer runs is MOVED onto the next
+  -- free scheduled date, in order, so the row (and its notes) survives.
+  moves as (
+    select st.id as lesson_id, st.lesson_date as old_date, f.lesson_date as new_date,
+           st.start_time as old_start, st.end_time as old_end, st.room as old_room,
+           st.week as old_week, f.week as new_week, true as moved
+    from stranded st join free f on f.rn = st.rn
+  ),
+  retimes as (
+    select o.id, o.lesson_date, o.lesson_date,
+           o.start_time, o.end_time, o.room, o.week,
+           (select week from sched s where s.lesson_date = o.lesson_date), false
+    from on_day o
+    where o.start_time is distinct from v_class.start_time
+       or o.end_time   is distinct from v_class.end_time
+       or o.room       is distinct from v_class.room
+       or o.week       is distinct from (select week from sched s where s.lesson_date = o.lesson_date)
+  ),
+  plan as (select * from moves union all select * from retimes)
+  select coalesce(jsonb_agg(to_jsonb(plan) order by old_date), '[]'::jsonb)
+    into v_plan from plan;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'lesson_id', (x->>'lesson_id')::int, 'moved', (x->>'moved')::boolean,
+           'from_date', x->>'old_date', 'to_date', x->>'new_date',
+           'from_time', coalesce(x->>'old_start','')||'-'||coalesce(x->>'old_end',''),
+           'to_time',   coalesce(v_class.start_time,'')||'-'||coalesce(v_class.end_time,''),
+           'from_room', x->>'old_room', 'to_room', v_class.room,
+           'from_week', (x->>'old_week')::int, 'to_week', (x->>'new_week')::int)
+           order by x->>'old_date'), '[]'::jsonb)
+    into v_changes from jsonb_array_elements(v_plan) x;
+
+  -- Stranded with nowhere free to go: left exactly where they are, reported.
+  select coalesce(jsonb_agg(jsonb_build_object('lesson_id', l.id, 'lesson_date', l.lesson_date)
+                            order by l.lesson_date), '[]'::jsonb)
+    into v_stranded
+  from lessons l
+  where l.class_id = p_class_id and coalesce(l.is_makeup, false) = false
+    and (l.lesson_type is null or l.lesson_type = 'class')
+    and l.lesson_date >= v_today and l.status <> 'cancelled'
+    and not exists (select 1 from jsonb_array_elements(v_plan) x
+                    where (x->>'lesson_id')::int = l.id)
+    and not exists (
+      select 1 from generate_series(v_term.start_date, v_term.end_date, interval '1 day') d
+      where d::date = l.lesson_date
+        and (case extract(dow from d)
+               when 0 then 'Sunday'    when 1 then 'Monday'   when 2 then 'Tuesday'
+               when 3 then 'Wednesday' when 4 then 'Thursday' when 5 then 'Friday'
+               when 6 then 'Saturday' end) = any (v_days));
+
+  if p_apply and jsonb_array_length(v_plan) > 0 then
+    -- Move targets are only ever dates with no lesson on them, so nothing can
+    -- collide on (class_id, lesson_date) and the order of updates is free.
+    with upd as (
+      update lessons l
+      set lesson_date = (x->>'new_date')::date,
+          start_time  = v_class.start_time,
+          end_time    = v_class.end_time,
+          room        = v_class.room,
+          week        = (x->>'new_week')::int
+      from jsonb_array_elements(v_plan) x
+      where l.id = (x->>'lesson_id')::int
+      returning 1
+    )
+    select count(*) into v_applied from upd;
+  end if;
+
+  return jsonb_build_object(
+    'class_id', p_class_id, 'class_name', v_class.class_name,
+    'applied', p_apply, 'count', jsonb_array_length(v_changes),
+    'updated', v_applied, 'changes', v_changes, 'stranded', v_stranded);
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.sync_lessons_for_class(p_class_id integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_class      classes%ROWTYPE;
+  v_term       terms%ROWTYPE;
+  v_days       text[];
+  v_teacher_id uuid;
+  v_today      date := current_date;
+  v_desired    date[];
+  v_inserted   integer := 0;
+  v_updated    integer := 0;
+  v_deleted    integer := 0;
+  v_protected  integer := 0;
+BEGIN
+  IF NOT public.is_staff() THEN
+    RAISE EXCEPTION 'forbidden: staff only';
+  END IF;
+
+  SELECT * INTO v_class FROM classes WHERE id = p_class_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Class % not found', p_class_id; END IF;
+
+  SELECT * INTO v_term FROM terms WHERE id = v_class.term_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'No term linked to class %', p_class_id; END IF;
+  -- Weeks run Monday–Sunday: a term stored as starting on a Tuesday (NSW
+  -- calendar after a long weekend) starts on that week's Monday for us.
+  v_term.start_date := date_trunc('week', v_term.start_date)::date;
+
+  SELECT ARRAY(
+    SELECT TRIM(d)
+    FROM unnest(string_to_array(v_class.day_of_week, ',')) AS d
+    WHERE TRIM(d) <> ''
+  ) INTO v_days;
+  IF array_length(v_days, 1) IS NULL THEN
+    RAISE EXCEPTION 'Class % has no day_of_week set', p_class_id;
+  END IF;
+
+  v_teacher_id := public.resolve_tutor_by_first_name(v_class.teacher);
+
+  SELECT ARRAY(
+    SELECT d::date
+    FROM generate_series(v_term.start_date, v_term.end_date, interval '1 day') AS d
+    WHERE (CASE EXTRACT(DOW FROM d)
+             WHEN 0 THEN 'Sunday'    WHEN 1 THEN 'Monday'   WHEN 2 THEN 'Tuesday'
+             WHEN 3 THEN 'Wednesday' WHEN 4 THEN 'Thursday' WHEN 5 THEN 'Friday'
+             WHEN 6 THEN 'Saturday'
+           END) = ANY (v_days)
+      AND d::date >= v_today
+  ) INTO v_desired;
+
+  WITH ins AS (
+    INSERT INTO lessons (
+      class_id, lesson_date, start_time, end_time, room, status, week,
+      main_teacher, scheduled_teacher_id, is_makeup
+    )
+    SELECT p_class_id, d,
+           v_class.start_time, v_class.end_time, v_class.room, 'scheduled',
+           FLOOR((d - v_term.start_date)::numeric / 7)::int + 1,
+           v_class.teacher, v_teacher_id, false
+    FROM unnest(v_desired) AS d
+    ON CONFLICT (class_id, lesson_date) WHERE (is_makeup = false) DO NOTHING
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_inserted FROM ins;
+
+  WITH upd AS (
+    UPDATE lessons l
+    SET start_time = v_class.start_time,
+        end_time   = v_class.end_time,
+        room       = v_class.room,
+        week       = FLOOR((l.lesson_date - v_term.start_date)::numeric / 7)::int + 1
+    WHERE l.class_id = p_class_id
+      AND l.is_makeup = false
+      AND (l.lesson_type IS NULL OR l.lesson_type = 'class')
+      AND l.lesson_date >= v_today
+      AND l.status <> 'cancelled'
+      AND l.lesson_date = ANY (v_desired)
+      AND (l.start_time IS DISTINCT FROM v_class.start_time
+        OR l.end_time   IS DISTINCT FROM v_class.end_time
+        OR l.room       IS DISTINCT FROM v_class.room
+        OR l.week       IS DISTINCT FROM FLOOR((l.lesson_date - v_term.start_date)::numeric / 7)::int + 1)
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_updated FROM upd;
+
+  IF array_length(v_desired, 1) IS NOT NULL THEN
+    WITH del AS (
+      DELETE FROM lessons l
+      WHERE l.class_id = p_class_id
+        AND l.is_makeup = false
+        AND (l.lesson_type IS NULL OR l.lesson_type = 'class')
+        AND l.lesson_date >= v_today
+        AND l.status <> 'cancelled'
+        AND NOT (l.lesson_date = ANY (v_desired))
+        AND NOT EXISTS (SELECT 1 FROM attendance a
+                        WHERE a.class_id = p_class_id AND a.session_date = l.lesson_date)
+        AND NOT EXISTS (SELECT 1 FROM lessons m WHERE m.makeup_source_lesson_id = l.id)
+        AND l.notes IS NULL AND l.notes_general IS NULL
+        AND l.notes_workbook IS NULL AND l.notes_homework IS NULL
+        AND COALESCE(l.has_rq, false) = false
+      RETURNING 1
+    )
+    SELECT count(*) INTO v_deleted FROM del;
+
+    SELECT count(*) INTO v_protected
+    FROM lessons l
+    WHERE l.class_id = p_class_id
+      AND l.is_makeup = false
+      AND (l.lesson_type IS NULL OR l.lesson_type = 'class')
+      AND l.lesson_date >= v_today
+      AND NOT (l.lesson_date = ANY (v_desired))
+      AND (
+        l.status = 'cancelled'
+        OR EXISTS (SELECT 1 FROM attendance a
+                   WHERE a.class_id = p_class_id AND a.session_date = l.lesson_date)
+        OR EXISTS (SELECT 1 FROM lessons m WHERE m.makeup_source_lesson_id = l.id)
+        OR l.notes IS NOT NULL OR l.notes_general IS NOT NULL
+        OR l.notes_workbook IS NOT NULL OR l.notes_homework IS NOT NULL
+        OR COALESCE(l.has_rq, false) = true
+      );
+  END IF;
+
+  RETURN jsonb_build_object(
+    'inserted', v_inserted, 'updated', v_updated,
+    'deleted', v_deleted, 'protected', v_protected
+  );
+END;
 $function$
 ;
 

@@ -32,6 +32,6 @@ failing test stops the deploy and production stays on the last good version.
   payroll push in `lib/payroll.js` — change the rule there, never inline in a
   route, and update `tests/*.test.mjs` with it.
 - Shift and pay-run rules are database functions, tested on an in-memory
-  Postgres from `tests/db/payroll-schema.sql`. After changing any of them (or
+  Postgres from `tests/db/schema.sql`. After changing any of them (or
   their tables), run `npm run test:db:snapshot` and commit the snapshot with
   the migration — locally `npm test` fails until you do.

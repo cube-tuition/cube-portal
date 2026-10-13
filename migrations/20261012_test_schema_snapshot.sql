@@ -1,7 +1,7 @@
 -- test_schema_snapshot(): the live DDL of the payroll objects, for the tests.
 --
 -- tests/payroll.db.test.mjs runs the real shift and pay-run functions on an
--- in-memory Postgres (PGlite). It loads tests/db/payroll-schema.sql, which
+-- in-memory Postgres (PGlite). It loads tests/db/schema.sql, which
 -- `npm run test:db:snapshot` writes from this function — and a drift test
 -- compares the file with this function's output, so the tests can never pass
 -- against a stale copy of a function that has since changed in production.
