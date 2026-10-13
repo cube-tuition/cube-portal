@@ -465,6 +465,17 @@ create table public.stimulus_texts (
   constraint stimulus_texts_pkey PRIMARY KEY (id)
 );
 
+create table public.job_runs (
+  id bigint generated always as identity not null,
+  job text not null,
+  started_at timestamp with time zone default now() not null,
+  finished_at timestamp with time zone default now() not null,
+  ok boolean not null,
+  detail jsonb,
+  error text,
+  constraint job_runs_pkey PRIMARY KEY (id)
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -2024,6 +2035,7 @@ alter table public.qbank_question_parts enable row level security;
 alter table public.qbank_question_images enable row level security;
 alter table public.online_resources enable row level security;
 alter table public.stimulus_texts enable row level security;
+alter table public.job_runs enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -2051,6 +2063,7 @@ create policy fixed_costs_admin_all on public.fixed_costs as PERMISSIVE for ALL 
 create policy guardians_admin_all on public.guardians as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy guardians_staff_read on public.guardians as PERMISSIVE for SELECT to authenticated using (is_staff());
 create policy invoices_admin_all on public.invoices as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy job_runs_admin_read on public.job_runs as PERMISSIVE for SELECT to authenticated using (is_admin(auth.uid()));
 create policy authenticated_full_access on public.lessons as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy lessons_student_read on public.lessons as PERMISSIVE for SELECT to authenticated using (((makeup_student_id = auth.uid()) OR (EXISTS ( SELECT 1
    FROM enrolments e

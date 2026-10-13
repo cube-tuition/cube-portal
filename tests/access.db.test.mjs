@@ -129,6 +129,20 @@ describe('a student', () => {
   })
 })
 
+describe('the job log (system monitoring)', () => {
+  run('only directors read it; nobody writes it through the API (the server does)', async ({ q, signIn, rejects }) => {
+    await q(`insert into job_runs (job, ok) values ('daily', true)`)
+    await signIn(MONICA, 'tutor')
+    assert.equal(await n(q, `select count(*)::int n from job_runs`), 0)
+    await rejects(`insert into job_runs (job, ok) values ('daily', false)`, [], /row-level security/)
+    await signIn(KIM, 'student')
+    assert.equal(await n(q, `select count(*)::int n from job_runs`), 0)
+    await signIn(RYAN, 'admin')
+    assert.equal(await n(q, `select count(*)::int n from job_runs`), 1)
+    await rejects(`insert into job_runs (job, ok) values ('daily', false)`, [], /row-level security/)
+  })
+})
+
 describe('a director', () => {
   run('reads and writes all of it', async ({ q, signIn }) => {
     await signIn(RYAN, 'admin')

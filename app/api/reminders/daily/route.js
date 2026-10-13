@@ -5,6 +5,7 @@ import { DUE_DATES } from '../../../../lib/complianceDates'
 import { getRunningTerm, isHolidayTerm } from '../../../../lib/terms'
 import { normaliseTerms } from '../../../../lib/termDates'
 import { syncQueuedInvoices } from '../../../../lib/invoiceSync'
+import { recordJob, checkSystemHealth, healthPush } from '../../../../lib/systemHealth'
 
 /*
  * GET /api/reminders/daily — Vercel cron, early each morning Sydney time.
@@ -121,24 +122,52 @@ export async function GET(request) {
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
   const dry = !!params.get('dry')
   const today = (dry && /^\d{4}-\d{2}-\d{2}$/.test(params.get('today') || '')) ? params.get('today') : sydneyToday()
-  const ctx = await loadContext(admin, today, today)
-  const pushes = remindersFor(ctx, today, { ignoreDone: dry && !!params.get('ignoreDone') })
-  if (dry) return Response.json({ today, reminders: pushes })
-  let sent = 0
-  for (const p of pushes) {
-    try { const r = await sendPushToAll(p); sent += r?.sent || 0 } catch (e) { console.error('[reminders]', p.title, e?.message) }
+  if (dry) {
+    const ctx = await loadContext(admin, today, today)
+    return Response.json({ today, reminders: remindersFor(ctx, today, { ignoreDone: !!params.get('ignoreDone') }) })
   }
+
+  // Each step catches its own failure so the others still run; every failure
+  // is recorded in job_runs and surfaces in the system check below.
+  const startedAt = new Date().toISOString()
+  const errors = []
+  const step = async (name, fn) => {
+    try { return await fn() } catch (e) { errors.push(`${name}: ${e?.message || e}`); console.error('[daily]', name, e?.message); return null }
+  }
+
+  let sent = 0
+  const pushes = await step('reminders', async () => {
+    const ctx = await loadContext(admin, today, today)
+    const list = remindersFor(ctx, today)
+    for (const p of list) {
+      try { const r = await sendPushToAll(p); sent += r?.sent || 0 } catch (e) { errors.push(`push "${p.title}": ${e?.message}`) }
+    }
+    return list
+  }) || []
   // Riding on this cron (the plan allows two): draft invoices catch up with
   // yesterday's enrolment changes even on a day nobody opens the invoices page.
-  let invoiceSync = null
-  try { invoiceSync = await syncQueuedInvoices(admin) } catch (e) { console.error('[reminders] invoice sync', e?.message) }
+  const invoiceSync = await step('draft invoice sync', () => syncQueuedInvoices(admin))
   // And payroll: shifts that match the timetable approve themselves
   // (payroll_match) — this fortnight and the last, for rolls marked late.
-  let shiftsApproved = null
-  try {
+  const shiftsApproved = await step('payroll matching', async () => {
     const { data, error } = await admin.rpc('auto_approve_due_shifts')
     if (error) throw error
-    shiftsApproved = data
-  } catch (e) { console.error('[reminders] shift matching', e?.message) }
-  return Response.json({ today, reminders: pushes.map(p => p.title), sent, invoiceSync, shiftsApproved })
+    return data
+  })
+  const detail = { today, reminders: pushes.map(p => p.title), sent, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved }
+  await recordJob(admin, 'daily', { startedAt, ok: !errors.length, detail, error: errors.join(' · ') || null })
+
+  // The morning system check (lib/systemHealth): jobs, the invoice queue and
+  // portal crashes. Kept for the Action Centre's System card; pushed to the
+  // directors' phones when anything needs a look.
+  let health = null
+  try {
+    health = await checkSystemHealth(admin)
+    await recordJob(admin, 'health_check', { startedAt: new Date().toISOString(), ok: true, detail: { problems: health } })
+    if (health.length) await sendPushToAll(healthPush(health, `health-${today}`))
+    // Housekeeping: three months of job history is plenty.
+    await admin.from('job_runs').delete().lt('finished_at', new Date(Date.now() - 90 * 86400000).toISOString())
+  } catch (e) { console.error('[daily] system check', e?.message) }
+
+  return Response.json({ ...detail, errors, health })
 }

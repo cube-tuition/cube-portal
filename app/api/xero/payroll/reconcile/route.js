@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../../../lib/apiAuth'
 import { listPayRuns, PayrollScopeError } from '../../../../../lib/xeroPayroll'
+import { recordJob, checkSystemHealth, healthPush } from '../../../../../lib/systemHealth'
+import { sendPushToAll } from '../../../../../lib/push'
 
 function adminSb() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
@@ -29,7 +31,26 @@ async function reconcile(req) {
     const auth = await requireApiRole(req, ['admin', 'director'])
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
+  if (!cronOk) return reconcileWork()
 
+  // The cron: record the outcome (lib/systemHealth), and act as the watchdog
+  // for the morning job — if that one stopped running, nothing else would say.
+  const startedAt = new Date().toISOString()
+  const res = await reconcileWork()
+  const body = await res.clone().json().catch(() => ({}))
+  const sb = adminSb()
+  await recordJob(sb, 'xero_reconcile', {
+    startedAt, ok: res.ok && !body.error && !body.needsReconnect,
+    detail: body, error: body.needsReconnect ? `Xero needs reconnecting: ${body.error}` : body.error || null,
+  })
+  try {
+    const problems = await checkSystemHealth(sb, { jobs: ['daily'] })
+    if (problems.length) await sendPushToAll(healthPush(problems, `watchdog-${startedAt.slice(0, 10)}`))
+  } catch (e) { console.error('[reconcile] watchdog', e?.message) }
+  return res
+}
+
+async function reconcileWork() {
   try {
     const sb = adminSb()
 

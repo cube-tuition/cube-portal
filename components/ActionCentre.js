@@ -32,6 +32,7 @@ const SECTIONS = [
   { id: 'Payroll',    icon: '💼', title: 'Payroll', clearText: 'No pay run due — bank reminders appear the Monday after each fortnight.' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
   { id: 'Flags',      icon: '🚩', title: 'Student flags', clearText: 'No open flags — tutors raise these from the lesson page.' },
+  { id: 'System',     icon: '🩺', title: 'System', clearText: 'All clear at this morning\u2019s check — jobs, invoice queue and crashes.' },
 ]
 
 const SEV = {

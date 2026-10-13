@@ -47,3 +47,21 @@ failing test stops the deploy and production stays on the last good version.
   DEFINER functions (marking the roll, save_dropin_shift). Never add an
   `is_staff()` policy back to these tables — `is_staff()` includes every tutor.
   tests/payrollAccess.db.test.mjs signs in as a tutor to check.
+
+## Access is enforced by the database, not the page
+
+Any signed-in user can call the API directly with their session, so every
+table's row-level security must be as tight as the screens. `is_staff()`
+includes every tutor: use it for what tutor screens READ; writes to money,
+family and settings tables are `is_admin(auth.uid())`. Students read only
+their own rows (their classes' lessons, practice — not exam — questions).
+tests/access.db.test.mjs and tests/payrollAccess.db.test.mjs sign in as each
+role to check; add to them when a table's rules change.
+
+## Scheduled jobs report in
+
+Every cron records its outcome with `recordJob` (lib/systemHealth). The
+morning job runs the system check (jobs, invoice queue, client crashes),
+shows it on /tutor/admin/system and the Action Centre, and pushes the
+directors when something is wrong. A new cron must record itself too — and be
+added to WATCHED_JOBS if it should run daily.
