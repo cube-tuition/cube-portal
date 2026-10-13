@@ -476,6 +476,43 @@ create table public.job_runs (
   constraint job_runs_pkey PRIMARY KEY (id)
 );
 
+create table public.qbank_subjects (
+  id uuid default gen_random_uuid() not null,
+  year_level integer not null,
+  name text not null,
+  code text,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint qbank_subjects_pkey PRIMARY KEY (id)
+);
+
+create table public.qbank_topics (
+  id uuid default gen_random_uuid() not null,
+  subject_id uuid not null,
+  name text not null,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint qbank_topics_pkey PRIMARY KEY (id)
+);
+
+create table public.qbank_skills (
+  id uuid default gen_random_uuid() not null,
+  topic_id uuid,
+  name text not null,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  subtopic_id uuid,
+  subject_id uuid,
+  family text,
+  stage text,
+  constraint qbank_skills_pkey PRIMARY KEY (id),
+  constraint qbank_skills_family_check CHECK (((family IS NULL) OR (family = ANY (ARRAY['Maths'::text, 'English'::text, 'Chemistry'::text])))),
+  constraint qbank_skills_stage_check CHECK (((stage IS NULL) OR (stage = ANY (ARRAY['primary'::text, 'high'::text]))))
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -501,6 +538,12 @@ alter table public.lessons add constraint lessons_makeup_student_id_fkey FOREIGN
 alter table public.qbank_question_images add constraint qbank_question_images_part_id_fkey FOREIGN KEY (part_id) REFERENCES qbank_question_parts(id) ON DELETE CASCADE;
 alter table public.qbank_question_images add constraint qbank_question_images_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
 alter table public.qbank_question_parts add constraint qbank_question_parts_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
+alter table public.qbank_question_parts add constraint qbank_question_parts_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE SET NULL;
+alter table public.qbank_questions add constraint qbank_questions_skill_id_fkey FOREIGN KEY (skill_id) REFERENCES qbank_skills(id) ON DELETE SET NULL;
+alter table public.qbank_questions add constraint qbank_questions_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE SET NULL;
+alter table public.qbank_skills add constraint qbank_skills_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
+alter table public.qbank_skills add constraint qbank_skills_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE CASCADE;
+alter table public.qbank_topics add constraint qbank_topics_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
 alter table public.shifts add constraint shifts_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE SET NULL;
 alter table public.student_credits add constraint student_credits_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
 alter table public.student_credits add constraint student_credits_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -509,6 +552,8 @@ CREATE UNIQUE INDEX cash_log_invoice_uniq ON public.cash_log USING btree (invoic
 CREATE UNIQUE INDEX invoices_one_per_family_term ON public.invoices USING btree (term_id, family_id) WHERE ((status <> 'voided'::text) AND (family_id IS NOT NULL) AND (COALESCE(is_topup, false) = false));
 CREATE UNIQUE INDEX invoices_one_per_student_term ON public.invoices USING btree (term_id, student_id) WHERE ((status <> 'voided'::text) AND (family_id IS NULL) AND (student_id IS NOT NULL) AND (COALESCE(is_topup, false) = false));
 CREATE UNIQUE INDEX lessons_class_date_regular_idx ON public.lessons USING btree (class_id, lesson_date) WHERE (is_makeup = false);
+CREATE UNIQUE INDEX qbank_skills_family_stage_name_key ON public.qbank_skills USING btree (family, stage, lower(name)) WHERE ((family IS NOT NULL) AND (stage IS NOT NULL));
+CREATE UNIQUE INDEX qbank_subjects_year_name_uniq ON public.qbank_subjects USING btree (year_level, lower(name));
 CREATE UNIQUE INDEX shifts_source_uniq ON public.shifts USING btree (source_table, source_id) WHERE ((source_table IS NOT NULL) AND (source_id IS NOT NULL));
 CREATE UNIQUE INDEX terms_year_number_idx ON public.terms USING btree (year, term_number);
 
@@ -1980,6 +2025,95 @@ end;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.qbank_subject_key(p_course_code text, p_class_name text)
+ RETURNS TABLE(year_level integer, subject_name text)
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$
+  with parts as (
+    select nullif(split_part(coalesce(p_course_code, ''), '.', 1), '') as y,
+           upper(split_part(coalesce(p_course_code, ''), '.', 2)) as sfx,
+           lower(coalesce(p_class_name, '')) as nm
+  ), yr as (
+    select case when y ~ '^\d+$' then y::int
+                else nullif((regexp_match(nm, 'y(?:ear)?\s*(\d{1,2})'))[1], '')::int end as year_level,
+           sfx, nm
+    from parts
+  ), by_code as (
+    select year_level, nm,
+      case
+        when year_level >= 11 and sfx like 'M1%' then 'Standard Maths'
+        when year_level >= 11 and sfx like 'M2%' then 'Adv Maths'
+        when year_level >= 11 and sfx like 'M3%' then 'Ext 1 Maths'
+        when year_level >= 11 and sfx like 'M4%' then 'Ext 2 Maths'
+        when sfx like 'M%' then 'Maths'
+        when sfx like 'E%' then 'English'
+        when sfx like 'C%' then 'Chemistry'
+        when sfx like 'P%' then 'Physics'
+        when sfx like 'S%' then 'Science'
+        else null
+      end as subject_name
+    from yr
+  )
+  select distinct year_level, subject_name from (
+    select year_level, subject_name from by_code
+    union all
+    select year_level, 'Ext 1 Maths' from by_code where nm like '%ext 1%' or nm like '%extension 1%'
+    union all
+    select year_level, 'Ext 2 Maths' from by_code where nm like '%ext 2%' or nm like '%extension 2%'
+    union all
+    select year_level,
+      case
+        when nm like '%standard%' then 'Standard Maths'
+        when nm like '%adv%' then 'Adv Maths'
+        when nm like '%chem%' then 'Chemistry'
+        when nm like '%physics%' then 'Physics'
+        when nm like '%english%' or nm like '%eald%' then 'English'
+        when nm like '%science%' then 'Science'
+        when nm like '%math%' then case when year_level >= 11 then 'Adv Maths' else 'Maths' end
+        else null
+      end
+    from by_code where subject_name is null
+  ) k
+  where year_level is not null and subject_name is not null
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.student_qbank_subject_ids(p_student uuid)
+ RETURNS SETOF uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select distinct s.id
+  from public.enrolments e
+  join public.classes c on c.id = e.class_id
+  left join public.courses co on co.id = c.course_id
+  cross join lateral public.qbank_subject_key(co.course_code, c.class_name) k
+  join public.qbank_subjects s on s.year_level = k.year_level and lower(s.name) = lower(k.subject_name)
+  where e.student_id = p_student
+    and e.status in ('active', 'trial') and e.ended_at is null
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.qbank_question_open_to_student(p_question uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1
+    from public.qbank_questions q
+    left join public.qbank_skills sk on sk.id = q.skill_id
+    join public.qbank_topics t on t.id = coalesce(q.topic_id, sk.topic_id)
+    where q.id = p_question
+      and coalesce(q.audience, 'student') <> 'exam'
+      and t.subject_id in (select public.student_qbank_subject_ids(auth.uid()))
+  )
+$function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -2036,6 +2170,9 @@ alter table public.qbank_question_images enable row level security;
 alter table public.online_resources enable row level security;
 alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
+alter table public.qbank_subjects enable row level security;
+alter table public.qbank_topics enable row level security;
+alter table public.qbank_skills enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -2073,16 +2210,18 @@ create policy staff_all on public.online_resources as PERMISSIVE for ALL to auth
 create policy pay_runs_admin_all on public.pay_runs as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy portal_settings_admin_all on public.portal_settings as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy portal_settings_staff_own_keys on public.portal_settings as PERMISSIVE for ALL to authenticated using ((is_staff() AND (key = ANY (ARRAY[('chat_pins:'::text || auth.uid()), 'level_test_email_template'::text, 'level_test_family_email_template'::text])))) with check ((is_staff() AND (key = ANY (ARRAY[('chat_pins:'::text || auth.uid()), 'level_test_email_template'::text, 'level_test_family_email_template'::text]))));
-create policy qbank_question_images_read on public.qbank_question_images as PERMISSIVE for SELECT to authenticated using ((is_staff() OR (EXISTS ( SELECT 1
-   FROM qbank_questions q
-  WHERE ((q.id = qbank_question_images.question_id) AND (COALESCE(q.audience, 'student'::text) <> 'exam'::text))))));
+create policy qbank_question_images_read on public.qbank_question_images as PERMISSIVE for SELECT to authenticated using ((is_staff() OR qbank_question_open_to_student(question_id)));
 create policy staff_all on public.qbank_question_images as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
-create policy qbank_question_parts_read on public.qbank_question_parts as PERMISSIVE for SELECT to authenticated using ((is_staff() OR (EXISTS ( SELECT 1
-   FROM qbank_questions q
-  WHERE ((q.id = qbank_question_parts.question_id) AND (COALESCE(q.audience, 'student'::text) <> 'exam'::text))))));
+create policy qbank_question_parts_read on public.qbank_question_parts as PERMISSIVE for SELECT to authenticated using ((is_staff() OR qbank_question_open_to_student(question_id)));
 create policy staff_all on public.qbank_question_parts as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
-create policy qbank_questions_read on public.qbank_questions as PERMISSIVE for SELECT to authenticated using ((is_staff() OR (COALESCE(audience, 'student'::text) <> 'exam'::text)));
+create policy qbank_questions_read on public.qbank_questions as PERMISSIVE for SELECT to authenticated using ((is_staff() OR qbank_question_open_to_student(id)));
 create policy staff_all on public.qbank_questions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy read_authenticated on public.qbank_skills as PERMISSIVE for SELECT to authenticated using (true);
+create policy staff_all on public.qbank_skills as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy read_authenticated on public.qbank_subjects as PERMISSIVE for SELECT to authenticated using (true);
+create policy staff_all on public.qbank_subjects as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy read_authenticated on public.qbank_topics as PERMISSIVE for SELECT to authenticated using (true);
+create policy staff_all on public.qbank_topics as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy shifts_admin_all on public.shifts as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy shifts_tutor_select on public.shifts as PERMISSIVE for SELECT to public using ((tutor_id = auth.uid()));
 create policy staff_all on public.stimulus_texts as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());

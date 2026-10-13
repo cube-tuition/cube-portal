@@ -33,12 +33,19 @@ async function seed(q) {
   await q(`insert into fixed_costs (name, amount) values ('Rent', 4000)`)
   await q(`insert into portal_settings (key, value) values ('invoice_email_template', 'x'), ('chat_pins:' || $1, '[]'),
     ('level_test_email_template', 'y'), ('chat_pins:' || $2, '[]')`, [MONICA, RYAN])
-  const [{ id: practice }] = await q(`insert into qbank_questions (stem_latex, solution_latex, audience) values ('2+2', '4', 'student') returning id`)
-  const [{ id: exam }] = await q(`insert into qbank_questions (stem_latex, solution_latex, audience) values ('Exam Q', 'Exam answer', 'exam') returning id`)
-  await q(`insert into qbank_question_parts (question_id, prompt_latex, solution_latex) values ($1, 'a', 'a sol'), ($2, 'b', 'b sol')`, [practice, exam])
+  // Question bank: a Y8 Maths practice question (Kim's subject), a Y12 Ext 1
+  // practice question (nobody's), and an exam question in Kim's subject.
+  const [{ id: y8 }] = await q(`insert into qbank_subjects (year_level, name) values (8, 'Maths') returning id`)
+  const [{ id: ext1 }] = await q(`insert into qbank_subjects (year_level, name) values (12, 'Ext 1 Maths') returning id`)
+  const [{ id: y8Topic }] = await q(`insert into qbank_topics (subject_id, name) values ($1, 'Algebra') returning id`, [y8])
+  const [{ id: ext1Topic }] = await q(`insert into qbank_topics (subject_id, name) values ($1, 'Vectors') returning id`, [ext1])
+  const [{ id: practice }] = await q(`insert into qbank_questions (stem_latex, solution_latex, audience, topic_id) values ('2+2', '4', 'student', $1) returning id`, [y8Topic])
+  const [{ id: other }] = await q(`insert into qbank_questions (stem_latex, solution_latex, audience, topic_id) values ('Ext 1 Q', 'Ext 1 answer', 'student', $1) returning id`, [ext1Topic])
+  const [{ id: exam }] = await q(`insert into qbank_questions (stem_latex, solution_latex, audience, topic_id) values ('Exam Q', 'Exam answer', 'exam', $1) returning id`, [y8Topic])
+  await q(`insert into qbank_question_parts (question_id, prompt_latex, solution_latex) values ($1, 'a', 'a sol'), ($2, 'b', 'b sol'), ($3, 'c', 'c sol')`, [practice, exam, other])
   await q(`insert into online_resources (title, url) values ('Staff link', 'https://example.com')`)
   await q(`insert into stimulus_texts (title, body) values ('Passage', 'text')`)
-  return { maths, english, exam }
+  return { maths, english, exam, other }
 }
 const n = async (q, sql, params) => (await q(sql, params))[0].n
 const run = (name, fn) => test(name, () => inTx(db, async (ctx) => fn({ ...ctx, ...await seed(ctx.q) })))
@@ -89,7 +96,7 @@ describe('a tutor', () => {
 
   run('still reads every question, exam ones included', async ({ q, signIn }) => {
     await signIn(MONICA, 'tutor')
-    assert.equal(await n(q, `select count(*)::int n from qbank_questions`), 2)
+    assert.equal(await n(q, `select count(*)::int n from qbank_questions`), 3)
     assert.equal(await n(q, `select count(*)::int n from online_resources`), 1)
   })
 })
@@ -103,11 +110,24 @@ describe('a student', () => {
     assert.equal(await n(q, `select count(*)::int n from lessons where report_comment = 'Ana report'`), 0)
   })
 
-  run('gets practice questions only — never an exam question or its solution', async ({ q, signIn, exam }) => {
-    await signIn(KIM, 'student')
-    assert.deepEqual((await q(`select audience from qbank_questions`)).map(r => r.audience), ['student'])
+  run('gets practice questions in their own subject only — never an exam question, never another course', async ({ q, signIn, exam, other }) => {
+    await signIn(KIM, 'student')   // enrolled in Y8 Maths
+    assert.deepEqual((await q(`select stem_latex from qbank_questions`)).map(r => r.stem_latex), ['2+2'])
     assert.deepEqual((await q(`select prompt_latex from qbank_question_parts`)).map(r => r.prompt_latex), ['a'])
     assert.equal(await n(q, `select count(*)::int n from qbank_questions where id = $1`, [exam]), 0)
+    assert.equal(await n(q, `select count(*)::int n from qbank_questions where id = $1`, [other]), 0)
+    await signIn(ANA, 'student')   // Y9 English: no practice questions in her subject
+    assert.equal(await n(q, `select count(*)::int n from qbank_questions`), 0)
+  })
+
+  run('a trial enrolment opens the subject; a finished one closes it', async ({ q, signIn, maths }) => {
+    await q(`update enrolments set status = 'trial' where class_id = $1`, [maths])
+    await signIn(KIM, 'student')
+    assert.equal(await n(q, `select count(*)::int n from qbank_questions`), 1)
+    await q(`reset role`)
+    await q(`update enrolments set status = 'disenrol', ended_at = '2026-10-20' where class_id = $1`, [maths])
+    await signIn(KIM, 'student')
+    assert.equal(await n(q, `select count(*)::int n from qbank_questions`), 0)
   })
 
   run('cannot read or change staff resources, invoices or anyone else\'s credits', async ({ q, signIn, rejects }) => {

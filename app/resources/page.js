@@ -7,7 +7,7 @@ import { requireStudent } from '../../lib/requireStudent'
 import PortalNav from '../../components/PortalNav'
 import SearchSelectPopover from '../../components/SearchSelectPopover'
 import LatexContent from '../../components/qbank/LatexContent'
-import { inferSubject, subjectsMatch } from '../../components/CourseDetail'
+import { qbankSubjectKeys } from '../../lib/courses'
 import { fetchAllTerms, getEnrolmentTerm } from '../../lib/terms'
 import { fetchTaxonomy, qbankImageUrl, partLabel, questionTotalMarks as questionMarks, fetchAllRows } from '../../lib/qbank'
 import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS } from '../../lib/tables'
@@ -98,14 +98,12 @@ export default function Resources() {
       // Classes are per-term rows, so scope to the current term to avoid
       // counting the same class once per term after a rollover.
       const term = getEnrolmentTerm(await fetchAllTerms())
-      const { data: links } = await enrolledClassesForTerm(user.id, term?.id, 'class_name')
-      const pairs = (links || []).map(l => {
-        const cls = l.classes
-        if (!cls) return null
-        const y = parseYear(cls.class_name)
-        const subj = inferSubject(cls)
-        return (y && subj) ? { year: y, subject: subj } : null
-      }).filter(Boolean)
+      // (year, subject) of each enrolled class, by the same rule the database
+      // uses to decide which practice questions the student may read
+      // (qbank_subject_key): the course code names the stream, so Y12 Adv is
+      // Adv Maths only — not every Year 12 maths stream.
+      const { data: links } = await enrolledClassesForTerm(user.id, term?.id, 'class_name, courses(course_code)')
+      const pairs = (links || []).flatMap(l => l.classes ? qbankSubjectKeys(l.classes.courses?.course_code, l.classes.class_name) : [])
       setEnrolledPairs(pairs)
 
       fetchTaxonomy().then(setTax)
@@ -149,7 +147,7 @@ export default function Resources() {
     const subjects = tax.subjects.filter(s => !/english/i.test(s.name))
     if (enrolledPairs.length) {
       return subjects.filter(s => enrolledPairs.some(p =>
-        String(s.year_level) === String(p.year) && subjectsMatch(s.name, p.subject)))
+        String(s.year_level) === String(p.year) && s.name.trim().toLowerCase() === p.subject.toLowerCase()))
     }
     if (student?.year) {
       const byYear = subjects.filter(s => String(s.year_level) === String(student.year))
