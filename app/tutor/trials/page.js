@@ -238,7 +238,33 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
               {sub.how_heard}
             </span>
           )}
-          <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full ${stage.color}`}>{stage.label}</span>
+          {/* The stage is yours to set — a phone call is contact too. Emails
+              sent from the card still stamp their own dates; Enrolled and
+              Declined stay behind Convert / Drop, which also move enrolments. */}
+          {['enrolled', 'declined'].includes(sub.status) ? (
+            <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full ${stage.color}`}>{stage.label}</span>
+          ) : (
+            <select
+              value={sub.status}
+              onClick={e => e.stopPropagation()}
+              onChange={async e => {
+                const next = e.target.value
+                const patch = { status: next }
+                // Marking Contacted by hand records first contact, like a sent invitation does.
+                if (next === 'contacted' && !sub.contacted_at) patch.contacted_at = new Date().toISOString()
+                onUpdate(sub.id, patch)
+                const { error } = await supabase.from('trial_submissions').update(patch).eq('id', sub.id)
+                if (error) { alert('Could not change the stage: ' + error.message); onUpdate(sub.id, { status: sub.status }) }
+              }}
+              title="Set the stage by hand — e.g. after a phone call"
+              className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full cursor-pointer appearance-none pr-5 bg-no-repeat bg-[length:10px] bg-[right_6px_center] ${stage.color}`}
+              style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23555' stroke-width='1.5'/%3E%3C/svg%3E\")" }}
+            >
+              {STAGES.filter(st => !['enrolled', 'declined'].includes(st.id)).map(st => (
+                <option key={st.id} value={st.id}>{st.label}</option>
+              ))}
+            </select>
+          )}
           <button onClick={() => setExpanded(e => !e)} className="text-[#325099]/40 hover:text-[#325099] text-sm">
             {expanded ? '▲' : '▼'}
           </button>
@@ -679,15 +705,15 @@ export default function TrialsPage() {
       classList = [...classList, ...(extra || [])]
     }
 
-    // The pipeline follows what actually happened: a trial with a class (an
-    // enrolment made here or in the explorer) is scheduled, whatever the card
-    // said — a card left at New while the family had their dates is the
-    // mix-up this replaces.
+    // The pipeline follows what actually happened: an untouched enquiry (still
+    // New) whose student has a trial class — an enrolment made here or in the
+    // explorer — is scheduled. A stage set by hand (Contacted, say) is left
+    // alone; staff move it when they are ready.
     for (const s of merged) {
-      if (!['new', 'contacted'].includes(s.status) || s.trial_class_id == null) continue
+      if (s.status !== 'new' || s.trial_class_id == null) continue
       s.status = 'trial_scheduled'
       supabase.from('trial_submissions').update({ status: 'trial_scheduled' })
-        .eq('id', s.id).in('status', ['new', 'contacted']).then(() => {})
+        .eq('id', s.id).eq('status', 'new').then(() => {})
     }
 
     // Trial reminder material per submission: each trial class with its two
