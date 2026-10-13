@@ -697,16 +697,25 @@ export default function TimetablePage() {
       start_time: form.start_time,
       end_time  : form.end_time,
     }
+    // A refused save (e.g. a Year 12 class on a Year 11 course) keeps the
+    // editor open with the database's reason, instead of showing a change
+    // that was never saved.
+    const refused = (verb, error) =>
+      alert(`Could not ${verb} the class: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`)
     if (editing.id) {
-      setEntries(prev => prev.map(e => e.id === editing.id ? { ...e, ...payload } : e))
       if (draftMode) setDraftDirty(true)            // draft: local only, saved on Apply
-      else await supabase.from(T_CLASSES).update(payload).eq('id', editing.id)
+      else {
+        const { error } = await supabase.from(T_CLASSES).update(payload).eq('id', editing.id)
+        if (error) { refused('save', error); return }
+      }
+      setEntries(prev => prev.map(e => e.id === editing.id ? { ...e, ...payload } : e))
     } else if (draftMode) {
       // Draft: a card only. The class row and its enrolments are created on Apply.
       setEntries(prev => [...prev, { ...payload, id: newDraftId(), term_id: termId, student_ids: pendingStudents }])
       setDraftDirty(true)
     } else {
-      const { data } = await supabase.from(T_CLASSES).insert({ ...payload, term_id: termId }).select(CLASS_COLS).single()
+      const { data, error } = await supabase.from(T_CLASSES).insert({ ...payload, term_id: termId }).select(CLASS_COLS).single()
+      if (error) { refused('add', error); return }
       if (data) setEntries(prev => [...prev, data])
     }
     setEditing(null)

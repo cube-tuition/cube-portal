@@ -1,4 +1,5 @@
 create sequence classes_id_seq;
+create sequence courses_id_seq;
 create sequence lessons_id_seq;
 
 create table public.terms (
@@ -45,6 +46,19 @@ create table public.directors (
   cash_pay_weekday smallint,
   started_on date,
   constraint admins_pkey PRIMARY KEY (id)
+);
+
+create table public.courses (
+  id integer default nextval('courses_id_seq'::regclass) not null,
+  course_name text not null,
+  course_code text not null,
+  created_at timestamp with time zone default now() not null,
+  course_price numeric(8,2),
+  delivery_mode text default 'Class'::text,
+  active boolean default true not null,
+  constraint courses_course_code_key UNIQUE (course_code),
+  constraint courses_pkey PRIMARY KEY (id),
+  constraint courses_delivery_mode_check CHECK ((delivery_mode = ANY (ARRAY['1:1'::text, 'Class'::text])))
 );
 
 create table public.classes (
@@ -194,6 +208,7 @@ create table public.shifts (
 
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
+alter table public.classes add constraint classes_course_id_fkey FOREIGN KEY (course_id) REFERENCES courses(id);
 alter table public.classes add constraint classes_source_class_id_fkey FOREIGN KEY (source_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.classes add constraint classes_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id);
 alter table public.lessons add constraint lessons_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
@@ -1310,6 +1325,92 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.course_year(p_code text, p_name text)
+ RETURNS integer
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$
+  select coalesce(nullif(substring(coalesce(p_code, '') from '^(\d{1,2})\.'), '')::int,
+                  public.parse_class_year(p_name));
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.class_year_matches_course()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_class_year  integer := public.parse_class_year(new.class_name);
+  v_course      record;
+  v_course_year integer;
+begin
+  -- Only a new class, a rename or a course change is checked.
+  if tg_op = 'UPDATE' and new.class_name is not distinct from old.class_name
+                      and new.course_id is not distinct from old.course_id then
+    return new;
+  end if;
+  if v_class_year is null or new.course_id is null then return new; end if;
+
+  select course_name, course_code into v_course from public.courses where id = new.course_id;
+  if not found then return new; end if;
+  v_course_year := public.course_year(v_course.course_code, v_course.course_name);
+
+  if v_course_year is not null and v_course_year <> v_class_year then
+    raise exception using
+      errcode = 'check_violation',
+      message = format('"%s" is Year %s, but its course "%s" (%s) is Year %s.',
+                       new.class_name, v_class_year, v_course.course_name, v_course.course_code, v_course_year),
+      hint    = format('Choose the Year %s course, or rename the class.', v_class_year);
+  end if;
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.course_year_consistent()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_name_year integer := public.parse_class_year(new.course_name);
+  v_code_year integer := nullif(substring(coalesce(new.course_code, '') from '^(\d{1,2})\.'), '')::int;
+  v_year      integer := public.course_year(new.course_code, new.course_name);
+  v_clash     text;
+begin
+  if tg_op = 'UPDATE' and new.course_name is not distinct from old.course_name
+                      and new.course_code is not distinct from old.course_code then
+    return new;
+  end if;
+
+  if v_name_year is not null and v_code_year is not null and v_name_year <> v_code_year then
+    raise exception using
+      errcode = 'check_violation',
+      message = format('Course "%s" says Year %s in its name but Year %s in its code (%s).',
+                       new.course_name, v_name_year, v_code_year, new.course_code),
+      hint    = 'Make the name and the code agree.';
+  end if;
+
+  if tg_op = 'UPDATE' and v_year is distinct from public.course_year(old.course_code, old.course_name) then
+    select string_agg(format('%s (%s)', c.class_name, c.id), ', ' order by c.id) into v_clash
+      from public.classes c
+     where c.course_id = new.id
+       and public.parse_class_year(c.class_name) is not null
+       and public.parse_class_year(c.class_name) is distinct from v_year;
+    if v_clash is not null then
+      raise exception using
+        errcode = 'check_violation',
+        message = format('Changing course "%s" to Year %s would leave classes of another year on it: %s.',
+                         new.course_name, v_year, v_clash),
+        hint    = 'Move or rename those classes first.';
+    end if;
+  end if;
+  return new;
+end;
+$function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -1342,3 +1443,5 @@ CREATE TRIGGER lessons_sync_main_teacher BEFORE INSERT OR UPDATE OF class_id, ma
 CREATE TRIGGER attendance_to_shift AFTER INSERT OR UPDATE OF status ON public.attendance FOR EACH ROW EXECUTE FUNCTION create_shift_from_class_attendance();
 CREATE TRIGGER dropin_to_shift AFTER INSERT OR UPDATE ON public.dropin_sessions FOR EACH ROW EXECUTE FUNCTION create_shifts_from_dropin();
 CREATE TRIGGER shifts_touch BEFORE UPDATE ON public.shifts FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+CREATE TRIGGER classes_year_matches_course BEFORE INSERT OR UPDATE OF class_name, course_id ON public.classes FOR EACH ROW EXECUTE FUNCTION class_year_matches_course();
+CREATE TRIGGER courses_year_consistent BEFORE INSERT OR UPDATE OF course_name, course_code ON public.courses FOR EACH ROW EXECUTE FUNCTION course_year_consistent();

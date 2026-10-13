@@ -2381,7 +2381,7 @@ export default function DatabasePage() {
         error = insErr
         if (newParent) setParentMap(prev => ({ ...prev, [rowId]: newParent }))
       }
-      if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+      if (error) { alert(`Save failed: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`); setRows(prevRows) }
       else pushUndo({ type: 'edit_cell', table: selectedTable, realTable: T_PARENTS, pkCol: 'student_id', rowId, col: PARENT_COL_MAP[col], oldVal, newVal })
     } else if (selectedTable === T_PARENTS) {
       // Grouped guardian rows: one row represents the same person across
@@ -2389,11 +2389,11 @@ export default function DatabasePage() {
       const row = rows.find(r => r[pkCol] === rowId)
       const gids = row?._guardianIds?.length ? row._guardianIds : [rowId]
       const { error } = await supabase.from(T_PARENTS).update({ [col]: newVal }).in('id', gids)
-      if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+      if (error) { alert(`Save failed: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`); setRows(prevRows) }
     } else {
       const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
       const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
-      if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+      if (error) { alert(`Save failed: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`); setRows(prevRows) }
       else {
         pushUndo({ type: 'edit_cell', table: selectedTable, realTable, pkCol, rowId, col, oldVal, newVal })
         if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
@@ -2448,13 +2448,13 @@ export default function DatabasePage() {
         const gids = row?._guardianIds?.length ? row._guardianIds : [rowId]
         ;({ error } = await supabase.from(T_PARENTS).update({ [col]: newVal }).in('id', gids))
       }
-      if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+      if (error) { alert(`Save failed: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`); setRows(prevRows) }
       setSaving(false)
       return
     }
     const realTable = VIRTUAL[selectedTable]?.realTable ?? selectedTable
     const { error } = await supabase.from(realTable).update({ [col]: newVal }).eq(pkCol, rowId)
-    if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+    if (error) { alert(`Save failed: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`); setRows(prevRows) }
     else {
       pushUndo({ type: 'edit_cell', table: selectedTable, realTable, pkCol, rowId, col, oldVal, newVal })
       if (selectedTable === T_INVOICES) syncInvoiceCard(rowId, col, newVal)
@@ -2493,7 +2493,7 @@ export default function DatabasePage() {
     const prevRows = rows
     setRows(prev => prev.map(r => r[pkCol] === rowId ? { ...r, [col]: parsedVal } : r))
     const { error } = await supabase.from(T_ENROLMENTS).update({ [col]: parsedVal }).eq(pkCol, rowId)
-    if (error) { alert(`Save failed: ${error.message}`); setRows(prevRows) }
+    if (error) { alert(`Save failed: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`); setRows(prevRows) }
     setSaving(false)
   }
 
@@ -2606,6 +2606,12 @@ export default function DatabasePage() {
       term_id:     dbTermFilter || currentTermId || null,
     }
     const { data, error } = await supabase.from(T_CLASSES).insert(payload).select().single()
+    if (error) {
+      // e.g. the course's own name and code disagree on the year — keep the form open.
+      alert(`Could not add the class: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`)
+      setAddClassSaving(false)
+      return
+    }
     // Holiday courses get their lessons here and now, one per chosen date,
     // numbered in date order so each becomes its own session tab. Nothing else
     // will create them: add_lessons_for_class needs a weekday and skips this class.
@@ -2681,7 +2687,7 @@ export default function DatabasePage() {
     if (!newCourseId) return
     const { error } = await supabase.from(T_CLASSES)
       .update({ course_id: Number(newCourseId) }).eq('id', rowId)
-    if (error) { alert('Could not change course: ' + error.message); return }
+    if (error) { alert(`Could not change course: ${error.message}${error.hint ? `\n\n${error.hint}` : ''}`); return }
     const course = courseOptions.find(c => String(c.id) === String(newCourseId))
     setRows(prev => prev.map(r => r[pkCol] === rowId
       ? { ...r, course_id: Number(newCourseId), [COURSE_NAME_COL]: course ? `${course.course_name} (${course.course_code})` : r[COURSE_NAME_COL] }
