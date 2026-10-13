@@ -14,6 +14,8 @@ import { logReferralWithCredits } from '../../../lib/referralCredits'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
+import TrialReminderModal from '../../../components/trials/TrialReminderModal'
+import { reminderFamilyFor, trialDatesFor } from '../../../lib/trialReminderEmail'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
@@ -154,7 +156,7 @@ function StatsBar({ submissions }) {
 }
 
 // ── Trial card ────────────────────────────────────────────────────────────────
-function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail }) {
+function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onReminderEmail, canRemind }) {
   const [expanded,     setExpanded]     = useState(false)
   const [editNotes,    setEditNotes]    = useState(false)
   const [notes,        setNotes]        = useState(sub.admin_notes || '')
@@ -196,6 +198,15 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                 title={`Trial invitation emailed ${fmtDate(sub.invitation_sent_at)}`}
               >
                 ✉ Invited {fmtDate(sub.invitation_sent_at)}
+              </span>
+            )}
+            {/* …and the reminder with the trial dates — also dated from the first send. */}
+            {sub.reminder_sent_at && (
+              <span
+                className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full"
+                title={`Trial reminder emailed ${fmtDate(sub.reminder_sent_at)}`}
+              >
+                ✉ Reminded {fmtDate(sub.reminder_sent_at)}
               </span>
             )}
             {/* Trial progress, counted per subject: green only once EVERY
@@ -243,6 +254,7 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
             <div><span className="font-semibold">Time pref:</span> {sub.time_preference || '—'}</div>
             <div><span className="font-semibold">Submitted:</span> {fmtDate(sub.submitted_at)} ({age}d ago)</div>
             <div><span className="font-semibold">Invitation sent:</span> {sub.invitation_sent_at ? fmtDate(sub.invitation_sent_at) : '—'}</div>
+            <div><span className="font-semibold">Reminder sent:</span> {sub.reminder_sent_at ? fmtDate(sub.reminder_sent_at) : '—'}</div>
             <div><span className="font-semibold">Trial date:</span> {fmtDate(sub.trial_date)}</div>
             <div><span className="font-semibold">Source:</span> {sub.source || '—'}</div>
             <div className="col-span-full flex items-center gap-2 flex-wrap">
@@ -465,6 +477,20 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
               </button>
             )}
 
+            {/* Trial reminder — the SECOND email: the two trial lesson dates and
+                time, once a class is assigned. Replaces the Emails → Trials page. */}
+            {canRemind && !['enrolled', 'declined'].includes(sub.status) && (
+              <button
+                onClick={onReminderEmail}
+                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+                title={sub.reminder_sent_at
+                  ? `Already emailed ${fmtDate(sub.reminder_sent_at)} — send the trial dates again`
+                  : 'Email the family their trial lesson dates and time'}
+              >
+                {sub.reminder_sent_at ? '✉ Resend reminder' : '✉ Trial reminder'}
+              </button>
+            )}
+
             {/* Trial outcome email — the tutors' per-lesson feedback plus how to
                 continue. No completion gate: staff read the feedback and decide. */}
             {sub.converted_student_id && sub.status !== 'declined' && (
@@ -545,6 +571,8 @@ export default function TrialsPage() {
   // the trial whose outcome-email composer is open
   const [outcomeSub,    setOutcomeSub]    = useState(null)
   const [invitationSub, setInvitationSub] = useState(null)
+  const [reminderFamilies, setReminderFamilies] = useState({})   // submission id → family payload for the reminder
+  const [reminderEntries, setReminderEntries] = useState(null)   // [{ sub, family }] open in the reminder modal
   const [enrolTerm,     setEnrolTerm]     = useState(null)   // trial target term (holiday rows excluded)
 
   useEffect(() => {
@@ -595,7 +623,7 @@ export default function TrialsPage() {
     const studentIds = subs.filter(s => s.converted_student_id).map(s => s.converted_student_id)
     const [byId, byStudent] = await Promise.all([
       enrolIds.length ? supabase.from('enrolments').select('id, class_id').in('id', enrolIds) : Promise.resolve({ data: [] }),
-      studentIds.length ? supabase.from('enrolments').select('student_id, class_id').in('student_id', studentIds).in('status', ['trial', 'trial complete']) : Promise.resolve({ data: [] }),
+      studentIds.length ? supabase.from('enrolments').select('student_id, class_id, status, trial_start_date').in('student_id', studentIds).in('status', ['trial', 'trial complete']) : Promise.resolve({ data: [] }),
     ])
     const classByEnrol = Object.fromEntries((byId.data || []).map(r => [r.id, r.class_id]))
     // Prefer an enrolment that HAS a class — a classless stub must not mask a
@@ -650,6 +678,44 @@ export default function TrialsPage() {
       const { data: extra } = await supabase.from('classes').select(classCols).in('id', missing)
       classList = [...classList, ...(extra || [])]
     }
+
+    // The pipeline follows what actually happened: a trial with a class (an
+    // enrolment made here or in the explorer) is scheduled, whatever the card
+    // said — a card left at New while the family had their dates is the
+    // mix-up this replaces.
+    for (const s of merged) {
+      if (!['new', 'contacted'].includes(s.status) || s.trial_class_id == null) continue
+      s.status = 'trial_scheduled'
+      supabase.from('trial_submissions').update({ status: 'trial_scheduled' })
+        .eq('id', s.id).in('status', ['new', 'contacted']).then(() => {})
+    }
+
+    // Trial reminder material per submission: each trial class with its two
+    // lesson dates, and the parent's email (the enquiry's, else the guardian's).
+    const trialRows = (byStudent.data || []).filter(r => r.status === 'trial' && r.class_id != null)
+    const trialClassIds = [...new Set(trialRows.map(r => r.class_id))]
+    const [lessonRes, guardianRes] = await Promise.all([
+      trialClassIds.length
+        ? supabase.from('lessons').select('class_id, lesson_date').in('class_id', trialClassIds).eq('is_makeup', false).neq('status', 'cancelled').order('lesson_date', { ascending: true })
+        : Promise.resolve({ data: [] }),
+      studentIds.length ? supabase.from('guardians').select('student_id, full_name, email').in('student_id', studentIds) : Promise.resolve({ data: [] }),
+    ])
+    const lessonsByClass = {}
+    for (const l of lessonRes.data || []) (lessonsByClass[l.class_id] ||= []).push(l.lesson_date)
+    const guardianByStudent = {}
+    for (const g of guardianRes.data || []) if (!guardianByStudent[g.student_id] || (!guardianByStudent[g.student_id].email && g.email)) guardianByStudent[g.student_id] = g
+    const classById = Object.fromEntries(classList.map(c => [c.id, c]))
+    const fams = {}
+    for (const s of merged) {
+      if (!s.converted_student_id) continue
+      let rows = trialRows.filter(r => r.student_id === s.converted_student_id)
+      if (!rows.length && s.trial_class_id != null) rows = [{ class_id: s.trial_class_id, trial_start_date: null }]
+      if (!rows.length) continue
+      const g = guardianByStudent[s.converted_student_id]
+      fams[s.id] = reminderFamilyFor(s, rows.map(r => ({ ...(classById[r.class_id] || { class_id: r.class_id }), class_id: r.class_id, dates: trialDatesFor(lessonsByClass[r.class_id] || [], r.trial_start_date) })),
+        { parentEmail: s.parent_email || g?.email || '', parentName: s.parent_name || g?.full_name || '' })
+    }
+    setReminderFamilies(fams)
 
     // Trial lesson progress per student. A trial runs per SUBJECT — someone
     // trialling Maths and English sits two sets of lessons — so progress is
@@ -826,6 +892,19 @@ export default function TrialsPage() {
             <p className="text-sm text-[#325099]/60 mt-1">Manage free trial submissions and active trial enrolments.</p>
           </div>
           <div className="flex items-center gap-2">
+            {(() => {
+              const due = submissions.filter(s => reminderFamilies[s.id] && !['enrolled', 'declined'].includes(s.status))
+              const unsent = due.filter(s => !s.reminder_sent_at)
+              return due.length > 0 && (
+                <button
+                  onClick={() => setReminderEntries(due.map(sub => ({ sub, family: reminderFamilies[sub.id] })))}
+                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full hover:border-[#325099] transition"
+                  title="Email every trial family their lesson dates — tick who, preview each, send in one go"
+                >
+                  ✉ Send reminders{unsent.length ? ` (${unsent.length} to go)` : ''}
+                </button>
+              )
+            })()}
             <a
               href="/api/trial-submission"
               target="_blank"
@@ -893,6 +972,8 @@ export default function TrialsPage() {
                     progress={trialProgress[sub.converted_student_id]}
                     onOutcomeEmail={() => setOutcomeSub(sub)}
                     onInvitationEmail={() => setInvitationSub(sub)}
+                    canRemind={!!reminderFamilies[sub.id]}
+                    onReminderEmail={() => setReminderEntries([{ sub, family: reminderFamilies[sub.id] }])}
                   />
                 ))}
               </div>
@@ -906,6 +987,19 @@ export default function TrialsPage() {
           sub={outcomeSub}
           onClose={() => setOutcomeSub(null)}
           onSent={() => setOutcomeSub(null)}
+        />
+      )}
+
+      {reminderEntries && (
+        <TrialReminderModal
+          entries={reminderEntries}
+          termId={enrolTerm?.id}
+          termName={enrolTerm?.name}
+          onClose={() => setReminderEntries(null)}
+          onSent={(ids) => {
+            const now = new Date().toISOString()
+            setSubmissions(prev => prev.map(s => ids.includes(s.id) ? { ...s, reminder_sent_at: s.reminder_sent_at || now } : s))
+          }}
         />
       )}
 

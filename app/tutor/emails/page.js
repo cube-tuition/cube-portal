@@ -19,10 +19,10 @@ const CAMPAIGNS = [
     badge:       null,
   },
   {
-    href:        '/tutor/emails/trials',
+    href:        '/tutor/trials',
     icon:        '🧪',
     title:       'Trials',
-    description: 'Trial reminders for new students — a welcome email with their first lesson date and time, no invoice. Sent any time during the term as trials are booked.',
+    description: 'Trial invitations and reminders are sent from each family\'s card in the trial pipeline, and recorded there — one place for everything about a trial.',
     badge:       null,
   },
   {
