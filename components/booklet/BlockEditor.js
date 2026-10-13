@@ -1196,6 +1196,9 @@ function TableEditor({ block, set }) {
         <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer">
           <input type="checkbox" checked={!!block.headerCol} onChange={e => set({ headerCol: e.target.checked })} /> Header column
         </label>
+        <span className="text-[11px] text-[#2A2035]/45" title="Cells take maths ($…$), **bold**, and dot points: start a line with “- ”, indent it for a sub-point">
+          Start a line with <span className="font-mono">-</span> for a dot point
+        </span>
         {/* Cells centre by default, which suits values and reads badly for a
             table full of sentences. */}
         <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer"
