@@ -1,6 +1,7 @@
 create sequence classes_id_seq;
 create sequence courses_id_seq;
 create sequence lessons_id_seq;
+create sequence student_classes_id_seq;
 
 create table public.terms (
   id uuid default gen_random_uuid() not null,
@@ -75,6 +76,24 @@ create table public.classes (
   status text default 'active'::text not null,
   constraint classes_pkey PRIMARY KEY (id),
   constraint classes_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+);
+
+create table public.enrolments (
+  id integer default nextval('student_classes_id_seq'::regclass) not null,
+  student_id uuid,
+  class_id integer,
+  price numeric(8,2),
+  status text default 'active'::text not null,
+  trial_start_date date,
+  created_at timestamp with time zone default now(),
+  ended_at date,
+  end_reason text,
+  next_term_status text default 'pending'::text not null,
+  started_at date,
+  constraint student_classes_student_id_class_id_key UNIQUE (student_id, class_id),
+  constraint student_classes_pkey PRIMARY KEY (id),
+  constraint enrolments_next_term_status_check CHECK ((next_term_status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'not_continuing'::text]))),
+  constraint enrolments_status_check CHECK ((status = ANY (ARRAY['active'::text, 'trial'::text, 'trial complete'::text, 'disenrol'::text])))
 );
 
 create table public.lessons (
@@ -206,11 +225,20 @@ create table public.shifts (
   constraint shifts_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'submitted'::text, 'approved'::text, 'paid'::text, 'void'::text])))
 );
 
+create table public.invoice_sync_queue (
+  id bigint generated always as identity not null,
+  student_id uuid not null,
+  class_id integer not null,
+  queued_at timestamp with time zone default now() not null,
+  constraint invoice_sync_queue_pkey PRIMARY KEY (id)
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.classes add constraint classes_course_id_fkey FOREIGN KEY (course_id) REFERENCES courses(id);
 alter table public.classes add constraint classes_source_class_id_fkey FOREIGN KEY (source_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.classes add constraint classes_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id);
+alter table public.enrolments add constraint student_classes_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.lessons add constraint lessons_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.lessons add constraint lessons_makeup_source_lesson_id_fkey FOREIGN KEY (makeup_source_lesson_id) REFERENCES lessons(id) ON DELETE SET NULL;
 alter table public.shifts add constraint shifts_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE SET NULL;
@@ -1411,6 +1439,32 @@ end;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.queue_invoice_sync()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  if tg_op = 'UPDATE'
+     and new.status     is not distinct from old.status
+     and new.price      is not distinct from old.price
+     and new.class_id   is not distinct from old.class_id
+     and new.student_id is not distinct from old.student_id then
+    return null;                                  -- nothing billable changed
+  end if;
+  if tg_op in ('UPDATE', 'DELETE') and old.student_id is not null and old.class_id is not null then
+    insert into public.invoice_sync_queue (student_id, class_id) values (old.student_id, old.class_id);
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') and new.student_id is not null and new.class_id is not null
+     and (tg_op = 'INSERT' or new.student_id is distinct from old.student_id or new.class_id is distinct from old.class_id) then
+    insert into public.invoice_sync_queue (student_id, class_id) values (new.student_id, new.class_id);
+  end if;
+  return null;
+end;
+$function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -1439,9 +1493,66 @@ create view public.pay_run_shifts as
            FROM directors) t ON t.id = s.tutor_id
      CROSS JOIN LATERAL pay_period_for(s.work_date) pp(period_start, period_end, fortnight_index, term_id);
 
+alter table public.terms enable row level security;
+alter table public.tutors enable row level security;
+alter table public.directors enable row level security;
+alter table public.courses enable row level security;
+alter table public.classes enable row level security;
+alter table public.enrolments enable row level security;
+alter table public.lessons enable row level security;
+alter table public.attendance enable row level security;
+alter table public.dropin_sessions enable row level security;
+alter table public.tutor_rate_matrix enable row level security;
+alter table public.pay_runs enable row level security;
+alter table public.shifts enable row level security;
+alter table public.invoice_sync_queue enable row level security;
+create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
+create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
+create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
+create policy "Staff update attendance" on public.attendance as PERMISSIVE for UPDATE to public using (is_staff()) with check (is_staff());
+create policy "Students see own attendance" on public.attendance as PERMISSIVE for SELECT to public using ((auth.uid() = student_id));
+create policy authenticated_full_access on public.attendance as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy "Admin write classes" on public.classes as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy "Students can view classes" on public.classes as PERMISSIVE for SELECT to public using (true);
+create policy authenticated_full_access on public.classes as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy authenticated_full_access on public.courses as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy courses_public_read on public.courses as PERMISSIVE for SELECT to anon using (true);
+create policy courses_read_authenticated on public.courses as PERMISSIVE for SELECT to authenticated using (true);
+create policy courses_write_admin on public.courses as PERMISSIVE for ALL to authenticated using ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text]))) with check ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text])));
+create policy authenticated_full_access on public.directors as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy "Admin write dropin_sessions" on public.dropin_sessions as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy "Anyone can read dropin sessions" on public.dropin_sessions as PERMISSIVE for SELECT to public using (true);
+create policy authenticated_full_access on public.dropin_sessions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy "Staff delete enrolments" on public.enrolments as PERMISSIVE for DELETE to authenticated using (is_staff());
+create policy "Staff insert enrolments" on public.enrolments as PERMISSIVE for INSERT to authenticated with check (is_staff());
+create policy "Staff read all student_classes" on public.enrolments as PERMISSIVE for SELECT to public using (is_staff());
+create policy "Staff update enrolments" on public.enrolments as PERMISSIVE for UPDATE to authenticated using (is_staff()) with check (is_staff());
+create policy "Students can view their own class links" on public.enrolments as PERMISSIVE for SELECT to public using ((auth.uid() = student_id));
+create policy authenticated_full_access on public.enrolments as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy authenticated_full_access on public.lessons as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy lessons_read_authenticated on public.lessons as PERMISSIVE for SELECT to authenticated using (true);
+create policy lessons_write_admin on public.lessons as PERMISSIVE for ALL to authenticated using ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text]))) with check ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text])));
+create policy authenticated_full_access on public.pay_runs as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy pay_runs_admin_all on public.pay_runs as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy authenticated_full_access on public.shifts as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy shifts_admin_all on public.shifts as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy shifts_tutor_delete on public.shifts as PERMISSIVE for DELETE to public using (((tutor_id = auth.uid()) AND (status = 'draft'::text)));
+create policy shifts_tutor_insert on public.shifts as PERMISSIVE for INSERT to public with check (((tutor_id = auth.uid()) AND (status = 'draft'::text)));
+create policy shifts_tutor_select on public.shifts as PERMISSIVE for SELECT to public using ((tutor_id = auth.uid()));
+create policy shifts_tutor_update on public.shifts as PERMISSIVE for UPDATE to public using (((tutor_id = auth.uid()) AND (status = ANY (ARRAY['draft'::text, 'submitted'::text])))) with check (((tutor_id = auth.uid()) AND (status = ANY (ARRAY['draft'::text, 'submitted'::text]))));
+create policy "Admin write terms" on public.terms as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy "Anyone can read terms" on public.terms as PERMISSIVE for SELECT to public using (true);
+create policy authenticated_full_access on public.terms as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy terms_read_authenticated on public.terms as PERMISSIVE for SELECT to authenticated using (true);
+create policy authenticated_full_access on public.tutor_rate_matrix as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy trm_admin_all on public.tutor_rate_matrix as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy trm_tutor_select on public.tutor_rate_matrix as PERMISSIVE for SELECT to public using ((tutor_id = auth.uid()));
+create policy authenticated_full_access on public.tutors as PERMISSIVE for ALL to authenticated using ((is_staff() AND ((NOT system) OR (id = auth.uid())))) with check ((is_staff() AND ((NOT system) OR (id = auth.uid()))));
+
 CREATE TRIGGER lessons_sync_main_teacher BEFORE INSERT OR UPDATE OF class_id, main_teacher ON public.lessons FOR EACH ROW EXECUTE FUNCTION sync_lesson_main_teacher();
 CREATE TRIGGER attendance_to_shift AFTER INSERT OR UPDATE OF status ON public.attendance FOR EACH ROW EXECUTE FUNCTION create_shift_from_class_attendance();
 CREATE TRIGGER dropin_to_shift AFTER INSERT OR UPDATE ON public.dropin_sessions FOR EACH ROW EXECUTE FUNCTION create_shifts_from_dropin();
 CREATE TRIGGER shifts_touch BEFORE UPDATE ON public.shifts FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER classes_year_matches_course BEFORE INSERT OR UPDATE OF class_name, course_id ON public.classes FOR EACH ROW EXECUTE FUNCTION class_year_matches_course();
 CREATE TRIGGER courses_year_consistent BEFORE INSERT OR UPDATE OF course_name, course_code ON public.courses FOR EACH ROW EXECUTE FUNCTION course_year_consistent();
+CREATE TRIGGER enrolments_queue_invoice_sync AFTER INSERT OR DELETE OR UPDATE OF status, price, class_id, student_id ON public.enrolments FOR EACH ROW EXECUTE FUNCTION queue_invoice_sync();

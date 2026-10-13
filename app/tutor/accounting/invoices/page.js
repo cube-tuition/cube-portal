@@ -9,6 +9,7 @@ import TutorNav from '../../../../components/TutorNav'
 import { fetchAllTerms, getEnrolmentTerm } from '../../../../lib/terms'
 import { fmtMoney, fmtDate, fmtDateLong } from '../../../../lib/format'
 import { generateInvoicePdf } from '../../../../lib/invoicePdf'
+import { loadInvoiceDrift } from '../../../../lib/invoiceDrift'
 import { XeroBanner } from '../../../../components/invoices/XeroBanner'
 import { AddCreditModal } from '../../../../components/invoices/AddCreditModal'
 import { ReferralModal } from '../../../../components/invoices/ReferralModal'
@@ -284,6 +285,19 @@ function InvoiceDashboardInner() {
     if (!termId) return
     setLoading(true); setError(null)
     try {
+      // First bring drafts in line with enrolment changes made since the last
+      // look (lib/invoiceSync) — so a draft is never approved or sent stale.
+      // A failure here must not stop the invoices loading.
+      try {
+        const res = await authedFetch('/api/invoices/sync', { method: 'POST' })
+        const sync = await res.json()
+        if (!res.ok) throw new Error(sync.error)
+        if (sync.updated?.length) {
+          setSuccessMsg(`Updated ${sync.updated.length} draft invoice${sync.updated.length === 1 ? '' : 's'} to match enrolment changes: `
+            + sync.updated.map(u => `${u.invoice_number || `#${u.id}`} (${u.changes.join('; ') || 'totals'})`).join(' · '))
+        }
+      } catch (e) { console.error('Draft invoice sync failed:', e) }
+
       // Load classes for this term
       const { data: classes } = await supabase
         .from('classes').select('id, class_name, day_of_week, start_time, teacher').eq('term_id', termId)
@@ -470,6 +484,14 @@ function InvoiceDashboardInner() {
           stale_reasons: staleReasons,
         }
       })
+
+      // Out of step with the enrolments? A dry run of Refresh on every open
+      // invoice (lib/invoiceDrift) — the same code the Refresh button runs, so
+      // the notice and the button can never disagree. A failure here only
+      // hides the notice; it must not stop the invoices loading.
+      const drift = await loadInvoiceDrift(supabase, termId, invs || [])
+        .catch(e => { console.error('Out-of-step check failed:', e); return {} })
+      for (const inv of enriched) inv.drift = drift[inv.id] || []
 
       // Auto-set overdue: any unpaid invoice whose due_date is in the past
       const today = new Date().toISOString().slice(0, 10)
@@ -766,8 +788,14 @@ function InvoiceDashboardInner() {
       if (data.updated) msgs.push(`Refreshed ${data.updated} line item${data.updated !== 1 ? 's' : ''} with latest prices.`)
       // stale_reasons (the "no longer a class" warnings) describe exactly the
       // lines Refresh removes, so they go with them.
+      const refreshed = { ...inv, line_items: data.line_items ?? inv.line_items,
+        subtotal: data.total ?? inv.subtotal, total: data.total ?? inv.total }
+      // Re-check it: whatever Refresh could not settle (a hand-edited discount,
+      // an enrolment with no price) stays on the notice.
+      const drift = await loadInvoiceDrift(supabase, inv.term_id, [refreshed]).catch(() => ({}))
       setInvoices(prev => prev.map(i => i.id === inv.id
-        ? { ...i, line_items: data.line_items, subtotal: data.total, total: data.total,
+        ? { ...i, line_items: refreshed.line_items, subtotal: refreshed.subtotal, total: refreshed.total,
+            drift: drift[inv.id] || [],
             ...(data.removed?.length ? { stale_reasons: [] } : {}) }
         : i
       ))
@@ -846,7 +874,8 @@ function InvoiceDashboardInner() {
   const revenue = liveInvoices.filter(i => i.status !== 'draft').reduce((s, i) => s + (Number(i.total) || 0), 0)
   const potentialRevenue = liveInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0)   // drafts too
   const filtered = useMemo(
-    () => applyInvoiceFilters(invoices, { queue, sel: facetSel, search, sort: sortBy }, (i) => getWarnings(i, i.prev_unpaid)),
+    () => applyInvoiceFilters(invoices, { queue, sel: facetSel, search, sort: sortBy },
+      (i) => [...getWarnings(i, i.prev_unpaid), ...(i.drift || [])]),
     [invoices, queue, facetSel, search, sortBy],
   )
   const filtersActive = queue !== 'all' || activeFacetCount(facetSel) > 0 || !!search.trim()
@@ -1008,7 +1037,7 @@ function InvoiceDashboardInner() {
                   ) : null
 
                   return (
-                    <div key={inv.id} className={`bg-white rounded-2xl border overflow-hidden transition ${warnings.length ? 'border-[#FDE047]' : 'border-[#DEE7FF]'}`}>
+                    <div key={inv.id} className={`bg-white rounded-2xl border overflow-hidden transition ${warnings.length || inv.drift?.length ? 'border-[#FDE047]' : 'border-[#DEE7FF]'}`}>
                       {/* Invoice header */}
                       <div className="px-4 md:px-5 py-4 flex items-start justify-between gap-3 md:gap-4 border-b border-[#DEE7FF]">
                         <div className="min-w-0">
@@ -1069,6 +1098,17 @@ function InvoiceDashboardInner() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Out of step with the enrolments (lib/invoiceDrift) */}
+                      {inv.drift?.length > 0 && (
+                        <div className="px-4 md:px-5 py-2.5 bg-[#FFFBEB] border-b border-[#FDE68A] text-xs text-[#92400E]">
+                          <p className="font-semibold">Out of step with enrolments</p>
+                          <ul className="mt-1 space-y-0.5 list-disc pl-4">
+                            {inv.drift.map(d => <li key={d}>{d}</li>)}
+                          </ul>
+                          <p className="mt-1 text-[#92400E]/70">↻ Refresh brings the class lines, prices, discounts and total into line.</p>
+                        </div>
+                      )}
 
                       {/* Line items */}
                       <div className="px-4 md:px-5 py-3">

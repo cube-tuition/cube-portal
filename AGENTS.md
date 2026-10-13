@@ -31,6 +31,12 @@ failing test stops the deploy and production stays on the last good version.
 - Invoice rules live in `lib/billing.js` + `lib/cashDiscount.js`, the Xero
   payroll push in `lib/payroll.js` — change the rule there, never inline in a
   route, and update `tests/*.test.mjs` with it.
+- Refresh is `planInvoiceRefresh` (lib/billing): the Refresh button, the
+  invoices page's "out of step" check (lib/invoiceDrift) and the automatic
+  draft sync (lib/invoiceSync, fed by the enrolments → invoice_sync_queue
+  trigger) all run it. Never write an invoice's total / discount columns from
+  SQL or a trigger: they must come from its line items (`invoiceTotalsPatch`
+  or a plan), or the PDF and Xero disagree.
 - Shift and pay-run rules are database functions, tested on an in-memory
   Postgres from `tests/db/schema.sql`. After changing any of them (or
   their tables), run `npm run test:db:snapshot` and commit the snapshot with

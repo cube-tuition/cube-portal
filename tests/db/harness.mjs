@@ -13,9 +13,12 @@ import { PGlite } from '@electric-sql/pglite'
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const SNAPSHOT_PATH = path.join(here, 'schema.sql')
 
-// Supabase's auth schema, reduced to what the functions call: the JWT claims
-// of the request, and the user id inside them.
+// Supabase's API roles and auth schema, reduced to what the functions use:
+// the JWT claims of the request, and the user id and role inside them.
 const AUTH_STUB = `
+  create role anon nologin;
+  create role authenticated nologin;
+  create role service_role nologin;
   create schema auth;
   create function auth.jwt() returns jsonb language sql stable as
     $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;

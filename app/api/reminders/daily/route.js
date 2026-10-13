@@ -4,6 +4,7 @@ import { sendPushToAll } from '../../../../lib/push'
 import { DUE_DATES } from '../../../../lib/complianceDates'
 import { getRunningTerm, isHolidayTerm } from '../../../../lib/terms'
 import { normaliseTerms } from '../../../../lib/termDates'
+import { syncQueuedInvoices } from '../../../../lib/invoiceSync'
 
 /*
  * GET /api/reminders/daily — Vercel cron, early each morning Sydney time.
@@ -127,5 +128,9 @@ export async function GET(request) {
   for (const p of pushes) {
     try { const r = await sendPushToAll(p); sent += r?.sent || 0 } catch (e) { console.error('[reminders]', p.title, e?.message) }
   }
-  return Response.json({ today, reminders: pushes.map(p => p.title), sent })
+  // Riding on this cron (the plan allows two): draft invoices catch up with
+  // yesterday's enrolment changes even on a day nobody opens the invoices page.
+  let invoiceSync = null
+  try { invoiceSync = await syncQueuedInvoices(admin) } catch (e) { console.error('[reminders] invoice sync', e?.message) }
+  return Response.json({ today, reminders: pushes.map(p => p.title), sent, invoiceSync })
 }

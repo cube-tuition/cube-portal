@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { syncCashDiscountLines, totalFromLineItems, CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
-import { reconcileEnrolmentLines, discountTotals } from '../../../lib/billing'
+import { CASH_PAYMENT_INSTRUCTIONS, BANK_PAYMENT_INSTRUCTIONS } from '../../../lib/cashDiscount'
+import { planInvoiceRefresh } from '../../../lib/billing'
 
 
 /**
@@ -48,109 +48,64 @@ export async function POST(req) {
     }
     if (inv.payment_status === 'paid') return Response.json({ error: 'Invoice already paid' }, { status: 400 })
 
-    let lineItems = inv.line_items || []
-    const notes = []
+    // Everything Refresh reads, then lib/billing works out the change.
+    const { data: members, error: memErr } = !inv.term_id ? { data: [] } : inv.family_id != null
+      ? await sb.from('students').select('id, full_name').eq('family_id', inv.family_id)
+      : inv.student_id
+        ? await sb.from('students').select('id, full_name').eq('id', inv.student_id)
+        : { data: [] }
+    if (memErr) return Response.json({ error: `Could not load the family: ${memErr.message}` }, { status: 500 })
+    const memberIds = (members || []).map(m => m.id)
 
-    // ── Match the class lines to this term's enrolments (lib/billing) ──
-    // Adds classes the family is enrolled in but not billed for, removes class
-    // lines whose enrolment has ended, and recalculates the sibling and
-    // multi-course discounts — the same rules the generator uses.
-    let added = 0
-    let removedNames = []
-    if (inv.term_id && (inv.family_id != null || inv.student_id)) {
-      const { data: members, error: memErr } = inv.family_id != null
-        ? await sb.from('students').select('id, full_name').eq('family_id', inv.family_id)
-        : await sb.from('students').select('id, full_name').eq('id', inv.student_id)
-      if (memErr) return Response.json({ error: `Could not load the family: ${memErr.message}` }, { status: 500 })
-      const memberIds = (members || []).map(m => m.id)
-      if (memberIds.length) {
-        // Trial enrolments count as live (a line is never dropped mid-trial).
-        const { data: termEnrolments, error: teErr } = await sb.from('enrolments')
-          .select('student_id, class_id, price, status, classes!inner(id, class_name, day_of_week, start_time, term_id, courses(course_price))')
-          .in('student_id', memberIds).in('status', ['active', 'trial']).eq('classes.term_id', inv.term_id)
-        if (teErr) return Response.json({ error: `Could not load enrolments: ${teErr.message}` }, { status: 500 })
-        const r = reconcileEnrolmentLines({
-          lineItems, termEnrolments, memberIds,
-          nameOf: Object.fromEntries((members || []).map(m => [m.id, m.full_name])),
-        })
-        lineItems = r.lineItems
-        added = r.added
-        removedNames = r.removedNames
-        notes.push(...r.notes)
-      }
+    let termEnrolments = []
+    if (memberIds.length) {
+      // Trial enrolments count as live (a line is never dropped mid-trial).
+      const { data, error: teErr } = await sb.from('enrolments')
+        .select('student_id, class_id, price, status, classes!inner(id, class_name, day_of_week, start_time, term_id, courses(course_price))')
+        .in('student_id', memberIds).in('status', ['active', 'trial']).eq('classes.term_id', inv.term_id)
+      if (teErr) return Response.json({ error: `Could not load enrolments: ${teErr.message}` }, { status: 500 })
+      termEnrolments = data || []
     }
 
-    const enrolLines = lineItems.filter(l => l.type === 'enrolment')
-
-    if (!enrolLines.length) return Response.json({ updated: 0, message: 'No enrolment lines to refresh' })
-
-    // Fetch current prices from enrolments table.
-    //
-    // .or() takes PostgREST's filter DSL, NOT raw SQL. This used to build
-    // "(student_id = '<uuid>' AND class_id = 12)", which PostgREST rejects with
-    // PGRST100 ("failed to parse logic tree"). The error was never checked, so
-    // the request silently returned no rows, the price map came back empty and
-    // every line was left exactly as it was — Refresh reported "0 updated" and
-    // re-priced nothing. Each pair must be and(field.eq.value,…).
-    const pairs = enrolLines
-      .filter(l => l.student_id && l.class_id != null)
-      .map(l => `and(student_id.eq.${l.student_id},class_id.eq.${l.class_id})`)
-    if (!pairs.length) return Response.json({ updated: 0, message: 'No enrolment lines to refresh' })
-    const { data: enrolments, error: enrolErr } = await sb
-      .from('enrolments')
-      .select('student_id, class_id, price, classes(courses(course_price))')
-      .or(pairs.join(','))
+    // Prices and payment methods for everyone the invoice may bill: the family
+    // plus anyone already on a line.
+    const studentIds = [...new Set([
+      ...memberIds,
+      ...(inv.line_items || []).filter(l => l.type === 'enrolment' && l.student_id).map(l => l.student_id),
+    ])]
+    const [{ data: enrolmentRows, error: enrolErr }, { data: payers, error: payErr }] = studentIds.length
+      ? await Promise.all([
+          sb.from('enrolments').select('student_id, class_id, price, classes(courses(course_price))').in('student_id', studentIds),
+          sb.from('students').select('id, payment_method').in('id', studentIds),
+        ])
+      : [{ data: [] }, { data: [] }]
     // Surface a lookup failure instead of silently reporting "nothing changed".
     if (enrolErr) return Response.json({ error: `Could not load enrolment prices: ${enrolErr.message}` }, { status: 500 })
+    if (payErr) return Response.json({ error: `Could not load payment methods: ${payErr.message}` }, { status: 500 })
 
-    // Build lookup: "studentId__classId" → price. Fall back to the class's
-    // course price when the enrolment has none (matches invoice generation).
-    const priceMap = {}
-    for (const e of enrolments || []) {
-      priceMap[`${e.student_id}__${e.class_id}`] =
-        (e.price != null ? parseFloat(e.price) : parseFloat(e.classes?.courses?.course_price)) || 0
-    }
-
-    let updated = 0
-    let newLineItems = lineItems.map(l => {
-      if (l.type !== 'enrolment') return l
-      const key = `${l.student_id}__${l.class_id}`
-      const currentPrice = priceMap[key]
-      if (currentPrice === undefined) return l          // enrolment not found — leave as-is
-      if (currentPrice === l.unit_price) return l       // no change needed
-      updated++
-      return { ...l, unit_price: currentPrice, amount: currentPrice }
+    const plan = planInvoiceRefresh({
+      invoice: inv, memberIds,
+      nameOf: Object.fromEntries((members || []).map(m => [m.id, m.full_name])),
+      termEnrolments, enrolmentRows: enrolmentRows || [],
+      paymentMethodOf: Object.fromEntries((payers || []).map(s => [s.id, s.payment_method])),
     })
+    if (plan.noop) return Response.json({ updated: 0, message: plan.noop })
 
-    // ── Cash-discount sync — refresh is the "make it match reality" action ──
-    // Look up the CURRENT payment method of the students on the invoice: any
-    // cash-flagged student makes it a cash family. Then add, recompute, or
-    // remove the 10% line so the invoice always reflects the live flag.
-    const lineStudentIds = [...new Set(enrolLines.map(l => l.student_id).filter(Boolean))]
-    const { data: lineStudents } = await sb
-      .from('students').select('id, payment_method').in('id', lineStudentIds)
-    const isCashFamily = (lineStudents || []).some(s => s.payment_method === 'cash')
-
-    const cashSync = syncCashDiscountLines(newLineItems, isCashFamily)
-    newLineItems = cashSync.lineItems
-    if (cashSync.changed) updated++
-
-    // Recalculate total = sum of all line item amounts (inc-GST, discounts already negative)
-    const newTotal = totalFromLineItems(newLineItems)
-
-    const { siblingDiscount, multiCourseDiscount } = discountTotals(newLineItems)
     const { error: updateErr } = await sb.from('invoices')
       .update({
-        line_items: newLineItems, subtotal: newTotal, total: newTotal,
-        sibling_discount: siblingDiscount, multi_course_discount: multiCourseDiscount,
-        payment_method: isCashFamily ? 'cash' : 'bank',
-        payment_instructions: isCashFamily ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS,
+        line_items: plan.lineItems, subtotal: plan.total, total: plan.total,
+        sibling_discount: plan.siblingDiscount, multi_course_discount: plan.multiCourseDiscount,
+        payment_method: plan.isCash ? 'cash' : 'bank',
+        payment_instructions: plan.isCash ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS,
       })
       .eq('id', invoice_id)
 
     if (updateErr) return Response.json({ error: updateErr.message }, { status: 500 })
 
-    return Response.json({ updated, added, removed: removedNames, notes, total: newTotal, line_items: newLineItems })
+    return Response.json({
+      updated: plan.updated, added: plan.added, removed: plan.removedNames, notes: plan.notes,
+      total: plan.total, line_items: plan.lineItems,
+    })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })
   }
