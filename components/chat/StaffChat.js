@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm, weekOfTerm, formatTermRange, formatTermStart } from '../../lib/terms'
 import {
-  loadStaffDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage,
+  loadStaffDirectory, loadStudentDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage, openStudentDm, openClassChannel,
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, setMuted, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
@@ -41,7 +41,15 @@ const colorFor = (id) => AVATAR[[...String(id || '')].reduce((n, ch) => n + ch.c
 // onConversationOpen(bool): fires when the phone layout switches between the
 // channel list and a conversation, so a host can hide its own bottom bar
 // while someone is typing in a thread.
-export default function StaffChat({ me, initialChannel = '', className = 'h-[calc(100dvh-64px)]', onConversationOpen }) {
+/*
+ * `audience`: 'staff' (default) — the teachers' chat; 'students' — CUBE's
+ * threads with students and one channel per class. Same tables, same screen;
+ * the students side is directors-only until it is published to students.
+ */
+export default function StaffChat({ me, initialChannel = '', className = 'h-[calc(100dvh-64px)]', onConversationOpen, audience = 'staff' }) {
+  const forStudents = audience === 'students'
+  const [classOptions, setClassOptions] = useState([])   // students mode: this term's classes for "+ Class"
+  const [studentQuery, setStudentQuery] = useState('')    // students mode: filter the long people list
   const [staff, setStaff] = useState([])
   const [channels, setChannels] = useState([])
   const [unread, setUnread] = useState({})
@@ -107,10 +115,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   // Which direct threads belong to the profile in use: a director sees their
   // own DMs as themselves and only CUBE's threads as CUBE; a teacher sees both.
   const inProfile = useCallback((c) => {
-    if (c.kind === 'channel') return true
+    if (forStudents || c.kind === 'channel') return true
     if (!isAdmin) return true
     return persona === 'cube' ? c.kind === 'cube_dm' : c.kind === 'dm'
-  }, [isAdmin, persona])
+  }, [isAdmin, persona, forStudents])
   const pickPersona = (p) => {
     setPersona(p)
     try { localStorage.setItem('cube:chat-persona', p) } catch { /* fine */ }
@@ -127,17 +135,28 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     : c.kind === 'cube_dm' ? (isAdmin ? nameOf(c.otherId) : 'CUBE') : `#${c.name}`, [nameOf, isAdmin])
 
   const refreshChannels = useCallback(async (uid) => {
-    const [cs, un] = await Promise.all([loadChannels(uid), loadUnread()])
+    const [all, un] = await Promise.all([loadChannels(uid), loadUnread()])
+    const cs = all.filter(c => (c.audience || 'staff') === audience)
     setChannels(cs); setUnread(un)
     return cs
-  }, [])
+  }, [audience])
 
   // ── Boot ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!me?.id) return
     (async () => {
       const [dir, cs, pinned] = await Promise.all([loadStaffDirectory(), refreshChannels(me.id), loadPins(me.id)])
-      setStaff(dir); setPins(pinned)
+      if (forStudents) {
+        // Students mode: the people are the students (plus staff, so director
+        // names resolve inside class channels), and "+ Class" lists this term.
+        const ts = await fetchAllTerms().catch(() => [])
+        const term = getCurrentTerm(ts)
+        const [students, cls] = await Promise.all([loadStudentDirectory(term?.id).catch(() => []), term ? loadTermClasses(term.id).catch(() => []) : []])
+        setStaff([...dir, ...students]); setClassOptions(cls)
+      } else {
+        setStaff(dir)
+      }
+      setPins(pinned)
       if (isAdmin) {
         loadShortcuts().then(list => {
           // Seed the built-ins once; after that they are ordinary, editable rows.
@@ -158,12 +177,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           if (nt) loadTermClasses(nt.id).then(setTermClasses).catch(() => {})
         }).catch(() => {})
       }
-      if (!activeRef.current) {
+      if (!activeRef.current && !forStudents) {
         const staffChan = cs.find(ch => ch.is_default) || cs.find(ch => ch.kind === 'channel' && ch.mine)
         if (staffChan) { activeRef.current = staffChan.id; setActive(staffChan.id) }
       }
     })()
-  }, [me?.id, isAdmin, refreshChannels])
+  }, [me?.id, isAdmin, refreshChannels, forStudents])
 
   // ── Conversation ───────────────────────────────────────────────────────────
   const loadConversation = useCallback(async () => {
@@ -280,7 +299,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const current = channels.find(c => c.id === active) || null
   // Writing as CUBE: a director in CUBE mode, or anyone (a director) inside a CUBE thread.
   const cubeMode = !!me?.isAdmin && persona === 'cube'
-  const asCube = !!me?.isAdmin && (cubeMode || current?.kind === 'cube_dm')
+  const asCube = !forStudents && !!me?.isAdmin && (cubeMode || current?.kind === 'cube_dm')
   const canPost = !!current && current.mine && (!current.directors_only || me.isAdmin)
   const send = async () => {
     const body = text.trim()
@@ -290,7 +309,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       if (editing) { await editMessage(editing, body); setEditing(null); return }
       const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body, asCube })
       setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
-      authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
+      // Students are not notified until the Students tab is published to them.
+      if (!forStudents) authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
     } catch (e) { setErr(e.message || 'Could not send'); setText(body) }
   }
   const onKey = (e) => {
@@ -328,7 +348,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       setText('')
       const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body, asCube })
       setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
-      authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
+      if (!forStudents) authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
     } catch (e) { setErr(e.message || 'Could not attach the file') }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
@@ -338,6 +358,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   }
   const startEdit = (m) => { setEditing(m.id); setText(m.body); taRef.current?.focus() }
   const remove = async (m) => { if (!confirm('Delete this message?')) return; try { await deleteMessage(m.id) } catch (e) { setErr(e.message) } }
+  const newClassChannel = async (classId) => {
+    if (!classId) return
+    try { const id = await openClassChannel(Number(classId)); await refreshChannels(me.id); selectChannel(id) } catch (e) { setErr(e.message) }
+  }
   const newChannel = async () => {
     const name = prompt('Channel name (e.g. maths-team)')
     if (!name?.trim()) return
@@ -347,7 +371,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   }
   const startDm = async (other) => {
     try {
-      const id = cubeMode && other.role === 'tutor' ? await openCubeDm(other.id) : await openDm(other.id)
+      const id = other.role === 'student' ? await openStudentDm(other.id)
+        : cubeMode && other.role === 'tutor' ? await openCubeDm(other.id) : await openDm(other.id)
       await refreshChannels(me.id); selectChannel(id)
     } catch (e) { setErr(e.message) }
   }
@@ -482,8 +507,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     <aside className="w-full md:w-64 shrink-0 bg-white md:border-r border-[#DEE7FF] flex flex-col h-full">
       <div className="px-4 pt-4 pb-3 border-b border-[#F0F4FF]">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-bold text-[#062E63]">Staff chat</p>
-          {isAdmin && (
+          <p className="text-sm font-bold text-[#062E63]">{forStudents ? 'Students' : 'Staff chat'}</p>
+          {isAdmin && !forStudents && (
             <div className="flex rounded-full border border-[#DEE7FF] overflow-hidden text-[10px] font-bold" title="Post as yourself, or as CUBE (a shared voice both directors use)">
               <button onClick={() => pickPersona('cube')} className={`px-2 py-1 flex items-center gap-1 ${persona === 'cube' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}><CubeLogo className="h-2.5 w-auto" />CUBE</button>
               <button onClick={() => pickPersona('me')} className={`px-2 py-1 ${persona === 'me' ? 'bg-[#325099] text-white' : 'text-[#325099]'}`}>{(me.full_name || 'Me').split(' ')[0]}</button>
@@ -502,23 +527,40 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           </>
         )}
         <div className={`px-3 flex items-center justify-between ${pinned.length ? 'pt-3' : ''}`}>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 py-1">Channels</p>
-          <button onClick={newChannel} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 py-1">{forStudents ? 'Class channels' : 'Channels'}</p>
+          {forStudents ? (
+            <select value="" onChange={e => newClassChannel(e.target.value)} title="Open a class's channel — its current students are added automatically"
+              className="text-[11px] font-semibold text-[#325099] bg-transparent border-0 focus:outline-none cursor-pointer max-w-[9rem]">
+              <option value="">+ Class…</option>
+              {classOptions.filter(c => !channels.some(ch => ch.class_id === c.id)).map(c => <option key={c.id} value={c.id}>{c.class_name}</option>)}
+            </select>
+          ) : (
+            <button onClick={newChannel} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
+          )}
         </div>
+        {forStudents && open.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Pick a class above to open its channel.</p>}
         {open.map(c => <Row key={c.id} c={c} />)}
         {/* People: one list. Those you already have a thread with come first
             (unread at the top); the rest of the staff follow, and tapping
             anyone opens or starts the conversation. */}
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">{cubeMode ? 'CUBE direct messages' : 'Direct messages'}</p>
-        {dms.map(c => <Row key={c.id} c={c} />)}
-        {others.filter(s => !(cubeMode && s.role === 'director')).filter(s => !channels.some(c => c.kind === (cubeMode ? 'cube_dm' : 'dm') && c.otherId === s.id)).map(s => (
+        <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-4 pb-1">{forStudents ? 'Students' : cubeMode ? 'CUBE direct messages' : 'Direct messages'}</p>
+        {forStudents && (
+          <input value={studentQuery} onChange={e => setStudentQuery(e.target.value)} placeholder="Find a student…"
+            className="mx-3 mb-1 w-[calc(100%-1.5rem)] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
+        )}
+        {dms.filter(c => !forStudents || !studentQuery.trim() || channelLabel(c).toLowerCase().includes(studentQuery.trim().toLowerCase())).map(c => <Row key={c.id} c={c} />)}
+        {(forStudents
+          ? others.filter(s => s.role === 'student').filter(s => !channels.some(c => c.kind === 'dm' && c.otherId === s.id))
+              .filter(s => { const q = studentQuery.trim().toLowerCase(); return !q || s.full_name.toLowerCase().includes(q) || (s.classes || []).some(n => n.toLowerCase().includes(q)) })
+          : others.filter(s => !(cubeMode && s.role === 'director')).filter(s => !channels.some(c => c.kind === (cubeMode ? 'cube_dm' : 'dm') && c.otherId === s.id))
+        ).map(s => (
           <button key={s.id} onClick={() => startDm(s)} className="w-full text-left pl-4 pr-2 py-2.5 md:py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/55 hover:bg-[#F8FAFF]">
             <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center opacity-70" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>{online.has(s.id) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
             <span className="truncate flex-1">{s.full_name}</span>
-            <span className="text-[10px] text-[#2A2035]/35">{s.role === 'director' ? 'director' : ''}</span>
+            <span className="text-[10px] text-[#2A2035]/35 truncate max-w-[7rem]">{s.role === 'director' ? 'director' : s.role === 'student' ? [s.year ? `Yr ${s.year}` : '', ...(s.classes || [])].filter(Boolean).join(' · ') : ''}</span>
           </button>
         ))}
-        {me.isAdmin && (
+        {me.isAdmin && !forStudents && (
           <>
             <div className="px-3 flex items-center justify-between pt-4">
               <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 py-1">⚡ Shortcuts</p>
@@ -659,7 +701,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}</p>
                   <p className="text-[11px] text-[#2A2035]/45 truncate">
-                    {current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
+                    {forStudents && current.kind === 'dm' ? 'Student thread · every director sees this · not yet visible to the student' : forStudents ? `${current.members.filter(id => staffById[id]?.role === 'student').length} students · not yet visible to them` : current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
                 {current.kind === 'channel' && current.directors_only && (

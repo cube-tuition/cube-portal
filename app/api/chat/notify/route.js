@@ -18,11 +18,13 @@ export async function POST(request) {
     const { data: msg } = await admin.from('chat_messages').select('id, channel_id, sender_id, sender_name, body, as_cube').eq('id', messageId).maybeSingle()
     if (!msg || msg.sender_id !== auth.user.id) return Response.json({ error: 'Not your message' }, { status: 403 })
     const [{ data: chan }, { data: members }, { data: tutors }, { data: directors }] = await Promise.all([
-      admin.from('chat_channels').select('id, kind, name, quiet').eq('id', msg.channel_id).maybeSingle(),
+      admin.from('chat_channels').select('id, kind, name, quiet, audience').eq('id', msg.channel_id).maybeSingle(),
       admin.from('chat_members').select('user_id, muted').eq('channel_id', msg.channel_id),
       admin.from('tutors').select('id, full_name'),
       admin.from('directors').select('id, full_name'),
     ])
+    // Student channels are directors-only until published: no pushes to anyone.
+    if (chan?.audience === 'students') return Response.json({ ok: true, skipped: 'students audience' })
     const memberIds = new Set((members || []).map(m => m.user_id))
     // Everyone in the conversation but the sender — except members who muted
     // the channel, who still hear about it when they are @mentioned.

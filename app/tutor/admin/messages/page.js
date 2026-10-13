@@ -38,8 +38,9 @@ function MessagesInner() {
   const [profile, setProfile] = useState(null)
   const [me, setMe] = useState(null)                 // { id, full_name } for the staff chat
   // Parents (the office number's texts and calls) or Staff (the teachers' chat).
-  const [audience, setAudience] = useState(() => (searchParams.get('tab') === 'staff' || searchParams.get('c')) ? 'staff' : 'parents')
+  const [audience, setAudience] = useState(() => searchParams.get('tab') === 'students' ? 'students' : (searchParams.get('tab') === 'staff' || searchParams.get('c')) ? 'staff' : 'parents')
   const [staffUnread, setStaffUnread] = useState(0)
+  const [studentUnread, setStudentUnread] = useState(0)
   const cleanupRef = useRef(null)
   useEffect(() => () => cleanupRef.current?.(), [])
   const [allowed, setAllowed] = useState(false)
@@ -63,7 +64,15 @@ function MessagesInner() {
       const { user, profile, role } = await getAuthProfile()
       if (!profile || (role !== 'admin' && role !== 'director')) { router.replace('/tutor'); return }
       setProfile(profile); setMe({ id: user.id, full_name: profile.full_name || user.email, isAdmin: true }); setAllowed(true)
-      const tick = async () => { const { data } = await supabase.rpc('chat_unread_counts'); setStaffUnread((data || []).reduce((n, r) => n + (Number(r.n) || 0), 0)) }
+      // Unread per audience: the rpc counts every channel the director is in,
+      // so split it by the channel's audience (staff chat vs student threads).
+      const tick = async () => {
+        const [{ data }, { data: chans }] = await Promise.all([supabase.rpc('chat_unread_counts'), supabase.from('chat_channels').select('id, audience')])
+        const aud = Object.fromEntries((chans || []).map(c => [c.id, c.audience || 'staff']))
+        let st = 0, su = 0
+        for (const r of data || []) { if (aud[r.channel_id] === 'students') su += Number(r.n) || 0; else st += Number(r.n) || 0 }
+        setStaffUnread(st); setStudentUnread(su)
+      }
       tick(); const t = setInterval(tick, 30000); window.addEventListener('focus', tick)
       cleanupRef.current = () => { clearInterval(t); window.removeEventListener('focus', tick) }
     })()
@@ -101,7 +110,9 @@ function MessagesInner() {
             </Link>
             <h1 className="text-2xl font-bold text-[#062E63]">Messages</h1>
             <p className="text-sm text-[#325099]/60 mt-1">
-              {audience === 'staff'
+              {audience === 'students'
+                ? <>Messages to students — a thread per student and a channel per class. Directors only for now; students can’t see it yet.{studentUnread ? ` ${studentUnread} unread.` : ''}</>
+                : audience === 'staff'
                 ? <>Chat between the teachers.{staffUnread ? ` ${staffUnread} unread.` : ''}</>
                 : <>Texts and calls on the office number.{totalUnread ? ` ${totalUnread} unread text${totalUnread === 1 ? '' : 's'}.` : ''} <Link href="/messages" className="text-[#325099] hover:underline">Open the phone app →</Link></>}
             </p>
@@ -111,6 +122,7 @@ function MessagesInner() {
             <div className="flex items-center rounded-full border border-[#DEE7FF] bg-white p-0.5 text-xs">
               <button onClick={() => setAudience('parents')} className={`px-3.5 py-1.5 rounded-full font-semibold ${audience === 'parents' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Parents{totalUnread ? ` · ${totalUnread}` : ''}</button>
               <button onClick={() => setAudience('staff')} className={`px-3.5 py-1.5 rounded-full font-semibold ${audience === 'staff' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`}>Staff{staffUnread ? ` · ${staffUnread}` : ''}</button>
+              <button onClick={() => setAudience('students')} className={`px-3.5 py-1.5 rounded-full font-semibold ${audience === 'students' ? 'bg-[#062E63] text-white' : 'text-[#062E63]'}`} title="Directors only for now">Students{studentUnread ? ` · ${studentUnread}` : ''}</button>
             </div>
             {audience === 'parents' && <PushEnable />}
             {audience === 'parents' && <div className="flex items-center rounded-lg border border-[#DEE7FF] overflow-hidden text-xs">
@@ -131,6 +143,11 @@ function MessagesInner() {
         {audience === 'staff' && me && (
           <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
             <StaffChat me={me} initialChannel={searchParams.get('c') || ''} className="h-[calc(100dvh-190px)] min-h-[480px]" />
+          </div>
+        )}
+        {audience === 'students' && me && (
+          <div className="bg-white rounded-2xl border border-[#F0F4FF] overflow-hidden">
+            <StaffChat key="students" me={me} audience="students" className="h-[calc(100dvh-190px)] min-h-[480px]" />
           </div>
         )}
         {audience === 'parents' && tab === 'calls' && (

@@ -276,7 +276,7 @@ function MessagesAppInner() {
 
   return (
     <div ref={rootRef} className="fixed inset-0 flex flex-col bg-[#F8FAFF]" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-      {tab !== 'staff' && (
+      {tab !== 'staff' && tab !== 'students' && (
         <header className="shrink-0 bg-white border-b border-[#DEE7FF] px-4 pt-3 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -296,6 +296,8 @@ function MessagesAppInner() {
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative">
         {tab === 'staff' ? (
           me && <StaffChat me={me} className="h-full" onConversationOpen={setStaffInChat} />
+        ) : tab === 'students' ? (
+          me && <StaffChat key="students" me={me} audience="students" className="h-full" onConversationOpen={setStaffInChat} />
         ) : tab === 'texts' ? (
           threads.length === 0 ? (
             <p className="text-sm text-[#2A2035]/45 px-6 py-16 text-center">{q ? 'No chats match.' : 'No chats yet. Tap ✎ to text a family.'}</p>
@@ -370,11 +372,12 @@ function MessagesAppInner() {
 
       {/* The tab bar belongs to the list screens: inside a staff thread it goes away
           (otherwise it would stack above the keyboard with the reply box). */}
-      {!(tab === 'staff' && staffInChat) && (
+      {!((tab === 'staff' || tab === 'students') && staffInChat) && (
       <nav className="shrink-0 bg-white border-t border-[#DEE7FF] flex" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {tabButton('texts', '💬', 'Chats', totalUnread)}
         {tabButton('calls', '📞', 'Calls', missed)}
         {tabButton('staff', '👥', 'Staff', 0)}
+        {tabButton('students', '🎓', 'Students', 0)}
       </nav>
       )}
     </div>
