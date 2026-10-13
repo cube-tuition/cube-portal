@@ -132,5 +132,13 @@ export async function GET(request) {
   // yesterday's enrolment changes even on a day nobody opens the invoices page.
   let invoiceSync = null
   try { invoiceSync = await syncQueuedInvoices(admin) } catch (e) { console.error('[reminders] invoice sync', e?.message) }
-  return Response.json({ today, reminders: pushes.map(p => p.title), sent, invoiceSync })
+  // And payroll: shifts that match the timetable approve themselves
+  // (payroll_match) — this fortnight and the last, for rolls marked late.
+  let shiftsApproved = null
+  try {
+    const { data, error } = await admin.rpc('auto_approve_due_shifts')
+    if (error) throw error
+    shiftsApproved = data
+  } catch (e) { console.error('[reminders] shift matching', e?.message) }
+  return Response.json({ today, reminders: pushes.map(p => p.title), sent, invoiceSync, shiftsApproved })
 }

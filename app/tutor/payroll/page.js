@@ -7,7 +7,7 @@ import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import { formatTermLabel, isHolidayTerm, normaliseTerms } from '../../../lib/terms'
-import { T_ADMINS, T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
+import { T_ADMINS, T_CASH_LOG, T_CASH_PAY_STATUS, T_PAY_RUNS, T_PAY_RUN_SHIFTS, T_SHIFTS, T_TERMS, T_TUTORS } from '../../../lib/tables'
 import { fortnightlyRetainerFor } from '../../../lib/cashRetainers'
 import { loadDirectorBalances, balancesByStaff, recordOffset } from '../../../lib/directorBalances'
 
@@ -148,6 +148,8 @@ export default function PayrollPage() {
   const [savingId, setSavingId] = useState(null)
   const [approving, setApproving] = useState(false)
   const [shiftActing, setShiftActing] = useState(null)   // shift id mid approve/undo
+  const [issues, setIssues] = useState([])               // payroll_match discrepancies for this fortnight
+  const [autoApproved, setAutoApproved] = useState(0)    // matched shifts approved on this load
   const router = useRouter()
 
   // Load (or create) the pay run for the given (term, fortnight).
@@ -159,7 +161,24 @@ export default function PayrollPage() {
       const { data: prData, error: prErr } = await supabase
         .rpc('ensure_pay_run', { p_date: dates.start })
       if (prErr) throw prErr
-      const pr = Array.isArray(prData) ? prData[0] : prData
+      let pr = Array.isArray(prData) ? prData[0] : prData
+
+      // Matching: every waiting shift that agrees with the timetable (the
+      // scheduled lesson's teacher, length and rate-table rate; a drop-in's
+      // roster and times) approves itself. What doesn't — and lessons with no
+      // shift at all — is listed under "Needs a look". See payroll_match.
+      const { data: autoN, error: autoErr } = await supabase
+        .rpc('auto_approve_matched_shifts', { p_period_start: pr.period_start, p_period_end: pr.period_end })
+      if (autoErr) throw autoErr
+      setAutoApproved(autoN || 0)
+      if (autoN) {
+        const { data: fresh } = await supabase.from(T_PAY_RUNS).select('*').eq('id', pr.id).maybeSingle()
+        if (fresh) pr = fresh                       // totals now include them
+      }
+      const { data: matchRows, error: matchErr } = await supabase
+        .rpc('payroll_match', { p_period_start: pr.period_start, p_period_end: pr.period_end })
+      if (matchErr) throw matchErr
+      setIssues((matchRows || []).filter(r => r.category === 'issue'))
       setRun(pr)
 
       // Load by the shift's ASSIGNED pay period (computed by pay_period_for in the
@@ -865,6 +884,12 @@ export default function PayrollPage() {
           </div>
         )}
 
+        {!loading && (
+          <MatchPanel issues={issues} autoApproved={autoApproved}
+            canApprove={!!run && !['exported', 'paid'].includes(run.status)}
+            acting={shiftActing} onApprove={(id) => approveShift({ id })} />
+        )}
+
         {!loading && shifts.length === 0 && (
           <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6 md:p-10 text-center">
             <div className="text-4xl mb-2">🗓️</div>
@@ -1153,6 +1178,63 @@ export default function PayrollPage() {
 // ─── One shift row — inline-editable while pay run is 'open' ────────────────
 // Uses uncontrolled inputs with `key={shift.id|hours|rate}` so the row remounts
 // after a save and picks up the new values without manual state syncing.
+/*
+ * "Needs a look": what payroll matching could not approve on its own (see
+ * payroll_match). Shifts that match the timetable approve themselves, so this
+ * is the whole of the work left in a fortnight.
+ */
+function MatchPanel({ issues, autoApproved, canApprove, acting, onApprove }) {
+  if (!issues.length && !autoApproved) return null
+  const fmtDay = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+  return (
+    <div className="mb-6 space-y-3">
+      {autoApproved > 0 && (
+        <div className="text-sm font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#6EE7B7] rounded-2xl px-4 py-3">
+          ✓ {autoApproved} shift{autoApproved === 1 ? '' : 's'} matched the timetable and {autoApproved === 1 ? 'was' : 'were'} approved automatically.
+        </div>
+      )}
+      {issues.length > 0 && (
+        <div className="bg-white rounded-2xl border border-[#FCD34D] overflow-hidden">
+          <div className="px-4 md:px-5 py-3 bg-[#FFFBEB] border-b border-[#FDE68A]">
+            <p className="text-sm font-bold text-[#92400E]">Needs a look · {issues.length}</p>
+            <p className="text-xs text-[#92400E]/70 mt-0.5">
+              Shifts that match the timetable approve themselves. These don&rsquo;t — check each, then approve it or fix what&rsquo;s behind it.
+            </p>
+          </div>
+          <ul className="divide-y divide-[#FEF3C7]">
+            {issues.map((r, i) => (
+              <li key={r.shift_id || `${r.class_id}-${r.work_date}-${i}`} className="px-4 md:px-5 py-3 flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#2A2035]">
+                    {r.title}
+                    <span className="font-normal text-[#325099]/70"> · {fmtDay(r.work_date)}{r.tutor_name ? ` · ${r.tutor_name}` : ''}</span>
+                  </p>
+                  <p className="text-xs text-[#92400E] mt-0.5">{(r.problems || []).join(' · ')}</p>
+                </div>
+                <div className="shrink-0">
+                  {r.kind === 'missing'
+                    ? (r.class_id && (
+                        <Link href={`/tutor/classes/${r.class_id}/${r.work_date}`}
+                          className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 rounded-full">
+                          Mark the roll →
+                        </Link>
+                      ))
+                    : canApprove && (
+                        <button onClick={() => onApprove(r.shift_id)} disabled={acting === r.shift_id}
+                          className="text-xs font-semibold text-[#065F46] bg-[#D1FAE5] hover:bg-[#A7F3D0] border border-[#6EE7B7] px-3 py-1.5 rounded-full transition disabled:opacity-50">
+                          {acting === r.shift_id ? 'Approving…' : '✓ Approve anyway'}
+                        </button>
+                      )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function lessonUrl(shift) {
   if (shift.source_table === 'class_session' && shift.source_id) {
     const idx = shift.source_id.indexOf('_')
