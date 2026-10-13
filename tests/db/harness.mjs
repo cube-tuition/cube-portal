@@ -28,10 +28,21 @@ const AUTH_STUB = `
     $$ select nullif(auth.jwt() ->> 'role', '') $$;
 `
 
+// Supabase's default grants: the API roles may touch every table and call
+// every function, and row-level security decides the rest — so the policies
+// in the snapshot are what a test signed in as a user actually meets.
+const API_GRANTS = `
+  grant usage on schema public, auth to anon, authenticated, service_role;
+  grant all on all tables in schema public to anon, authenticated, service_role;
+  grant all on all sequences in schema public to anon, authenticated, service_role;
+  grant execute on all functions in schema auth to anon, authenticated, service_role;
+`
+
 export async function freshDb() {
   const db = new PGlite()
   await db.exec(AUTH_STUB)
   await db.exec('set check_function_bodies = off;\n' + fs.readFileSync(SNAPSHOT_PATH, 'utf8'))
+  await db.exec(API_GRANTS)
   return db
 }
 
@@ -40,6 +51,8 @@ export async function freshDb() {
  * starts from the same empty schema. `as(uid, role)` sets who is calling
  * (role 'admin' passes is_admin); `as(null)` is an anonymous caller.
  * `rejects(sql, params, /pattern/)` expects an error and carries on.
+ * `signIn(uid, role)` acts as that user through the API (row-level security
+ * applies); `asOwner()` goes back to the table owner.
  */
 export async function inTx(db, fn) {
   await db.exec('begin')
@@ -50,6 +63,13 @@ export async function inTx(db, fn) {
       const claims = uid ? { sub: uid, app_metadata: role ? { role } : {} } : {}
       await db.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)])
     }
+    // Sign in through the API: claims as `as`, AND the database role the API
+    // uses, so row-level security applies. `asOwner()` switches back (to seed).
+    const signIn = async (uid, role) => {
+      await as(uid, role)
+      await db.exec(`set local role ${uid ? 'authenticated' : 'anon'}`)
+    }
+    const asOwner = () => db.exec('reset role')
     // An expected error, without aborting the test's transaction.
     let n = 0
     const rejects = async (sql, params, pattern) => {
@@ -65,7 +85,7 @@ export async function inTx(db, fn) {
       await db.exec(`release savepoint ${sp}`)
       throw new Error(`expected an error matching ${pattern}, but the statement succeeded: ${sql}`)
     }
-    return await fn({ q, one, as, rejects })
+    return await fn({ q, one, as, signIn, asOwner, rejects })
   } finally {
     await db.exec('rollback')
   }

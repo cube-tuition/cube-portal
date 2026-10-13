@@ -41,3 +41,9 @@ failing test stops the deploy and production stays on the last good version.
   Postgres from `tests/db/schema.sql`. After changing any of them (or
   their tables), run `npm run test:db:snapshot` and commit the snapshot with
   the migration — locally `npm test` fails until you do.
+- Payroll money (shifts, tutor_rate_matrix, pay_runs, cash_log,
+  director_balances) is admin-only through row-level security; a tutor reads
+  only their own shifts and rates, and their shifts are created by SECURITY
+  DEFINER functions (marking the roll, save_dropin_shift). Never add an
+  `is_staff()` policy back to these tables — `is_staff()` includes every tutor.
+  tests/payrollAccess.db.test.mjs signs in as a tutor to check.
