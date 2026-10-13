@@ -16,7 +16,7 @@ const LINKS = [
   { label: 'Classes', href: '/classes', icon: '🏫', primary: true },
   // `soon` tags a link whose page is still being finished — the page itself
   // shows the coming-soon panel; this just sets the expectation beforehand.
-  { label: 'Resources', href: '/resources', icon: '📚', soon: true },
+  { label: 'Resources', href: '/resources', icon: '📚' },
   // Seniors only — trials/HSC preparation. Filtered out for other years below.
   { label: 'Past Papers', href: '/pastpapers', icon: '📝', seniorOnly: true },
   { label: 'Drop-in Help', href: '/dropin', icon: '🙋', primary: true },

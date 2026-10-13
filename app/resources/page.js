@@ -23,7 +23,7 @@ import { enrolledClassesForTerm } from '../../lib/classes'
 // Resources is temporarily closed to students while it is being finished.
 // Flip this to false to reopen it — nothing else needs changing, and every
 // piece of the page below is left intact and ready.
-const COMING_SOON = true
+const COMING_SOON = false   // opened to students 2026-10-13
 
 const DIFF_BANDS = { easy: [1, 2], medium: [3], hard: [4, 5] }
 // Year from a class name like "Y9 Maths" or "Year 9 English".

@@ -199,7 +199,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           {[
             { label: 'Classes', href: '/classes', emoji: '📈', desc: 'Weekly workbooks, results & attendance', accent: '#DEE7FF' },
-            { label: 'Resources',           href: '/resources', emoji: '📚', desc: 'Practice worksheets — coming soon',   accent: '#FEF3C7', soon: true },
+            { label: 'Resources',           href: '/resources', emoji: '📚', desc: 'Build yourself a practice worksheet', accent: '#FEF3C7' },
             { label: 'Drop-in Help',        href: '/dropin',    emoji: '🙋', desc: 'Book a free exam & HW help session',  accent: '#D1FAE5' },
           ].map(card => (
             <Link
