@@ -436,8 +436,11 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                       student_id: studentId, class_id: val, status: 'trial',
                       trial_start_date: new Date().toISOString().split('T')[0],
                     }).select('id').single()
-                    await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id }).eq('id', sub.id)
-                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id })
+                    // Assigning a class IS scheduling the trial: a card still at
+                    // New or Contacted moves on with it.
+                    const sched = ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
+                    await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, ...sched }).eq('id', sub.id)
+                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, ...sched })
                   }
                   return
                 }
@@ -462,14 +465,15 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                     .eq('status', 'trial')
                     .is('class_id', null)
                 }
-                await supabase.from('trial_submissions').update({ trial_class_id: val }).eq('id', sub.id)
+                const sched = val && ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
+                await supabase.from('trial_submissions').update({ trial_class_id: val, ...sched }).eq('id', sub.id)
                 // Assigning a class makes a pending student a trial student
                 // (active stays active — e.g. trialling a second subject).
                 if (val && studentId) {
                   await supabase.from('students').update({ status: 'trial' })
                     .eq('id', studentId).eq('status', 'pending')
                 }
-                onUpdate(sub.id, { trial_class_id: val })
+                onUpdate(sub.id, { trial_class_id: val, ...sched })
                 registerUndoAction('trial class assignment', async () => {
                   if (sub.enrolment_id && prevEnrol) {
                     await supabase.from('enrolments')
