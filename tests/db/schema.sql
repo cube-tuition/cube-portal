@@ -7,6 +7,7 @@ create sequence invoices_id_seq;
 create sequence lessons_id_seq;
 create sequence student_classes_id_seq;
 create sequence student_credits_id_seq;
+create sequence trial_submissions_id_seq;
 
 create table public.terms (
   id uuid default gen_random_uuid() not null,
@@ -487,6 +488,44 @@ create table public.qbank_subjects (
   constraint qbank_subjects_pkey PRIMARY KEY (id)
 );
 
+create table public.trial_submissions (
+  id integer default nextval('trial_submissions_id_seq'::regclass) not null,
+  submitted_at timestamp with time zone default now() not null,
+  student_name text,
+  student_year text,
+  school text,
+  subjects text[],
+  day_preference text,
+  time_preference text,
+  parent_name text,
+  parent_email text,
+  parent_phone text,
+  how_heard text,
+  status text default 'new'::text not null,
+  admin_notes text,
+  trial_date date,
+  trial_class_id integer,
+  contacted_at timestamp with time zone,
+  converted_at timestamp with time zone,
+  converted_student_id uuid,
+  source text default 'website_form'::text not null,
+  student_email text,
+  student_phone text,
+  availability jsonb,
+  relationship text,
+  notes text,
+  enrolment_id integer,
+  referred_by text,
+  referrer_student_id uuid,
+  referrer_outside boolean default false not null,
+  invitation_sent_at timestamp with time zone,
+  reminder_sent_at timestamp with time zone,
+  last_activity_at timestamp with time zone,
+  stale_notified_at timestamp with time zone,
+  constraint trial_submissions_pkey PRIMARY KEY (id),
+  constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'enrolled'::text, 'declined'::text])))
+);
+
 create table public.qbank_topics (
   id uuid default gen_random_uuid() not null,
   subject_id uuid not null,
@@ -547,6 +586,10 @@ alter table public.qbank_topics add constraint qbank_topics_subject_id_fkey FORE
 alter table public.shifts add constraint shifts_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE SET NULL;
 alter table public.student_credits add constraint student_credits_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
 alter table public.student_credits add constraint student_credits_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
+alter table public.trial_submissions add constraint trial_submissions_converted_student_id_fkey FOREIGN KEY (converted_student_id) REFERENCES students(id) ON DELETE SET NULL;
+alter table public.trial_submissions add constraint trial_submissions_enrolment_id_fkey FOREIGN KEY (enrolment_id) REFERENCES enrolments(id) ON DELETE SET NULL;
+alter table public.trial_submissions add constraint trial_submissions_referrer_student_id_fkey FOREIGN KEY (referrer_student_id) REFERENCES students(id);
+alter table public.trial_submissions add constraint trial_submissions_trial_class_id_fkey FOREIGN KEY (trial_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 CREATE UNIQUE INDEX attendance_student_class_date_idx ON public.attendance USING btree (student_id, class_id, session_date);
 CREATE UNIQUE INDEX cash_log_invoice_uniq ON public.cash_log USING btree (invoice_id) WHERE (invoice_id IS NOT NULL);
 CREATE UNIQUE INDEX invoices_one_per_family_term ON public.invoices USING btree (term_id, family_id) WHERE ((status <> 'voided'::text) AND (family_id IS NOT NULL) AND (COALESCE(is_topup, false) = false));
@@ -2025,6 +2068,34 @@ end;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.trial_submission_activity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  if tg_op = 'INSERT' then
+    new.last_activity_at := coalesce(new.last_activity_at, new.submitted_at, now());
+    return new;
+  end if;
+  if new.status               is distinct from old.status
+     or new.admin_notes        is distinct from old.admin_notes
+     or new.notes              is distinct from old.notes
+     or new.trial_date         is distinct from old.trial_date
+     or new.trial_class_id     is distinct from old.trial_class_id
+     or new.converted_student_id is distinct from old.converted_student_id
+     or new.enrolment_id       is distinct from old.enrolment_id
+     or new.contacted_at       is distinct from old.contacted_at
+     or new.invitation_sent_at is distinct from old.invitation_sent_at
+     or new.reminder_sent_at   is distinct from old.reminder_sent_at then
+    new.last_activity_at := now();
+    new.stale_notified_at := null;
+  end if;
+  return new;
+end;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.qbank_subject_key(p_course_code text, p_class_name text)
  RETURNS TABLE(year_level integer, subject_name text)
  LANGUAGE sql
@@ -2171,6 +2242,7 @@ alter table public.online_resources enable row level security;
 alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
 alter table public.qbank_subjects enable row level security;
+alter table public.trial_submissions enable row level security;
 alter table public.qbank_topics enable row level security;
 alter table public.qbank_skills enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
@@ -2234,6 +2306,7 @@ create policy "Admin write terms" on public.terms as PERMISSIVE for ALL to authe
 create policy "Anyone can read terms" on public.terms as PERMISSIVE for SELECT to public using (true);
 create policy authenticated_full_access on public.terms as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy terms_read_authenticated on public.terms as PERMISSIVE for SELECT to authenticated using (true);
+create policy staff_all on public.trial_submissions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy trm_admin_all on public.tutor_rate_matrix as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy trm_tutor_select on public.tutor_rate_matrix as PERMISSIVE for SELECT to public using ((tutor_id = auth.uid()));
 create policy authenticated_full_access on public.tutors as PERMISSIVE for ALL to authenticated using ((is_staff() AND ((NOT system) OR (id = auth.uid())))) with check ((is_staff() AND ((NOT system) OR (id = auth.uid()))));
@@ -2245,3 +2318,4 @@ CREATE TRIGGER shifts_touch BEFORE UPDATE ON public.shifts FOR EACH ROW EXECUTE 
 CREATE TRIGGER classes_year_matches_course BEFORE INSERT OR UPDATE OF class_name, course_id ON public.classes FOR EACH ROW EXECUTE FUNCTION class_year_matches_course();
 CREATE TRIGGER courses_year_consistent BEFORE INSERT OR UPDATE OF course_name, course_code ON public.courses FOR EACH ROW EXECUTE FUNCTION course_year_consistent();
 CREATE TRIGGER enrolments_queue_invoice_sync AFTER INSERT OR DELETE OR UPDATE OF status, price, class_id, student_id ON public.enrolments FOR EACH ROW EXECUTE FUNCTION queue_invoice_sync();
+CREATE TRIGGER trial_submissions_activity BEFORE INSERT OR UPDATE ON public.trial_submissions FOR EACH ROW EXECUTE FUNCTION trial_submission_activity();
