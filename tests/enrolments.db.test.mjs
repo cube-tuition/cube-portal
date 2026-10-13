@@ -12,6 +12,7 @@ let db
 before(async () => { db = await freshDb() })
 
 async function setup(q) {
+  await q(`insert into students (id) values ($1)`, [ANA])
   const [{ id: a }] = await q(`insert into classes (class_name) values ('Y8 Maths') returning id`)
   const [{ id: b }] = await q(`insert into classes (class_name) values ('Y8 English') returning id`)
   return { a, b }

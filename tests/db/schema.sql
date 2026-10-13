@@ -1,8 +1,12 @@
 create sequence cash_log_id_seq;
 create sequence classes_id_seq;
 create sequence courses_id_seq;
+create sequence fixed_costs_id_seq;
+create sequence guardians_id_seq;
+create sequence invoices_id_seq;
 create sequence lessons_id_seq;
 create sequence student_classes_id_seq;
+create sequence student_credits_id_seq;
 
 create table public.terms (
   id uuid default gen_random_uuid() not null,
@@ -267,21 +271,232 @@ create table public.director_balances (
   constraint director_balances_kind_check CHECK ((kind = ANY (ARRAY['debt'::text, 'offset'::text, 'repayment'::text])))
 );
 
+create table public.students (
+  id uuid default gen_random_uuid() not null,
+  full_name text,
+  email text,
+  school text,
+  year text,
+  gender text,
+  phone text,
+  family_id integer,
+  status text default 'active'::text not null,
+  payment_method text default 'bank'::text not null,
+  notes text,
+  constraint students_pkey PRIMARY KEY (id),
+  constraint students_payment_method_check CHECK ((payment_method = ANY (ARRAY['cash'::text, 'bank'::text]))),
+  constraint students_status_check CHECK ((status = ANY (ARRAY['active'::text, 'pending'::text, 'trial'::text, 'inactive'::text])))
+);
+
+create table public.guardians (
+  id integer default nextval('guardians_id_seq'::regclass) not null,
+  full_name text,
+  email text,
+  phone text,
+  created_at timestamp with time zone default now() not null,
+  relationship text,
+  student_id uuid,
+  constraint guardians_pkey PRIMARY KEY (id)
+);
+
+create table public.invoices (
+  id integer default nextval('invoices_id_seq'::regclass) not null,
+  term_id uuid not null,
+  family_id integer,
+  student_id uuid,
+  subtotal numeric(8,2) default 0 not null,
+  sibling_discount numeric(8,2) default 0 not null,
+  total numeric(8,2) default 0 not null,
+  status text default 'unpaid'::text not null,
+  notes text,
+  created_at timestamp with time zone default now(),
+  multi_course_discount numeric(8,2) default 0 not null,
+  xero_invoice_id text,
+  xero_contact_id text,
+  xero_pushed_at timestamp with time zone,
+  generated_at timestamp with time zone default now(),
+  is_topup boolean default false,
+  email_sent boolean default false not null,
+  email_sent_at timestamp with time zone,
+  invoice_number text,
+  due_date date,
+  xero_invoice_number text,
+  xero_status text,
+  pdf_path text,
+  line_items jsonb,
+  payment_instructions text,
+  approved_at timestamp with time zone,
+  approved_by uuid,
+  delivery_status text default 'unsent'::text not null,
+  payment_status text,
+  reference_code text,
+  payment_method text default 'bank'::text,
+  reminder_sent_at timestamp with time zone,
+  paid_date date,
+  receipt_sent_at timestamp with time zone,
+  xero_payment_id text,
+  constraint invoices_invoice_number_key UNIQUE (invoice_number),
+  constraint invoices_pkey PRIMARY KEY (id),
+  constraint invoice_target CHECK ((((family_id IS NOT NULL) AND (student_id IS NULL)) OR ((family_id IS NULL) AND (student_id IS NOT NULL)))),
+  constraint invoices_delivery_status_check CHECK ((delivery_status = ANY (ARRAY['unsent'::text, 'sent'::text]))),
+  constraint invoices_payment_method_check CHECK ((payment_method = ANY (ARRAY['cash'::text, 'bank'::text]))),
+  constraint invoices_payment_status_check CHECK (((payment_status IS NULL) OR (payment_status = ANY (ARRAY['unpaid'::text, 'paid'::text, 'overdue'::text])))),
+  constraint invoices_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'approved'::text, 'synced_to_xero'::text, 'voided'::text])))
+);
+
+create table public.student_credits (
+  id integer default nextval('student_credits_id_seq'::regclass) not null,
+  student_id uuid not null,
+  amount numeric(10,2) not null,
+  reason text not null,
+  notes text,
+  invoice_id integer,
+  created_at timestamp with time zone default now(),
+  created_by uuid,
+  constraint student_credits_pkey PRIMARY KEY (id),
+  constraint student_credits_amount_check CHECK ((amount > (0)::numeric))
+);
+
+create table public.fixed_costs (
+  id integer default nextval('fixed_costs_id_seq'::regclass) not null,
+  name text not null,
+  amount numeric(10,2) default 0 not null,
+  frequency text default 'yearly'::text not null,
+  created_at timestamp with time zone default now(),
+  constraint fixed_costs_pkey PRIMARY KEY (id),
+  constraint fixed_costs_frequency_check CHECK ((frequency = ANY (ARRAY['monthly'::text, 'yearly'::text])))
+);
+
+create table public.cash_pay_status (
+  id uuid default gen_random_uuid() not null,
+  pay_run_id uuid not null,
+  tutor_id uuid not null,
+  amount numeric default 0 not null,
+  cash_log_id integer,
+  paid_at timestamp with time zone default now() not null,
+  paid_by uuid,
+  created_at timestamp with time zone default now() not null,
+  constraint cash_pay_status_pay_run_id_tutor_id_key UNIQUE (pay_run_id, tutor_id),
+  constraint cash_pay_status_pkey PRIMARY KEY (id)
+);
+
+create table public.portal_settings (
+  key text not null,
+  value text,
+  updated_at timestamp with time zone default now(),
+  constraint portal_settings_pkey PRIMARY KEY (key)
+);
+
+create table public.qbank_questions (
+  id uuid default gen_random_uuid() not null,
+  skill_id uuid,
+  stem_latex text default ''::text not null,
+  solution_latex text default ''::text not null,
+  difficulty integer default 3 not null,
+  marks integer,
+  is_multipart boolean default false not null,
+  created_by text,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  qtype text default 'extended'::text not null,
+  options jsonb default '[]'::jsonb not null,
+  correct_option text,
+  criteria jsonb default '{}'::jsonb not null,
+  topic_id uuid,
+  audience text default 'exam'::text not null,
+  subtopic_id uuid,
+  math_obj jsonb,
+  stimulus_latex text,
+  constraint qbank_questions_pkey PRIMARY KEY (id),
+  constraint qbank_questions_audience_check CHECK ((audience = ANY (ARRAY['exam'::text, 'student'::text]))),
+  constraint qbank_questions_difficulty_check CHECK (((difficulty >= 1) AND (difficulty <= 5))),
+  constraint qbank_questions_qtype_check CHECK ((qtype = ANY (ARRAY['extended'::text, 'mcq'::text])))
+);
+
+create table public.qbank_question_parts (
+  id uuid default gen_random_uuid() not null,
+  question_id uuid not null,
+  part_label text,
+  prompt_latex text default ''::text not null,
+  solution_latex text default ''::text not null,
+  marks integer,
+  sort_order integer default 0 not null,
+  criteria jsonb default '{}'::jsonb not null,
+  topic_id uuid,
+  subtopic_id uuid,
+  constraint qbank_question_parts_pkey PRIMARY KEY (id)
+);
+
+create table public.qbank_question_images (
+  id uuid default gen_random_uuid() not null,
+  question_id uuid,
+  part_id uuid,
+  storage_path text not null,
+  alt text,
+  sort_order integer default 0 not null,
+  created_at timestamp with time zone default now() not null,
+  role text default 'stem'::text not null,
+  constraint qbank_question_images_pkey PRIMARY KEY (id)
+);
+
+create table public.online_resources (
+  id uuid default gen_random_uuid() not null,
+  title text not null,
+  url text not null,
+  resource_type text default 'Website'::text not null,
+  year integer,
+  notes text,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  constraint online_resources_pkey PRIMARY KEY (id)
+);
+
+create table public.stimulus_texts (
+  id uuid default gen_random_uuid() not null,
+  title text not null,
+  source text,
+  text_type text default 'Poem'::text not null,
+  year integer,
+  body text default ''::text not null,
+  notes text,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  two_col boolean default false not null,
+  constraint stimulus_texts_pkey PRIMARY KEY (id)
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
+alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
+alter table public.cash_log add constraint cash_log_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
 alter table public.cash_log add constraint cash_log_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id) ON DELETE SET NULL;
+alter table public.cash_pay_status add constraint cash_pay_status_cash_log_id_fkey FOREIGN KEY (cash_log_id) REFERENCES cash_log(id) ON DELETE SET NULL;
+alter table public.cash_pay_status add constraint cash_pay_status_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE CASCADE;
 alter table public.classes add constraint classes_course_id_fkey FOREIGN KEY (course_id) REFERENCES courses(id);
 alter table public.classes add constraint classes_source_class_id_fkey FOREIGN KEY (source_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.classes add constraint classes_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id);
 alter table public.director_balances add constraint director_balances_cash_log_in_id_fkey FOREIGN KEY (cash_log_in_id) REFERENCES cash_log(id) ON DELETE SET NULL;
 alter table public.director_balances add constraint director_balances_cash_log_out_id_fkey FOREIGN KEY (cash_log_out_id) REFERENCES cash_log(id) ON DELETE SET NULL;
+alter table public.director_balances add constraint director_balances_cash_pay_status_id_fkey FOREIGN KEY (cash_pay_status_id) REFERENCES cash_pay_status(id) ON DELETE SET NULL;
 alter table public.director_balances add constraint director_balances_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE SET NULL;
 alter table public.enrolments add constraint student_classes_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
+alter table public.enrolments add constraint student_classes_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
+alter table public.guardians add constraint guardians_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
+alter table public.invoices add constraint invoices_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id);
+alter table public.invoices add constraint invoices_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id);
 alter table public.lessons add constraint lessons_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.lessons add constraint lessons_makeup_source_lesson_id_fkey FOREIGN KEY (makeup_source_lesson_id) REFERENCES lessons(id) ON DELETE SET NULL;
+alter table public.lessons add constraint lessons_makeup_student_id_fkey FOREIGN KEY (makeup_student_id) REFERENCES students(id) ON DELETE SET NULL;
+alter table public.qbank_question_images add constraint qbank_question_images_part_id_fkey FOREIGN KEY (part_id) REFERENCES qbank_question_parts(id) ON DELETE CASCADE;
+alter table public.qbank_question_images add constraint qbank_question_images_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
+alter table public.qbank_question_parts add constraint qbank_question_parts_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
 alter table public.shifts add constraint shifts_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE SET NULL;
+alter table public.student_credits add constraint student_credits_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
+alter table public.student_credits add constraint student_credits_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
 CREATE UNIQUE INDEX attendance_student_class_date_idx ON public.attendance USING btree (student_id, class_id, session_date);
 CREATE UNIQUE INDEX cash_log_invoice_uniq ON public.cash_log USING btree (invoice_id) WHERE (invoice_id IS NOT NULL);
+CREATE UNIQUE INDEX invoices_one_per_family_term ON public.invoices USING btree (term_id, family_id) WHERE ((status <> 'voided'::text) AND (family_id IS NOT NULL) AND (COALESCE(is_topup, false) = false));
+CREATE UNIQUE INDEX invoices_one_per_student_term ON public.invoices USING btree (term_id, student_id) WHERE ((status <> 'voided'::text) AND (family_id IS NULL) AND (student_id IS NOT NULL) AND (COALESCE(is_topup, false) = false));
 CREATE UNIQUE INDEX lessons_class_date_regular_idx ON public.lessons USING btree (class_id, lesson_date) WHERE (is_makeup = false);
 CREATE UNIQUE INDEX shifts_source_uniq ON public.shifts USING btree (source_table, source_id) WHERE ((source_table IS NOT NULL) AND (source_id IS NOT NULL));
 CREATE UNIQUE INDEX terms_year_number_idx ON public.terms USING btree (year, term_number);
@@ -1797,6 +2012,18 @@ alter table public.shifts enable row level security;
 alter table public.invoice_sync_queue enable row level security;
 alter table public.cash_log enable row level security;
 alter table public.director_balances enable row level security;
+alter table public.students enable row level security;
+alter table public.guardians enable row level security;
+alter table public.invoices enable row level security;
+alter table public.student_credits enable row level security;
+alter table public.fixed_costs enable row level security;
+alter table public.cash_pay_status enable row level security;
+alter table public.portal_settings enable row level security;
+alter table public.qbank_questions enable row level security;
+alter table public.qbank_question_parts enable row level security;
+alter table public.qbank_question_images enable row level security;
+alter table public.online_resources enable row level security;
+alter table public.stimulus_texts enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -1804,30 +2031,53 @@ create policy "Staff update attendance" on public.attendance as PERMISSIVE for U
 create policy "Students see own attendance" on public.attendance as PERMISSIVE for SELECT to public using ((auth.uid() = student_id));
 create policy authenticated_full_access on public.attendance as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy cash_log_admin_all on public.cash_log as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy cash_pay_status_admin_all on public.cash_pay_status as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy "Admin write classes" on public.classes as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy "Students can view classes" on public.classes as PERMISSIVE for SELECT to public using (true);
 create policy authenticated_full_access on public.classes as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
-create policy authenticated_full_access on public.courses as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy courses_public_read on public.courses as PERMISSIVE for SELECT to anon using (true);
 create policy courses_read_authenticated on public.courses as PERMISSIVE for SELECT to authenticated using (true);
 create policy courses_write_admin on public.courses as PERMISSIVE for ALL to authenticated using ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text]))) with check ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text])));
 create policy director_balances_admin_all on public.director_balances as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
-create policy authenticated_full_access on public.directors as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy directors_admin_all on public.directors as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy directors_staff_read on public.directors as PERMISSIVE for SELECT to authenticated using (is_staff());
 create policy "Admin write dropin_sessions" on public.dropin_sessions as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy "Anyone can read dropin sessions" on public.dropin_sessions as PERMISSIVE for SELECT to public using (true);
 create policy authenticated_full_access on public.dropin_sessions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
-create policy "Staff delete enrolments" on public.enrolments as PERMISSIVE for DELETE to authenticated using (is_staff());
-create policy "Staff insert enrolments" on public.enrolments as PERMISSIVE for INSERT to authenticated with check (is_staff());
 create policy "Staff read all student_classes" on public.enrolments as PERMISSIVE for SELECT to public using (is_staff());
-create policy "Staff update enrolments" on public.enrolments as PERMISSIVE for UPDATE to authenticated using (is_staff()) with check (is_staff());
 create policy "Students can view their own class links" on public.enrolments as PERMISSIVE for SELECT to public using ((auth.uid() = student_id));
-create policy authenticated_full_access on public.enrolments as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy enrolments_admin_all on public.enrolments as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy fixed_costs_admin_all on public.fixed_costs as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy guardians_admin_all on public.guardians as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy guardians_staff_read on public.guardians as PERMISSIVE for SELECT to authenticated using (is_staff());
+create policy invoices_admin_all on public.invoices as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy authenticated_full_access on public.lessons as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
-create policy lessons_read_authenticated on public.lessons as PERMISSIVE for SELECT to authenticated using (true);
+create policy lessons_student_read on public.lessons as PERMISSIVE for SELECT to authenticated using (((makeup_student_id = auth.uid()) OR (EXISTS ( SELECT 1
+   FROM enrolments e
+  WHERE ((e.class_id = lessons.class_id) AND (e.student_id = auth.uid()))))));
 create policy lessons_write_admin on public.lessons as PERMISSIVE for ALL to authenticated using ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text]))) with check ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text])));
+create policy staff_all on public.online_resources as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy pay_runs_admin_all on public.pay_runs as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy portal_settings_admin_all on public.portal_settings as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy portal_settings_staff_own_keys on public.portal_settings as PERMISSIVE for ALL to authenticated using ((is_staff() AND (key = ANY (ARRAY[('chat_pins:'::text || auth.uid()), 'level_test_email_template'::text, 'level_test_family_email_template'::text])))) with check ((is_staff() AND (key = ANY (ARRAY[('chat_pins:'::text || auth.uid()), 'level_test_email_template'::text, 'level_test_family_email_template'::text]))));
+create policy qbank_question_images_read on public.qbank_question_images as PERMISSIVE for SELECT to authenticated using ((is_staff() OR (EXISTS ( SELECT 1
+   FROM qbank_questions q
+  WHERE ((q.id = qbank_question_images.question_id) AND (COALESCE(q.audience, 'student'::text) <> 'exam'::text))))));
+create policy staff_all on public.qbank_question_images as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy qbank_question_parts_read on public.qbank_question_parts as PERMISSIVE for SELECT to authenticated using ((is_staff() OR (EXISTS ( SELECT 1
+   FROM qbank_questions q
+  WHERE ((q.id = qbank_question_parts.question_id) AND (COALESCE(q.audience, 'student'::text) <> 'exam'::text))))));
+create policy staff_all on public.qbank_question_parts as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy qbank_questions_read on public.qbank_questions as PERMISSIVE for SELECT to authenticated using ((is_staff() OR (COALESCE(audience, 'student'::text) <> 'exam'::text)));
+create policy staff_all on public.qbank_questions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy shifts_admin_all on public.shifts as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy shifts_tutor_select on public.shifts as PERMISSIVE for SELECT to public using ((tutor_id = auth.uid()));
+create policy staff_all on public.stimulus_texts as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy "Students read own credits" on public.student_credits as PERMISSIVE for SELECT to authenticated using ((auth.uid() = student_id));
+create policy student_credits_admin_all on public.student_credits as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy "Admin write students" on public.students as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy "Staff read all students" on public.students as PERMISSIVE for SELECT to public using (is_staff());
+create policy "Students see own profile" on public.students as PERMISSIVE for SELECT to public using ((auth.uid() = id));
 create policy "Admin write terms" on public.terms as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy "Anyone can read terms" on public.terms as PERMISSIVE for SELECT to public using (true);
 create policy authenticated_full_access on public.terms as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());

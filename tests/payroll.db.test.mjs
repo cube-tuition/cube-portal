@@ -19,6 +19,7 @@ const T4 = '00000000-0000-0000-0000-0000000000f4'
 const STUDENTS = ['5a', '5b', '5c'].map(s => `00000000-0000-0000-0000-0000000000${s}`)
 
 async function seed(q) {
+  await q(`insert into students (id) select unnest($1::uuid[])`, [STUDENTS])
   await q(`insert into terms (id, name, year, term_number, start_date, end_date) values
     ($1, 'Term 3 2026', 2026, 3, '2026-07-14', '2026-09-19'),   -- a Tuesday start
     ($2, 'Term 4 2026', 2026, 4, '2026-10-12', '2026-12-19'),

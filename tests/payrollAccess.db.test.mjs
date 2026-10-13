@@ -17,6 +17,7 @@ let db
 before(async () => { db = await freshDb() })
 
 async function seed(q) {
+  await q(`insert into students (id) values ($1)`, [KIM])
   await q(`insert into tutors (id, full_name) values ($1, 'Monica Chen'), ($2, 'James Wu')`, [MONICA, JAMES])
   await q(`insert into directors (id, full_name) values ($1, 'Ryan Park')`, [RYAN])
   await q(`insert into tutor_rate_matrix (tutor_id, year_band, mode, hourly_rate) values ($1, '7-8', 'class', 40), ($2, '7-8', 'class', 45)`, [MONICA, JAMES])

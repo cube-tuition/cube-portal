@@ -20,6 +20,7 @@ let db
 before(async () => { db = await freshDb() })
 
 async function seed(q) {
+  await q(`insert into students (id) select unnest($1::uuid[])`, [STU])
   await q(`insert into terms (id, name, year, term_number, start_date, end_date) values ($1, 'Term 4 2026', 2026, 4, '2026-10-12', '2026-12-19')`, [T4])
   await q(`insert into tutors (id, full_name) values ($1, 'Monica Chen'), ($2, 'James Wu')`, [MONICA, JAMES])
   await q(`insert into directors (id, full_name) values ($1, 'Ryan Park')`, [RYAN])
