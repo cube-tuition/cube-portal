@@ -1,13 +1,13 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '../../../../lib/supabase'
-import { getAuthProfile } from '../../../../lib/getProfile'
-import TutorNav from '../../../../components/TutorNav'
-import { WATCHED_JOBS } from '../../../../lib/systemHealth'
+import { supabase } from '../../../../../lib/supabase'
+import { getAuthProfile } from '../../../../../lib/getProfile'
+import TutorNav from '../../../../../components/TutorNav'
+import { WATCHED_JOBS } from '../../../../../lib/systemHealth'
 
 /*
- * System — /tutor/admin/system (admin only)
+ * System — /tutor/admin/monitoring/system (admin only)
  *
  * The portal's own health: the latest morning check (lib/systemHealth), every
  * scheduled job's recent runs (job_runs) and the crashes people hit in the

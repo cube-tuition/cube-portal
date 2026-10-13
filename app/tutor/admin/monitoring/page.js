@@ -26,6 +26,8 @@ const AREAS = [
     desc: 'Book a student in for a level test, mark the paper per question and send the report with its topical analysis.' },
   { label: 'Portal',     href: '/tutor/admin/monitoring/portal', icon: '📶',
     desc: 'Student engagement across the portal — logins, page views, quiz and homework results, and any client crashes from the last fortnight.' },
+  { label: 'System',     href: '/tutor/admin/monitoring/system', icon: '🩺',
+    desc: 'The portal\u2019s own health: this morning\u2019s check, every scheduled job\u2019s recent runs, and the crashes people hit this week.' },
   { label: 'Trials',     href: '/tutor/trials', icon: '🧪',
     desc: 'Trial enquiries and trial students, from first contact through to enrolled or declined.' },
 ]
