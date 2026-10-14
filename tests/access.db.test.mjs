@@ -45,7 +45,7 @@ async function seed(q) {
   await q(`insert into qbank_question_parts (question_id, prompt_latex, solution_latex) values ($1, 'a', 'a sol'), ($2, 'b', 'b sol'), ($3, 'c', 'c sol')`, [practice, exam, other])
   await q(`insert into online_resources (title, url) values ('Staff link', 'https://example.com')`)
   await q(`insert into stimulus_texts (title, body) values ('Passage', 'text')`)
-  return { maths, english, exam, other }
+  return { maths, english, exam, other, practice }
 }
 const n = async (q, sql, params) => (await q(sql, params))[0].n
 const run = (name, fn) => test(name, () => inTx(db, async (ctx) => fn({ ...ctx, ...await seed(ctx.q) })))
@@ -146,6 +146,33 @@ describe('a student', () => {
     await signIn(KIM, 'student')
     assert.deepEqual((await q(`select id from students`)).map(r => r.id), [KIM])
     assert.equal(await n(q, `select count(*)::int n from enrolments`), 1)
+  })
+})
+
+describe('practice ratings (Resources) — private to the student', () => {
+  run('a student rates questions they can see, and reads only their own ratings', async ({ q, signIn, rejects, practice, other, exam }) => {
+    await signIn(KIM, 'student')
+    await q(`insert into practice_ratings (student_id, question_id, rating) values ($1, $2, 'hard')`, [KIM, practice])
+    assert.equal(await n(q, `select count(*)::int n from practice_ratings`), 1)
+    // Not someone else's name, not a question they can't see, not a made-up difficulty.
+    await rejects(`insert into practice_ratings (student_id, question_id, rating) values ($1, $2, 'easy')`, [ANA, practice], /row-level security/)
+    await rejects(`insert into practice_ratings (student_id, question_id, rating) values ($1, $2, 'easy')`, [KIM, exam], /row-level security/)
+    await rejects(`insert into practice_ratings (student_id, question_id, rating) values ($1, $2, 'easy')`, [KIM, other], /row-level security/)
+    await rejects(`insert into practice_ratings (student_id, question_id, rating) values ($1, $2, 'trivial')`, [KIM, practice], /check constraint/)
+    // Undo: they can delete their own.
+    await q(`delete from practice_ratings where student_id = $1`, [KIM])
+    assert.equal(await n(q, `select count(*)::int n from practice_ratings`), 0)
+  })
+
+  run('nobody else reads them — not another student, a tutor or a director', async ({ q, signIn, practice }) => {
+    await q(`insert into practice_ratings (student_id, question_id, rating) values ($1, $2, 'very_hard')`, [KIM, practice])
+    for (const who of [[ANA, 'student'], [MONICA, 'tutor'], [RYAN, 'admin']]) {
+      await signIn(...who)
+      assert.equal(await n(q, `select count(*)::int n from practice_ratings`), 0, who[1])
+      await q(`delete from practice_ratings`)
+    }
+    await q(`reset role`)
+    assert.equal(await n(q, `select count(*)::int n from practice_ratings`), 1)
   })
 })
 

@@ -477,17 +477,6 @@ create table public.job_runs (
   constraint job_runs_pkey PRIMARY KEY (id)
 );
 
-create table public.qbank_subjects (
-  id uuid default gen_random_uuid() not null,
-  year_level integer not null,
-  name text not null,
-  code text,
-  sort_order integer default 0 not null,
-  active boolean default true not null,
-  created_at timestamp with time zone default now() not null,
-  constraint qbank_subjects_pkey PRIMARY KEY (id)
-);
-
 create table public.trial_submissions (
   id integer default nextval('trial_submissions_id_seq'::regclass) not null,
   submitted_at timestamp with time zone default now() not null,
@@ -526,6 +515,17 @@ create table public.trial_submissions (
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'enrolled'::text, 'declined'::text])))
 );
 
+create table public.qbank_subjects (
+  id uuid default gen_random_uuid() not null,
+  year_level integer not null,
+  name text not null,
+  code text,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint qbank_subjects_pkey PRIMARY KEY (id)
+);
+
 create table public.qbank_topics (
   id uuid default gen_random_uuid() not null,
   subject_id uuid not null,
@@ -534,6 +534,16 @@ create table public.qbank_topics (
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
   constraint qbank_topics_pkey PRIMARY KEY (id)
+);
+
+create table public.practice_ratings (
+  id bigint generated always as identity not null,
+  student_id uuid not null,
+  question_id uuid not null,
+  rating text not null,
+  rated_at timestamp with time zone default now() not null,
+  constraint practice_ratings_pkey PRIMARY KEY (id),
+  constraint practice_ratings_rating_check CHECK ((rating = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text, 'very_hard'::text])))
 );
 
 create table public.qbank_skills (
@@ -574,6 +584,8 @@ alter table public.invoices add constraint invoices_term_id_fkey FOREIGN KEY (te
 alter table public.lessons add constraint lessons_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.lessons add constraint lessons_makeup_source_lesson_id_fkey FOREIGN KEY (makeup_source_lesson_id) REFERENCES lessons(id) ON DELETE SET NULL;
 alter table public.lessons add constraint lessons_makeup_student_id_fkey FOREIGN KEY (makeup_student_id) REFERENCES students(id) ON DELETE SET NULL;
+alter table public.practice_ratings add constraint practice_ratings_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
+alter table public.practice_ratings add constraint practice_ratings_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
 alter table public.qbank_question_images add constraint qbank_question_images_part_id_fkey FOREIGN KEY (part_id) REFERENCES qbank_question_parts(id) ON DELETE CASCADE;
 alter table public.qbank_question_images add constraint qbank_question_images_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
 alter table public.qbank_question_parts add constraint qbank_question_parts_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
@@ -2241,9 +2253,10 @@ alter table public.qbank_question_images enable row level security;
 alter table public.online_resources enable row level security;
 alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
-alter table public.qbank_subjects enable row level security;
 alter table public.trial_submissions enable row level security;
+alter table public.qbank_subjects enable row level security;
 alter table public.qbank_topics enable row level security;
+alter table public.practice_ratings enable row level security;
 alter table public.qbank_skills enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
@@ -2282,6 +2295,9 @@ create policy staff_all on public.online_resources as PERMISSIVE for ALL to auth
 create policy pay_runs_admin_all on public.pay_runs as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy portal_settings_admin_all on public.portal_settings as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy portal_settings_staff_own_keys on public.portal_settings as PERMISSIVE for ALL to authenticated using ((is_staff() AND (key = ANY (ARRAY[('chat_pins:'::text || auth.uid()), 'level_test_email_template'::text, 'level_test_family_email_template'::text])))) with check ((is_staff() AND (key = ANY (ARRAY[('chat_pins:'::text || auth.uid()), 'level_test_email_template'::text, 'level_test_family_email_template'::text]))));
+create policy practice_ratings_own_delete on public.practice_ratings as PERMISSIVE for DELETE to authenticated using ((student_id = auth.uid()));
+create policy practice_ratings_own_insert on public.practice_ratings as PERMISSIVE for INSERT to authenticated with check (((student_id = auth.uid()) AND qbank_question_open_to_student(question_id)));
+create policy practice_ratings_own_read on public.practice_ratings as PERMISSIVE for SELECT to authenticated using ((student_id = auth.uid()));
 create policy qbank_question_images_read on public.qbank_question_images as PERMISSIVE for SELECT to authenticated using ((is_staff() OR qbank_question_open_to_student(question_id)));
 create policy staff_all on public.qbank_question_images as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy qbank_question_parts_read on public.qbank_question_parts as PERMISSIVE for SELECT to authenticated using ((is_staff() OR qbank_question_open_to_student(question_id)));
