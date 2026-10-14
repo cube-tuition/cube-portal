@@ -9,6 +9,7 @@ import {
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
   loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, shortcutFits, loadTermClasses, classesTextFor,
+  isHighSchoolYear, classYearOf,
 } from '../../lib/chat'
 import CubeLogo from '../CubeLogo'
 
@@ -152,7 +153,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         const ts = await fetchAllTerms().catch(() => [])
         const term = getCurrentTerm(ts)
         const [students, cls] = await Promise.all([loadStudentDirectory(term?.id).catch(() => []), term ? loadTermClasses(term.id).catch(() => []) : []])
-        setStaff([...dir, ...students]); setClassOptions(cls)
+        // High school only (Years 7–12): primary students and classes are left out.
+        setStaff([...dir, ...students]); setClassOptions(cls.filter(c => isHighSchoolYear(classYearOf(c.class_name))))
       } else {
         setStaff(dir)
       }
