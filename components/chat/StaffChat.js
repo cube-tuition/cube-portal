@@ -689,7 +689,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     <li key={s.id} className={`group/sc flex items-start ${active === s.channel_id ? 'bg-[#EEF4FF]' : 'hover:bg-white'}`}>
                       <button onClick={() => { selectChannel(s.channel_id); setSchedOpen(true) }} title="Open the conversation" className="flex-1 min-w-0 text-left px-3 py-1.5 cursor-pointer">
                         <p className="text-[11px] font-semibold text-[#062E63] truncate">{c ? (c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)) : 'Conversation'}</p>
-                        <p className={`text-[10px] ${s.error ? 'text-[#B23A3A]' : 'text-[#325099]'}`}>{s.error ? 'Not sent' : fmtWhen(s.send_at)}{s.as_cube ? ' · as CUBE' : ''}</p>
+                        <p className={`text-[10px] ${s.error ? 'text-[#B23A3A]' : 'text-[#325099]'}`}>{s.error ? 'Not sent' : fmtWhen(s.send_at)}{s.as_cube ? ' · as CUBE' : ''}{s.sender_id !== me.id ? ` · by ${nameOf(s.sender_id).split(' ')[0]}` : ''}</p>
                         <p className="text-[11px] text-[#2A2035]/60 truncate">{bodyPreview(s.body)}</p>
                       </button>
                       <button onClick={() => removeScheduled(s)} title={s.error ? 'Dismiss' : 'Cancel this scheduled message'}
@@ -1090,7 +1090,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         <li key={s.id} className={`px-3 py-2 flex items-start gap-2 ${schedEditing === s.id ? 'bg-[#FFF7ED]' : ''}`}>
                           <div className="flex-1 min-w-0">
                             <p className={`text-[11px] font-semibold ${s.error ? 'text-[#B23A3A]' : 'text-[#062E63]'}`}>
-                              {s.error ? `Not sent — ${s.error}` : fmtWhen(s.send_at)}{s.as_cube ? ' · as CUBE' : ''}
+                              {s.error ? `Not sent — ${s.error}` : fmtWhen(s.send_at)}{s.as_cube ? ' · as CUBE' : ''}{s.sender_id !== me.id ? ` · scheduled by ${nameOf(s.sender_id).split(' ')[0]}` : ''}
                             </p>
                             <p className="text-xs text-[#2A2035]/70 truncate">{bodyPreview(s.body)}</p>
                           </div>
