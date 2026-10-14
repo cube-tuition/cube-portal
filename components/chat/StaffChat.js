@@ -12,6 +12,7 @@ import {
   isHighSchoolYear, classYearOf,
 } from '../../lib/chat'
 import CubeLogo from '../CubeLogo'
+import SearchSelectPopover from '../SearchSelectPopover'
 
 /*
  * StaffChat — the teachers' chat, embeddable: the full page at /tutor/chat
@@ -50,6 +51,7 @@ const colorFor = (id) => AVATAR[[...String(id || '')].reduce((n, ch) => n + ch.c
 export default function StaffChat({ me, initialChannel = '', className = 'h-[calc(100dvh-64px)]', onConversationOpen, audience = 'staff' }) {
   const forStudents = audience === 'students'
   const [classOptions, setClassOptions] = useState([])   // students mode: this term's classes for "+ Class"
+  const [classPop, setClassPop] = useState(null)         // anchor rect while the "+ Class" picker is open
   const [studentQuery, setStudentQuery] = useState('')    // students mode: filter the long people list
   const [staff, setStaff] = useState([])
   const [channels, setChannels] = useState([])
@@ -531,15 +533,25 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         <div className={`px-3 flex items-center justify-between ${pinned.length ? 'pt-3' : ''}`}>
           <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 py-1">{forStudents ? 'Class channels' : 'Channels'}</p>
           {forStudents ? (
-            <select value="" onChange={e => newClassChannel(e.target.value)} title="Open a class's channel — its current students are added automatically"
-              className="text-[11px] font-semibold text-[#325099] bg-transparent border-0 focus:outline-none cursor-pointer max-w-[9rem]">
-              <option value="">+ Class…</option>
-              {classOptions.filter(c => !channels.some(ch => ch.class_id === c.id)).map(c => <option key={c.id} value={c.id}>{c.class_name}</option>)}
-            </select>
+            <button onClick={e => setClassPop(e.currentTarget.getBoundingClientRect())}
+              title="Open a class's channel — its current students are added automatically"
+              className="text-[11px] font-semibold text-[#325099] hover:underline">+ Class</button>
           ) : (
             <button onClick={newChannel} className="text-[11px] font-semibold text-[#325099] hover:underline">+ New</button>
           )}
         </div>
+        {classPop && (
+          <SearchSelectPopover
+            anchor={classPop}
+            options={classOptions.filter(c => !channels.some(ch => ch.class_id === c.id)).map(c => ({
+              value: c.id, label: c.class_name,
+              sub: [c.day_of_week, c.start_time, c.teacher].filter(Boolean).join(' · '),
+            }))}
+            currentValue=""
+            placeholder="Search classes…"
+            onSelect={v => { setClassPop(null); if (v) newClassChannel(v) }}
+            onClose={() => setClassPop(null)} />
+        )}
         {forStudents && open.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Pick a class above to open its channel.</p>}
         {open.map(c => <Row key={c.id} c={c} />)}
         {/* People: one list. Those you already have a thread with come first
