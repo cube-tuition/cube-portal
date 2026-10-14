@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
-import { signOutEverywhere } from '../lib/nativeApp'
+import { signOutEverywhere, confirmLogOut } from '../lib/nativeApp'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
 import { T_STUDENTS } from '../lib/tables'
 import CubeLogo from './CubeLogo'
@@ -57,6 +57,7 @@ export default function PortalNav({ studentName }) {
   const isActive = (href) => (href === '/dashboard' ? pathname === '/dashboard' : pathname?.startsWith(href))
 
   const handleLogout = async () => {
+    if (!confirmLogOut()) return
     await signOutEverywhere(supabase)
     router.push('/')
   }

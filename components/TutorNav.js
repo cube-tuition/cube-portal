@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import GlobalUndo from './GlobalUndo'
 import { recordPortalActivity, recordPageView } from '../lib/activity'
-import { useIsNativeApp, signOutEverywhere } from '../lib/nativeApp'
+import { useIsNativeApp, signOutEverywhere, confirmLogOut } from '../lib/nativeApp'
 import CubeLogo from './CubeLogo'
 import DirectorSidebar from './DirectorSidebar'
 import { ADMIN_FLAT_LINKS, ADMIN_GROUPS, BASE_LINKS, RESOURCES_GROUP, TUTOR_GROUPS, TUTOR_LINKS } from '../lib/portalNavLinks'
@@ -132,6 +132,7 @@ export default function TutorNav({ staffName, isAdmin = false }) {
   useEffect(() => { recordPageView(pathname) }, [pathname])
 
   const handleLogout = async () => {
+    if (!confirmLogOut()) return
     await signOutEverywhere(supabase)
     router.push('/')
   }
