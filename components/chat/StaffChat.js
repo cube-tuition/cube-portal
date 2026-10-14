@@ -48,10 +48,23 @@ const colorFor = (id) => AVATAR[[...String(id || '')].reduce((n, ch) => n + ch.c
  * threads with students and one channel per class. Same tables, same screen;
  * the students side is directors-only until it is published to students.
  */
+// A class channel's slot, e.g. "(Tues 5:00 PM)" — from the class's day and
+// 24-hour start time ("17:00").
+const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tues', Wednesday: 'Wed', Thursday: 'Thurs', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }
+function classSlot(cls) {
+  if (!cls) return ''
+  const day = String(cls.day_of_week || '').split(',').map(d => DAY_SHORT[d.trim()] || d.trim()).filter(Boolean).join('/')
+  const [h, m] = String(cls.start_time || '').split(':').map(n => parseInt(n, 10))
+  const time = Number.isNaN(h) ? '' : `${h % 12 || 12}:${String(Number.isNaN(m) ? 0 : m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+  const slot = [day, time].filter(Boolean).join(' ')
+  return slot ? `(${slot})` : ''
+}
+
 export default function StaffChat({ me, initialChannel = '', className = 'h-[calc(100dvh-64px)]', onConversationOpen, audience = 'staff' }) {
   const forStudents = audience === 'students'
   const [classOptions, setClassOptions] = useState([])   // students mode: this term's classes for "+ Class"
   const [classPop, setClassPop] = useState(null)         // anchor rect while the "+ Class" picker is open
+  const classById = useMemo(() => Object.fromEntries(classOptions.map(c => [c.id, c])), [classOptions])
   const [studentQuery, setStudentQuery] = useState('')    // students mode: filter the long people list
   const [staff, setStaff] = useState([])
   const [channels, setChannels] = useState([])
@@ -492,7 +505,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           : c.kind === 'cube_dm'
           ? <span className="w-5 h-5 rounded-full bg-[#062E63] text-white flex items-center justify-center shrink-0"><CubeLogo className="h-3 w-auto" /></span>
           : null}
-        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}</span>
+        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}{c.class_id && classById[c.class_id] && <span className="text-[#2A2035]/40 font-normal"> {classSlot(classById[c.class_id])}</span>}</span>
         {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
         {(c.muted || c.quiet) && <span className="text-[10px] opacity-50" title={c.quiet ? 'Quiet channel — only @mentions notify anyone' : 'Muted — only @mentions notify you'}>🔕</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
@@ -713,7 +726,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
             {current ? (
               <>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}</p>
+                  <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}{current.class_id && classById[current.class_id] && <span className="font-normal text-[#2A2035]/45"> {classSlot(classById[current.class_id])}</span>}</p>
                   <p className="text-[11px] text-[#2A2035]/45 truncate">
                     {forStudents && current.kind === 'dm' ? 'Student thread · every director sees this · not yet visible to the student' : forStudents ? `${current.members.filter(id => staffById[id]?.role === 'student').length} students · not yet visible to them` : current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
