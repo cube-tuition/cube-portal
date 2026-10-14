@@ -802,7 +802,7 @@ function InvoiceDashboardInner() {
       setInvoices(prev => prev.map(i => i.id === inv.id
         ? { ...i, line_items: refreshed.line_items, subtotal: refreshed.subtotal, total: refreshed.total,
             drift: drift[inv.id] || [],
-            ...(data.updated_since_sent ? { updated_since_sent: true } : {}),
+            ...(data.updated_since_sent ? { updated_since_sent: true, change_summary: data.change_summary || [] } : {}),
             ...(data.removed?.length ? { stale_reasons: [] } : {}) }
         : i
       ))

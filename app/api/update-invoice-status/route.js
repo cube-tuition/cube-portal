@@ -128,7 +128,7 @@ export async function POST(req) {
     // Any delivery-state change settles the "changed since sent" flag: a
     // re-send delivers the current version, and marking unsent restarts the
     // send cycle from scratch.
-    if (field === 'delivery_status') patch.updated_since_sent = false
+    if (field === 'delivery_status') { patch.updated_since_sent = false; patch.change_summary = [] }
     // Payment date rides along with the paid status: set when marking paid
     // (defaults to today if the client sent none), cleared when un-marking.
     if (field === 'payment_status') {

@@ -28,7 +28,11 @@ function paymentDetailsFor(inv) {
 }
 
 export function buildEmailBody(inv, template, termName) {
+  const changes = (Array.isArray(inv.change_summary) && inv.change_summary.length)
+    ? inv.change_summary.map(c => `• ${c}`).join('\n')
+    : '• The invoice details were updated.'
   return (template || '')
+    .replace(/\{\{changes\}\}/g,      changes)
     .replace(/\{\{paymentDetails\}\}/g, paymentDetailsFor(inv))
     .replace(/\{\{guardian\}\}/g,     inv.parent_name ? inv.parent_name.split(' ')[0] : 'there')
     .replace(/\{\{studentNames\}\}/g, (inv.student_names || []).join(', ') || inv.parent_name || '—')
@@ -38,6 +42,26 @@ export function buildEmailBody(inv, template, termName) {
     .replace(/\{\{dueDate\}\}/g,      fmtDate(inv.due_date))
     .replace(/\{\{daysOverdue\}\}/g,  String(daysOverdue(inv.due_date)))
 }
+
+// Built-in templates for re-sending an invoice that changed after it was
+// delivered: say it is a revision and what changed (editable in the modal).
+const REVISED_SUBJECT = 'Revised invoice {{invNo}} for {{studentNames}} – {{term}}'
+const REVISED_BODY =
+`Hi {{guardian}},
+
+Please find attached a revised invoice {{invNo}} for {{studentNames}} ({{term}}). It replaces the copy we sent earlier.
+
+What changed:
+{{changes}}
+
+The updated amount is {{amount}}, due {{dueDate}}.
+
+{{paymentDetails}}
+
+If you have any questions about the change, simply reply to this email.
+
+Kind regards,
+CUBE Tuition`
 
 // Built-in default templates for an overdue reminder (editable in the modal).
 const REMINDER_SUBJECT = 'Overdue: Invoice {{invNo}} for {{studentNames}} – {{term}}'
@@ -54,9 +78,16 @@ Kind regards,
 CUBE Tuition`
 
 export function SendEmailModal({ inv, term, emailTemplate, emailSubjectTemplate, reminder = false, onClose, onSent }) {
+  // A re-send of an invoice that changed after delivery opens as a REVISED
+  // invoice email: it says so and lists the recorded changes.
+  const revised = !reminder && !!inv.updated_since_sent
   const [subject,  setSubject]  = useState(() =>
-    buildEmailBody(inv, reminder ? REMINDER_SUBJECT : (emailSubjectTemplate || 'Invoice for {{studentNames}} – {{term}}'), term?.name))
-  const [body,     setBody]     = useState(() => buildEmailBody(inv, reminder ? REMINDER_BODY : emailTemplate, term?.name))
+    buildEmailBody(inv,
+      reminder ? REMINDER_SUBJECT
+        : revised ? REVISED_SUBJECT
+        : (emailSubjectTemplate || 'Invoice for {{studentNames}} – {{term}}'), term?.name))
+  const [body,     setBody]     = useState(() =>
+    buildEmailBody(inv, reminder ? REMINDER_BODY : revised ? REVISED_BODY : emailTemplate, term?.name))
   const [sending,  setSending]  = useState(false)
   const [testing,  setTesting]  = useState(false)
   const [testNote, setTestNote] = useState(null)

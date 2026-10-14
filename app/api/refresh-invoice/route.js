@@ -110,15 +110,34 @@ export async function POST(req) {
     }
 
     // The family already has a copy of this invoice: flag it so the list says
-    // "changed since sent" until it is re-sent.
+    // "changed since sent" until it is re-sent, and record WHAT changed so the
+    // re-send email can say it (accumulates across refreshes, cleared on send).
     const updatedSinceSent = inv.delivery_status === 'sent'
+    let changeSummary = Array.isArray(inv.change_summary) ? inv.change_summary : []
+    if (updatedSinceSent) {
+      const lineKey = (l) => `${l.student_id}__${l.class_id}`
+      const oldKeys = new Set((inv.line_items || []).filter(l => l.type === 'enrolment').map(lineKey))
+      const addedLines = plan.lineItems.filter(l => l.type === 'enrolment' && !oldKeys.has(lineKey(l)))
+      const changes = []
+      for (const l of addedLines) {
+        changes.push(`Added ${[l.student_name, l.class_name].filter(Boolean).join(' – ')} ($${Number(l.amount) || 0})`)
+      }
+      for (const name of plan.removedNames || []) changes.push(`Removed ${name} (no longer enrolled)`)
+      if (plan.updated && !addedLines.length && !(plan.removedNames || []).length) {
+        changes.push(`Updated ${plan.updated} class price${plan.updated === 1 ? '' : 's'}`)
+      }
+      if (Number(inv.total) !== Number(plan.total)) {
+        changes.push(`Total $${Number(inv.total)} → $${Number(plan.total)}`)
+      }
+      changeSummary = [...changeSummary, ...changes]
+    }
     const { error: updateErr } = await sb.from('invoices')
       .update({
         line_items: plan.lineItems, subtotal: plan.total, total: plan.total,
         sibling_discount: plan.siblingDiscount, multi_course_discount: plan.multiCourseDiscount,
         payment_method: plan.isCash ? 'cash' : 'bank',
         payment_instructions: plan.isCash ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS,
-        ...(updatedSinceSent ? { updated_since_sent: true } : {}),
+        ...(updatedSinceSent ? { updated_since_sent: true, change_summary: changeSummary } : {}),
       })
       .eq('id', invoice_id)
 
@@ -126,7 +145,8 @@ export async function POST(req) {
 
     return Response.json({
       updated: plan.updated, added: plan.added, removed: plan.removedNames, notes: plan.notes,
-      total: plan.total, line_items: plan.lineItems, updated_since_sent: updatedSinceSent,
+      total: plan.total, line_items: plan.lineItems,
+      updated_since_sent: updatedSinceSent, change_summary: changeSummary,
     })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })
