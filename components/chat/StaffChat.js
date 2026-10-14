@@ -157,10 +157,13 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   const refreshChannels = useCallback(async (uid) => {
     const [all, un] = await Promise.all([loadChannels(uid), loadUnread()])
-    const cs = all.filter(c => (c.audience || 'staff') === audience)
+    // A teacher's own chat also carries the class channels they teach (the
+    // directors see those under the Students tab instead).
+    const cs = all.filter(c => (c.audience || 'staff') === audience
+      || (audience === 'staff' && !isAdmin && c.audience === 'students' && c.class_id))
     setChannels(cs); setUnread(un)
     return cs
-  }, [audience])
+  }, [audience, isAdmin])
 
   // ── Boot ───────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -176,7 +179,20 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         // High school only (Years 7–12): primary students and classes are left out.
         setStaff([...dir, ...students]); setClassOptions(cls.filter(c => isHighSchoolYear(classYearOf(c.class_name))))
       } else {
-        setStaff(dir)
+        // A teacher's class channels: their students' names and the classes'
+        // day and time, so the channel reads properly.
+        const mineClass = cs.filter(c => c.class_id)
+        if (mineClass.length) {
+          const ids = [...new Set(mineClass.flatMap(c => c.members))].filter(id => !dir.some(d => d.id === id))
+          const [{ data: studs }, { data: cls }] = await Promise.all([
+            ids.length ? supabase.from('students').select('id, full_name').in('id', ids) : { data: [] },
+            supabase.from('classes').select('id, class_name, day_of_week, start_time').in('id', mineClass.map(c => c.class_id)),
+          ])
+          setStaff([...dir, ...(studs || []).map(x => ({ id: x.id, full_name: x.full_name, role: 'student' }))])
+          setClassOptions(cls || [])
+        } else {
+          setStaff(dir)
+        }
       }
       setPins(pinned)
       if (isAdmin) {
@@ -574,7 +590,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   const pinnedSet = new Set(pins)
   const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && c.kind === 'channel' && inProfile(c))
-  const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id))
+  const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id) && (forStudents || !c.class_id))
+  const myClasses = forStudents ? [] : channels.filter(c => c.class_id && !pinnedSet.has(c.id))
   const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && inProfile(c)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
   const Row = ({ c }) => (
     <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
@@ -646,6 +663,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         )}
         {forStudents && open.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Pick a class above to open its channel.</p>}
         {open.map(c => <Row key={c.id} c={c} />)}
+        {myClasses.length > 0 && (
+          <>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-3 py-1">My classes</p>
+            {myClasses.map(c => <Row key={c.id} c={c} />)}
+          </>
+        )}
         {/* People: one list. Those you already have a thread with come first
             (unread at the top); the rest of the staff follow, and tapping
             anyone opens or starts the conversation. */}
@@ -807,7 +830,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}{current.class_id && classById[current.class_id] && <span className="font-normal text-[#2A2035]/45"> {classSlot(classById[current.class_id])}</span>}</p>
                   <p className="text-[11px] text-[#2A2035]/45 truncate">
-                    {forStudents && current.kind === 'dm' ? 'Student thread · every director sees this · not yet visible to the student' : forStudents ? `${current.members.filter(id => staffById[id]?.role === 'student').length} students · not yet visible to them` : current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
+                    {forStudents && current.kind === 'dm' ? 'Student thread · every director sees this · not yet visible to the student' : (forStudents || current.class_id) ? `${current.members.filter(id => staffById[id]?.role === 'student').length} students · not yet visible to them` : current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
                 {current.kind === 'channel' && current.directors_only && (
