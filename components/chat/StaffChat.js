@@ -7,6 +7,7 @@ import {
   loadStaffDirectory, loadStudentDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage, openStudentDm, openClassChannel,
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, setMuted, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
+  scheduleMessage, loadScheduled, updateScheduled, cancelScheduled,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
   loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, shortcutFits, loadTermClasses, classesTextFor,
   isHighSchoolYear, classYearOf,
@@ -73,6 +74,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [messages, setMessages] = useState(null)
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(null)  // message id being edited
+  const [scheduled, setScheduled] = useState([])   // my scheduled messages for the open conversation
+  const [schedPop, setSchedPop] = useState(null)   // { at: 'YYYY-MM-DDTHH:mm', id? } while the schedule picker is open (id = rescheduling one)
+  const [schedEditing, setSchedEditing] = useState(null)   // scheduled message id whose text is in the composer
+  const [schedOpen, setSchedOpen] = useState(false)        // the scheduled list expanded
   // Phones: the channel list and the conversation are two screens; this picks
   // which one shows. Desktop shows both and ignores it.
   const [sidebarOpen, setSidebarOpen] = useState(!initialChannel)
@@ -211,7 +216,19 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     } catch (e) { setErr(e.message || 'Could not load messages'); setMessages([]) }
   }, [active, me])
   useEffect(() => { const t = setTimeout(loadConversation, 0); return () => clearTimeout(t) }, [loadConversation])
-  const selectChannel = (id) => { if (id !== active) { setMessages(null); setEditing(null); setText('') } setActive(id); setSidebarOpen(false); setMenuOpen(false) }
+  const selectChannel = (id) => { if (id !== active) { setMessages(null); setEditing(null); setSchedEditing(null); setSchedPop(null); setText('') } setActive(id); setSidebarOpen(false); setMenuOpen(false) }
+
+  // Scheduled messages for the open conversation — refreshed every minute, so
+  // one that goes out leaves the list as its message appears above.
+  const refreshScheduled = useCallback(async () => {
+    if (!active) return
+    try { setScheduled(await loadScheduled(active)) } catch { /* table not reachable — no list */ }
+  }, [active])
+  useEffect(() => {
+    const t = setTimeout(refreshScheduled, 0)
+    const iv = setInterval(refreshScheduled, 60_000)
+    return () => { clearTimeout(t); clearInterval(iv) }
+  }, [refreshScheduled])
   // Seen: whenever this conversation is open and its messages are loaded.
   useEffect(() => {
     if (!active || !me || messages === null) return
@@ -330,10 +347,72 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       if (!forStudents) authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
     } catch (e) { setErr(e.message || 'Could not send'); setText(body) }
   }
+  // ── Scheduling ─────────────────────────────────────────────────────────────
+  const pad2 = (n) => String(n).padStart(2, '0')
+  const toLocalInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  const schedQuick = () => {
+    const now = new Date()
+    const at = (days, h, m = 0) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return d }
+    const nextMon = at(((8 - now.getDay()) % 7) || 7, 9)
+    const inHour = new Date(now.getTime() + 60 * 60 * 1000); inHour.setSeconds(0, 0)
+    const tonight = at(0, 18)
+    return [
+      { label: 'In 1 hour', d: inHour },
+      ...(tonight > now ? [{ label: 'Today 6:00 pm', d: tonight }] : []),
+      { label: 'Tomorrow 9:00 am', d: at(1, 9) },
+      { label: 'Monday 9:00 am', d: nextMon },
+    ]
+  }
+  const fmtWhen = (iso) => new Date(iso).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+  const openSchedule = () => {
+    const d = new Date(Date.now() + 60 * 60 * 1000); d.setMinutes(0, 0, 0)
+    const editingOne = schedEditing && scheduled.find(x => x.id === schedEditing)
+    setSchedPop({ at: toLocalInput(editingOne ? new Date(editingOne.send_at) : d) })
+  }
+  const commitSchedule = async () => {
+    const body = text.trim()
+    const when = new Date(schedPop?.at || '')
+    if (Number.isNaN(when.getTime())) { setErr('Choose a date and time.'); return }
+    if (when.getTime() <= Date.now() + 30_000) { setErr('Choose a time in the future.'); return }
+    setErr('')
+    try {
+      if (schedPop.id) {   // just moving an existing one
+        await updateScheduled(schedPop.id, { sendAt: when })
+      } else {
+        if (!body || !current || !me) return
+        if (schedEditing) await updateScheduled(schedEditing, { body, sendAt: when })
+        else await scheduleMessage({ channelId: current.id, senderName: me.full_name, body, asCube, sendAt: when })
+        setText(''); setSchedEditing(null); setMention(null); setTypingIn(null)
+      }
+      setSchedPop(null); setSchedOpen(true)
+      await refreshScheduled()
+    } catch (e) { setErr(e.message || 'Could not schedule the message') }
+  }
+  const sendScheduledNow = async (s) => {
+    if (!current || !me) return
+    try {
+      await cancelScheduled(s.id)
+      const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body: s.body, asCube: s.as_cube })
+      setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
+      if (!forStudents) authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
+      await refreshScheduled()
+    } catch (e) { setErr(e.message || 'Could not send') }
+  }
+  const editScheduled = (s) => { setEditing(null); setSchedEditing(s.id); setText(s.body); taRef.current?.focus() }
+  const removeScheduled = async (s) => {
+    if (!s.error && !confirm('Cancel this scheduled message?')) return
+    try { await cancelScheduled(s.id); if (schedEditing === s.id) { setSchedEditing(null); setText('') } await refreshScheduled() } catch (e) { setErr(e.message) }
+  }
+
   const onKey = (e) => {
     if (mention && (e.key === 'Enter' || e.key === 'Tab') && mentionMatches.length) { e.preventDefault(); pickMention(mentionMatches[0]); return }
-    if (e.key === 'Escape') { setMention(null); if (editing) { setEditing(null); setText('') } }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+    if (e.key === 'Escape') { setMention(null); setSchedPop(null); if (editing || schedEditing) { setEditing(null); setSchedEditing(null); setText('') } }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); schedEditing ? saveScheduledText() : send() }
+  }
+  const saveScheduledText = async () => {
+    const body = text.trim()
+    if (!body || !schedEditing) return
+    try { await updateScheduled(schedEditing, { body }); setSchedEditing(null); setText(''); await refreshScheduled() } catch (e) { setErr(e.message) }
   }
   const onChange = (e) => {
     const v = e.target.value; setText(v)
@@ -907,6 +986,55 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               {uploading && <p className="text-[11px] text-[#325099] mb-1 animate-pulse">Sending your photo…</p>}
               {err && <p className="text-[11px] text-[#B23A3A] mb-1">{err}</p>}
               {editing && <p className="text-[11px] text-[#92400E] mb-1">Editing your message · Esc to cancel</p>}
+              {schedEditing && <p className="text-[11px] text-[#92400E] mb-1">Editing a scheduled message · Enter saves the text, 🕒 changes the time · Esc to cancel</p>}
+              {scheduled.length > 0 && (
+                <div className="mb-2 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF]">
+                  <button onClick={() => setSchedOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold text-[#325099] cursor-pointer hover:bg-[#EEF4FF] rounded-xl">
+                    <span>🕒 {scheduled.filter(x => !x.error).length} scheduled{scheduled.some(x => x.error) ? ` · ${scheduled.filter(x => x.error).length} not sent` : ''}</span>
+                    <span className="ml-auto text-[#2A2035]/40">{schedOpen ? 'Hide' : 'Show'}</span>
+                  </button>
+                  {schedOpen && (
+                    <ul className="max-h-48 overflow-y-auto divide-y divide-[#EEF2FB] border-t border-[#EEF2FB]">
+                      {scheduled.map(s => (
+                        <li key={s.id} className={`px-3 py-2 flex items-start gap-2 ${schedEditing === s.id ? 'bg-[#FFF7ED]' : ''}`}>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-[11px] font-semibold ${s.error ? 'text-[#B23A3A]' : 'text-[#062E63]'}`}>
+                              {s.error ? `Not sent — ${s.error}` : fmtWhen(s.send_at)}{s.as_cube ? ' · as CUBE' : ''}
+                            </p>
+                            <p className="text-xs text-[#2A2035]/70 truncate">{bodyPreview(s.body)}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 text-[11px] font-semibold">
+                            {!s.error && <button onClick={() => sendScheduledNow(s)} className="text-[#325099] hover:underline cursor-pointer">Send now</button>}
+                            {!s.error && <button onClick={() => editScheduled(s)} className="text-[#325099] hover:underline cursor-pointer">Edit</button>}
+                            {!s.error && <button onClick={() => setSchedPop({ at: toLocalInput(new Date(s.send_at)), id: s.id })} className="text-[#325099] hover:underline cursor-pointer">Time</button>}
+                            <button onClick={() => removeScheduled(s)} className="text-[#B23A3A] hover:underline cursor-pointer">{s.error ? 'Dismiss' : 'Cancel'}</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {schedPop && (
+                <div className="absolute bottom-full right-3 mb-2 w-80 max-w-[calc(100vw-1.5rem)] bg-white border border-[#DEE7FF] rounded-2xl shadow-xl p-3 z-20">
+                  <p className="text-sm font-bold text-[#062E63] mb-0.5">{schedPop.id ? 'Change the send time' : schedEditing ? 'Save scheduled message' : 'Schedule message'}</p>
+                  <p className="text-[11px] text-[#2A2035]/50 mb-2">{schedPop.id ? 'The message stays the same.' : 'It goes out at this time, as if you sent it then.'}</p>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {schedQuick().map(o => (
+                      <button key={o.label} onClick={() => setSchedPop(p => ({ ...p, at: toLocalInput(o.d) }))}
+                        className={`text-[11px] font-semibold rounded-full px-2.5 py-1 border cursor-pointer ${schedPop.at === toLocalInput(o.d) ? 'bg-[#062E63] text-white border-[#062E63]' : 'border-[#DEE7FF] text-[#325099] hover:bg-[#F0F4FF]'}`}>{o.label}</button>
+                    ))}
+                  </div>
+                  <input type="datetime-local" value={schedPop.at} min={toLocalInput(new Date())} onChange={e => setSchedPop(p => ({ ...p, at: e.target.value }))}
+                    className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm text-[#2A2035] focus:outline-none focus:border-[#325099]" />
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={() => setSchedPop(null)} className="flex-1 text-sm font-semibold rounded-xl px-3 py-2 border border-[#DEE7FF] text-[#325099] cursor-pointer hover:bg-[#F8FAFF]">Cancel</button>
+                    <button onClick={commitSchedule} disabled={!schedPop.id && !text.trim()} className="flex-1 text-sm font-semibold rounded-xl px-3 py-2 bg-[#062E63] text-white cursor-pointer hover:bg-[#325099] disabled:opacity-40 disabled:cursor-not-allowed">
+                      {schedPop.id ? 'Save time' : 'Schedule'}
+                    </button>
+                  </div>
+                </div>
+              )}
               {asCube && !editing && <p className="text-[11px] text-[#062E63] mb-1">Sending as <b>CUBE</b>{current.kind !== 'cube_dm' ? ' · switch to your own name at the top of the list' : ''}</p>}
               {!canPost ? (
                 <div className="rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 text-xs text-[#2A2035]/50">
@@ -946,7 +1074,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                   className="flex-1 min-w-0 border border-[#DEE7FF] rounded-xl px-3.5 py-2.5 text-sm text-[#2A2035] resize-none max-h-40 focus:outline-none focus:border-[#325099]"
                   style={{ height: 'auto', minHeight: 42 }}
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(160, e.target.scrollHeight) + 'px' }} />
-                <button onClick={send} disabled={!text.trim()} className="h-[42px] px-4 rounded-xl bg-[#062E63] text-white text-sm font-semibold hover:bg-[#325099] disabled:opacity-40">{editing ? 'Save' : 'Send'}</button>
+                {!editing && (
+                  <button onClick={() => (schedPop ? setSchedPop(null) : openSchedule())} disabled={!text.trim()} title="Schedule this message to send later"
+                    className={`h-[42px] w-[42px] shrink-0 rounded-xl border text-lg disabled:opacity-40 ${schedPop ? 'border-[#325099] bg-[#F0F4FF]' : 'border-[#DEE7FF] hover:bg-[#F8FAFF]'}`}>🕒</button>
+                )}
+                <button onClick={schedEditing ? saveScheduledText : send} disabled={!text.trim()} className="h-[42px] px-4 rounded-xl bg-[#062E63] text-white text-sm font-semibold hover:bg-[#325099] disabled:opacity-40">{editing || schedEditing ? 'Save' : 'Send'}</button>
               </div>
               )}
             </div>
