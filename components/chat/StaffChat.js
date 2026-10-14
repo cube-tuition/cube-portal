@@ -571,7 +571,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           <button key={s.id} onClick={() => startDm(s)} className="w-full text-left pl-4 pr-2 py-2.5 md:py-1.5 flex items-center gap-2 text-sm text-[#2A2035]/55 hover:bg-[#F8FAFF]">
             <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center opacity-70" style={{ background: colorFor(s.id) }}>{initials(s.full_name)}</span>{online.has(s.id) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
             <span className="truncate flex-1">{s.full_name}</span>
-            <span className="text-[10px] text-[#2A2035]/35 truncate max-w-[7rem]">{s.role === 'director' ? 'director' : s.role === 'student' ? [s.year ? `Yr ${s.year}` : '', ...(s.classes || [])].filter(Boolean).join(' · ') : ''}</span>
+            {s.role === 'director' && <span className="text-[10px] text-[#2A2035]/35">director</span>}
           </button>
         ))}
         {me.isAdmin && !forStudents && (
