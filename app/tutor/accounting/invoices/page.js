@@ -1266,13 +1266,27 @@ function InvoiceDashboardInner() {
                                 >Cancel</button>
                               </div>
                             ) : (
-                              <span
-                                title="Click to mark as unsent"
-                                onClick={() => setConfirmUnsentId(inv.id)}
-                                className="cursor-pointer text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 transition-colors bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7] hover:opacity-70"
-                              >
-                                ✉ Sent
-                              </span>
+                              <>
+                                <span
+                                  title="Click to mark as unsent"
+                                  onClick={() => setConfirmUnsentId(inv.id)}
+                                  className="cursor-pointer text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 transition-colors bg-[#D1FAE5] text-[#065F46] border-[#6EE7B7] hover:opacity-70"
+                                >
+                                  ✉ Sent
+                                </span>
+                                {/* The invoice changed after it reached the family —
+                                    offer the send flow again right here. */}
+                                {inv.updated_since_sent && (
+                                  <button
+                                    onClick={() => setSendModalInv(inv)}
+                                    disabled={statusEditing === inv.id || !inv.parent_email}
+                                    title={!inv.parent_email ? 'No email on file' : 'Send the updated invoice to the family again'}
+                                    className="text-[11px] font-semibold border rounded-full px-2.5 py-1.5 md:py-1 transition-colors bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 disabled:opacity-40"
+                                  >
+                                    ✉ Re-send
+                                  </button>
+                                )}
+                              </>
                             )
                           ) : (
                             <button
