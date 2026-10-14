@@ -4176,6 +4176,21 @@ export default function DatabasePage() {
                     </button>
                   )}
 
+                  {/* The student's own address on their record — for a login
+                      that is a CUBE username with no mailbox. */}
+                  {resetTarget.options.personal && (
+                    <button
+                      onClick={() => sendReset('personal')}
+                      disabled={!!resetBusy}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-[#DEE7FF] hover:border-[#325099] transition disabled:opacity-50"
+                    >
+                      <span className="block text-xs font-bold text-[#062E63]">
+                        Email {resetTarget.options.full_name.split(' ')[0]} (their own email)
+                      </span>
+                      <span className="block text-[11px] text-[#2A2035]/55 break-all">{resetTarget.options.personal.email}</span>
+                    </button>
+                  )}
+
                   {resetTarget.options.guardian && (
                     <button
                       onClick={() => sendReset('guardian')}
@@ -4200,7 +4215,7 @@ export default function DatabasePage() {
                   </button>
                 </div>
 
-                {!resetTarget.options.account.deliverable && !resetTarget.options.guardian && (
+                {!resetTarget.options.account.deliverable && !resetTarget.options.personal && !resetTarget.options.guardian && (
                   <p className="text-[11px] text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-3 py-2 mt-4">
                     There&apos;s no address on file that can receive email — neither the login nor a
                     parent — so the link has to be handed over directly.

@@ -19,7 +19,7 @@ import {
  *
  * Delivery, same shape as /api/password-reset:
  *   POST { student_id }              → who this could go to; sends nothing
- *   POST { student_id, deliver }     → 'account' | 'guardian', then sends
+ *   POST { student_id, deliver }     → 'account' | 'personal' | 'guardian', then sends
  *
  * Most CUBE logins are @cubetuition.com addresses with no mailbox, so for most
  * students the parent is the only reachable address. That is offered, never
@@ -35,13 +35,13 @@ export async function POST(req) {
 
     const { student_id, deliver } = await req.json()
     if (!student_id) return Response.json({ error: 'Missing student_id' }, { status: 400 })
-    if (deliver && !['account', 'guardian'].includes(deliver)) {
+    if (deliver && !['account', 'personal', 'guardian'].includes(deliver)) {
       return Response.json({ error: 'Unknown delivery mode.' }, { status: 400 })
     }
 
     const sb = adminClient()
     const { data: student } = await sb
-      .from('students').select('id, full_name').eq('id', student_id).maybeSingle()
+      .from('students').select('id, full_name, email').eq('id', student_id).maybeSingle()
     if (!student) return Response.json({ error: 'Student not found.' }, { status: 404 })
 
     // getUserById reports a missing account as an ERROR rather than {user:null},
@@ -62,9 +62,16 @@ export async function POST(req) {
     const guardian = (guardians || [])
       .find((g) => String(g.email || '').trim() && !isPlaceholderEmail(g.email)) || null
 
+    // The student's own address on their record — a real inbox that isn't
+    // just the (mailbox-less) CUBE username.
+    const ownEmail = String(student.email || '').trim()
+    const personal = ownEmail && !isPlaceholderEmail(ownEmail)
+      && ownEmail.toLowerCase() !== String(username || '').toLowerCase() ? ownEmail : null
+
     const options = {
       full_name: student.full_name,
       username,
+      personal: personal ? { email: personal } : null,
       portal: siteUrl(),
       account: { email: username, deliverable },
       guardian: guardian
@@ -79,6 +86,9 @@ export async function POST(req) {
         error: `${username || 'That login'} cannot receive email — it has no mailbox. Send it to a parent instead.`,
       }, { status: 400 })
     }
+    if (deliver === 'personal' && !personal) {
+      return Response.json({ error: `No personal email on file for ${student.full_name}.` }, { status: 400 })
+    }
     if (deliver === 'guardian' && !guardian) {
       return Response.json({ error: `No parent email on file for ${student.full_name}.` }, { status: 400 })
     }
@@ -88,7 +98,7 @@ export async function POST(req) {
     const link = await mintResetLink(username)
     if (!link) return Response.json({ error: 'Could not create a set-password link for that account.' }, { status: 400 })
 
-    const to = deliver === 'guardian' ? guardian.email.trim() : username
+    const to = deliver === 'guardian' ? guardian.email.trim() : deliver === 'personal' ? personal : username
     const sent = await sendLoginDetailsEmail({
       to, link, username,
       name: deliver === 'guardian' ? guardian.full_name : student.full_name,
@@ -159,6 +169,11 @@ export async function GET(req) {
         hasLogin: !!u,
         username,
         deliverable: !!username && !isPlaceholderEmail(username),
+        // Their own address on their record, when it's a real inbox other than the login.
+        personalEmail: (() => {
+          const e = String(s.email || '').trim()
+          return e && !isPlaceholderEmail(e) && e.toLowerCase() !== String(username || '').toLowerCase() ? e : null
+        })(),
         guardianEmail: guardianOf[s.id] || null,
         lastSignInAt: u?.last_sign_in_at || null,
         sentAt: sent?.created_at || null,

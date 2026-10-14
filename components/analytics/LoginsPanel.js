@@ -27,7 +27,7 @@ const ago = (iso) => {
   const days = Math.floor((Date.now() - new Date(iso)) / 86400000)
   return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
 }
-const CHANNEL = { account: 'to them', guardian: 'to their parent', link: 'link handed over' }
+const CHANNEL = { account: 'to them', personal: 'to their own email', guardian: 'to their parent', link: 'link handed over' }
 
 // The status a row leads with, so "who has had this?" is answerable at a glance
 // rather than by reading two date columns.
@@ -56,9 +56,10 @@ export default function LoginsPanel() {
   useEffect(() => { load() }, [load])
 
   const send = async (r) => {
-    // Their own address when it can receive mail, otherwise the parent's.
-    const deliver = r.deliverable ? 'account' : 'guardian'
-    const to = deliver === 'account' ? r.username : r.guardianEmail
+    // The student first — their login when it can receive mail, else their own
+    // address on their record — and the parent only when neither exists.
+    const deliver = r.deliverable ? 'account' : r.personalEmail ? 'personal' : 'guardian'
+    const to = deliver === 'account' ? r.username : deliver === 'personal' ? r.personalEmail : r.guardianEmail
     if (!to) return
     if (!confirm(`Email ${r.name}'s login details to ${to}?\n\nThey get their username and a link to choose a password — no password is sent.`)) return
     setBusy(r.id); setToast('')
@@ -84,7 +85,7 @@ export default function LoginsPanel() {
       noLogin: by('no-login'),
       neverSent: by('not-sent'),
       neverSignedIn: list.filter(r => r.hasLogin && !r.lastSignInAt).length,
-      unreachable: list.filter(r => r.hasLogin && !r.deliverable && !r.guardianEmail).length,
+      unreachable: list.filter(r => r.hasLogin && !r.deliverable && !r.personalEmail && !r.guardianEmail).length,
     }
   }, [rows])
 
@@ -149,7 +150,7 @@ export default function LoginsPanel() {
             </thead>
             <tbody className="divide-y divide-[#EEF2FF]">
               {shown.map((r) => {
-                const target = r.deliverable ? r.username : r.guardianEmail
+                const target = r.deliverable ? r.username : r.personalEmail || r.guardianEmail
                 const st = statusOf(r)
                 return (
                   <tr key={r.id} className={`hover:bg-[#FAFBFF] ${r.sentAt ? '' : 'bg-[#FFFDF7]'}`}>

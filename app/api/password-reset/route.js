@@ -22,6 +22,9 @@ import {
  *                address that cannot receive mail.
  *   'account'  — email the account's own address ('student' accepted as an
  *                older alias, from before tutors could be reset here).
+ *   'personal' — students only: email the student's own address on their
+ *                record (students.email) — for a login that is a CUBE
+ *                username with no mailbox, when they have a real one.
  *   'guardian' — students only: email the parent on file. Most students have
  *                no address of their own, so this is the only way to reach
  *                them remotely. It is deliberately a separate, named choice:
@@ -44,7 +47,7 @@ export async function POST(req) {
       return Response.json({ error: 'Pass student_id or tutor_id, not both.' }, { status: 400 })
     }
     const deliver = rawDeliver === 'student' ? 'account' : rawDeliver
-    if (deliver && !['link', 'account', 'guardian'].includes(deliver)) {
+    if (deliver && !['link', 'account', 'personal', 'guardian'].includes(deliver)) {
       return Response.json({ error: 'Unknown delivery mode.' }, { status: 400 })
     }
 
@@ -54,7 +57,7 @@ export async function POST(req) {
     const person_id = tutor_id || student_id
     const { data: person, error: sErr } = await sb
       .from(isTutor ? 'tutors' : 'students')
-      .select('id, full_name').eq('id', person_id).maybeSingle()
+      .select(isTutor ? 'id, full_name' : 'id, full_name, email').eq('id', person_id).maybeSingle()
     if (sErr)    return Response.json({ error: sErr.message }, { status: 400 })
     if (!person) return Response.json({ error: isTutor ? 'No such tutor.' : 'No such student.' }, { status: 404 })
 
@@ -85,10 +88,17 @@ export async function POST(req) {
         .find(g => String(g.email || '').trim() && !isPlaceholderEmail(g.email)) || null
     }
 
+    // The student's own address on their record, when it is a real inbox and
+    // not simply the login again (a CUBE username has no mailbox).
+    const ownEmail = String(person.email || '').trim()
+    const personal = !isTutor && ownEmail && !isPlaceholderEmail(ownEmail)
+      && ownEmail.toLowerCase() !== String(accountEmail || '').toLowerCase() ? ownEmail : null
+
     const options = {
       full_name: person.full_name,
       kind: isTutor ? 'tutor' : 'student',
       account:  { email: accountEmail, deliverable: !!accountEmail && !placeholder },
+      personal: personal ? { email: personal } : null,
       guardian: guardian
         ? { email: guardian.email.trim(), name: guardian.full_name, relationship: guardian.relationship }
         : null,
@@ -102,6 +112,9 @@ export async function POST(req) {
       return Response.json({
         error: `${accountEmail || 'That login'} cannot receive email.${isTutor ? ' Use the link.' : ' Use the link, or send it to a parent.'}`,
       }, { status: 400 })
+    }
+    if (deliver === 'personal' && !personal) {
+      return Response.json({ error: `No personal email on file for ${person.full_name}.` }, { status: 400 })
     }
     if (deliver === 'guardian' && !guardian) {
       return Response.json({
@@ -121,7 +134,7 @@ export async function POST(req) {
     let sentTo = null
     let warning = null
     if (deliver !== 'link') {
-      const to = deliver === 'guardian' ? guardian.email.trim() : accountEmail
+      const to = deliver === 'guardian' ? guardian.email.trim() : deliver === 'personal' ? personal : accountEmail
       const sent = await sendResetEmail({
         to,
         link,
