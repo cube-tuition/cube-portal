@@ -52,6 +52,15 @@ const colorFor = (id) => AVATAR[[...String(id || '')].reduce((n, ch) => n + ch.c
 // A class channel's slot, e.g. "(Tues 5:00 PM)" — from the class's day and
 // 24-hour start time ("17:00").
 const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tues', Wednesday: 'Wed', Thursday: 'Thurs', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' }
+// Timetable order: Monday first, then by start time.
+const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+function slotOrder(cls) {
+  const d = DAY_ORDER.indexOf(String(cls?.day_of_week || '').split(',')[0].trim())
+  const [h, m] = String(cls?.start_time || '').split(':').map(n => parseInt(n, 10))
+  return (d < 0 ? 7 : d) * 1440 + (Number.isNaN(h) ? 1439 : h * 60 + (m || 0))
+}
+const isOneOnOneClass = (cls) => !!cls?.student || /1\s*[:/]?\s*on\s*1|1\s*:\s*1/i.test(cls?.class_name || '')
+
 function classSlot(cls) {
   if (!cls) return ''
   const day = String(cls.day_of_week || '').split(',').map(d => DAY_SHORT[d.trim()] || d.trim()).filter(Boolean).join('/')
@@ -592,6 +601,30 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && c.kind === 'channel' && inProfile(c))
   const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id) && (forStudents || !c.class_id))
   const myClasses = forStudents ? [] : channels.filter(c => c.class_id && !pinnedSet.has(c.id))
+  // Class channels in timetable order, group classes and 1:1s apart (the
+  // directors' Students tab and a teacher's "My classes" alike).
+  const classOf = (c) => classById[c.class_id] || { class_name: c.name }
+  const byTimetable = (list) => [...list].sort((a, b) => slotOrder(classOf(a)) - slotOrder(classOf(b)) || a.name.localeCompare(b.name))
+  const classGroups = (list) => {
+    const cls = list.filter(c => c.class_id)
+    return [
+      { label: 'Classes', items: byTimetable(cls.filter(c => !isOneOnOneClass(classOf(c)))) },
+      { label: '1:1s', items: byTimetable(cls.filter(c => isOneOnOneClass(classOf(c)))) },
+      { label: null, items: list.filter(c => !c.class_id) },
+    ].filter(g => g.items.length)
+  }
+  // A 1:1 channel is told apart by its student ("Y12 Chemistry 1:1 · Minjae").
+  const oneOnOneStudent = (c) => {
+    if (!c.class_id || !isOneOnOneClass(classOf(c))) return ''
+    const name = classById[c.class_id]?.student || c.members.map(id => staffById[id]).find(p => p?.role === 'student')?.full_name || ''
+    return name.split(' & ').map(n => n.split(' ')[0]).join(' & ')
+  }
+  const GroupedChannels = ({ list }) => classGroups(list).map(g => (
+    <div key={g.label || 'other'}>
+      {g.label && <p className="text-[10px] font-semibold text-[#2A2035]/40 pl-4 pt-2 pb-0.5">{g.label} · {g.items.length}</p>}
+      {g.items.map(c => <Row key={c.id} c={c} />)}
+    </div>
+  ))
   const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && inProfile(c)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
   const Row = ({ c }) => (
     <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
@@ -601,7 +634,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           : c.kind === 'cube_dm'
           ? <span className="w-5 h-5 rounded-full bg-[#062E63] text-white flex items-center justify-center shrink-0"><CubeLogo className="h-3 w-auto" /></span>
           : null}
-        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}{c.class_id && classById[c.class_id] && <span className="text-[#2A2035]/40 font-normal"> {classSlot(classById[c.class_id])}</span>}</span>
+        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}{oneOnOneStudent(c) && ` · ${oneOnOneStudent(c)}`}{c.class_id && classById[c.class_id] && <span className="text-[#2A2035]/40 font-normal"> {classSlot(classById[c.class_id])}</span>}</span>
         {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
         {(c.muted || c.quiet) && <span className="text-[10px] opacity-50" title={c.quiet ? 'Quiet channel — only @mentions notify anyone' : 'Muted — only @mentions notify you'}>🔕</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
@@ -662,11 +695,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
             onClose={() => setClassPop(null)} />
         )}
         {forStudents && open.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Pick a class above to open its channel.</p>}
-        {open.map(c => <Row key={c.id} c={c} />)}
+        {forStudents ? <GroupedChannels list={open} /> : open.map(c => <Row key={c.id} c={c} />)}
         {myClasses.length > 0 && (
           <>
             <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-3 py-1">My classes</p>
-            {myClasses.map(c => <Row key={c.id} c={c} />)}
+            <GroupedChannels list={myClasses} />
           </>
         )}
         {/* People: one list. Those you already have a thread with come first
