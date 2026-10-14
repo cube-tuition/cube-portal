@@ -27,10 +27,42 @@ function paymentDetailsFor(inv) {
     .replace('[Reference]', inv?.reference_code || inv?.invoice_number || '')
 }
 
+/*
+ * What changed since the copy the family received. The send flow snapshots the
+ * invoice (sent_snapshot), so the list is a real diff — it survives several
+ * refreshes, reverts and hand edits between sends. Falls back to the summary
+ * Refresh recorded, then to a generic line (snapshots only exist for sends
+ * made after the feature shipped).
+ */
+const lineKey = (l) => l.type === 'enrolment'
+  ? `e:${l.student_id}__${l.class_id}`
+  : `${l.type}:${l.reason || l.description || l.class_name || ''}`
+const lineLabel = (l) => l.type === 'enrolment'
+  ? [l.student_name, l.class_name].filter(Boolean).join(' – ')
+  : (l.reason || l.description || l.class_name || l.type)
+export function changesSince(inv) {
+  const snap = inv.sent_snapshot
+  if (snap && Array.isArray(snap.line_items)) {
+    const before = new Map(snap.line_items.map(l => [lineKey(l), l]))
+    const after  = new Map((inv.line_items || []).map(l => [lineKey(l), l]))
+    const out = []
+    for (const [k, l] of after) {
+      const old = before.get(k)
+      if (!old) out.push(`Added ${lineLabel(l)} (${fmtMoney(l.amount)})`)
+      else if (Number(old.amount) !== Number(l.amount)) out.push(`${lineLabel(l)}: ${fmtMoney(old.amount)} → ${fmtMoney(l.amount)}`)
+    }
+    for (const [k, l] of before) {
+      if (!after.has(k)) out.push(`Removed ${lineLabel(l)} (${fmtMoney(l.amount)})`)
+    }
+    if (Number(snap.total) !== Number(inv.total)) out.push(`Total ${fmtMoney(snap.total)} → ${fmtMoney(inv.total)}`)
+    if (out.length) return out
+  }
+  if (Array.isArray(inv.change_summary) && inv.change_summary.length) return inv.change_summary
+  return ['The invoice details were updated.']
+}
+
 export function buildEmailBody(inv, template, termName) {
-  const changes = (Array.isArray(inv.change_summary) && inv.change_summary.length)
-    ? inv.change_summary.map(c => `• ${c}`).join('\n')
-    : '• The invoice details were updated.'
+  const changes = changesSince(inv).map(c => `• ${c}`).join('\n')
   return (template || '')
     .replace(/\{\{changes\}\}/g,      changes)
     .replace(/\{\{paymentDetails\}\}/g, paymentDetailsFor(inv))

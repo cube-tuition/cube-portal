@@ -128,7 +128,18 @@ export async function POST(req) {
     // Any delivery-state change settles the "changed since sent" flag: a
     // re-send delivers the current version, and marking unsent restarts the
     // send cycle from scratch.
-    if (field === 'delivery_status') { patch.updated_since_sent = false; patch.change_summary = [] }
+    if (field === 'delivery_status') {
+      patch.updated_since_sent = false
+      patch.change_summary = []
+      // Marking sent by hand snapshots the current version as what the family
+      // has (e.g. an invoice handed over in person); unsent clears it.
+      if (value === 'sent') {
+        const { data: cur } = await sb.from('invoices').select('line_items, total').eq('id', invoice_id).maybeSingle()
+        patch.sent_snapshot = cur ? { line_items: cur.line_items, total: cur.total, sent_at: new Date().toISOString() } : null
+      } else {
+        patch.sent_snapshot = null
+      }
+    }
     // Payment date rides along with the paid status: set when marking paid
     // (defaults to today if the client sent none), cleared when un-marking.
     if (field === 'payment_status') {

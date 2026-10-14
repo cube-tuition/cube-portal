@@ -72,10 +72,19 @@ export async function POST(req) {
       process.env.SUPABASE_SERVICE_ROLE_KEY,
     )
     const sentAt = new Date().toISOString()
-    const patch = kind === 'receipt' ? { receipt_sent_at: sentAt }
-      : is_reminder ? { reminder_sent_at: sentAt }
-      // A (re)send delivers the current version — any "changed since sent" flag is settled.
-      : { delivery_status: 'sent', updated_since_sent: false, change_summary: [] }
+    let patch
+    if (kind === 'receipt') patch = { receipt_sent_at: sentAt }
+    else if (is_reminder) patch = { reminder_sent_at: sentAt }
+    else {
+      // A (re)send delivers the current version — the "changed since sent"
+      // flag is settled, and the snapshot records exactly what the family now
+      // has, so a later revision can say precisely what changed against it.
+      const { data: cur } = await sb.from('invoices').select('line_items, total').eq('id', invoice_id).maybeSingle()
+      patch = {
+        delivery_status: 'sent', updated_since_sent: false, change_summary: [],
+        sent_snapshot: cur ? { line_items: cur.line_items, total: cur.total, sent_at: sentAt } : null,
+      }
+    }
     await sb.from('invoices').update(patch).eq('id', invoice_id)
 
     return NextResponse.json({
