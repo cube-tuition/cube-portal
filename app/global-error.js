@@ -1,6 +1,7 @@
 'use client'
 import { useEffect } from 'react'
 import { reportClientError } from '../lib/reportClientError'
+import { isStaleBuildError, reloadForNewBuild } from '../lib/staleBuild'
 
 /*
  * Last-resort boundary — only reached when the ROOT LAYOUT itself crashes, so
@@ -8,7 +9,11 @@ import { reportClientError } from '../lib/reportClientError'
  * is inline for the same reason. Ordinary page crashes stop at app/error.js.
  */
 export default function GlobalError({ error, reset }) {
-  useEffect(() => { reportClientError(error, { global: true }) }, [error])
+  // A deploy went live while the page was open (lib/staleBuild): reload once.
+  useEffect(() => {
+    if (isStaleBuildError(error) && reloadForNewBuild()) return
+    reportClientError(error, { global: true })
+  }, [error])
 
   return (
     <html lang="en">
