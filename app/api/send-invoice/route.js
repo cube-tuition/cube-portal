@@ -74,7 +74,8 @@ export async function POST(req) {
     const sentAt = new Date().toISOString()
     const patch = kind === 'receipt' ? { receipt_sent_at: sentAt }
       : is_reminder ? { reminder_sent_at: sentAt }
-      : { delivery_status: 'sent' }
+      // A (re)send delivers the current version — any "changed since sent" flag is settled.
+      : { delivery_status: 'sent', updated_since_sent: false }
     await sb.from('invoices').update(patch).eq('id', invoice_id)
 
     return NextResponse.json({

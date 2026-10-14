@@ -773,6 +773,12 @@ function InvoiceDashboardInner() {
   const [refreshingId, setRefreshingId] = useState(null)
 
   const handleRefresh = async (inv) => {
+    // The family already has a copy: changing the totals now means the sent
+    // version goes stale, so make that an explicit choice.
+    if (inv.delivery_status === 'sent' && !window.confirm(
+      'This invoice has already been sent to the family. Refreshing can change what they owe, '
+      + 'and the copy they received will be out of date until you re-send it.\n\nRefresh anyway?'
+    )) return
     setRefreshingId(inv.id)
     try {
       const res  = await authedFetch('/api/refresh-invoice', {
@@ -796,10 +802,15 @@ function InvoiceDashboardInner() {
       setInvoices(prev => prev.map(i => i.id === inv.id
         ? { ...i, line_items: refreshed.line_items, subtotal: refreshed.subtotal, total: refreshed.total,
             drift: drift[inv.id] || [],
+            ...(data.updated_since_sent ? { updated_since_sent: true } : {}),
             ...(data.removed?.length ? { stale_reasons: [] } : {}) }
         : i
       ))
-      setSuccessMsg([...(msgs.length ? msgs : ['Invoice already up to date.']), ...(data.notes || [])].join(' '))
+      setSuccessMsg([
+        ...(msgs.length ? msgs : ['Invoice already up to date.']),
+        ...(data.updated_since_sent ? ['The family’s copy is now out of date — re-send the invoice.'] : []),
+        ...(data.notes || []),
+      ].join(' '))
     } catch (e) { setError(e.message) }
     finally { setRefreshingId(null) }
   }
@@ -1051,6 +1062,13 @@ function InvoiceDashboardInner() {
                             {inv.delivery_status && (
                               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${DELIVERY_LABELS[inv.delivery_status]?.cls || 'bg-[#F3F4F6] text-gray-500'}`}>
                                 {DELIVERY_LABELS[inv.delivery_status]?.label || inv.delivery_status}
+                              </span>
+                            )}
+                            {/* Refreshed after it reached the family — stays until re-sent */}
+                            {inv.updated_since_sent && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300"
+                                title="This invoice changed after it was sent — the family's copy is out of date. Re-send it.">
+                                ⚠ Changed since sent
                               </span>
                             )}
                             {/* Payment badge */}
@@ -1633,7 +1651,7 @@ function InvoiceDashboardInner() {
           onClose={() => setSendModalInv(null)}
           onSent={(id) => {
             setSendModalInv(null)
-            setInvoices(prev => prev.map(i => i.id === id ? { ...i, delivery_status: 'sent' } : i))
+            setInvoices(prev => prev.map(i => i.id === id ? { ...i, delivery_status: 'sent', updated_since_sent: false } : i))
           }}
         />
       )}

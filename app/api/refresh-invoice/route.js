@@ -91,12 +91,34 @@ export async function POST(req) {
     })
     if (plan.noop) return Response.json({ updated: 0, message: plan.noop })
 
+    // A kept hand-edited discount whose label names a percentage can drift
+    // from that percentage when class lines change (e.g. "Director discount
+    // (50%)" written against one course, still $X after a second course is
+    // added). Refresh never rewrites hand lines — but it should say so.
+    const enrolSum = plan.lineItems.filter(l => l.type === 'enrolment')
+      .reduce((s, l) => s + (Number(l.amount) || 0), 0)
+    for (const l of plan.lineItems) {
+      if (l.type !== 'discount') continue
+      const label = String(l.reason || l.description || '')
+      const pct = label.match(/(\d{1,3}(?:\.\d+)?)\s*%/)
+      if (!pct || /multi-course|sibling|cash/i.test(label)) continue
+      const expected = Math.round(Number(pct[1]) * enrolSum) / 100
+      const actual = Math.abs(Number(l.amount) || 0)
+      if (Math.abs(expected - actual) > 1) {
+        plan.notes.push(`"${label}" is $${actual} but ${pct[1]}% of the current class lines would be $${expected} — check this hand-edited discount.`)
+      }
+    }
+
+    // The family already has a copy of this invoice: flag it so the list says
+    // "changed since sent" until it is re-sent.
+    const updatedSinceSent = inv.delivery_status === 'sent'
     const { error: updateErr } = await sb.from('invoices')
       .update({
         line_items: plan.lineItems, subtotal: plan.total, total: plan.total,
         sibling_discount: plan.siblingDiscount, multi_course_discount: plan.multiCourseDiscount,
         payment_method: plan.isCash ? 'cash' : 'bank',
         payment_instructions: plan.isCash ? CASH_PAYMENT_INSTRUCTIONS : BANK_PAYMENT_INSTRUCTIONS,
+        ...(updatedSinceSent ? { updated_since_sent: true } : {}),
       })
       .eq('id', invoice_id)
 
@@ -104,7 +126,7 @@ export async function POST(req) {
 
     return Response.json({
       updated: plan.updated, added: plan.added, removed: plan.removedNames, notes: plan.notes,
-      total: plan.total, line_items: plan.lineItems,
+      total: plan.total, line_items: plan.lineItems, updated_since_sent: updatedSinceSent,
     })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })
