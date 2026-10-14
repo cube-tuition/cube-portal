@@ -601,15 +601,16 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && c.kind === 'channel' && inProfile(c))
   const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id) && (forStudents || !c.class_id))
   const myClasses = forStudents ? [] : channels.filter(c => c.class_id && !pinnedSet.has(c.id))
-  // Class channels in timetable order, group classes and 1:1s apart (the
-  // directors' Students tab and a teacher's "My classes" alike).
+  // Class channels by year, then timetable order (the directors' Students tab
+  // and a teacher's "My classes" alike).
   const classOf = (c) => classById[c.class_id] || { class_name: c.name }
   const byTimetable = (list) => [...list].sort((a, b) => slotOrder(classOf(a)) - slotOrder(classOf(b)) || a.name.localeCompare(b.name))
+  // Grouped by the class's year (Year 7 → 12), then the timetable within it.
   const classGroups = (list) => {
     const cls = list.filter(c => c.class_id)
+    const years = [...new Set(cls.map(c => classYearOf(classOf(c).class_name)))].sort((a, b) => (a ?? 99) - (b ?? 99))
     return [
-      { label: 'Classes', items: byTimetable(cls.filter(c => !isOneOnOneClass(classOf(c)))) },
-      { label: '1:1s', items: byTimetable(cls.filter(c => isOneOnOneClass(classOf(c)))) },
+      ...years.map(y => ({ label: y ? `Year ${y}` : 'Other', items: byTimetable(cls.filter(c => classYearOf(classOf(c).class_name) === y)) })),
       { label: null, items: list.filter(c => !c.class_id) },
     ].filter(g => g.items.length)
   }
