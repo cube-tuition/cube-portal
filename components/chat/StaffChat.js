@@ -9,7 +9,7 @@ import {
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   scheduleMessage, loadScheduled, updateScheduled, cancelScheduled,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
-  loadShortcuts, saveShortcuts, fillShortcut, SHORTCUT_VARS, BUILTIN_SHORTCUTS, shortcutFits, loadTermClasses, classesTextFor,
+  loadShortcuts, saveShortcuts, fillShortcut, shortcutVarsFor, builtinShortcutsFor, shortcutFits, loadTermClasses, classesTextFor,
   isHighSchoolYear, classYearOf,
 } from '../../lib/chat'
 import CubeLogo from '../CubeLogo'
@@ -205,18 +205,21 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       }
       setPins(pinned)
       if (isAdmin) {
-        loadShortcuts().then(list => {
+        // Each audience has its own list (lib/chat): staff chat's shortcuts
+        // never show in student messaging, and vice versa.
+        const builtins = builtinShortcutsFor(audience)
+        loadShortcuts(audience).then(list => {
           // Seed the built-ins once; after that they are ordinary, editable rows.
           // A built-in seeded before it had a scope picks the scope up (once).
-          const missing = BUILTIN_SHORTCUTS.filter(b => !list.some(x => x.id === b.id))
+          const missing = builtins.filter(b => !list.some(x => x.id === b.id))
           const scoped = list.map(x => {
-            const b = BUILTIN_SHORTCUTS.find(y => y.id === x.id)
+            const b = builtins.find(y => y.id === x.id)
             return b?.scope && !('scope' in x) && !x.hidden ? { ...x, scope: b.scope } : x
           })
           const changed = scoped.some((x, i) => x !== list[i])
           if (!missing.length && !changed) { setShortcuts(list); return }
           const next = [...scoped, ...missing]
-          setShortcuts(next); saveShortcuts(next).catch(() => {})
+          setShortcuts(next); saveShortcuts(next, audience).catch(() => {})
         }).catch(() => {})
         fetchAllTerms().then(ts => {
           setTermNow(getCurrentTerm(ts))
@@ -229,7 +232,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         if (staffChan) { activeRef.current = staffChan.id; setActive(staffChan.id) }
       }
     })()
-  }, [me?.id, isAdmin, refreshChannels, forStudents])
+  }, [me?.id, isAdmin, refreshChannels, forStudents, audience])
 
   // ── Conversation ───────────────────────────────────────────────────────────
   const loadConversation = useCallback(async () => {
@@ -531,7 +534,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const persistShortcuts = async (next) => {
     const prev = shortcuts
     setShortcuts(next)
-    try { await saveShortcuts(next) } catch (e) { setShortcuts(prev); setErr(e.message || 'Could not save shortcuts') }
+    try { await saveShortcuts(next, audience) } catch (e) { setShortcuts(prev); setErr(e.message || 'Could not save shortcuts') }
   }
   const commitShortcut = async () => {
     const d = shortcutEdit
@@ -544,7 +547,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const deleteShortcut = async (id) => {
     if (!confirm('Delete this shortcut?')) return
     setShortcutEdit(null)
-    const builtin = BUILTIN_SHORTCUTS.some(b => b.id === id)
+    const builtin = builtinShortcutsFor(audience).some(b => b.id === id)
     await persistShortcuts(builtin ? shortcuts.map(x => (x.id === id ? { id, hidden: true } : x)) : shortcuts.filter(x => x.id !== id))
   }
 
@@ -812,7 +815,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               📣 Announcement only <span className="text-[11px] text-[#2A2035]/45">— offered only in announcement channels</span>
             </label>
             <div className="flex flex-wrap gap-1 mt-2 mb-4">
-              {SHORTCUT_VARS.map(v => (
+              {shortcutVarsFor(audience).map(v => (
                 <button key={v.key} onClick={() => setShortcutEdit(d => ({ ...d, body: `${d.body}{${v.key}}` }))} title={v.label + (v.hint ? ` (${v.hint})` : '')}
                   className="text-[11px] font-mono rounded-full px-2 py-0.5 bg-[#F0F4FF] text-[#325099] hover:bg-[#DEE7FF]">{`{${v.key}}`}</button>
               ))}
