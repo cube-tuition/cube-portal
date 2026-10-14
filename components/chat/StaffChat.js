@@ -7,7 +7,7 @@ import {
   loadStaffDirectory, loadStudentDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage, openStudentDm, openClassChannel,
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, setMuted, renameChannel, deleteChannel, addMember, removeMember, renderBody,
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
-  scheduleMessage, loadScheduled, updateScheduled, cancelScheduled,
+  scheduleMessage, loadAllScheduled, updateScheduled, cancelScheduled,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
   loadShortcuts, saveShortcuts, fillShortcut, shortcutVarsFor, builtinShortcutsFor, shortcutFits, loadTermClasses, classesTextFor,
   isHighSchoolYear, classYearOf,
@@ -83,7 +83,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [messages, setMessages] = useState(null)
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(null)  // message id being edited
-  const [scheduled, setScheduled] = useState([])   // my scheduled messages for the open conversation
+  const [allScheduled, setAllScheduled] = useState([])   // my scheduled messages, every conversation
+  const [schedListOpen, setSchedListOpen] = useState(true)   // the sidebar's Scheduled section expanded
   const [schedPop, setSchedPop] = useState(null)   // { at: 'YYYY-MM-DDTHH:mm', id? } while the schedule picker is open (id = rescheduling one)
   const [schedEditing, setSchedEditing] = useState(null)   // scheduled message id whose text is in the composer
   const [schedOpen, setSchedOpen] = useState(false)        // the scheduled list expanded
@@ -249,9 +250,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   // Scheduled messages for the open conversation — refreshed every minute, so
   // one that goes out leaves the list as its message appears above.
   const refreshScheduled = useCallback(async () => {
-    if (!active) return
-    try { setScheduled(await loadScheduled(active)) } catch { /* table not reachable — no list */ }
-  }, [active])
+    try { setAllScheduled(await loadAllScheduled()) } catch { /* table not reachable — no list */ }
+  }, [])
+  const scheduled = useMemo(() => allScheduled.filter(s => s.channel_id === active), [allScheduled, active])
   useEffect(() => {
     const t = setTimeout(refreshScheduled, 0)
     const iv = setInterval(refreshScheduled, 60_000)
@@ -417,11 +418,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     } catch (e) { setErr(e.message || 'Could not schedule the message') }
   }
   const sendScheduledNow = async (s) => {
-    if (!current || !me) return
+    if (!me) return
     try {
       await cancelScheduled(s.id)
-      const m = await sendMessage({ channelId: current.id, senderId: me.id, senderName: me.full_name, body: s.body, asCube: s.as_cube })
-      setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
+      const m = await sendMessage({ channelId: s.channel_id, senderId: me.id, senderName: me.full_name, body: s.body, asCube: s.as_cube })
+      if (s.channel_id === active) setMessages(ms => (ms && !ms.some(x => x.id === m.id) ? [...ms, m] : ms))
       if (!forStudents) authedFetch('/api/chat/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
       await refreshScheduled()
     } catch (e) { setErr(e.message || 'Could not send') }
@@ -640,6 +641,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           : null}
         <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}{oneOnOneStudent(c) && ` · ${oneOnOneStudent(c)}`}{c.class_id && classById[c.class_id] && <span className="text-[#2A2035]/40 font-normal"> {classSlot(classById[c.class_id])}</span>}</span>
         {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
+        {allScheduled.some(s => s.channel_id === c.id) && <span className="text-[10px] opacity-60" title="You have scheduled messages here">🕒</span>}
         {(c.muted || c.quiet) && <span className="text-[10px] opacity-50" title={c.quiet ? 'Quiet channel — only @mentions notify anyone' : 'Muted — only @mentions notify you'}>🔕</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
       </button>
@@ -652,6 +654,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const others = staff.filter(s => s.id !== me.id)
   const staffNames = staff.map(s => s.full_name)
   const totalUnread = channels.filter(inProfile).reduce((n, c) => n + (unread[c.id] || 0), 0)
+  // My scheduled messages in conversations this tab shows (staff chat or the Students tab).
+  const schedHere = allScheduled.filter(s => channels.some(c => c.id === s.channel_id))
 
   const Sidebar = (
     <aside className="w-full md:w-64 shrink-0 bg-white md:border-r border-[#DEE7FF] flex flex-col h-full">
@@ -670,6 +674,33 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           className="mt-2 w-full border border-[#DEE7FF] rounded-lg px-2.5 py-2 md:py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
       </div>
       <div className="flex-1 overflow-y-auto py-2">
+        {schedHere.length > 0 && (
+          <div className="mx-2 mb-2 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] overflow-hidden">
+            <button onClick={() => setSchedListOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer hover:bg-[#EEF4FF]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/70">🕒 Scheduled · {schedHere.length}</span>
+              {schedHere.some(s => s.error) && <span className="text-[10px] font-bold text-[#B23A3A]">{schedHere.filter(s => s.error).length} not sent</span>}
+              <span className="ml-auto text-[10px] text-[#2A2035]/40">{schedListOpen ? 'Hide' : 'Show'}</span>
+            </button>
+            {schedListOpen && (
+              <ul className="max-h-64 overflow-y-auto divide-y divide-[#EEF2FB] border-t border-[#EEF2FB]">
+                {schedHere.map(s => {
+                  const c = channels.find(ch => ch.id === s.channel_id)
+                  return (
+                    <li key={s.id} className={`group/sc flex items-start ${active === s.channel_id ? 'bg-[#EEF4FF]' : 'hover:bg-white'}`}>
+                      <button onClick={() => { selectChannel(s.channel_id); setSchedOpen(true) }} title="Open the conversation" className="flex-1 min-w-0 text-left px-3 py-1.5 cursor-pointer">
+                        <p className="text-[11px] font-semibold text-[#062E63] truncate">{c ? (c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)) : 'Conversation'}</p>
+                        <p className={`text-[10px] ${s.error ? 'text-[#B23A3A]' : 'text-[#325099]'}`}>{s.error ? 'Not sent' : fmtWhen(s.send_at)}{s.as_cube ? ' · as CUBE' : ''}</p>
+                        <p className="text-[11px] text-[#2A2035]/60 truncate">{bodyPreview(s.body)}</p>
+                      </button>
+                      <button onClick={() => removeScheduled(s)} title={s.error ? 'Dismiss' : 'Cancel this scheduled message'}
+                        className="shrink-0 px-2 py-1.5 text-[11px] text-[#B23A3A]/70 hover:text-[#B23A3A] cursor-pointer md:opacity-0 md:group-hover/sc:opacity-100">✕</button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        )}
         {pinned.length > 0 && (
           <>
             <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 py-1">📌 Pinned</p>
