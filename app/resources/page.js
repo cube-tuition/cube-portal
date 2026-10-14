@@ -8,7 +8,7 @@ import SearchSelectPopover from '../../components/SearchSelectPopover'
 import LatexContent from '../../components/qbank/LatexContent'
 import { qbankSubjectKeys } from '../../lib/courses'
 import { fetchAllTerms, getEnrolmentTerm } from '../../lib/terms'
-import { fetchTaxonomy, qbankImageUrl, partLabel, questionTotalMarks as questionMarks, fetchAllRows } from '../../lib/qbank'
+import { fetchTaxonomy, qbankImageUrl, partLabel, questionTotalMarks as questionMarks, fetchAllRows, splitStemSource } from '../../lib/qbank'
 import { T_STUDENTS, T_STUDENT_WORKSHEETS, T_QBANK_QUESTIONS, T_PRACTICE_RATINGS } from '../../lib/tables'
 import { enrolledClassesForTerm } from '../../lib/classes'
 import { RATINGS, RATING_LABEL, latestRatings, streamOf, shuffleOrder, tabOf, tabCounts } from '../../lib/practice'
@@ -430,7 +430,7 @@ function QuestionCard({ q, n, topic, current = null, onRate }) {
           )}
         </div>
         <div className="flex items-start gap-3">
-          <div className="flex-1 text-[15px] text-[#1f2a44] leading-relaxed"><LatexContent text={q.stem_latex || ''} /></div>
+          <div className="flex-1 text-[15px] text-[#1f2a44] leading-relaxed"><LatexContent text={splitStemSource(q.stem_latex).stem} /></div>
           {marks > 0 && <span className="text-[12px] text-[#2A2035]/45 shrink-0 mt-0.5">[{marks}]</span>}
         </div>
 
@@ -479,6 +479,10 @@ function QuestionCard({ q, n, topic, current = null, onRate }) {
         )}
         {!isMcq && !parts.length && showSolution && q.solution_latex?.trim() && (
           <Solution><span className="font-semibold">Solution. </span><LatexContent text={q.solution_latex} /></Solution>
+        )}
+
+        {splitStemSource(q.stem_latex).source && (
+          <p className="mt-3 text-[11px] text-[#2A2035]/45">Source: {splitStemSource(q.stem_latex).source}</p>
         )}
 
         {hasSolution && (

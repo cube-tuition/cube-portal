@@ -19,7 +19,7 @@ import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
 import QuestionEditor from '../../../../../components/qbank/QuestionEditor'
-import { fetchTaxonomy, SUBJECT_FAMILIES, fetchAllRows } from '../../../../../lib/qbank'
+import { fetchTaxonomy, SUBJECT_FAMILIES, fetchAllRows, splitStemSource } from '../../../../../lib/qbank'
 import { analysisTopicLabel, analysisTopicName } from '../../../../../lib/examMarking'
 import { fetchSyllabus, filterModulesToPool, removeDotpointsFromSections, dotpointAllocation, countSelected } from '../../../../../lib/syllabus'
 import { buildSyllabusContent } from '../../../../../lib/bookletContent'
@@ -1589,7 +1589,11 @@ function bankToBlock(q) {
   // multipart questions sum their parts, single questions use their own marks.
   const partTotal = parts.reduce((s, p) => s + (Number(p.marks) || 0), 0)
   const marks = partTotal > 0 ? String(partTotal) : (q.marks != null ? String(q.marks) : '')
-  return { ...newBlock('question'), qbank_question_id: q.id, prompt: q.stem_latex || '', image: firstImg, marks, solution: q.solution_latex || '', solutionImage: firstSolImg, parts }
+  // A cited question's "Source:" line moves after the last part, not between the stem and the parts.
+  const { stem, source } = splitStemSource(q.stem_latex)
+  if (source && parts.length) parts[parts.length - 1].prompt += `\n\nSource: ${source}`
+  const prompt = source && !parts.length ? `${stem}\n\nSource: ${source}` : stem
+  return { ...newBlock('question'), qbank_question_id: q.id, prompt, image: firstImg, marks, solution: q.solution_latex || '', solutionImage: firstSolImg, parts }
 }
 
 // Group a subject name into a family so "Maths" matches Adv/Ext/Standard Maths.

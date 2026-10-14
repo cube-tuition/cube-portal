@@ -13,7 +13,7 @@ import {
   fetchTaxonomy, deleteQbankImage, qbankImageUrl, duplicateQuestion,
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, fetchQuestionUsage,
   buildTaxonomyMaps, labelForQuestion,
-  SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, fetchAllRows } from '../../../lib/qbank'
+  SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, fetchAllRows, splitStemSource } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
@@ -441,7 +441,7 @@ function QuestionBankInner() {
                   </div>
                 </div>
                 <div className="text-sm text-[#2A2035] phone-scroll">
-                  <LatexContent text={q.stem_latex || '(no stem)'} />
+                  <LatexContent text={splitStemSource(q.stem_latex).stem || '(no stem)'} />
                 </div>
                 {/* Stem images, laid out as the worksheet prints them:
                     centred under the stem at readable size (280×200 max). */}
@@ -482,6 +482,9 @@ function QuestionBankInner() {
                       )
                     })}
                   </div>
+                )}
+                {splitStemSource(q.stem_latex).source && (
+                  <p className="mt-2 text-[11px] text-[#2A2035]/45">Source: {splitStemSource(q.stem_latex).source}</p>
                 )}
                 {/* Solution images stay small — they only print on the answer key. */}
                 {imgs.some((im) => im.role === 'solution') && (
