@@ -85,7 +85,11 @@ describe('class shifts', () => {
     const c = await cls(q, { dates: ['2026-10-14'] })
     await mark(q, c, '2026-10-14')
     await mark(q, c, '2026-10-16')                                    // an extra session, not on the timetable
+    // Cancelling the lesson drops a draft shift outright, so only one approved
+    // first (and taken out of approval afterwards) can sit on a cancelled lesson.
+    await q(`update shifts set status = 'approved' where work_date = '2026-10-14'`)
     await q(`update lessons set status = 'cancelled'`)
+    await q(`update shifts set status = 'draft' where work_date = '2026-10-14'`)
     const m = await match(q)
     assert.deepEqual(m.map(r => r.problems[0]), ['The lesson was cancelled', 'No lesson was scheduled for this class on this day'])
   })

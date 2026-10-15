@@ -149,6 +149,66 @@ describe('class shifts from attendance', () => {
     assert.equal((await shiftsOf(q)).length, 1)
   })
 
+  // The roll was saved first (a comment alone saves as present), then the
+  // lesson was cancelled with a credit — the draft shift must not survive.
+  t('cancelling a 1:1 after the roll was saved removes the draft shift', async ({ q }) => {
+    const c = await classWithLesson(q)
+    await mark(q, c, '2026-10-14', 'present')
+    assert.equal((await shiftsOf(q)).length, 1)
+    await mark(q, c, '2026-10-14', 'cancelled')
+    assert.deepEqual(await shiftsOf(q), [])
+  })
+
+  t('moving the only student to a make-up removes the draft shift', async ({ q }) => {
+    const c = await classWithLesson(q)
+    await mark(q, c, '2026-10-14', 'absent')
+    await mark(q, c, '2026-10-14', 'makeup')
+    assert.deepEqual(await shiftsOf(q), [])
+  })
+
+  t('in a group class, cancelling one student keeps the shift; cancelling the last removes it', async ({ q }) => {
+    const c = await classWithLesson(q)
+    await mark(q, c, '2026-10-14', 'present', STUDENTS[0])
+    await mark(q, c, '2026-10-14', 'present', STUDENTS[1])
+    await mark(q, c, '2026-10-14', 'cancelled', STUDENTS[0])
+    assert.equal((await shiftsOf(q)).length, 1)
+    await mark(q, c, '2026-10-14', 'cancelled', STUDENTS[1])
+    assert.deepEqual(await shiftsOf(q), [])
+  })
+
+  t('cancelling the lesson itself removes its draft shift', async ({ q }) => {
+    const c = await classWithLesson(q)
+    await mark(q, c, '2026-10-14', 'present', STUDENTS[0])
+    await mark(q, c, '2026-10-14', 'present', STUDENTS[1])
+    await q(`update lessons set status = 'cancelled' where class_id = $1`, [c])
+    assert.deepEqual(await shiftsOf(q), [])
+  })
+
+  t('a roll saved on a cancelled lesson creates no shift', async ({ q }) => {
+    const c = await classWithLesson(q)
+    await q(`update lessons set status = 'cancelled' where class_id = $1`, [c])
+    await mark(q, c, '2026-10-14', 'present')
+    assert.deepEqual(await shiftsOf(q), [])
+  })
+
+  t('an approved shift is never removed by a cancellation', async ({ q }) => {
+    const c = await classWithLesson(q)
+    await mark(q, c, '2026-10-14', 'present')
+    await q(`update shifts set status = 'approved'`)
+    await mark(q, c, '2026-10-14', 'cancelled')
+    await q(`update lessons set status = 'cancelled' where class_id = $1`, [c])
+    assert.deepEqual((await shiftsOf(q)).map(s => s.status), ['approved'])
+  })
+
+  t('only that class and date lose their shift', async ({ q }) => {
+    const a = await classWithLesson(q)
+    const b = await classWithLesson(q, { name: 'Y8 English' })
+    await mark(q, a, '2026-10-14', 'present')
+    await mark(q, b, '2026-10-14', 'present')
+    await q(`update lessons set status = 'cancelled' where class_id = $1`, [a])
+    assert.deepEqual((await shiftsOf(q)).map(s => s.source_id), [`${b}_2026-10-14`])
+  })
+
   t('the pay rise applies from its effective date', async ({ q }) => {
     const before = await classWithLesson(q, { date: '2026-10-14' })
     const after = await classWithLesson(q, { date: '2026-10-21' })

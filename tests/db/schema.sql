@@ -900,8 +900,16 @@ declare
   v_source_key   text;
 begin
   -- The student was moved to a make-up, or the lesson was cancelled for them:
-  -- this session didn't run on their account, so it creates no shift.
-  if new.status in ('makeup', 'cancelled') then return new; end if;
+  -- this session didn't run on their account, so it creates no shift — and if
+  -- nobody else's mark says it ran, a draft shift made earlier goes too.
+  if new.status in ('makeup', 'cancelled') then
+    if not exists (select 1 from public.attendance a
+                    where a.class_id = new.class_id and a.session_date = new.session_date
+                      and a.status not in ('makeup', 'cancelled')) then
+      perform public.drop_draft_class_shift(new.class_id, new.session_date);
+    end if;
+    return new;
+  end if;
 
   select * into v_class from public.classes where id = new.class_id;
   if not found then return new; end if;
@@ -911,6 +919,12 @@ begin
   where class_id = new.class_id and lesson_date = new.session_date
   order by coalesce(is_makeup, false), id
   limit 1;
+
+  -- The lesson itself was cancelled: no pay for it, whatever the roll says.
+  if v_lesson.status = 'cancelled' and not coalesce(v_lesson.is_makeup, false) then
+    perform public.drop_draft_class_shift(new.class_id, new.session_date);
+    return new;
+  end if;
 
   v_tutor_id := v_lesson.scheduled_teacher_id;
   if v_tutor_id is null then
@@ -2200,6 +2214,34 @@ AS $function$
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.drop_draft_class_shift(p_class integer, p_date date)
+ RETURNS void
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  delete from public.shifts
+   where source_table = 'class_session'
+     and source_id = p_class::text || '_' || p_date::text
+     and status = 'draft'
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.lesson_cancelled_drops_shift()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  if new.status = 'cancelled' and old.status is distinct from 'cancelled'
+     and not coalesce(new.is_makeup, false) then
+    perform public.drop_draft_class_shift(new.class_id, new.lesson_date);
+  end if;
+  return new;
+end $function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -2338,3 +2380,4 @@ CREATE TRIGGER classes_year_matches_course BEFORE INSERT OR UPDATE OF class_name
 CREATE TRIGGER courses_year_consistent BEFORE INSERT OR UPDATE OF course_name, course_code ON public.courses FOR EACH ROW EXECUTE FUNCTION course_year_consistent();
 CREATE TRIGGER enrolments_queue_invoice_sync AFTER INSERT OR DELETE OR UPDATE OF status, price, class_id, student_id ON public.enrolments FOR EACH ROW EXECUTE FUNCTION queue_invoice_sync();
 CREATE TRIGGER trial_submissions_activity BEFORE INSERT OR UPDATE ON public.trial_submissions FOR EACH ROW EXECUTE FUNCTION trial_submission_activity();
+CREATE TRIGGER lesson_cancelled_drops_shift AFTER UPDATE OF status ON public.lessons FOR EACH ROW EXECUTE FUNCTION lesson_cancelled_drops_shift();
