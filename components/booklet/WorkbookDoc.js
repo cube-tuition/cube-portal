@@ -173,18 +173,93 @@ function renderSegs(segs, marks, onMarkClick) {
   return out
 }
 
-/* How a teacher edit relates to the answer as it now stands.
-     'none'  — no edit, or the edit matches the answer exactly (nothing to show)
-     'fresh' — the answer still equals the text the edit marked (or the edit
-               predates base tracking): the tracked-changes diff is faithful
-     'stale' — the student has written on since the edit was made: diffing the
-               edit against the current answer would strike out every new word
-               as if the teacher crossed it out, so the markup is shown as a
-               frozen earlier version instead. */
-function editStateOf(text, editText, editBase) {
-  if (editText == null || editText === text) return 'none'
-  if (editBase != null && editBase !== text) return 'stale'
-  return 'fresh'
+/* The teacher's markup and the student's typing are both live. The markup is
+   stored as the teacher's rewrite (`editText`) of the student text it was made
+   against (`editBase`). When the student writes on, the two are merged
+   three ways — base → teacher and base → student — so the student's new words
+   appear as their own text while every teacher change stays where it was.
+   Where both changed the very same words, the student's newer words win there
+   (the teacher can mark them again); everything else keeps both. */
+const tokensOf = (t) => String(t ?? '').split(/(\s+)/).filter(Boolean)
+// Changes turning token list A into B: [{ s, e, ins }] — A[s..e) becomes ins.
+function hunksOf(A, B) {
+  const out = []
+  const add = (s, e, ins) => {
+    const last = out[out.length - 1]
+    if (last && last.e === s) { last.e = e; last.ins.push(...ins) } else out.push({ s, e, ins: [...ins] })
+  }
+  if (A.length * B.length > 250000) {
+    let i = 0
+    while (i < A.length && i < B.length && A[i] === B[i]) i++
+    let j = 0
+    while (j < A.length - i && j < B.length - i && A[A.length - 1 - j] === B[B.length - 1 - j]) j++
+    if (i < A.length - j || i < B.length - j) add(i, A.length - j, B.slice(i, B.length - j))
+    return out
+  }
+  const n = A.length, m = B.length
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+  let i = 0, j = 0
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { i++; j++ }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { add(i, i + 1, []); i++ }
+    else { add(i, i, [B[j]]); j++ }
+  }
+  if (i < n) add(i, n, [])
+  if (j < m) add(n, n, B.slice(j))
+  return out
+}
+/* The teacher's markup carried onto the student's current text. Returns the
+   rewrite to diff against `current`. */
+function mergeMarkup(base, edit, current) {
+  if (edit == null) return null
+  if (base == null || base === current) return edit
+  if (edit === base) return current
+  const A = tokensOf(base)
+  const T = hunksOf(A, tokensOf(edit)), S = hunksOf(A, tokensOf(current))
+  const out = []
+  let i = 0, ti = 0, si = 0
+  const pureT = () => ti < T.length && T[ti].s === i && T[ti].e === i
+  const pureS = () => si < S.length && S[si].s === i && S[si].e === i
+  while (i < A.length || ti < T.length || si < S.length) {
+    // Insertions at this point first: the teacher's, then the student's.
+    if (pureT()) { out.push(...T[ti].ins); ti++; continue }
+    if (pureS()) { out.push(...S[si].ins); si++; continue }
+    const t = ti < T.length && T[ti].s === i ? T[ti] : null
+    const st = si < S.length && S[si].s === i ? S[si] : null
+    if (!t && !st) {
+      if (i >= A.length) break
+      // A change starting later may still overlap one starting here — handled
+      // when i reaches it; plain text just copies across.
+      out.push(A[i]); i++; continue
+    }
+    // The region these changes span, grown while further changes overlap it.
+    let end = Math.max(t?.e ?? i, st?.e ?? i)
+    for (let grew = true; grew;) {
+      grew = false
+      for (const H of [T, S]) for (const h of H) if (h.s > i && h.s < end && h.e > end) { end = h.e; grew = true }
+    }
+    const tIn = T.filter(h => h.s >= i && h.s < end), sIn = S.filter(h => h.s >= i && h.s < end)
+    if (!sIn.length) {          // only the teacher touched this stretch
+      let at = i
+      for (const h of tIn) { out.push(...A.slice(at, h.s), ...h.ins); at = h.e }
+      out.push(...A.slice(at, end))
+    } else {                    // the student changed it: their words stand
+      let at = i
+      for (const h of sIn) { out.push(...A.slice(at, h.s), ...h.ins); at = h.e }
+      out.push(...A.slice(at, end))
+    }
+    ti += tIn.length; si += sIn.length
+    i = end
+  }
+  return out.join('')
+}
+
+/* Whether there is any markup to show against the answer as it now stands. */
+function hasMarkup(text, merged) {
+  return merged != null && merged !== text
 }
 
 /* Student's answer, read-only, with commented ranges highlighted. Selecting
@@ -194,29 +269,34 @@ function ReviewAnswer({ minHeight, text, editText, editBase, comments, onAnchor,
   const taRef = useRef(null)
   const [sel, setSel] = useState(null)       // { start, end, quote, top }
   const [editing, setEditing] = useState(false)
-  // Stale markup starts folded away; the toggle shows the frozen earlier version.
-  const [showOld, setShowOld] = useState(false)
-  // The student text this editing session started from — saved with every
-  // keystroke of the edit, so the markup stays pinned to the version it marked
-  // even if the student types while the editor is open.
+  // The student text the open editor's markup is measured against. The
+  // student may keep typing while the teacher edits: their new words are
+  // merged into the editor as they arrive (see the effect below).
   const baseRef = useRef(null)
 
-  const editState = editStateOf(text, editText, editBase)
-  const frozen = editState === 'stale' && showOld && !editing
+  // The markup carried onto what the student has written now.
+  const merged = useMemo(() => mergeMarkup(editBase, editText, text), [editBase, editText, text])
+  const marked = hasMarkup(text, merged)
+  const segs = useMemo(() => (marked ? diffWords(text, merged) : [{ t: 'eq', text }]), [marked, text, merged])
 
-  // The displayed text: the tracked-changes diff while the edit is fresh; the
-  // student's own text once they have written past it (no false strikeouts);
-  // or the frozen base-vs-edit diff when the teacher opens the earlier version.
-  const segs = useMemo(() => {
-    if (frozen) return diffWords(editBase, editText)
-    if (editState !== 'fresh') return [{ t: 'eq', text }]
-    return diffWords(text, editText)
-  }, [frozen, editState, text, editText, editBase])
+  // Live while editing: student typing lands in the teacher's editor too.
+  useEffect(() => {
+    if (!editing || baseRef.current == null || baseRef.current === text) return
+    const ta = taRef.current
+    const before = ta ? ta.value : null
+    const caret = ta ? ta.selectionStart : null
+    const next = mergeMarkup(baseRef.current, editText ?? baseRef.current, text)
+    baseRef.current = text
+    onEdit(next, text)
+    // Keep the caret on the same words: shift it by whatever arrived before it.
+    if (ta && before != null && caret != null) {
+      const head = before.slice(0, caret)
+      const at = next.indexOf(head) === 0 ? caret : Math.max(0, caret + (next.length - before.length))
+      requestAnimationFrame(() => { try { ta.setSelectionRange(at, at) } catch { /* detached */ } })
+    }
+  }, [editing, text, editText, onEdit])
 
   const pickSelection = () => {
-    // The frozen view shows an EARLIER version of the answer — offsets there
-    // don't exist in the current text, so nothing can anchor to them.
-    if (frozen) { setSel(null); return }
     const s = window.getSelection()
     if (!s || s.isCollapsed || !ref.current || !ref.current.contains(s.anchorNode)) { setSel(null); return }
     const range = s.getRangeAt(0)
@@ -257,37 +337,24 @@ function ReviewAnswer({ minHeight, text, editText, editBase, comments, onAnchor,
       <textarea ref={taRef} className="bk-answer-input bk-edit-ta" style={{ minHeight }}
         value={editText ?? text} placeholder="Rewrite the answer…"
         onChange={(e) => { onEdit(e.target.value, baseRef.current ?? text); grow() }} />
+      <div className="bk-edit-live">The student can keep typing — their words merge in as you edit.</div>
     </div>
   )
 
   const openEditor = () => {
+    // Carry the markup onto the current answer before editing it further, so
+    // nothing the teacher wrote is lost and the student's latest words are in.
     baseRef.current = text
-    // Markup made against an older answer can't be extended meaningfully —
-    // start the re-mark from what the student has actually written now.
-    if (editState === 'stale') onEdit(text, text)
-    setShowOld(false)
+    if (editBase != null && editBase !== text && editText != null) onEdit(merged, text)
     setEditing(true)
   }
 
   return (
     <div className="bk-answer-live" style={{ position: 'relative' }}>
       <div className="bk-edit-tools">
-        {editState === 'stale' && (
-          <button className="bk-tool" onClick={() => setShowOld(v => !v)}
-            title="The student has written more since this markup was made">
-            {showOld ? 'Current answer' : 'Marked version'}
-          </button>
-        )}
         <button className="bk-tool" title="Edit the student’s answer — deletions are struck through, your words show in red"
           onClick={openEditor}>✏️ Edit</button>
       </div>
-      {editState === 'stale' && (
-        <div className="bk-edit-stale">
-          {showOld
-            ? 'The version you marked — the student has written more since.'
-            : 'Marked on an earlier version — the student has written more since.'}
-        </div>
-      )}
       <div
         ref={(el) => { ref.current = el; registerRef?.(el) }}
         className="bk-answer-input bk-answer-ro"
@@ -296,7 +363,7 @@ function ReviewAnswer({ minHeight, text, editText, editBase, comments, onAnchor,
         onKeyUp={pickSelection}
       >
         {text || editText
-          ? renderSegs(segs, frozen ? [] : marks, onActivate)
+          ? renderSegs(segs, marks, onActivate)
           : <span className="bk-answer-empty">Not answered yet</span>}
       </div>
       {sel && (
@@ -333,24 +400,19 @@ function paintText(text, marks) {
 function OwnAnswer({ minHeight, value, editText, editBase, marks = [], onChange, onSelect, registerRef }) {
   const ref = useRef(null)
   const [editing, setEditing] = useState(false)
-  // Stale teacher markup is folded away behind a chip rather than diffed
-  // against text it never marked.
-  const [showOld, setShowOld] = useState(false)
   // Scroll-pinned resize — the naive collapse-to-measure made the page jump
   // on every keystroke for a student typing far down the booklet.
   const grow = useCallback(() => autoGrow(ref.current, minHeight), [minHeight])
   useEffect(() => { grow() }, [grow, value, editing])
   useEffect(() => { if (editing) ref.current?.focus({ preventScroll: true }) }, [editing])
   // A teacher-marked answer opens on the marked-up view — the student's words
-  // with deletions struck through and the teacher's in red — but only while the
-  // answer still matches the version the teacher marked. Once the student
-  // writes past it the markup goes stale: diffing it against the new text
-  // would strike out every word they just typed as if the teacher had crossed
-  // it out. A stale edit folds away behind "Teacher's markup (earlier
-  // version)" and the student types on a perfectly normal answer box.
-  const editState = editStateOf(value, editText, editBase)
-  if (editState === 'fresh' && !editing) {
-    const segs = diffWords(value, editText)
+  // with deletions struck through and the teacher's in red. The markup is
+  // merged onto whatever the student has written since (mergeMarkup), so it
+  // never goes stale: new words show as the student's own, plain text.
+  const merged = mergeMarkup(editBase, editText, value)
+  const marked = hasMarkup(value, merged)
+  if (marked && !editing) {
+    const segs = diffWords(value, merged)
     return (
       <div className="bk-answer-live" style={{ position: 'relative' }}>
         <div className="bk-edit-tools">
@@ -363,34 +425,11 @@ function OwnAnswer({ minHeight, value, editText, editBase, marks = [], onChange,
       </div>
     )
   }
-  // The frozen earlier version: what the answer said when the teacher marked
-  // it, with their tracked changes — read-only, clearly labelled, and the
-  // current answer is one tap away.
-  if (editState === 'stale' && showOld && !editing) {
-    const segs = diffWords(editBase, editText)
-    return (
-      <div className="bk-answer-live" style={{ position: 'relative' }}>
-        <div className="bk-edit-tools">
-          <button className="bk-tool bk-tool-on" onClick={() => setShowOld(false)}>Back to my answer</button>
-        </div>
-        <div className="bk-edit-stale">Your teacher marked an earlier version of this answer.</div>
-        <div ref={registerRef} className="bk-answer-input bk-answer-ro" style={{ minHeight }}>
-          {renderSegs(segs, [], null)}
-        </div>
-      </div>
-    )
-  }
   return (
     <div className="bk-answer-live bk-answer-stack">
-      {editState === 'fresh' && (
+      {marked && (
         <div className="bk-edit-tools">
           <button className="bk-tool bk-tool-on" onClick={() => setEditing(false)}>Done</button>
-        </div>
-      )}
-      {editState === 'stale' && (
-        <div className="bk-edit-tools">
-          <button className="bk-tool" onClick={() => setShowOld(true)}
-            title="See the version your teacher marked">Teacher’s markup (earlier version)</button>
         </div>
       )}
       <div className="bk-answer-input bk-answer-back" aria-hidden="true" style={{ minHeight }}>
@@ -631,6 +670,37 @@ export default function WorkbookDoc({
   // Pages are only in the DOM once this is true — until then the doc shows
   // "Loading…" and there is nothing to observe or scroll to.
   const ready = pages !== null && (solutions || loaded)
+
+  /* Keep each tab's place. Switching tabs remounts this doc, and while it
+     reloads the page is short, so the window snaps to the top — the reader
+     then had to scroll all the way back down. The scroll position is kept per
+     copy (booklet · class · tab · owner) for the session and put back once the
+     pages have drawn. Whichever box actually scrolls is used, as goToPage does. */
+  const scrollKey = `wbscroll:${booklet.id}:${classId}:${mode}:${ownerId}`
+  const restoredRef = useRef(false)
+  useEffect(() => {
+    if (!ready || !pagesRef.current) return undefined
+    let box = null
+    for (let a = pagesRef.current.parentElement; a; a = a.parentElement) {
+      const oy = getComputedStyle(a).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && a.scrollHeight > a.clientHeight + 2) { box = a; break }
+    }
+    const read = () => (box ? box.scrollTop : window.scrollY)
+    if (!restoredRef.current) {
+      restoredRef.current = true
+      let saved = 0
+      try { saved = Number(sessionStorage.getItem(scrollKey)) || 0 } catch { /* no store */ }
+      if (saved > 0) requestAnimationFrame(() => { if (box) box.scrollTop = saved; else window.scrollTo(0, saved) })
+    }
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => { try { sessionStorage.setItem(scrollKey, String(Math.round(read()))) } catch { /* no store */ } })
+    }
+    const target = box || window
+    target.addEventListener('scroll', onScroll, { passive: true })
+    return () => { target.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf) }
+  }, [ready, scrollKey])
 
   // The rendered pages, read straight from the container that holds them.
   const pageNodes = useCallback(
@@ -1677,6 +1747,7 @@ export default function WorkbookDoc({
 
         /* The teacher's tracked changes: struck-through deletions keep the
            student's words legible; the teacher's own words are red. */
+        .bk-edit-live{ font-size:11px; color:#325099; margin-top:4px; }
         .bk-edit-stale{ font-size:11px; color:#8a6d1a; background:#FDF6E3; border:1px solid #F1E3B4; border-radius:8px; padding:3px 10px; margin-bottom:6px; width:fit-content; }
         .bk-del{ text-decoration:line-through; text-decoration-color:#C22D2D; color:#8b8f9a; }
         .bk-ins{ text-decoration:none; color:#C22D2D; }
