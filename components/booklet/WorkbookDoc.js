@@ -57,7 +57,7 @@ function answerSlots(blocks) {
     ...blocks.filter(b => sec(b) === 'revision'),
   ]
   for (const b of ordered) {
-    if (b.type === 'writing') { slots.push({ blockId: b.id, partId: '' }); continue }
+    if (b.type === 'writing') { slots.push({ blockId: b.id, partId: '', writing: true }); continue }
     // A Teacher's Notes block is a slot the TEACHER owns: typed on the Workbook
     // tab, mirrored read-only into everyone else's copy.
     if (b.type === 'teachernotes') { slots.push({ blockId: b.id, partId: '', teacher: true }); continue }
@@ -545,7 +545,15 @@ export default function WorkbookDoc({
   }), [booklet])
 
   const items = useMemo(() => bookletRenderItems(blocks || [], { solutions, meta }), [blocks, solutions, meta])
-  const slots = useMemo(() => answerSlots(blocks || []), [blocks])
+  // The solutions copy prints a question's solution where its answer box would
+  // be, so only writing spaces and Teacher's Notes leave a box there — counting
+  // the question slots too would hand those boxes the wrong slot.
+  const slots = useMemo(() => answerSlots(blocks || []).filter(s => !solutions || s.writing || s.teacher), [blocks, solutions])
+  // On the solutions tab the teacher can write Teacher's Notes straight in —
+  // the same class-wide text as the Workbook tab, so it shows on every
+  // student's copy without switching tabs.
+  const notesEditable = solutions && !!staffId
+  const hasTeacherSlots = slots.some(s => s.teacher)
   const keyOf = (s) => `${s.blockId}::${s.partId}`
 
   // ── paginate exactly as the builder/exporter do ───────────────────────────
@@ -1445,6 +1453,26 @@ export default function WorkbookDoc({
             editText={null} marks={[]}
             onChange={(v) => { setModels(m => ({ ...m, [key]: v })); saveModel(key, slot.blockId, slot.partId, v) }} />
         }
+        if (slot.teacher && notesEditable) {
+          return (
+            <div key={j}>
+              <OwnAnswer minHeight={piece.minHeight} value={models[key] ?? ''} registerRef={reg}
+                editText={null} marks={[]}
+                onChange={(v) => { setModels(m => ({ ...m, [key]: v })); saveModel(key, slot.blockId, slot.partId, v) }} />
+              <p className="bk-tnotes-hint">Shows on every student&rsquo;s copy as you type.</p>
+            </div>
+          )
+        }
+        // A writing space on the solutions copy: nothing to type, but show the
+        // teacher's working for it if there is any.
+        if (solutions && slot.writing) {
+          const txt = (models[key] ?? '').trim()
+          return (
+            <div key={j} ref={reg} className={txt ? 'bk-model' : 'bk-answer-box'} style={{ minHeight: piece.minHeight }}>
+              {txt && <><span className="bk-model-t">Teacher&rsquo;s working</span><div className="bk-model-b">{txt}</div></>}
+            </div>
+          )
+        }
         // A Teacher's Notes slot on any other tab: the teacher's text, read-only,
         // live — one-directional by construction (there is nothing to type into).
         if (slot.teacher) {
@@ -1625,6 +1653,7 @@ export default function WorkbookDoc({
           text-transform:uppercase; color:#54b391; margin-bottom:2px; }
         .bk-model-b{ font-size:14px; line-height:23px; color:#1c3d33; white-space:pre-wrap; overflow-wrap:break-word; }
         .bk-tnotes-view{ margin:12px 0 6px; box-sizing:border-box; }
+        .bk-tnotes-hint{ margin:4px 0 0; font-size:11px; color:#0E7A5F; }
         .bk-note-stale{ display:block; font-size:10px; color:#9a6a2f; margin-top:4px; }
 
         /* Highlight backdrop for the student's own answer box: identical box
@@ -1732,7 +1761,7 @@ export default function WorkbookDoc({
               <span className="bk-doc-pageno">Page {pi + 1} of {pages.length}</span>
             </article>
           ))}
-        {!solutions && (
+        {(!solutions || (notesEditable && hasTeacherSlots)) && (
           <p className="text-center text-[11px] text-[#2A2035]/40 pb-6">
             {failing ? <span className="text-[#B23A3A] font-semibold">Not saved — retrying…</span>
               : unsaved > 0 ? 'Saving…' : ready ? 'All changes saved' : ''}
