@@ -11,7 +11,7 @@ import Link from 'next/link'
 import InfoBlocks from './InfoBlocks'
 import {
   BLOCK_TYPES, BLOCK_GROUPS, newBlock, duplicateBlock, blockLabel, blockIcon,
-  CALLOUT_VARIANTS, BUTTON_VARIANTS, IMAGE_WIDTHS, ALIGNMENTS, pageWordCount,
+  CALLOUT_VARIANTS, BUTTON_VARIANTS, IMAGE_WIDTHS, ALIGNMENTS, AUTOMATION_LEVELS, pageWordCount,
 } from '../../lib/infohub/blocks'
 import { saveDraft, publishPage, listRevisions, restoreRevision } from '../../lib/infohub/data'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
@@ -291,6 +291,30 @@ function BlockFields({ block, onChange }) {
           <input className={I} value={block.label} placeholder="Link label" onChange={e => set({ label: e.target.value })} />
           <input className={I} value={block.href} placeholder="Portal path (e.g. /tutor/classes)" onChange={e => set({ href: e.target.value })} />
           <input className={I} value={block.desc} placeholder="Description (optional)" onChange={e => set({ desc: e.target.value })} />
+        </div>
+      )
+    case 'systemstable':
+      return (
+        <div className="space-y-2">
+          {(block.rows || []).map((r, i) => (
+            <div key={i} className="flex gap-2 items-center">
+              <input className={I + ' flex-1'} value={r.name} placeholder="System name"
+                onChange={e => set({ rows: block.rows.map((x, xi) => xi === i ? { ...x, name: e.target.value } : x) })} />
+              <select className={I + ' w-56'} value={Number(r.level) || 3}
+                onChange={e => set({ rows: block.rows.map((x, xi) => xi === i ? { ...x, level: Number(e.target.value) } : x) })}>
+                {AUTOMATION_LEVELS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+              </select>
+              <input className={I + ' w-52'} value={r.pageSlug} placeholder="Detail page slug"
+                onChange={e => set({ rows: block.rows.map((x, xi) => xi === i ? { ...x, pageSlug: e.target.value } : x) })} />
+              <button onClick={() => set({ rows: block.rows.filter((_, xi) => xi !== i) })}
+                className="text-rose-500 text-xs px-1.5" title="Remove row">✕</button>
+            </div>
+          ))}
+          <button onClick={() => set({ rows: [...(block.rows || []), { name: '', level: 3, pageSlug: '' }] })}
+            className="text-[11px] font-semibold text-[#325099] border border-dashed border-[#BACBFF] rounded-lg px-3 py-1.5 hover:bg-[#F0F4FF]">
+            ＋ Add system
+          </button>
+          <p className="text-[11px] text-[#2A2035]/45">The slug points at the system’s own Info page (usually a subpage of this one); Open slides it in from the right.</p>
         </div>
       )
     case 'contact':

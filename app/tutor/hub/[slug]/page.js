@@ -201,7 +201,7 @@ export default function InfoViewPage() {
       <div className={`bg-white rounded-2xl border p-4 md:p-8 ${edit ? 'border-[#325099]/40 ring-2 ring-[#325099]/10' : 'border-[#DEE7FF]'}`}>
         {!blocks.length ? <p className="text-sm text-[#2A2035]/40 text-center py-6">This page is empty.</p>
           : edit ? <InlineBlocks blocks={blocks} onChange={onInlineChange} />
-          : <InfoBlocks blocks={blocks} canReveal={canReveal} />}
+          : <InfoBlocks blocks={blocks} canReveal={canReveal} pageId={page.id} />}
       </div>
       {edit && (
         <p className="text-[11px] text-[#2A2035]/50 mt-2">

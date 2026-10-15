@@ -5,10 +5,11 @@
  * drift. Lightweight: imports no editor code, so viewers don't load the editor.
  * Styling is fixed and on-brand; responsive (columns/table stack on mobile).
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { supabase } from '../../lib/supabase'
 import { qbankImageUrl } from '../../lib/qbank'
 import { inlineHtml, inlineMultiline, videoEmbedUrl } from '../../lib/infohub/inline'
-import { calloutVariant } from '../../lib/infohub/blocks'
+import { calloutVariant, AUTOMATION_LEVELS, automationLevel } from '../../lib/infohub/blocks'
 
 const html = (s) => ({ dangerouslySetInnerHTML: { __html: s } })
 
@@ -296,7 +297,140 @@ function Faq({ items }) {
   )
 }
 
-function OneBlock({ b, canReveal }) {
+/*
+ * Systems table — the directors' systems register. One wide row per system:
+ * its name, an automation-level dropdown (persisted straight onto this page's
+ * block, so the page IS the record), and an Open button that slides the
+ * system's own Info page in from the right rather than navigating away.
+ * Changing a level needs `pageId` (the viewer passes it; the editor preview
+ * doesn't, so the dropdown is read-only there — edit levels in the editor).
+ */
+function SystemDrawer({ slug, onClose }) {
+  const [page, setPage] = useState(null)
+  const [missing, setMissing] = useState(false)
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const { data } = await supabase.from('infohub_pages')
+        .select('title, icon, summary, status, draft, published')
+        .eq('slug', slug).maybeSingle()
+      if (!active) return
+      if (!data) { setMissing(true); return }
+      setPage(data)
+    })()
+    return () => { active = false }
+  }, [slug])
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const blocks = page ? ((page.published && page.published.length ? page.published : page.draft) || []) : []
+  return (
+    <div className="fixed inset-0 z-[80]">
+      <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" onClick={onClose} />
+      <aside className="absolute right-0 top-0 bottom-0 w-full max-w-[560px] bg-white border-l border-[#DEE7FF] shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#F0F4FF] shrink-0">
+          <div className="min-w-0">
+            <p className="font-bold text-sm text-[#062E63] truncate">{page ? `${page.icon || ''} ${page.title}`.trim() : 'Loading…'}</p>
+            {page?.summary?.trim() && <p className="text-[11px] text-[#325099]/60 truncate">{page.summary}</p>}
+          </div>
+          <button onClick={onClose} aria-label="Close"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-[#325099]/60 hover:text-[#062E63] hover:bg-[#F8FAFF] transition text-lg leading-none shrink-0">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {missing
+            ? <p className="text-sm text-[#2A2035]/50">This system doesn’t have its page yet.</p>
+            : page
+              ? <InfoBlocks blocks={blocks} />
+              : <p className="text-xs font-semibold tracking-[0.2em] uppercase text-[#325099] py-10 text-center">Loading…</p>}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function SystemsTable({ block, pageId }) {
+  const [rows, setRows] = useState(block.rows || [])
+  const [openSlug, setOpenSlug] = useState(null)
+  const [savingIdx, setSavingIdx] = useState(null)
+
+  // Persist a level change into this page's stored block (draft + published),
+  // read-modify-write so concurrent edits to other blocks survive.
+  const setLevel = async (idx, level) => {
+    const prev = rows
+    const next = rows.map((r, i) => i === idx ? { ...r, level } : r)
+    setRows(next)
+    if (!pageId) return
+    setSavingIdx(idx)
+    try {
+      const { data: cur, error } = await supabase.from('infohub_pages')
+        .select('draft, published').eq('id', pageId).single()
+      if (error) throw error
+      const patchArr = (arr) => (arr || []).map(b => b.id === block.id ? { ...b, rows: next } : b)
+      const { error: upErr } = await supabase.from('infohub_pages')
+        .update({ draft: patchArr(cur.draft), published: patchArr(cur.published) })
+        .eq('id', pageId)
+      if (upErr) throw upErr
+    } catch {
+      setRows(prev)   // not saved (no edit rights or a conflict) — show the truth
+    } finally {
+      setSavingIdx(null)
+    }
+  }
+
+  const clean = rows.filter(r => (r.name || '').trim())
+  if (!clean.length) return null
+  return (
+    <>
+      <div className="overflow-x-auto rounded-xl border border-[#DEE7FF]">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-[#F0F4FF] text-left">
+              <th className="px-4 py-2.5 font-bold text-[#062E63]">System</th>
+              <th className="px-4 py-2.5 font-bold text-[#062E63] w-[280px]">Automation</th>
+              <th className="px-4 py-2.5 w-[110px]" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              if (!(r.name || '').trim()) return null
+              const lv = automationLevel(r.level)
+              return (
+                <tr key={i} className="border-t border-[#F0F4FF]">
+                  <td className="px-4 py-2.5 font-semibold text-[#2A2035]">{r.name}</td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={Number(r.level) || 3}
+                      disabled={savingIdx === i}
+                      onChange={e => setLevel(i, Number(e.target.value))}
+                      className="w-full text-[12px] font-semibold rounded-full px-3 py-1.5 border cursor-pointer focus:outline-none disabled:opacity-50"
+                      style={{ color: lv.fg, background: lv.bg, borderColor: lv.border }}
+                      title="Change the automation level — saves straight to this page"
+                    >
+                      {AUTOMATION_LEVELS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    {(r.pageSlug || '').trim() && (
+                      <button onClick={() => setOpenSlug(r.pageSlug.trim())}
+                        className="text-[12px] font-semibold text-[#325099] border border-[#DEE7FF] bg-white hover:bg-[#F0F4FF] px-3 py-1.5 rounded-full transition whitespace-nowrap">
+                        Open →
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {openSlug && <SystemDrawer slug={openSlug} onClose={() => setOpenSlug(null)} />}
+    </>
+  )
+}
+
+function OneBlock({ b, canReveal, pageId }) {
   switch (b.type) {
     case 'heading':    return <Heading level={b.level} text={b.text} />
     case 'paragraph':  return <Para text={b.text} />
@@ -317,15 +451,16 @@ function OneBlock({ b, canReveal }) {
     case 'portallink': return <PortalLink {...b} />
     case 'contact':    return <Contact {...b} />
     case 'faq':        return <Faq items={b.items} />
+    case 'systemstable': return <SystemsTable block={b} pageId={pageId} />
     default:           return null
   }
 }
 
-export default function InfoBlocks({ blocks, canReveal = false }) {
+export default function InfoBlocks({ blocks, canReveal = false, pageId = null }) {
   return (
     <div className="ih-root">
       <InfoBlocksStyle />
-      {(blocks || []).map(b => <div key={b.id} className="ih-block"><OneBlock b={b} canReveal={canReveal} /></div>)}
+      {(blocks || []).map(b => <div key={b.id} className="ih-block"><OneBlock b={b} canReveal={canReveal} pageId={pageId} /></div>)}
     </div>
   )
 }
