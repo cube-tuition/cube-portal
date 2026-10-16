@@ -1036,17 +1036,26 @@ export default function TrialsPage() {
       {invitationSub && (
         <TrialInvitationModal
           sub={invitationSub}
+          // The family's other open requests (same parent email) — e.g. Maths and
+          // English for one child — can go in the same email.
+          related={submissions.filter(x => x.id !== invitationSub.id
+            && (x.parent_email || '').trim().toLowerCase() === (invitationSub.parent_email || '').trim().toLowerCase()
+            && (invitationSub.parent_email || '').trim()
+            && !['enrolled', 'declined'].includes(x.status))}
           classes={classes}
           term={enrolTerm}
           onClose={() => setInvitationSub(null)}
-          onSent={(stamped) => {
-            // Mirror the route's stamping locally so the card moves at once.
+          onSent={(sentIds, stampedIds) => {
+            // Mirror the route's stamping locally so every card moves at once.
             const now = new Date().toISOString()
-            handleUpdate(invitationSub.id, {
-              // the invited date is first-send only — a resend keeps the original
-              invitation_sent_at: invitationSub.invitation_sent_at || now,
-              ...(stamped ? { status: 'contacted', contacted_at: now } : {}),
-            })
+            for (const id of sentIds) {
+              const s0 = submissions.find(x => x.id === id)
+              handleUpdate(id, {
+                // the invited date is first-send only — a resend keeps the original
+                invitation_sent_at: s0?.invitation_sent_at || now,
+                ...(stampedIds.includes(id) ? { status: 'contacted', contacted_at: now } : {}),
+              })
+            }
           }}
         />
       )}

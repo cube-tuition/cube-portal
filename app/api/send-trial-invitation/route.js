@@ -8,7 +8,9 @@ import { requireApiRole } from '../../../lib/apiAuth'
  * POST /api/send-trial-invitation
  *
  * Body: {
- *   submissionId: number,       // trial_submissions.id — stamped Contacted on real send
+ *   submissionId?: number,      // trial_submissions.id — stamped Contacted on real send
+ *   submissionIds?: number[],   // several requests from one family in one email
+ *   sections?: [{ label, proposal, alternatives }],   // one per request when several
  *   parentEmail:  string,
  *   parentName?:  string,
  *   studentName?: string,
@@ -28,11 +30,13 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { submissionId, parentEmail, parentName, studentName, proposal, alternatives, content, test } = await request.json()
+    const { submissionId, submissionIds, sections, parentEmail, parentName, studentName, proposal, alternatives, content, test } = await request.json()
     if (!parentEmail) return Response.json({ error: 'Missing parentEmail' }, { status: 400 })
+    const ids = [...new Set([...(Array.isArray(submissionIds) ? submissionIds : []), ...(submissionId != null ? [submissionId] : [])].map(Number).filter(Number.isFinite))]
+    const multi = Array.isArray(sections) && sections.length > 1
 
     const vars = { parentName, studentName }
-    const c = mergeTrialInvitationContent(content)
+    const c = mergeTrialInvitationContent(content, multi)
     const subject = fillTrialVars(c.subject, vars)
 
     const resend    = new Resend(process.env.RESEND_API_KEY)
@@ -43,22 +47,23 @@ export async function POST(request) {
       to:   [parentEmail],
       bcc:  [PORTAL_BCC],
       subject,
-      html: buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content),
+      html: buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null),
     }, test))
     if (error) return Response.json({ error: error.message }, { status: 500 })
 
-    // Real sends move the card: guarded so a concurrent change (or a second
-    // send) can't drag a converted/declined card back to Contacted.
-    let stamped = false
+    // Real sends move every included card: guarded so a concurrent change (or a
+    // second send) can't drag a converted/declined card back to Contacted.
+    const stampedIds = []
     const now = new Date().toISOString()
-    if (!test && submissionId != null) {
-      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+    const sb = !test && ids.length ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY) : null
+    for (const submissionId of test ? [] : ids) {
       const { data } = await sb.from('trial_submissions')
         .update({ status: 'contacted', contacted_at: now })
         .eq('id', submissionId).eq('status', 'new')
         .select('id')
-      stamped = !!data?.length
-      if (!stamped) {
+      const stamped = !!data?.length
+      if (stamped) stampedIds.push(submissionId)
+      else {
         // Not "new" any more — still record first contact if never stamped.
         await sb.from('trial_submissions')
           .update({ contacted_at: now })
@@ -71,7 +76,7 @@ export async function POST(request) {
         .eq('id', submissionId).is('invitation_sent_at', null)
     }
 
-    return Response.json({ success: true, sentTo: test ? 'staff (test)' : parentEmail, stamped, invitationSentAt: now })
+    return Response.json({ success: true, sentTo: test ? 'staff (test)' : parentEmail, stamped: stampedIds.length > 0, stampedIds, invitationSentAt: now })
   } catch (err) {
     console.error('[send-trial-invitation]', err)
     return Response.json({ error: err.message }, { status: 500 })
