@@ -122,27 +122,35 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
   const [tab,      setTab]      = useState('booklet')   // 'booklet' | 'exam'
   const [booklets, setBooklets] = useState([])
   const [exams,    setExams]    = useState(null)
-  const [loading,  setLoading]  = useState(true)
+  // Which (year, subject, all-years) the list was loaded for; a mismatch means loading.
+  const [loadedFor, setLoadedFor] = useState('')
   const [query,    setQuery]    = useState('')
   const [saving,   setSaving]   = useState(null)
   const [error,    setError]    = useState('')
+  // By default the list is this class's year only. Switching it off lists the
+  // subject's booklets from every year — a Year 9 class can borrow a Year 8
+  // English booklet for a lesson without it having to be copied.
+  const [allYears, setAllYears] = useState(false)
 
+  const wantKey = `${year}|${subject}|${allYears ? 'all' : 'year'}`
+  const loading = loadedFor !== wantKey
   useEffect(() => {
-    supabase
+    let req = supabase
       .from('booklets')
-      .select('id, booklet_name, topic, file_paths, file_path, pdf_filenames, is_exam')
-      .eq('year', year).eq('subject', subject)
-      .order('topic', { nullsFirst: false }).order('booklet_name')
-      .then(({ data }) => { setBooklets((data || []).filter(b => !b.is_exam)); setLoading(false) })
+      .select('id, booklet_name, topic, year, subject, file_paths, file_path, pdf_filenames, is_exam')
+      .eq('subject', subject)
+    if (!allYears) req = req.eq('year', year)
+    req.order('year').order('topic', { nullsFirst: false }).order('booklet_name')
+      .then(({ data }) => { setBooklets((data || []).filter(b => !b.is_exam)); setLoadedFor(wantKey) })
     supabase
       .from('qbank_exams')
       .select('id, title, year_label, term, updated_at')
       .order('updated_at', { ascending: false })
       .then(({ data }) => setExams(data || []))
-  }, [year, subject])
+  }, [year, subject, allYears, wantKey])
 
   const q = query.trim().toLowerCase()
-  const filtered = booklets.filter(b => !q || b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q))
+  const filtered = booklets.filter(b => !q || b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q) || (allYears && `year ${b.year}`.includes(q)))
   const examsFiltered = (exams || []).filter(e => !q || (e.title || '').toLowerCase().includes(q))
 
   const handleAssign = async (b) => {
@@ -202,6 +210,14 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
           <input autoFocus type="text" value={query} onChange={e => setQuery(e.target.value)}
             placeholder={tab === 'booklet' ? 'Search workbooks…' : 'Search exams…'}
             className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-[#F8FAFF]" />
+          {tab === 'booklet' && (
+            <label className="mt-2 flex items-center gap-2 text-[11px] text-[#2A2035]/60 cursor-pointer select-none"
+              title={`Off: only Year ${year} ${subject} booklets. On: every ${subject} booklet, any year — for borrowing a booklet from another year.`}>
+              <input type="checkbox" checked={allYears} onChange={e => setAllYears(e.target.checked)} className="accent-[#325099]" />
+              Show {subject} booklets from every year
+              {allYears && <span className="text-[10px] text-[#2A2035]/40">· other years are tagged</span>}
+            </label>
+          )}
         </div>
 
         {error && <p className="px-5 text-[11px] text-[#DC2626] pb-1">{error}</p>}
@@ -212,7 +228,7 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
               <p className="text-xs text-center text-[#2A2035]/40 py-8 animate-pulse">Loading…</p>
             ) : filtered.length === 0 ? (
               <p className="text-xs text-center text-[#2A2035]/40 py-8 italic">
-                {query ? 'No booklets match.' : `No booklets in master database for Year ${year} ${subject}.`}
+                {query ? 'No booklets match.' : allYears ? `No ${subject} booklets in the master database.` : `No booklets in master database for Year ${year} ${subject}.`}
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">
@@ -222,7 +238,12 @@ function ClassAssignModal({ classId, className, year, subject, term, week, accen
                     <button key={b.id} onClick={() => handleAssign(b)} disabled={!!saving}
                       className="w-full text-left px-4 py-3 rounded-xl border border-[#E8EDF8] hover:border-[#C7D7FF] hover:bg-[#F8FAFF] transition flex items-start justify-between gap-3 group disabled:opacity-60">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-[#062E63] truncate">{bookletLabel(b)}</p>
+                        <p className="text-xs font-semibold text-[#062E63] truncate">
+                          {bookletLabel(b)}
+                          {allYears && Number(b.year) !== Number(year) && (
+                            <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-[#FEF3C7] text-[#92400E] align-middle" title={`A Year ${b.year} booklet — it will still open and mark as normal for this class`}>Year {b.year}</span>
+                          )}
+                        </p>
                         {groupLabel({ ...b, subject }) && <p className="text-[10px] font-medium mt-0.5" style={{ color: accentColor }}>{groupLabel({ ...b, subject })}</p>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
