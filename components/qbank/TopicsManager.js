@@ -229,12 +229,14 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   return (
     <div className="min-h-screen bg-[#F8FAFF]">
       <TutorNav staffName={profile?.full_name} isAdmin={profile?.role !== 'tutor'} />
-      <div className="max-w-6xl mx-auto px-4 pt-5 md:px-6 md:pt-8 pb-16">
+      <div className="max-w-7xl mx-auto px-4 pt-5 md:px-6 md:pt-8 pb-16">
         <Link href={backHref} className="text-xs text-[#325099] hover:underline">← {backLabel}</Link>
         <h1 className="text-2xl font-bold text-[#062E63] mt-1">Topics{scope ? ` — ${SCOPE_LABEL[scope]}` : ''}</h1>
         <p className="text-xs text-[#2A2035]/50 mt-0.5 mb-4">What questions and workbooks are filed under — shared by the question bank and the workbook Master Database.</p>
 
-        <div className="grid md:grid-cols-4 gap-4 max-md:mt-4">
+        {/* Years and modules are short labels; inquiry questions are whole syllabus
+            dot points, so they get the wide column, with skills under them. */}
+        <div className="grid gap-4 max-md:mt-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.4fr)]">
           {/* Subjects */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63]">Years &amp; courses</h2>
@@ -291,6 +293,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
             )}
           </div>
 
+          <div className="space-y-4 min-w-0">
           {/* Subtopics */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63] mb-2">{L.Subtopics}</h2>
@@ -368,6 +371,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                 </div>
               </>
             )}
+          </div>
           </div>
         </div>
       </div>
