@@ -110,16 +110,18 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
     return () => { active = false }
   }, [candKey, classes, term])   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const slotOf = useCallback((c) => c && ({
+  // `dateISO` overrides the class's next lesson — the suggested first trial
+  // lesson can be set by hand (a family away that week, a date agreed by phone).
+  const slotOf = useCallback((c, dateISO) => c && ({
     className: c.class_name,
     day: c.day_of_week || '',
     time: classTimeLabel(c),
-    date: fmtLessonDate(c.nextDate),
+    date: fmtLessonDate(dateISO || c.nextDate),
   }), [])
   const pick = useCallback((s) => {
     const list = bySub[s.id] || [], ch = choice[s.id] || { proposalId: null, altIds: new Set() }
     return {
-      proposal: slotOf(list.find(c => c.id === ch.proposalId)) || null,
+      proposal: slotOf(list.find(c => c.id === ch.proposalId), ch.dates?.[ch.proposalId]) || null,
       alternatives: list.filter(c => c.id !== ch.proposalId && ch.altIds.has(c.id)).map(slotOf),
     }
   }, [bySub, choice, slotOf])
@@ -130,6 +132,13 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
     () => buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null),
     [vars, proposal, alternatives, content, multi, sections],
   )
+  const setDate = (sid, cid, iso) => setChoice(m => {
+    const cur = m[sid] || { proposalId: null, altIds: new Set() }
+    const dates = { ...(cur.dates || {}) }
+    if (iso) dates[cid] = iso; else delete dates[cid]
+    return { ...m, [sid]: { ...cur, dates } }
+  })
+  const weekdayOf = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-AU', { weekday: 'long' }) : '')
   const setProposal = (sid, cid) => setChoice(m => ({ ...m, [sid]: { ...(m[sid] || { altIds: new Set() }), proposalId: cid } }))
   const toggleAlt = (sid, cid, on) => setChoice(m => {
     const cur = m[sid] || { proposalId: null, altIds: new Set() }
@@ -230,6 +239,21 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
                           {c.day_of_week}s · {classTimeLabel(c)}
                           {c.nextDate ? <> · next lesson <span className="font-semibold">{fmtLessonDate(c.nextDate)}</span></> : <> · <span className="text-amber-600">no scheduled lesson found</span></>}
                         </p>
+                        {ch.proposalId === c.id && (() => {
+                          const iso = ch.dates?.[c.id] || c.nextDate || ''
+                          const offDay = iso && c.day_of_week && weekdayOf(iso) !== c.day_of_week
+                          return (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                              <span className="text-[11px] font-semibold text-[#325099]">First trial lesson</span>
+                              <input type="date" value={iso} onChange={e => setDate(s.id, c.id, e.target.value)}
+                                className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+                              {ch.dates?.[c.id] && (
+                                <button type="button" onClick={() => setDate(s.id, c.id, null)} className="text-[11px] text-[#325099] hover:underline cursor-pointer">Reset</button>
+                              )}
+                              {offDay && <span className="text-[10px] text-amber-600">That’s a {weekdayOf(iso)} — this class runs {c.day_of_week}s</span>}
+                            </div>
+                          )
+                        })()}
                       </div>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${FIT_STYLE[c.fit]}`}>{FIT_LABEL[c.fit]}</span>
                       {ch.proposalId !== c.id && (
