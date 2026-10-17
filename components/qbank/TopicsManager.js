@@ -11,6 +11,7 @@ import {
 import { SUBJECT_FAMILIES, SCOPE_LABEL, familyOfSubject, stageOfYear, STAGE_LABEL, subjectYearLabel } from '../../lib/qbank'
 import { topicImpact, mirrorAdd, mirrorRename, mirrorDelete } from '../../lib/topicSync'
 import TopicSyncModal from '../TopicSyncModal'
+import { MATHS_STAGES, mathsStageOf, mathsStageLabel, groupRowsByName } from '../../lib/mathsStages'
 
 /*
  * Topics — the years & courses, topics, subtopics and skills that questions
@@ -47,7 +48,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [newSubtopic, setNewSubtopic] = useState('')
-  const [subEdit, setSubEdit] = useState(null)   // { id, text } while a subtopic is edited in place
+  const [subEdit, setSubEdit] = useState(null)   // { key, ids, text } while a subtopic is edited in place
   const [newSkill, setNewSkill] = useState('')
 
   const reload = useCallback(async () => {
@@ -67,12 +68,29 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
     })
   }, [router, reload])
 
-  const topicsForSubject = topics.filter((t) => t.subject_id === subjectId)
-  const subtopicsForTopic = subtopics.filter((st) => st.topic_id === topicId)
+  // A Maths stage (Years 5–6, 7–8, 9–10) is one entry: its years share one
+  // topic list. subjectId is then 'stage:<n>' and the stage's year rows are its
+  // members; every topic and subtopic edit is made in each member year.
+  const activeStage = MATHS_STAGES.find((st) => `stage:${st.stage}` === subjectId) || null
+  const memberSubjects = activeStage
+    ? subjects.filter((s) => s.name === 'Maths' && activeStage.years.includes(Number(s.year_level))).sort((a, b) => a.year_level - b.year_level)
+    : subjects.filter((s) => s.id === subjectId)
+  const yearOfSubject = Object.fromEntries(subjects.map((s) => [s.id, s.year_level]))
+  const yearOfTopic = Object.fromEntries(topics.map((t) => [t.id, yearOfSubject[t.subject_id]]))
+  // Topics and subtopics are shown as ITEMS — one per name across the member
+  // years (simply one row each outside a stage). topicId / subtopicId hold an
+  // item's key; item.rows are the year rows behind it.
+  const topicItems = groupRowsByName(topics.filter((t) => memberSubjects.some((m) => m.id === t.subject_id)), (t) => yearOfSubject[t.subject_id])
+  const topicItem = topicItems.find((i) => i.key === topicId) || null
+  const subtopicItems = topicItem
+    ? groupRowsByName(subtopics.filter((st) => topicItem.rows.some((t) => t.id === st.topic_id)), (st) => yearOfTopic[st.topic_id])
+    : []
+  // "Y7 only" while a stage's two years don't yet agree on an item.
+  const onlyIn = (item) => (activeStage && item.years.length < memberSubjects.length ? `Y${item.years.join(' & ')} only` : null)
   // Skills are shared across a whole stage, not owned by one year: editing the
   // list from Year 8 edits the same list Years 7 and 9-12 see. The heading above
   // the column says so, because the change is invisible otherwise.
-  const activeSubject = subjects.find((s) => s.id === subjectId) || null
+  const activeSubject = memberSubjects[0] || null
   // Chemistry files by the syllabus's own words: modules and inquiry questions
   // (the same topic / subtopic rows underneath).
   const isChem = (scope || (activeSubject && familyOfSubject(activeSubject.name))) === 'Chemistry'
@@ -91,6 +109,13 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const subjectRows = subjects
     .filter((s) => !scope || SUBJECT_FAMILIES[scope].includes(s.name))
     .sort((a, b) => a.year_level - b.year_level || a.name.localeCompare(b.name))
+  // The column's entries: Maths Years 5–10 collapse into their stages.
+  const yearEntries = []
+  for (const s of subjectRows) {
+    const st = mathsStageOf(s)
+    if (!st) { yearEntries.push({ key: s.id, subject: s }); continue }
+    if (!yearEntries.some((e) => e.key === `stage:${st.stage}`)) yearEntries.push({ key: `stage:${st.stage}`, stage: st })
+  }
 
   // ── Mutations ───────────────────────────────────────────────────────────────
   const addSubject = async () => {
@@ -107,24 +132,38 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   // Topics are shared with the workbook Master Database, so every topic edit is
   // proposed to the user first and then written to both sides by lib/topicSync.
   // Subjects, subtopics and skills belong to the bank alone and are unaffected.
-  const subjRow = subjects.find((x) => x.id === subjectId) || null
+  // A stage edit is the same edit in each of its years; the confirmation adds
+  // up what is attached across them. mirrorAdd skips a year that already has
+  // the topic and rename/delete skip a year that doesn't, so each year can
+  // simply be given the edit.
   const proposeTopic = async (action, name, newName) => {
-    if (!subjRow || !name) return
+    if (!memberSubjects.length || !name) return
     setPending({ action, name, newName, impact: null })
-    const impact = await topicImpact(subjRow.year_level, subjRow.name, name)
+    const per = await Promise.all(memberSubjects.map((m) => topicImpact(m.year_level, m.name, name)))
+    const sum = (k) => per.reduce((n, x) => n + (x[k] || 0), 0)
+    const impact = {
+      master: per.find((x) => x.master)?.master || null, qbank: per.find((x) => x.qbank)?.qbank || null,
+      questions: sum('questions'), subtopics: sum('subtopics'), skills: sum('skills'), booklets: sum('booklets'),
+    }
     setPending({ action, name, newName, impact })
   }
   const confirmTopic = async () => {
     const { action, name, newName } = pending
     setBusy(true); setErr('')
-    const y = subjRow.year_level, sub = subjRow.name
-    const res = action === 'add'    ? await mirrorAdd(y, sub, name)
-              : action === 'rename' ? await mirrorRename(y, sub, name, newName)
-              :                       await mirrorDelete(y, sub, name)
+    let res = { ok: true }
+    for (const m of memberSubjects) {
+      res = action === 'add'    ? await mirrorAdd(m.year_level, m.name, name)
+          : action === 'rename' ? await mirrorRename(m.year_level, m.name, name, newName)
+          :                       await mirrorDelete(m.year_level, m.name, name)
+      if (res.error) break
+    }
     setBusy(false)
     if (res.error) { setErr(res.error); return }
     if (action === 'add') setNewTopic('')
-    if (action === 'delete' && pending.impact?.qbank?.id === topicId) { setTopicId(''); setSubtopicId('') }
+    if (topicItem && topicItem.name === name) {
+      if (action === 'delete') { setTopicId(''); setSubtopicId('') }
+      if (action === 'rename') setTopicId(String(newName).trim().toLowerCase())
+    }
     setPending(null); reload()
   }
 
@@ -133,8 +172,9 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
     await proposeTopic('add', newTopic.trim())
   }
   const addSubtopic = async () => {
-    if (!newSubtopic.trim() || !topicId) return
-    await supabase.from(T_QBANK_SUBTOPICS).insert({ topic_id: topicId, name: cleanMultiline(newSubtopic), sort_order: subtopicsForTopic.length })
+    if (!newSubtopic.trim() || !topicItem) return
+    // Into the topic in every year of the item (both years of a stage).
+    await supabase.from(T_QBANK_SUBTOPICS).insert(topicItem.rows.map((t) => ({ topic_id: t.id, name: cleanMultiline(newSubtopic), sort_order: subtopicItems.length })))
     setNewSubtopic(''); reload()
   }
   const addSkill = async () => {
@@ -178,7 +218,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const saveSubEdit = async () => {
     const name = cleanMultiline(subEdit?.text)
     if (!subEdit || !name.trim()) { setSubEdit(null); return }
-    await supabase.from(T_QBANK_SUBTOPICS).update({ name }).eq('id', subEdit.id)
+    await supabase.from(T_QBANK_SUBTOPICS).update({ name }).in('id', subEdit.ids)
     setSubEdit(null); reload()
   }
   const linesOf = (t) => Math.min(10, Math.max(1, String(t || '').split('\n').length))
@@ -206,6 +246,24 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
     if (table === T_QBANK_SUBJECTS && id === subjectId) { setSubjectId(''); setTopicId(''); setSubtopicId('') }
     if (table === T_QBANK_TOPICS && id === topicId) { setTopicId(''); setSubtopicId('') }
     if (table === T_QBANK_SUBTOPICS && id === subtopicId) setSubtopicId('')
+    reload()
+  }
+  // Reorder an item list (topics / subtopics): every row behind each item takes
+  // the item's new position, so a stage's years keep the same order.
+  const moveItem = async (table, items, item, dir) => {
+    const i = items.findIndex((x) => x.key === item.key)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= items.length) return
+    const next = [...items]; [next[i], next[j]] = [next[j], next[i]]
+    await Promise.all(next.flatMap((it, k) => it.rows.filter((r) => r.sort_order !== k)
+      .map((r) => supabase.from(table).update({ sort_order: k }).eq('id', r.id))))
+    reload()
+  }
+  const removeSubtopicItem = async (item) => {
+    if (!confirm(`Delete "${item.name.split('\n')[0]}"${item.rows.length > 1 ? ` from Years ${item.years.join(' and ')}` : ''}? This also removes the skills under it. Questions are kept — they stay in the bank with no ${L.subtopic} allocated, ready to be re-tagged.`)) return
+    const { error } = await supabase.from(T_QBANK_SUBTOPICS).delete().in('id', item.rows.map((r) => r.id))
+    if (error) { alert(error.message); return }
+    if (subtopicId === item.key) setSubtopicId('')
     reload()
   }
   const move = async (table, list, item, dir) => {
@@ -240,22 +298,30 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
           {/* Subjects */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
             <h2 className="text-sm font-bold text-[#062E63]">Years &amp; courses</h2>
-            <p className="text-[11px] text-[#2A2035]/45 mb-2">One row per year and course.</p>
+            <p className="text-[11px] text-[#2A2035]/45 mb-2">One row per year and course{yearEntries.some((e) => e.stage) ? ' — Maths Years 5–10 by stage, each stage one shared list' : ''}.</p>
             <button onClick={() => { setNewSubName(''); setAddingSubject(true) }}
               className="w-full mb-3 px-3 py-1.5 max-md:py-2.5 rounded-lg border border-dashed border-[#BACBFF] text-xs font-semibold text-[#325099] hover:bg-[#F5F8FF] transition">
               + Add year or course
             </button>
             <div className="max-h-[60vh] overflow-y-auto">
-              {subjectRows.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No years yet.</p>}
-              {subjectRows.map((s) => (
-                <Row key={s.id}>
-                  <button onClick={() => { setSubjectId(s.id); setTopicId('') }}
-                    className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${subjectId === s.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
-                    {subjectYearLabel(s, familyOfSubject(s.name))}
-                    {!scope && <span className="text-[11px] text-[#2A2035]/35 ml-1.5">{familyOfSubject(s.name)}</span>}
+              {yearEntries.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No years yet.</p>}
+              {yearEntries.map((e) => e.stage ? (
+                <Row key={e.key}>
+                  <button onClick={() => { setSubjectId(e.key); setTopicId(''); setSubtopicId('') }}
+                    className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${subjectId === e.key ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                    {mathsStageLabel(e.stage)}
+                    {!scope && <span className="text-[11px] text-[#2A2035]/35 ml-1.5">Maths</span>}
                   </button>
-                  <button className={editBtn} onClick={() => rename(T_QBANK_SUBJECTS, s.id, prompt('Rename subject', s.name))}>edit</button>
-                  <button className={editBtn} onClick={() => remove(T_QBANK_SUBJECTS, s.id, s.name)}>✕</button>
+                </Row>
+              ) : (
+                <Row key={e.key}>
+                  <button onClick={() => { setSubjectId(e.key); setTopicId(''); setSubtopicId('') }}
+                    className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${subjectId === e.key ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                    {subjectYearLabel(e.subject, familyOfSubject(e.subject.name))}
+                    {!scope && <span className="text-[11px] text-[#2A2035]/35 ml-1.5">{familyOfSubject(e.subject.name)}</span>}
+                  </button>
+                  <button className={editBtn} onClick={() => rename(T_QBANK_SUBJECTS, e.subject.id, prompt('Rename subject', e.subject.name))}>edit</button>
+                  <button className={editBtn} onClick={() => remove(T_QBANK_SUBJECTS, e.subject.id, e.subject.name)}>✕</button>
                 </Row>
               ))}
             </div>
@@ -275,17 +341,18 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                   <button onClick={addTopic} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {topicsForSubject.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Topics.toLowerCase()} yet.</p>}
-                  {topicsForSubject.map((t) => (
-                    <Row key={t.id}>
-                      <button onClick={() => { setTopicId(t.id); setSubtopicId('') }}
-                        className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${topicId === t.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                  {topicItems.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Topics.toLowerCase()} yet.</p>}
+                  {topicItems.map((t) => (
+                    <Row key={t.key}>
+                      <button onClick={() => { setTopicId(t.key); setSubtopicId('') }}
+                        className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${topicId === t.key ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {t.name}
+                        {onlyIn(t) && <span className="ml-1.5 text-[10px] font-semibold text-[#B45309] bg-amber-50 border border-amber-200 rounded-full px-1.5 py-px align-middle">{onlyIn(t)}</span>}
                       </button>
-                      <button className={editBtn} onClick={() => move(T_QBANK_TOPICS, topicsForSubject, t, -1)}>↑</button>
-                      <button className={editBtn} onClick={() => move(T_QBANK_TOPICS, topicsForSubject, t, 1)}>↓</button>
-                      <button className={editBtn} onClick={() => rename(T_QBANK_TOPICS, t.id, prompt(`Rename ${L.topic}`, t.name))}>edit</button>
-                      <button className={editBtn} onClick={() => remove(T_QBANK_TOPICS, t.id, t.name)}>✕</button>
+                      <button className={editBtn} onClick={() => moveItem(T_QBANK_TOPICS, topicItems, t, -1)}>↑</button>
+                      <button className={editBtn} onClick={() => moveItem(T_QBANK_TOPICS, topicItems, t, 1)}>↓</button>
+                      <button className={editBtn} onClick={() => { const n = prompt(`Rename ${L.topic}`, t.name); if (n != null && n.trim() && n.trim() !== t.name) proposeTopic('rename', t.name, n.trim()) }}>edit</button>
+                      <button className={editBtn} onClick={() => proposeTopic('delete', t.name)}>✕</button>
                     </Row>
                   ))}
                 </div>
@@ -308,15 +375,15 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                   <button onClick={addSubtopic} className="px-2.5 py-1.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <p className="text-[10px] text-[#2A2035]/40 mb-3 px-0.5">Shift+Enter for a new line · Tab to indent</p>
-                {isChem && subtopicsForTopic.some((st) => st.syllabus_dotpoint_id) && (
+                {isChem && subtopicItems.some((i) => i.rows.some((st) => st.syllabus_dotpoint_id)) && (
                   <p className="text-[11px] text-[#325099] bg-[#F5F8FF] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 mb-3">
                     Copied from the official syllabus — every dot point is already here, so there’s no need to type them in.
                   </p>
                 )}
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {subtopicsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Subtopics.toLowerCase()} yet.</p>}
-                  {subtopicsForTopic.map((st) => subEdit?.id === st.id ? (
-                    <div key={st.id} className="px-1 py-2">
+                  {subtopicItems.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Subtopics.toLowerCase()} yet.</p>}
+                  {subtopicItems.map((st) => subEdit?.key === st.key ? (
+                    <div key={st.key} className="px-1 py-2">
                       <textarea autoFocus value={subEdit.text} rows={linesOf(subEdit.text)}
                         onChange={(e) => setSubEdit((x) => ({ ...x, text: e.target.value }))}
                         onKeyDown={(e) => { if (e.key === 'Escape') { setSubEdit(null); return } multilineKeys(e, subEdit.text, (v) => setSubEdit((x) => ({ ...x, text: v })), saveSubEdit) }}
@@ -328,15 +395,16 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                       </div>
                     </div>
                   ) : (
-                    <Row key={st.id}>
-                      <button onClick={() => setSubtopicId(st.id)}
-                        className={`flex-1 min-w-0 break-words whitespace-pre-wrap text-left text-sm max-md:py-1 ${subtopicId === st.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                    <Row key={st.key}>
+                      <button onClick={() => setSubtopicId(st.key)}
+                        className={`flex-1 min-w-0 break-words whitespace-pre-wrap text-left text-sm max-md:py-1 ${subtopicId === st.key ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {st.name}
+                        {onlyIn(st) && <span className="ml-1.5 text-[10px] font-semibold text-[#B45309] bg-amber-50 border border-amber-200 rounded-full px-1.5 py-px align-middle whitespace-nowrap">{onlyIn(st)}</span>}
                       </button>
-                      <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, -1)}>↑</button>
-                      <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, 1)}>↓</button>
-                      <button className={editBtn} onClick={() => setSubEdit({ id: st.id, text: st.name })}>edit</button>
-                      <button className={editBtn} onClick={() => remove(T_QBANK_SUBTOPICS, st.id, st.name)}>✕</button>
+                      <button className={editBtn} onClick={() => moveItem(T_QBANK_SUBTOPICS, subtopicItems, st, -1)}>↑</button>
+                      <button className={editBtn} onClick={() => moveItem(T_QBANK_SUBTOPICS, subtopicItems, st, 1)}>↓</button>
+                      <button className={editBtn} onClick={() => setSubEdit({ key: st.key, ids: st.rows.map((r) => r.id), text: st.name })}>edit</button>
+                      <button className={editBtn} onClick={() => removeSubtopicItem(st)}>✕</button>
                     </Row>
                   ))}
                 </div>
@@ -417,8 +485,9 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
         </div>
       )}
 
-      {pending && subjRow && (
-        <TopicSyncModal from="qbank" year={subjRow.year_level} subject={subjRow.name}
+      {pending && activeSubject && (
+        <TopicSyncModal from="qbank" year={activeSubject.year_level} subject={activeSubject.name}
+          whereLabel={activeStage ? `${mathsStageLabel(activeStage)} Maths — both years` : undefined}
           action={pending.action} name={pending.name} newName={pending.newName}
           impact={pending.impact} busy={busy} error={err}
           onConfirm={confirmTopic} onCancel={() => { setPending(null); setErr('') }} />

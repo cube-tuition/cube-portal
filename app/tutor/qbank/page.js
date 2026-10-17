@@ -15,6 +15,7 @@ import {
   buildTaxonomyMaps, labelForQuestion,
   SUBJECT_FAMILIES, SCOPE_LABEL, partLabel, questionTotalMarks, fetchAllRows, splitStemSource } from '../../../lib/qbank'
 import UsageBadge from '../../../components/qbank/UsageBadge'
+import { MATHS_STAGES, mathsStageOf, groupRowsByName } from '../../../lib/mathsStages'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 
 // Streams CUBE does not run, so a pill for them is noise. The subject rows stay
@@ -124,7 +125,25 @@ function QuestionBankInner() {
       .sort((a, b) => a.year_level - b.year_level || a.name.localeCompare(b.name))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tax, activeSubject])
-  const subjectId = year   // the dropdown stores the subject id
+  // The pill stores a subject id — or 'stage:<n>' for a Maths stage, which
+  // covers both its years (they share one topic list; lib/mathsStages).
+  const yearStage = MATHS_STAGES.find((st) => `stage:${st.stage}` === year) || null
+  const yearSubjectIds = useMemo(() => (yearStage
+    ? (tax?.subjects || []).filter((s) => s.name === 'Maths' && yearStage.years.includes(Number(s.year_level))).map((s) => s.id)
+    : (year ? [year] : [])), [tax, year, yearStage])
+  const subjectId = yearSubjectIds[0] || ''   // a year's row (a stage: its first year)
+  // Pills: each Maths stage, followed by its own years.
+  const yearPills = useMemo(() => {
+    const out = []
+    for (const s of yearOptions) {
+      const st = mathsStageOf(s)
+      if (st && !out.some((p) => p.id === `stage:${st.stage}`)) {
+        out.push({ id: `stage:${st.stage}`, label: `Stage ${st.stage}`, ids: yearOptions.filter((x) => mathsStageOf(x) === st).map((x) => x.id) })
+      }
+      out.push({ id: s.id, subject: s, ids: [s.id] })
+    }
+    return out
+  }, [yearOptions])
   // Question counts per master tab (family-aware, for the tab badges).
   // Untagged is its own bucket: deleting a topic keeps its questions and clears
   // their tags, and without somewhere to list them they would be invisible here.
@@ -151,10 +170,14 @@ function QuestionBankInner() {
     return c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions, labelFor])
-  const topicsForSubject = useMemo(() => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []), [tax, subjectId])
-  const subtopicsForTopic = useMemo(() => (tax && topicId ? (tax.subtopicsByTopic[topicId] || []) : []), [tax, topicId])
+  // Topic / subtopic filter options as name-grouped items: a stage shows its
+  // shared list once, each item standing for both years' rows.
+  const topicItems = useMemo(() => (tax ? groupRowsByName(yearSubjectIds.flatMap((id) => tax.topicsBySubject[id] || [])) : []), [tax, yearSubjectIds])
+  const topicItem = topicItems.find((i) => i.key === topicId) || null
+  const subtopicItems = useMemo(() => (tax && topicItem ? groupRowsByName(topicItem.rows.flatMap((t) => tax.subtopicsByTopic[t.id] || [])) : []), [tax, topicItem])
+  const subtopicItem = subtopicItems.find((i) => i.key === subtopicId) || null
   // Skills are a subject-level dimension — available as soon as a year/subject is picked.
-  const skillsForFilter = useMemo(() => (tax && year ? (tax.skillsBySubject[year] || []) : []), [tax, year])
+  const skillsForFilter = useMemo(() => (tax && subjectId ? (tax.skillsBySubject[subjectId] || []) : []), [tax, subjectId])
 
   // Questions matching every filter EXCEPT the Used/Unused tab. Drives both the
   // list and the usage-tab counts, so the counts reflect the active subject/filters.
@@ -170,9 +193,9 @@ function QuestionBankInner() {
       } else if (!familyFor(activeSubject).includes(l.subject?.name)) return false
       if (activeSubject !== UNTAGGED) {
         if (skillId && q.skill_id !== skillId) return false
-        if (subtopicId && l.subtopic?.id !== subtopicId) return false
-        if (topicId && l.topic?.id !== topicId) return false
-        if (year && String(l.subject?.id) !== String(year)) return false
+        if (subtopicId && !subtopicItem?.rows.some((st) => st.id === l.subtopic?.id)) return false
+        if (topicId && !topicItem?.rows.some((t) => t.id === l.topic?.id)) return false
+        if (year && !yearSubjectIds.some((id) => String(id) === String(l.subject?.id))) return false
       }
       if (difficulty && String(q.difficulty) !== String(difficulty)) return false
       if (qtype && q.qtype !== qtype) return false
@@ -182,7 +205,7 @@ function QuestionBankInner() {
       }
       return true
     })
-  }, [questions, maps, labelFor, activeSubject, year, topicId, subtopicId, skillId, difficulty, qtype, search])
+  }, [questions, maps, labelFor, activeSubject, year, yearSubjectIds, topicId, topicItem, subtopicId, subtopicItem, skillId, difficulty, qtype, search])
 
   // apply the CUBE/Students tab, then the Used/Unused tab, on top of the scoped set
   const audienceScoped = useMemo(
@@ -281,13 +304,14 @@ function QuestionBankInner() {
             selected, and the Clear button below returns to that. */}
         {activeSubject !== UNTAGGED && yearOptions.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-5">
-            {yearOptions.map((s) => (
-              <button key={s.id}
-                onClick={() => { setYear(s.id); setTopicId(''); setSubtopicId(''); setSkillId('') }}
-                className={yearPill(year === s.id)}>
-                {yearOptionLabel(s)}
-                <span className={`ml-1 text-[10px] font-normal ${year === s.id ? 'text-white/70' : 'text-[#2A2035]/35'}`}>
-                  {yearCounts[s.id] || 0}
+            {yearPills.map((p) => (
+              <button key={p.id}
+                onClick={() => { setYear(p.id); setTopicId(''); setSubtopicId(''); setSkillId('') }}
+                className={`${yearPill(year === p.id)}${p.subject ? '' : ' font-bold'}`}
+                title={p.subject ? undefined : 'Both years of the stage — they share one topic list'}>
+                {p.subject ? yearOptionLabel(p.subject) : p.label}
+                <span className={`ml-1 text-[10px] font-normal ${year === p.id ? 'text-white/70' : 'text-[#2A2035]/35'}`}>
+                  {p.ids.reduce((n, id) => n + (yearCounts[id] || 0), 0)}
                 </span>
               </button>
             ))}
@@ -309,7 +333,7 @@ function QuestionBankInner() {
             clearLabel={activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}
             disabled={!subjectId}
             disabledHint="Pick a year first"
-            options={topicsForSubject.map((t) => ({ value: t.id, label: t.name }))}
+            options={topicItems.map((t) => ({ value: t.key, label: t.name }))}
             onSelect={(v) => { setTopicId(v); setSubtopicId(''); setSkillId('') }}
           />
           <FilterSelect
@@ -320,7 +344,7 @@ function QuestionBankInner() {
             disabledHint={activeSubject === 'Chemistry' ? 'Pick a module first' : 'Pick a topic first'}
             // A Chemistry inquiry question is a whole dot point with its examples
             // on following lines — the dot point itself is the label.
-            options={subtopicsForTopic.map((st) => ({ value: st.id, label: firstLine(st.name) }))}
+            options={subtopicItems.map((st) => ({ value: st.key, label: firstLine(st.name) }))}
             onSelect={(v) => { setSubtopicId(v); setSkillId('') }}
           />
           <FilterSelect

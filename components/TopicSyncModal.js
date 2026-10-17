@@ -14,11 +14,12 @@
  */
 const LABEL = { master: 'Master Database', qbank: 'Question Bank' }
 
-export default function TopicSyncModal({ action, from, year, subject, name, newName, impact, busy, error, onConfirm, onCancel }) {
+export default function TopicSyncModal({ action, from, year, subject, name, newName, impact, busy, error, onConfirm, onCancel, whereLabel }) {
   if (!action || !impact) return null
   const other = from === 'master' ? 'qbank' : 'master'
   const otherHas = other === 'master' ? !!impact.master : !!impact.qbank
-  const where = `Year ${year} ${subject}`
+  // whereLabel: a Maths stage edit spans two years ("Stage 4 (Years 7–8) Maths").
+  const where = whereLabel || `Year ${year} ${subject}`
 
   // Removed with the topic: the taxonomy under it. Questions are kept, so they
   // are reported separately rather than listed among the casualties.
