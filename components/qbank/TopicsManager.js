@@ -72,6 +72,12 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   // list from Year 8 edits the same list Years 7 and 9-12 see. The heading above
   // the column says so, because the change is invisible otherwise.
   const activeSubject = subjects.find((s) => s.id === subjectId) || null
+  // Chemistry files by the syllabus's own words: modules and inquiry questions
+  // (the same topic / subtopic rows underneath).
+  const isChem = (scope || (activeSubject && familyOfSubject(activeSubject.name))) === 'Chemistry'
+  const L = isChem
+    ? { Topics: 'Modules', topic: 'module', Subtopics: 'Inquiry Questions', subtopic: 'inquiry question' }
+    : { Topics: 'Topics', topic: 'topic', Subtopics: 'Subtopics', subtopic: 'subtopic' }
   const skillScope = activeSubject
     ? { family: familyOfSubject(activeSubject.name), stage: stageOfYear(activeSubject.year_level) }
     : null
@@ -158,10 +164,10 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
     // Questions are never deleted with their taxonomy: topic_id, subtopic_id and
     // skill_id are all ON DELETE SET NULL, so the question stays in the bank and
     // simply loses that tag. Only the rows below it in the list go with it.
-    const inside = table === T_QBANK_SUBJECTS ? ' This also removes its topics, subtopics and skills.'
+    const inside = table === T_QBANK_SUBJECTS ? ` This also removes its ${L.Topics.toLowerCase()}, ${L.Subtopics.toLowerCase()} and skills.`
                  : table === T_QBANK_SUBTOPICS ? ' This also removes the skills under it.'
                  : ''
-    if (!confirm(`Delete "${label}"?${inside} Questions are kept — they stay in the bank with no topic allocated, ready to be re-tagged.`)) return
+    if (!confirm(`Delete "${label}"?${inside} Questions are kept — they stay in the bank with no ${L.topic} allocated, ready to be re-tagged.`)) return
     const { error } = await supabase.from(table).delete().eq('id', id)
     if (error) { alert(error.message); return }
     if (table === T_QBANK_SUBJECTS && id === subjectId) { setSubjectId(''); setTopicId(''); setSubtopicId('') }
@@ -222,19 +228,19 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
 
           {/* Topics */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
-            <h2 className="text-sm font-bold text-[#062E63] mb-2">Topics</h2>
+            <h2 className="text-sm font-bold text-[#062E63] mb-2">{L.Topics}</h2>
             {!subjectId ? (
               <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a subject →</p>
             ) : (
               <>
                 <div className="flex gap-1.5 mb-3">
                   <input value={newTopic} onChange={(e) => setNewTopic(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addTopic()} placeholder="New topic…"
+                    onKeyDown={(e) => e.key === 'Enter' && addTopic()} placeholder={`New ${L.topic}…`}
                     className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
                   <button onClick={addTopic} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {topicsForSubject.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No topics yet.</p>}
+                  {topicsForSubject.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Topics.toLowerCase()} yet.</p>}
                   {topicsForSubject.map((t) => (
                     <Row key={t.id}>
                       <button onClick={() => { setTopicId(t.id); setSubtopicId('') }}
@@ -243,7 +249,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                       </button>
                       <button className={editBtn} onClick={() => move(T_QBANK_TOPICS, topicsForSubject, t, -1)}>↑</button>
                       <button className={editBtn} onClick={() => move(T_QBANK_TOPICS, topicsForSubject, t, 1)}>↓</button>
-                      <button className={editBtn} onClick={() => rename(T_QBANK_TOPICS, t.id, prompt('Rename topic', t.name))}>edit</button>
+                      <button className={editBtn} onClick={() => rename(T_QBANK_TOPICS, t.id, prompt(`Rename ${L.topic}`, t.name))}>edit</button>
                       <button className={editBtn} onClick={() => remove(T_QBANK_TOPICS, t.id, t.name)}>✕</button>
                     </Row>
                   ))}
@@ -254,19 +260,19 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
 
           {/* Subtopics */}
           <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4">
-            <h2 className="text-sm font-bold text-[#062E63] mb-2">Subtopics</h2>
+            <h2 className="text-sm font-bold text-[#062E63] mb-2">{L.Subtopics}</h2>
             {!topicId ? (
-              <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a topic →</p>
+              <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a {L.topic} →</p>
             ) : (
               <>
                 <div className="flex gap-1.5 mb-3">
                   <input value={newSubtopic} onChange={(e) => setNewSubtopic(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addSubtopic()} placeholder="New subtopic…"
+                    onKeyDown={(e) => e.key === 'Enter' && addSubtopic()} placeholder={`New ${L.subtopic}…`}
                     className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
                   <button onClick={addSubtopic} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {subtopicsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No subtopics yet.</p>}
+                  {subtopicsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Subtopics.toLowerCase()} yet.</p>}
                   {subtopicsForTopic.map((st) => (
                     <Row key={st.id}>
                       <button onClick={() => setSubtopicId(st.id)}
@@ -275,7 +281,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                       </button>
                       <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, -1)}>↑</button>
                       <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, 1)}>↓</button>
-                      <button className={editBtn} onClick={() => rename(T_QBANK_SUBTOPICS, st.id, prompt('Rename subtopic', st.name))}>edit</button>
+                      <button className={editBtn} onClick={() => rename(T_QBANK_SUBTOPICS, st.id, prompt(`Rename ${L.subtopic}`, st.name))}>edit</button>
                       <button className={editBtn} onClick={() => remove(T_QBANK_SUBTOPICS, st.id, st.name)}>✕</button>
                     </Row>
                   ))}
