@@ -333,7 +333,10 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
             <div><span className="font-semibold">Submitted:</span> {fmtDate(sub.submitted_at)} ({age}d ago)</div>
             <div><span className="font-semibold">Invitation sent:</span> {sub.invitation_sent_at ? fmtDate(sub.invitation_sent_at) : '—'}</div>
             <div><span className="font-semibold">Reminder sent:</span> {sub.reminder_sent_at ? fmtDate(sub.reminder_sent_at) : '—'}</div>
-            <div><span className="font-semibold">Trial date:</span> {fmtDate(sub.trial_date)}</div>
+            {/* The first trial lesson lives on the enrolment (set with the First
+                trial picker beside the class); trial_submissions.trial_date is
+                never filled in. */}
+            <div><span className="font-semibold">First trial lesson:</span> {sub._trialStart ? fmtDay(sub._trialStart) : (sub.trial_date ? fmtDate(sub.trial_date) : '—')}</div>
             <div><span className="font-semibold">Source:</span> {sub.source || '—'}</div>
             <div className="col-span-full flex items-center gap-2 flex-wrap">
               <span className="font-semibold">How heard:</span>
