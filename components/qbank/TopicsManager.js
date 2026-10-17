@@ -308,6 +308,11 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                   <button onClick={addSubtopic} className="px-2.5 py-1.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <p className="text-[10px] text-[#2A2035]/40 mb-3 px-0.5">Shift+Enter for a new line · Tab to indent</p>
+                {isChem && subtopicsForTopic.some((st) => st.syllabus_dotpoint_id) && (
+                  <p className="text-[11px] text-[#325099] bg-[#F5F8FF] border border-[#DEE7FF] rounded-lg px-2.5 py-1.5 mb-3">
+                    Copied from the official syllabus — every dot point is already here, so there’s no need to type them in.
+                  </p>
+                )}
                 <div className="max-h-[60vh] overflow-y-auto">
                   {subtopicsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Subtopics.toLowerCase()} yet.</p>}
                   {subtopicsForTopic.map((st) => subEdit?.id === st.id ? (

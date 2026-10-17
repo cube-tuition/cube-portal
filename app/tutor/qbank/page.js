@@ -38,6 +38,9 @@ const yearPill = (on) =>
     ? 'bg-[#325099] text-white border-[#325099]'
     : 'bg-white text-[#2A2035]/65 border-[#DEE7FF] hover:text-[#2A2035] hover:border-[#BACBFF]'}`
 
+// The first line of a multi-line topic name (a dot point without its examples).
+const firstLine = (name) => String(name || '').split('\n')[0]
+
 export default function QuestionBankPage() {
   return <Suspense><QuestionBankInner /></Suspense>
 }
@@ -311,11 +314,13 @@ function QuestionBankInner() {
           />
           <FilterSelect
             value={subtopicId}
-            placeholder="All subtopics"
-            clearLabel="All subtopics"
+            placeholder={activeSubject === 'Chemistry' ? 'All inquiry questions' : 'All subtopics'}
+            clearLabel={activeSubject === 'Chemistry' ? 'All inquiry questions' : 'All subtopics'}
             disabled={!topicId}
             disabledHint={activeSubject === 'Chemistry' ? 'Pick a module first' : 'Pick a topic first'}
-            options={subtopicsForTopic.map((st) => ({ value: st.id, label: st.name }))}
+            // A Chemistry inquiry question is a whole dot point with its examples
+            // on following lines — the dot point itself is the label.
+            options={subtopicsForTopic.map((st) => ({ value: st.id, label: firstLine(st.name) }))}
             onSelect={(v) => { setSubtopicId(v); setSkillId('') }}
           />
           <FilterSelect
@@ -422,7 +427,7 @@ function QuestionBankInner() {
                   />
                   {l?.subject && <span className="text-[11px] text-[#325099]">Yr {l.subject.year_level} · {l.subject.name}</span>}
                   {l?.topic && <span className="text-[11px] text-[#2A2035]/40">› {l.topic.name}</span>}
-                  {l?.subtopic && <span className="text-[11px] text-[#2A2035]/40">› {l.subtopic.name}</span>}
+                  {l?.subtopic && <span title={l.subtopic.name} className="text-[11px] text-[#2A2035]/40 truncate max-w-[26rem]">› {firstLine(l.subtopic.name)}</span>}
                   {l?.skill && <span className="text-[11px] text-[#2A2035]/40">› {l.skill.name}</span>}
                   {!l?.topic && <span className="text-[11px] text-[#EA580C]">⚠ untagged</span>}
                   <div className="ml-auto flex flex-wrap items-center gap-3 max-md:w-full max-md:justify-end max-md:pt-1">

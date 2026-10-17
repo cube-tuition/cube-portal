@@ -11,7 +11,6 @@ import {
   DIFFICULTY_LABELS, DIFFICULTY_COLORS, MCQ_LABELS, fetchQuestionUsage,
   defaultCriterion, TOP_CRITERION, partLabel, sumPartMarks,
 } from '../../lib/qbank'
-import { fetchSyllabus } from '../../lib/syllabus'
 import LatexField from './LatexField'
 import { MathObjFields, EMPTY_MATHOBJ } from '../booklet/BlockEditor'
 import ImageManager from './ImageManager'
@@ -34,7 +33,7 @@ function MultiChecklist({ label, groups, selected, onToggle, empty }) {
               <div key={o.id}>
                 <label className="flex items-start gap-2 px-1 py-1 rounded hover:bg-[#F0F4FF] cursor-pointer">
                   <input type="checkbox" className="mt-0.5 accent-[#325099]" checked={sel.has(o.id)} onChange={() => onToggle(o.id)} />
-                  <span className="text-[13px] text-[#2A2035] leading-snug">{o.name}</span>
+                  <span className="text-[13px] text-[#2A2035] leading-snug whitespace-pre-wrap">{o.name}</span>
                 </label>
                 {o.subs?.length ? (
                   <ul className="ml-7 mb-1 space-y-0.5">
@@ -104,13 +103,10 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
   const [subjectName, setSubjectName] = useState('')
   const [year, setYear] = useState('')
   const [topicId, setTopicId] = useState('')
-  const [subtopicIds, setSubtopicIds] = useState([])   // many subtopics (Maths/English)
+  const [subtopicIds, setSubtopicIds] = useState([])   // many subtopics (Chemistry: inquiry questions)
   const [skillIds, setSkillIds] = useState([])         // many skills (independent dimension)
-  const [dotpointIds, setDotpointIds] = useState([])   // many syllabus dotpoints (Chemistry)
-  const [chemSyllabus, setChemSyllabus] = useState([]) // modules→topics→dotpoints for the year
   const [mathObj, setMathObj] = useState(null)         // code-drawn figure (question.math_obj)
   const [stimulus, setStimulus] = useState('')         // passage printed above the stem
-  const [dpModuleTab, setDpModuleTab] = useState(null) // active module tab in the dotpoint picker
 
   // Question fields
   const [qtype, setQtype] = useState('extended')   // 'extended' | 'mcq'
@@ -173,16 +169,14 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           if (subject) { setSubjectName(subject.name); setYear(String(subject.year_level)) }
           if (topic) setTopicId(topic.id)
           // Multi tags from the join tables (fall back to legacy single columns).
-          const [{ data: stRows }, { data: skRows }, { data: dpRows }] = await Promise.all([
+          const [{ data: stRows }, { data: skRows }] = await Promise.all([
             supabase.from('qbank_question_subtopics').select('subtopic_id').eq('question_id', questionId),
             supabase.from('qbank_question_skills').select('skill_id').eq('question_id', questionId),
-            supabase.from('qbank_question_dotpoints').select('dotpoint_id').eq('question_id', questionId),
           ])
           const stIds = (stRows || []).map((r) => r.subtopic_id)
           const skIds = (skRows || []).map((r) => r.skill_id)
           setSubtopicIds(stIds.length ? stIds : (subtopic ? [subtopic.id] : []))
           setSkillIds(skIds.length ? skIds : (skill ? [skill.id] : []))
-          setDotpointIds((dpRows || []).map((r) => r.dotpoint_id))
 
           const { data: pr } = await supabase.from(T_QBANK_QUESTION_PARTS)
             .select('*').eq('question_id', questionId).order('sort_order')
@@ -239,17 +233,6 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, questionId])
 
-  // Load the whole-year syllabus dotpoints for Chemistry (drawn from the master list).
-  useEffect(() => {
-    let alive = true
-    if (subjectName === 'Chemistry' && year) {
-      fetchSyllabus('Chemistry', Number(year)).then((m) => { if (alive) setChemSyllabus(m) })
-    } else {
-      Promise.resolve().then(() => { if (alive) setChemSyllabus([]) })
-    }
-    return () => { alive = false }
-  }, [subjectName, year])
-
   // ── Derived dropdown lists ──────────────────────────────────────────────────
   // Distinct subject names (Maths / English / Chemistry) for the subject selector.
   const subjectNames = useMemo(() => (tax ? [...new Set(tax.subjects.map((s) => s.name))] : []), [tax])
@@ -267,15 +250,22 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     () => (tax && subjectId ? (tax.topicsBySubject[subjectId] || []) : []),
     [tax, subjectId],
   )
-  const isChem = subjectName === 'Chemistry'   // Chemistry calls topics "Modules"
+  // Chemistry calls topics "Modules" and subtopics "Inquiry questions" — each one
+  // a syllabus dot point, copied from the master syllabus
+  // (scripts/qbank-chem-syllabus.mjs).
+  const isChem = subjectName === 'Chemistry'
   // Subtopics across the whole subject+year, grouped by topic (subtopics can come
-  // from any topic, not just the chosen one).
+  // from any topic, not just the chosen one). A Chemistry year has well over a
+  // hundred dot points, so there only the chosen module is listed — plus any
+  // module holding one already ticked, so a selection is never hidden.
   const subtopicGroups = useMemo(() => {
     if (!tax || !subjectId) return []
+    const sel = new Set(subtopicIds)
     return (tax.topicsBySubject[subjectId] || [])
       .map((t) => ({ key: t.id, label: t.name, options: (tax.subtopicsByTopic[t.id] || []).map((st) => ({ id: st.id, name: st.name })) }))
       .filter((g) => g.options.length)
-  }, [tax, subjectId])
+      .filter((g) => !isChem || !topicId || g.key === topicId || g.options.some((o) => sel.has(o.id)))
+  }, [tax, subjectId, isChem, topicId, subtopicIds])
   // What a subquestion can be filed under for exam marking: any topic of the
   // subject+year, or one of its subtopics.
   const partTopicGroups = useMemo(() => {
@@ -291,31 +281,6 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     const opts = (tax.skillsBySubject?.[subjectId] || []).map((s) => ({ id: s.id, name: s.name }))
     return opts.length ? [{ key: 'skills', label: '', options: opts }] : []
   }, [tax, subjectId])
-  // Chemistry dotpoints are browsed by module tab. The active module's dotpoints
-  // are grouped by topic within the checklist.
-  const activeModule = useMemo(
-    () => chemSyllabus.find((m) => m.id === dpModuleTab) || chemSyllabus[0] || null,
-    [chemSyllabus, dpModuleTab],
-  )
-  // Only the MAIN dotpoint is selectable; its sub-dotpoints show beneath it as
-  // read-only context.
-  const activeModuleGroups = useMemo(() => (activeModule
-    ? activeModule.topics
-      .map((t) => ({ key: t.id, label: t.name, options: t.dotpoints.map((d) => ({ id: d.id, name: d.text, subs: (d.subs || []).map((s) => s.text) })) }))
-      .filter((g) => g.options.length)
-    : []), [activeModule])
-  // How many main dotpoints are selected within each module (for the tab badges).
-  const dpCountByModule = useMemo(() => {
-    const sel = new Set(dotpointIds)
-    const out = {}
-    for (const m of chemSyllabus) {
-      let n = 0
-      for (const t of m.topics) for (const d of t.dotpoints) if (sel.has(d.id)) n++
-      out[m.id] = n
-    }
-    return out
-  }, [chemSyllabus, dotpointIds])
-
   // ── Create a new topic / subtopic / skill inline from the dropdowns ─────────
   const addTopic = async () => {
     const name = (window.prompt(isChem ? 'New module name:' : 'New topic name:') || '').trim()
@@ -327,8 +292,8 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
     setTopicId(data.id)
   }
   const addSubtopic = async () => {
-    if (!topicId) { setError('Pick a Topic/Module first to add a subtopic under it.'); return }
-    const name = (window.prompt('New subtopic name:') || '').trim()
+    if (!topicId) { setError(`Pick a ${isChem ? 'module' : 'topic'} first to add ${isChem ? 'an inquiry question' : 'a subtopic'} under it.`); return }
+    const name = (window.prompt(isChem ? 'New inquiry question:' : 'New subtopic name:') || '').trim()
     if (!name) return
     const { data, error: e } = await supabase.from(T_QBANK_SUBTOPICS)
       .insert({ topic_id: topicId, name }).select('id').single()
@@ -363,7 +328,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
       const payload = {
         // Single columns kept for back-compat (analysis/legacy) = first selected.
         skill_id: skillIds[0] || null,
-        subtopic_id: isChem ? null : (subtopicIds[0] || null),
+        subtopic_id: subtopicIds[0] || null,
         topic_id: topicId,
         qtype,
         stem_latex: stem,
@@ -423,9 +388,10 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
           if (e) throw e
         }
       }
-      await replaceJoin('qbank_question_subtopics', 'subtopic_id', isChem ? [] : subtopicIds)
+      await replaceJoin('qbank_question_subtopics', 'subtopic_id', subtopicIds)
       await replaceJoin('qbank_question_skills', 'skill_id', skillIds)
-      await replaceJoin('qbank_question_dotpoints', 'dotpoint_id', isChem ? dotpointIds : [])
+      // qbank_question_dotpoints (the old Chemistry picker) is no longer written;
+      // its tags were carried over to inquiry questions.
 
       // Images: delete removed (stem + solution), upload new with their role
       const removedAll = [...removedImageIds, ...removedSolutionImageIds]
@@ -560,43 +526,16 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
         {/* Many-to-many tags */}
         <div className="grid sm:grid-cols-2 gap-4 mt-4">
           <div>
-            {isChem ? (
-              <div>
-                <label className="text-[11px] font-semibold text-[#2A2035]/50">Syllabus dotpoints{dotpointIds.length ? ` · ${dotpointIds.length} selected` : ''}</label>
-                {chemSyllabus.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1 mb-1.5">
-                    {chemSyllabus.map((m) => {
-                      const on = (activeModule?.id) === m.id
-                      const n = dpCountByModule[m.id] || 0
-                      return (
-                        <button key={m.id} type="button" onClick={() => setDpModuleTab(m.id)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${on ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#325099] border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
-                          {m.name}{n > 0 && <span className={`ml-1 ${on ? 'text-white/70' : 'text-[#2A2035]/40'}`}>({n})</span>}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-                <MultiChecklist
-                  label=""
-                  groups={activeModuleGroups}
-                  selected={dotpointIds}
-                  onToggle={toggleId(setDotpointIds)}
-                  empty={subjectId ? 'No syllabus dotpoints for this module yet — add them on the Syllabus page.' : 'Pick a subject and year first.'}
-                />
-              </div>
-            ) : (
-              <>
-                <MultiChecklist
-                  label="Subtopics"
-                  groups={subtopicGroups}
-                  selected={subtopicIds}
-                  onToggle={toggleId(setSubtopicIds)}
-                  empty={subjectId ? 'No subtopics yet — add one below or in Topics.' : 'Pick a subject and year first.'}
-                />
-                {topicId && <button type="button" onClick={addSubtopic} className="mt-1 text-[11px] font-semibold text-[#325099] hover:underline">＋ New subtopic</button>}
-              </>
-            )}
+            <MultiChecklist
+              label={isChem ? 'Inquiry questions' : 'Subtopics'}
+              groups={subtopicGroups}
+              selected={subtopicIds}
+              onToggle={toggleId(setSubtopicIds)}
+              empty={subjectId
+                ? (isChem ? 'No inquiry questions for this module yet — add them in Topics.' : 'No subtopics yet — add one below or in Topics.')
+                : 'Pick a subject and year first.'}
+            />
+            {topicId && <button type="button" onClick={addSubtopic} className="mt-1 text-[11px] font-semibold text-[#325099] hover:underline">{isChem ? '＋ New inquiry question' : '＋ New subtopic'}</button>}
           </div>
           <div>
             <MultiChecklist
