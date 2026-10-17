@@ -120,8 +120,13 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
     // Scoped to a family, the stream is almost always just the family itself, so
     // a blank name means "the ordinary course for that year" — pick a year, press
     // add. A name is only typed for a senior stream ("Ext 1 Maths").
+    // The course name must be one of the family's streams: the column lists only
+    // those, so a free-typed "Std" saved fine and then never appeared.
     const name = newSubName.trim() || (scope || '')
     if (!name) return
+    if (subjects.some((s) => s.year_level === Number(newSubYear) && s.name === name)) {
+      alert(`Year ${newSubYear} ${name} is already in the list.`); return
+    }
     const { error } = await supabase.from(T_QBANK_SUBJECTS)
       .insert({ year_level: Number(newSubYear), name })
     if (error) { alert(error.message); return }
@@ -460,12 +465,21 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
             </div>
             <div>
               <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">
-                Course {scope && <span className="font-normal text-[#2A2035]/40">— leave blank for ordinary {scope}</span>}
+                Course
               </label>
-              <input value={newSubName} onChange={(e) => setNewSubName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') addSubject(); if (e.key === 'Escape') setAddingSubject(false) }}
-                placeholder={scope ? `${scope} — or a stream like Ext 1 Maths` : 'Subject name'}
-                className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
+              {scope ? (
+                <select value={newSubName || scope} onChange={(e) => setNewSubName(e.target.value === scope ? '' : e.target.value)}
+                  className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#325099]">
+                  {SUBJECT_FAMILIES[scope].filter((n) => n !== 'Standard Maths').map((n) => (
+                    <option key={n} value={n}>{n === scope ? `${scope} (ordinary course)` : n}</option>
+                  ))}
+                </select>
+              ) : (
+                <input value={newSubName} onChange={(e) => setNewSubName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addSubject(); if (e.key === 'Escape') setAddingSubject(false) }}
+                  placeholder="Subject name"
+                  className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#325099]" />
+              )}
             </div>
             <div className="flex items-center gap-2 pt-1">
               <button onClick={addSubject}
