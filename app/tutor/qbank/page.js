@@ -253,7 +253,6 @@ function QuestionBankInner() {
           <div className="flex items-center gap-2">
             {/* No "Additional Questions" link here — the subject hub already has
                 that card, and two doors to the same screen is one too many. */}
-            <Link href={`/tutor/qbank/categories${scope ? `?subject=${scope}` : ''}`} className="px-3.5 py-2 max-md:py-2.5 rounded-xl border border-[#DEE7FF] text-sm font-semibold text-[#2A2035]/70 hover:bg-white transition">Categories</Link>
             <Link href={`/tutor/qbank/new${scope ? `?subject=${scope}` : ''}`} className="px-4 py-2 max-md:py-2.5 rounded-xl bg-[#325099] text-white text-sm font-semibold hover:bg-[#062E63] transition">+ New question</Link>
           </div>
         </div>

@@ -592,7 +592,7 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
                   groups={subtopicGroups}
                   selected={subtopicIds}
                   onToggle={toggleId(setSubtopicIds)}
-                  empty={subjectId ? 'No subtopics yet — add one below or in Categories.' : 'Pick a subject and year first.'}
+                  empty={subjectId ? 'No subtopics yet — add one below or in Topics.' : 'Pick a subject and year first.'}
                 />
                 {topicId && <button type="button" onClick={addSubtopic} className="mt-1 text-[11px] font-semibold text-[#325099] hover:underline">＋ New subtopic</button>}
               </>

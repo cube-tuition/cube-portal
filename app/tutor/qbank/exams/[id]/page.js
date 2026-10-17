@@ -441,7 +441,7 @@ export default function ExamBuilderPage() {
               <h2 className="text-sm font-bold text-[#062E63] mb-1">Topic scope</h2>
               <p className="text-[11px] text-[#2A2035]/50 mb-3">The topics this exam covers. Question slots can only pull from these.</p>
               {!exam.subject_id ? <p className="text-xs text-[#2A2035]/40 italic">Pick a year and exam subject first.</p>
-                : scopeTopics.length === 0 ? <p className="text-xs text-[#EA580C]">No topics for this subject — add some in <Link href="/tutor/qbank/categories" className="underline">Categories</Link>.</p>
+                : scopeTopics.length === 0 ? <p className="text-xs text-[#EA580C]">No topics for this subject — add some in <Link href="/tutor/qbank/categories" className="underline">Topics</Link>.</p>
                   : <div className="flex flex-wrap gap-2">
                     {scopeTopics.map((t) => {
                       const on = (exam.topic_ids || []).includes(t.id)
