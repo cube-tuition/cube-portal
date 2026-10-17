@@ -13,6 +13,8 @@ import { listDrafts, createDraft, loadDraft, saveDraft, renameDraft, deleteDraft
 import DraftEnrolmentTable, { sortForPicker, pickerStatus } from '../../../../components/timetable/DraftEnrolmentTable'
 import { subjectFromCourseCode, yearFromCourseCode } from '../../../../lib/courses'
 import { inferSubject } from '../../../../components/CourseDetail'
+import { teacherColour, GREY_CHIP } from '../../../../lib/teacherColours'
+import { assignLanes } from '../../../../lib/dayLanes'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const DAY_START = 8          // 8:00 am — top of the grid
@@ -20,28 +22,7 @@ const DAY_END   = 21         // 9:00 pm — bottom of the grid
 const HOUR_PX   = 56         // pixel height of one hour
 const SNAP_MIN  = 15         // drag snaps to 15-minute increments
 
-// Ordered for maximum hue separation among the first ~10 entries so adjacent
-// teachers never look alike (e.g. Amber=blue vs Ryan=lime).
-const CHIP_COLORS = [
-  { bg: '#E8F0FE', text: '#1D4ED8', border: '#BCD3FB' },  // blue
-  { bg: '#FFF1E8', text: '#C2410C', border: '#FED0B4' },  // orange
-  { bg: '#E7FBEF', text: '#047857', border: '#A7F3D0' },  // green
-  { bg: '#F6EEFF', text: '#7C3AED', border: '#DDD0FB' },  // purple
-  { bg: '#FEECEC', text: '#DC2626', border: '#FBC4C4' },  // red
-  { bg: '#E6FAFC', text: '#0E7490', border: '#A8ECF5' },  // teal
-  { bg: '#FDEBF4', text: '#BE185D', border: '#FAC4DE' },  // pink
-  { bg: '#FCF6E3', text: '#A16207', border: '#F4E2A6' },  // amber/gold
-  { bg: '#F1FADF', text: '#4D7C0F', border: '#D6EFA0' },  // lime
-  { bg: '#EAEBFD', text: '#4338CA', border: '#C9CAF8' },  // indigo
-  { bg: '#FFEEF0', text: '#9F1239', border: '#FCC4CD' },  // rose
-  { bg: '#E6F5FE', text: '#0369A1', border: '#B6E1FB' },  // sky
-]
-const GREY = { bg: '#F1F3F7', text: '#5B6477', border: '#D4D9E3' }
-// Fixed colour overrides for specific staff (by lower-cased full name).
-const COLOR_OVERRIDES = {
-  'ryan park': { bg: '#CBD9F7', text: '#1E40AF', border: '#A9C0EF' },  // pastel cornflower blue
-  'kevin park': { bg: '#BCE5CB', text: '#066B45', border: '#92D3AC' },  // slightly darker pastel green
-}
+// Teacher chip colours are shared with the classes page's day view (lib/teacherColours).
 
 // ── Time helpers ────────────────────────────────────────────────────────────────
 function parseTime(str) {
@@ -515,13 +496,8 @@ export default function TimetablePage() {
     const c = courses.find(c => String(c.id) === String(id))
     return c ? (c.course_code || c.course_name) : ''
   }
-  const colorForTutor = (id) => {
-    if (!id) return GREY
-    const idx = tutors.findIndex(t => t.id === id)
-    if (idx < 0) return GREY
-    const override = COLOR_OVERRIDES[(tutors[idx].full_name || '').trim().toLowerCase()]
-    return override || CHIP_COLORS[idx % CHIP_COLORS.length]
-  }
+  // tutors is the palette list: active tutors then directors, each by name.
+  const colorForTutor = (id) => teacherColour(id, tutors)
   const tutorFirst = (id) => (tutors.find(t => t.id === id)?.full_name || '').split(' ')[0]
 
   // Map a class's teacher name -> staff id. Classes store the teacher as free
@@ -623,20 +599,7 @@ export default function TimetablePage() {
   }
 
   // Lane layout per day for side-by-side overlaps.
-  const layoutForDay = (day) => {
-    const evs = shownRows.filter(r => r.day_of_week === day && !hiddenIds.has(r.id)).sort((a, b) => a.s - b.s || a.e - b.e)
-    const laneEnds = []
-    evs.forEach(ev => {
-      let lane = laneEnds.findIndex(end => end <= ev.s)
-      if (lane === -1) { lane = laneEnds.length; laneEnds.push(ev.e) } else laneEnds[lane] = ev.e
-      ev._lane = lane
-    })
-    let curEnd = -1, cluster = []
-    const flush = () => { const n = cluster.length ? Math.max(...cluster.map(e => e._lane)) + 1 : 1; cluster.forEach(e => { e._lanes = n }); cluster = [] }
-    evs.forEach(ev => { if (cluster.length && ev.s >= curEnd) { flush(); curEnd = -1 } cluster.push(ev); curEnd = Math.max(curEnd, ev.e) })
-    flush()
-    return evs
-  }
+  const layoutForDay = (day) => assignLanes(shownRows.filter(r => r.day_of_week === day && !hiddenIds.has(r.id)))
 
   // ── Download PDF (pick the classes to include) ─────────────────────────────
   const openPdfModal = () => {
@@ -1484,7 +1447,7 @@ export default function TimetablePage() {
           })}
           {hoursByTutor._none > 0 && (
             <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-full border"
-              style={{ background: GREY.bg, color: GREY.text, borderColor: GREY.border }}>
+              style={{ background: GREY_CHIP.bg, color: GREY_CHIP.text, borderColor: GREY_CHIP.border }}>
               Unassigned <span className="font-bold">{fmtHours(hoursByTutor._none)}</span>
             </span>
           )}

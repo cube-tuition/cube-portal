@@ -10,6 +10,8 @@ import { fetchAllTerms, getCurrentTerm, formatTermLabel } from '../../../lib/ter
 import { weekLabelFor } from '../../../lib/calendarWeeks'
 import { pickSubjectColor } from '../../../lib/subjectColours'
 import MonthCalendarModal from '../../../components/calendar/MonthCalendarModal'
+import DayTimeModal from '../../../components/calendar/DayTimeModal'
+import { paletteStaff } from '../../../lib/teacherColours'
 import { isRosteredTutor } from '../../../lib/dropin'
 import { inferSubject } from '../../../components/CourseDetail'
 import { T_CLASSES, T_ENROLMENTS, T_LESSONS, T_SUB_ASSIGNMENTS, T_TUTORS, T_ADMINS } from '../../../lib/tables'
@@ -101,6 +103,8 @@ export default function TutorClassesPage() {
   const [weekLessons, setWeekLessons] = useState([])  // actual lesson rows for the current week
   const [allStaff, setAllStaff] = useState([])        // resolves a lesson's scheduled_teacher_id to a name
   const [monthOpen, setMonthOpen] = useState(false)   // full-screen month calendar modal
+  const [dayViewISO, setDayViewISO] = useState(null)  // "View by time" — the day shown, or null when closed
+  const [palette, setPalette] = useState([])          // staff in teacher-colour order (matches the timetable planner)
   const [search, setSearch] = useState('')
   const [authErr, setAuthErr] = useState(null)
   const [expandedCourse, setExpandedCourse] = useState(null)   // course key (lowercased name)
@@ -282,7 +286,7 @@ export default function TutorClassesPage() {
       // main_teacher + scheduled_teacher_id drive who is actually on for the
       // week; without them the pill can only fall back to the class's
       // permanent teacher and a covered week looks uncovered.
-      .select('id, lesson_date, start_time, end_time, class_id, status, main_teacher, scheduled_teacher_id')
+      .select('id, lesson_date, start_time, end_time, room, class_id, status, main_teacher, scheduled_teacher_id')
       .gte('lesson_date', weekMin)
       .lte('lesson_date', weekMax)
       .is('makeup_student_id', null)
@@ -292,10 +296,11 @@ export default function TutorClassesPage() {
   // ── Staff names, to resolve a lesson's scheduled_teacher_id ──────────────
   useEffect(() => {
     Promise.all([
-      supabase.from(T_TUTORS).select('id, full_name'),
-      supabase.from(T_ADMINS).select('id, full_name'),
+      supabase.from(T_TUTORS).select('id, full_name, active').order('full_name'),
+      supabase.from(T_ADMINS).select('id, full_name').order('full_name'),
     ]).then(([{ data: tutorRows }, { data: adminRows }]) => {
       setAllStaff([...(tutorRows || []), ...(adminRows || [])])
+      setPalette(paletteStaff(tutorRows || [], adminRows || []))
     })
   }, [])
 
@@ -450,7 +455,7 @@ export default function TutorClassesPage() {
         dateISO: lesson.lesson_date,
         dayName: dayNameOf(d),
         cls:     { ...cls, start_time: lesson.start_time || cls.start_time, end_time: lesson.end_time || cls.end_time,
-                   teacher: teach.name || cls.teacher },
+                   room: lesson.room || cls.room, teacher: teach.name || cls.teacher },
         teacherIsSub: teach.isSub,
         teacherId: teach.id,
         lessonId: lesson.id,
@@ -776,6 +781,17 @@ export default function TutorClassesPage() {
               Next →
             </button>
             <button
+              onClick={() => {
+                // Today when it's in this week, else the first day with something on.
+                const isos = weekDays.map(d => isoDate(d))
+                setDayViewISO(isos.includes(todayISO) ? todayISO : (isos.find(i => (sessionsByDate.get(i) || []).length) || isos[0]))
+              }}
+              className="text-xs font-semibold text-[#062E63] bg-white border border-[#062E63]/30 hover:bg-[#F0F4FF] px-3 py-1.5 rounded-full transition"
+              title="One day, laid out by time — for room planning"
+            >
+              ◷ View by time
+            </button>
+            <button
               onClick={() => setMonthOpen(true)}
               className="text-xs font-semibold text-white bg-[#062E63] hover:bg-[#325099] px-3 py-1.5 rounded-full transition"
             >
@@ -805,6 +821,7 @@ export default function TutorClassesPage() {
             rosters={rosters}
             currentTerm={currentTerm}
             classLabelMap={classLabelMap}
+            onOpenDay={setDayViewISO}
           />
         )}
       </section>
@@ -816,6 +833,28 @@ export default function TutorClassesPage() {
           </p>
         </div>
       </footer>
+
+      {dayViewISO && (
+        <DayTimeModal
+          dateISO={dayViewISO}
+          onDateChange={(iso) => {
+            // Stepping past the loaded week loads that week behind the modal.
+            const monday = mondayOf(new Date(iso + 'T00:00:00'))
+            if (monday.getTime() !== weekStart.getTime()) setWeekStart(monday)
+            setDayViewISO(iso)
+          }}
+          sessionsByDate={sessionsByDate}
+          weekDays={weekDays}
+          palette={palette}
+          viewerId={staff?.id}
+          tutorMode={!isAdmin}
+          classLabelMap={classLabelMap}
+          rosters={rosters}
+          hrefFor={sessionHref}
+          todayISO={todayISO}
+          onClose={() => setDayViewISO(null)}
+        />
+      )}
 
       {monthOpen && (
         <MonthCalendarModal
@@ -1220,10 +1259,21 @@ function CourseCard({ course, expanded, onToggle, showTeacher }) {
   )
 }
 
+// Where a calendar session opens — shared by the week pills and the day view.
+// Link by date, not week: the class page opens the tab that holds this
+// session. A week number counted from the CURRENT term sent a holiday-week
+// lesson on a Term 3 class to that class's Week 1 — another session's marks.
+function sessionHref(s) {
+  if (s.isDropin) return `/tutor/dropin/${s.dropin?.id}`
+  if (s.isLevelTest) return `/tutor/lessons/${s.lessonId}`
+  if (s.isMakeup) return `/tutor/classes/makeup/${s.lesson?.id}`
+  return `/tutor/classes/${s.cls.id}?date=${s.dateISO}`
+}
+
 // ── Weekly card view ──────────────────────────────────────────────────────
 // One card per day. Each class is a soft subject-tinted block — no double
 // borders, no nested header strip. Optimised for a glance.
-function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap }) {
+function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode = false, rosters, currentTerm, classLabelMap, onOpenDay }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
       {weekDays.map(d => {
@@ -1239,8 +1289,13 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                 : 'border-[#DEE7FF] bg-white'
             }`}
           >
-            {/* Day header — no background fill, no divider */}
-            <div className="flex items-baseline justify-between px-1 mb-2.5">
+            {/* Day header — no background fill, no divider. Opens the day by time. */}
+            <button
+              type="button"
+              onClick={() => onOpenDay?.(iso)}
+              title="View this day by time"
+              className="group flex items-baseline justify-between mb-2.5 text-left rounded-md hover:bg-[#F0F4FF] -mx-0.5 px-1.5"
+            >
               <div className="flex items-baseline gap-1.5">
                 <span className={`text-[10px] tracking-[0.25em] uppercase font-semibold ${isToday ? 'text-[#065F46]' : 'text-[#325099]/70'}`}>
                   {DAY_SHORT[dayNameOf(d)]}
@@ -1252,10 +1307,12 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                   {MONTH_SHORT[d.getMonth()]}
                 </span>
               </div>
-              {isToday && (
+              {isToday ? (
                 <span className="text-[9px] font-bold tracking-[0.15em] uppercase text-[#065F46]">Today</span>
+              ) : (
+                <span className="text-[10px] text-[#325099]/0 group-hover:text-[#325099]/60 transition" aria-hidden>◷</span>
               )}
-            </div>
+            </button>
 
             {/* Class list */}
             <div className="flex-1 space-y-1.5">
@@ -1267,11 +1324,6 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                 sessions.map(s => {
                   const col = pickSubjectColor(s.cls.class_name)
                   const count = (rosters?.[s.cls.id] || []).length
-                  // Link by date, not week: the class page opens the tab that
-                  // holds this session. A week number counted from the CURRENT
-                  // term sent a holiday-week lesson on a Term 3 class to that
-                  // class's Week 1 — another session's marks and notes.
-                  const href = `/tutor/classes/${s.cls.id}?date=${s.dateISO}`
                   // Tutor view: every lesson is visible (director-style), but
                   // only the viewer's own are in colour — theirs highlighted
                   // blue, everyone else's greyed out. Special states (sub /
@@ -1293,13 +1345,7 @@ function WeekCards({ weekDays, sessionsByDate, todayISO, showTeacher, tutorMode 
                   const textColor  = grey ? '#868D9C' : mineBlue ? '#062E63' : isDropin ? '#0F766E' : isMakeup ? '#5B21B6' : isAmber ? '#92400E' : col.fg
                   const subColor   = grey ? '#868D9C99' : mineBlue ? '#325099AA' : isDropin ? '#0F766E99' : isMakeup ? '#5B21B699' : isAmber ? '#92400E99' : col.fg + 'AA'
                   const badgeGrey  = 'bg-[#E2E5EB] text-[#868D9C]'
-                  const pillHref = isDropin
-                    ? `/tutor/dropin/${s.dropin?.id}`
-                    : s.isLevelTest
-                    ? `/tutor/lessons/${s.lessonId}`
-                    : isMakeup
-                    ? `/tutor/classes/makeup/${s.lesson?.id}`
-                    : href
+                  const pillHref = sessionHref(s)
                   return (
                     <Link
                       key={s.key}
