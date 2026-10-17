@@ -118,13 +118,16 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
    * bare role check let them write tutors' notes on classes they never taught.
    * They therefore also need to BE this class's teacher, matched on first
    * name, which is the same convention lessonAccess and the database use for
-   * classes.teacher.
+   * classes.teacher — or be the teacher SCHEDULED for this lesson (a director
+   * covering a week of someone else's class writes that week's notes).
    */
+  const [scheduledTeacherId, setScheduledTeacherId] = useState(null)
   const teachesThisClass = !!firstName(staff?.full_name)
     && firstName(staff?.full_name) === firstName(cls?.teacher)
+  const scheduledForThisLesson = !!staff?.id && scheduledTeacherId === staff.id
   const canWriteToCube = !readOnly && (
     staff?.role === 'tutor'
-    || (['admin', 'director'].includes(staff?.role) && teachesThisClass)
+    || (['admin', 'director'].includes(staff?.role) && (teachesThisClass || scheduledForThisLesson))
   )
   const date = useMemo(() => isoToDate(dateISO || ''), [dateISO])
 
@@ -409,13 +412,14 @@ export default function SessionMarker({ classId, dateISO, cls, staff, readOnly =
       // Load lesson notes (admin "Notes from CUBE" + tutor "Notes to CUBE" fields)
       const { data: lessonRow } = await supabase
         .from('lessons')
-        .select('id, notes, notes_general, notes_homework, has_rq')
+        .select('id, notes, notes_general, notes_homework, has_rq, scheduled_teacher_id')
         .eq('class_id', classId)
         .eq('lesson_date', dateISO)
         .eq('is_makeup', false)
         .maybeSingle()
       if (!cancelled && lessonRow) {
         setLessonId(lessonRow.id)
+        setScheduledTeacherId(lessonRow.scheduled_teacher_id || null)
         setNotesFromCube(lessonRow.notes || '')
         setNotesGeneral(lessonRow.notes_general || '')
         setNotesHomework(lessonRow.notes_homework || '')
