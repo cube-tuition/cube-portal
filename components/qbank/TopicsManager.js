@@ -47,6 +47,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [newSubtopic, setNewSubtopic] = useState('')
+  const [subEdit, setSubEdit] = useState(null)   // { id, text } while a subtopic is edited in place
   const [newSkill, setNewSkill] = useState('')
 
   const reload = useCallback(async () => {
@@ -133,7 +134,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   }
   const addSubtopic = async () => {
     if (!newSubtopic.trim() || !topicId) return
-    await supabase.from(T_QBANK_SUBTOPICS).insert({ topic_id: topicId, name: newSubtopic.trim(), sort_order: subtopicsForTopic.length })
+    await supabase.from(T_QBANK_SUBTOPICS).insert({ topic_id: topicId, name: cleanMultiline(newSubtopic), sort_order: subtopicsForTopic.length })
     setNewSubtopic(''); reload()
   }
   const addSkill = async () => {
@@ -149,6 +150,38 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
       ? `"${newSkill.trim()}" is already in this stage's skill list.` : error.message); return }
     setNewSkill(''); reload()
   }
+
+  // Subtopics (Chemistry's inquiry questions) are often a syllabus dot point
+  // with an indented list under it, so their text keeps line breaks and indents:
+  // Shift+Enter starts a new line, Tab indents the line, Shift+Tab outdents it.
+  const INDENT = '    '
+  const multilineKeys = (e, value, setValue, onSubmit) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); return }
+    if (e.key !== 'Tab') return
+    e.preventDefault()
+    const ta = e.currentTarget
+    const { selectionStart: a, selectionEnd: b } = ta
+    const lineStart = value.lastIndexOf('\n', a - 1) + 1
+    let next, caret
+    if (e.shiftKey) {
+      const lead = value.slice(lineStart).match(/^ {1,4}|^\t/)?.[0] || ''
+      next = value.slice(0, lineStart) + value.slice(lineStart + lead.length)
+      caret = Math.max(lineStart, a - lead.length)
+    } else {
+      next = value.slice(0, lineStart) + INDENT + value.slice(lineStart)
+      caret = a + INDENT.length
+    }
+    setValue(next)
+    requestAnimationFrame(() => { ta.selectionStart = caret; ta.selectionEnd = caret + (b - a) })
+  }
+  const cleanMultiline = (t) => String(t || '').replace(/^\s*\n/, '').trimEnd()
+  const saveSubEdit = async () => {
+    const name = cleanMultiline(subEdit?.text)
+    if (!subEdit || !name.trim()) { setSubEdit(null); return }
+    await supabase.from(T_QBANK_SUBTOPICS).update({ name }).eq('id', subEdit.id)
+    setSubEdit(null); reload()
+  }
+  const linesOf = (t) => Math.min(10, Math.max(1, String(t || '').split('\n').length))
 
   const rename = async (table, id, name) => {
     if (name == null) return
@@ -265,23 +298,36 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
               <p className="text-xs text-[#2A2035]/40 italic px-3 py-6">Select a {L.topic} →</p>
             ) : (
               <>
-                <div className="flex gap-1.5 mb-3">
-                  <input value={newSubtopic} onChange={(e) => setNewSubtopic(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addSubtopic()} placeholder={`New ${L.subtopic}…`}
-                    className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#325099]" />
-                  <button onClick={addSubtopic} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
+                <div className="flex gap-1.5 mb-1 items-start">
+                  <textarea value={newSubtopic} onChange={(e) => setNewSubtopic(e.target.value)} rows={linesOf(newSubtopic)}
+                    onKeyDown={(e) => multilineKeys(e, newSubtopic, setNewSubtopic, addSubtopic)} placeholder={`New ${L.subtopic}…`}
+                    className="flex-1 min-w-0 border border-[#DEE7FF] rounded-lg px-2 py-1.5 text-xs leading-5 resize-y focus:outline-none focus:border-[#325099] whitespace-pre-wrap" />
+                  <button onClick={addSubtopic} className="px-2.5 py-1.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
+                <p className="text-[10px] text-[#2A2035]/40 mb-3 px-0.5">Shift+Enter for a new line · Tab to indent</p>
                 <div className="max-h-[60vh] overflow-y-auto">
                   {subtopicsForTopic.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Subtopics.toLowerCase()} yet.</p>}
-                  {subtopicsForTopic.map((st) => (
+                  {subtopicsForTopic.map((st) => subEdit?.id === st.id ? (
+                    <div key={st.id} className="px-1 py-2">
+                      <textarea autoFocus value={subEdit.text} rows={linesOf(subEdit.text)}
+                        onChange={(e) => setSubEdit((x) => ({ ...x, text: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Escape') { setSubEdit(null); return } multilineKeys(e, subEdit.text, (v) => setSubEdit((x) => ({ ...x, text: v })), saveSubEdit) }}
+                        className="w-full border border-[#325099] rounded-lg px-2 py-1.5 text-xs leading-5 resize-y focus:outline-none whitespace-pre-wrap" />
+                      <div className="flex items-center gap-2 mt-1">
+                        <button onClick={saveSubEdit} className="px-2.5 py-1 rounded-lg bg-[#325099] text-white text-[11px] font-semibold">Save</button>
+                        <button onClick={() => setSubEdit(null)} className="px-2 py-1 text-[11px] text-[#2A2035]/50 hover:text-[#2A2035]">Cancel</button>
+                        <span className="text-[10px] text-[#2A2035]/40 ml-auto">Shift+Enter new line · Tab indent</span>
+                      </div>
+                    </div>
+                  ) : (
                     <Row key={st.id}>
                       <button onClick={() => setSubtopicId(st.id)}
-                        className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${subtopicId === st.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
+                        className={`flex-1 min-w-0 break-words whitespace-pre-wrap text-left text-sm max-md:py-1 ${subtopicId === st.id ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {st.name}
                       </button>
                       <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, -1)}>↑</button>
                       <button className={editBtn} onClick={() => move(T_QBANK_SUBTOPICS, subtopicsForTopic, st, 1)}>↓</button>
-                      <button className={editBtn} onClick={() => rename(T_QBANK_SUBTOPICS, st.id, prompt(`Rename ${L.subtopic}`, st.name))}>edit</button>
+                      <button className={editBtn} onClick={() => setSubEdit({ id: st.id, text: st.name })}>edit</button>
                       <button className={editBtn} onClick={() => remove(T_QBANK_SUBTOPICS, st.id, st.name)}>✕</button>
                     </Row>
                   ))}
