@@ -480,6 +480,17 @@ create table public.job_runs (
   constraint job_runs_pkey PRIMARY KEY (id)
 );
 
+create table public.qbank_subjects (
+  id uuid default gen_random_uuid() not null,
+  year_level integer not null,
+  name text not null,
+  code text,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint qbank_subjects_pkey PRIMARY KEY (id)
+);
+
 create table public.trial_submissions (
   id integer default nextval('trial_submissions_id_seq'::regclass) not null,
   submitted_at timestamp with time zone default now() not null,
@@ -520,17 +531,6 @@ create table public.trial_submissions (
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'enrolled'::text, 'declined'::text])))
 );
 
-create table public.qbank_subjects (
-  id uuid default gen_random_uuid() not null,
-  year_level integer not null,
-  name text not null,
-  code text,
-  sort_order integer default 0 not null,
-  active boolean default true not null,
-  created_at timestamp with time zone default now() not null,
-  constraint qbank_subjects_pkey PRIMARY KEY (id)
-);
-
 create table public.qbank_topics (
   id uuid default gen_random_uuid() not null,
   subject_id uuid not null,
@@ -567,6 +567,23 @@ create table public.qbank_skills (
   constraint qbank_skills_stage_check CHECK (((stage IS NULL) OR (stage = ANY (ARRAY['primary'::text, 'high'::text]))))
 );
 
+create table public.qbank_subtopics (
+  id uuid default gen_random_uuid() not null,
+  topic_id uuid not null,
+  name text not null,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  syllabus_dotpoint_id uuid,
+  constraint qbank_subtopics_pkey PRIMARY KEY (id)
+);
+
+create table public.qbank_question_subtopics (
+  question_id uuid not null,
+  subtopic_id uuid not null,
+  constraint qbank_question_subtopics_pkey PRIMARY KEY (question_id, subtopic_id)
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -594,11 +611,17 @@ alter table public.practice_ratings add constraint practice_ratings_student_id_f
 alter table public.qbank_question_images add constraint qbank_question_images_part_id_fkey FOREIGN KEY (part_id) REFERENCES qbank_question_parts(id) ON DELETE CASCADE;
 alter table public.qbank_question_images add constraint qbank_question_images_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
 alter table public.qbank_question_parts add constraint qbank_question_parts_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
+alter table public.qbank_question_parts add constraint qbank_question_parts_subtopic_id_fkey FOREIGN KEY (subtopic_id) REFERENCES qbank_subtopics(id) ON DELETE SET NULL;
 alter table public.qbank_question_parts add constraint qbank_question_parts_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE SET NULL;
+alter table public.qbank_question_subtopics add constraint qbank_question_subtopics_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
+alter table public.qbank_question_subtopics add constraint qbank_question_subtopics_subtopic_id_fkey FOREIGN KEY (subtopic_id) REFERENCES qbank_subtopics(id) ON DELETE CASCADE;
 alter table public.qbank_questions add constraint qbank_questions_skill_id_fkey FOREIGN KEY (skill_id) REFERENCES qbank_skills(id) ON DELETE SET NULL;
+alter table public.qbank_questions add constraint qbank_questions_subtopic_id_fkey FOREIGN KEY (subtopic_id) REFERENCES qbank_subtopics(id) ON DELETE SET NULL;
 alter table public.qbank_questions add constraint qbank_questions_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE SET NULL;
 alter table public.qbank_skills add constraint qbank_skills_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
+alter table public.qbank_skills add constraint qbank_skills_subtopic_id_fkey FOREIGN KEY (subtopic_id) REFERENCES qbank_subtopics(id) ON DELETE SET NULL;
 alter table public.qbank_skills add constraint qbank_skills_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE CASCADE;
+alter table public.qbank_subtopics add constraint qbank_subtopics_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE CASCADE;
 alter table public.qbank_topics add constraint qbank_topics_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
 alter table public.shifts add constraint shifts_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE SET NULL;
 alter table public.student_credits add constraint student_credits_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
@@ -614,6 +637,7 @@ CREATE UNIQUE INDEX invoices_one_per_student_term ON public.invoices USING btree
 CREATE UNIQUE INDEX lessons_class_date_regular_idx ON public.lessons USING btree (class_id, lesson_date) WHERE (is_makeup = false);
 CREATE UNIQUE INDEX qbank_skills_family_stage_name_key ON public.qbank_skills USING btree (family, stage, lower(name)) WHERE ((family IS NOT NULL) AND (stage IS NOT NULL));
 CREATE UNIQUE INDEX qbank_subjects_year_name_uniq ON public.qbank_subjects USING btree (year_level, lower(name));
+CREATE UNIQUE INDEX qbank_subtopics_topic_dotpoint_uniq ON public.qbank_subtopics USING btree (topic_id, syllabus_dotpoint_id) WHERE (syllabus_dotpoint_id IS NOT NULL);
 CREATE UNIQUE INDEX shifts_source_uniq ON public.shifts USING btree (source_table, source_id) WHERE ((source_table IS NOT NULL) AND (source_id IS NOT NULL));
 CREATE UNIQUE INDEX terms_year_number_idx ON public.terms USING btree (year, term_number);
 
@@ -2302,11 +2326,13 @@ alter table public.qbank_question_images enable row level security;
 alter table public.online_resources enable row level security;
 alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
-alter table public.trial_submissions enable row level security;
 alter table public.qbank_subjects enable row level security;
+alter table public.trial_submissions enable row level security;
 alter table public.qbank_topics enable row level security;
 alter table public.practice_ratings enable row level security;
 alter table public.qbank_skills enable row level security;
+alter table public.qbank_subtopics enable row level security;
+alter table public.qbank_question_subtopics enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -2351,12 +2377,18 @@ create policy qbank_question_images_read on public.qbank_question_images as PERM
 create policy staff_all on public.qbank_question_images as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy qbank_question_parts_read on public.qbank_question_parts as PERMISSIVE for SELECT to authenticated using ((is_staff() OR qbank_question_open_to_student(question_id)));
 create policy staff_all on public.qbank_question_parts as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy staff_all on public.qbank_question_subtopics as PERMISSIVE for ALL to public using (is_staff()) with check (is_staff());
+create policy students_read_practice_tags on public.qbank_question_subtopics as PERMISSIVE for SELECT to authenticated using ((EXISTS ( SELECT 1
+   FROM qbank_questions q
+  WHERE (q.id = qbank_question_subtopics.question_id))));
 create policy qbank_questions_read on public.qbank_questions as PERMISSIVE for SELECT to authenticated using ((is_staff() OR qbank_question_open_to_student(id)));
 create policy staff_all on public.qbank_questions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy read_authenticated on public.qbank_skills as PERMISSIVE for SELECT to authenticated using (true);
 create policy staff_all on public.qbank_skills as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy read_authenticated on public.qbank_subjects as PERMISSIVE for SELECT to authenticated using (true);
 create policy staff_all on public.qbank_subjects as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy read_authenticated on public.qbank_subtopics as PERMISSIVE for SELECT to authenticated using (true);
+create policy staff_all on public.qbank_subtopics as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy read_authenticated on public.qbank_topics as PERMISSIVE for SELECT to authenticated using (true);
 create policy staff_all on public.qbank_topics as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy shifts_admin_all on public.shifts as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));

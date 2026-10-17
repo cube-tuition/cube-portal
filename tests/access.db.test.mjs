@@ -43,6 +43,9 @@ async function seed(q) {
   const [{ id: other }] = await q(`insert into qbank_questions (stem_latex, solution_latex, audience, topic_id) values ('Ext 1 Q', 'Ext 1 answer', 'student', $1) returning id`, [ext1Topic])
   const [{ id: exam }] = await q(`insert into qbank_questions (stem_latex, solution_latex, audience, topic_id) values ('Exam Q', 'Exam answer', 'exam', $1) returning id`, [y8Topic])
   await q(`insert into qbank_question_parts (question_id, prompt_latex, solution_latex) values ($1, 'a', 'a sol'), ($2, 'b', 'b sol'), ($3, 'c', 'c sol')`, [practice, exam, other])
+  const [{ id: y8Sub }] = await q(`insert into qbank_subtopics (topic_id, name) values ($1, 'Expanding brackets') returning id`, [y8Topic])
+  const [{ id: ext1Sub }] = await q(`insert into qbank_subtopics (topic_id, name) values ($1, 'Projections') returning id`, [ext1Topic])
+  await q(`insert into qbank_question_subtopics (question_id, subtopic_id) values ($1, $2), ($3, $2), ($4, $5)`, [practice, y8Sub, exam, other, ext1Sub])
   await q(`insert into online_resources (title, url) values ('Staff link', 'https://example.com')`)
   await q(`insert into stimulus_texts (title, body) values ('Passage', 'text')`)
   return { maths, english, exam, other, practice }
@@ -118,6 +121,14 @@ describe('a student', () => {
     assert.equal(await n(q, `select count(*)::int n from qbank_questions where id = $1`, [other]), 0)
     await signIn(ANA, 'student')   // Y9 English: no practice questions in her subject
     assert.equal(await n(q, `select count(*)::int n from qbank_questions`), 0)
+  })
+
+  run('sees the inquiry-question tags of its own practice questions only', async ({ q, signIn, practice, exam, other }) => {
+    await signIn(KIM, 'student')   // enrolled in Y8 Maths
+    assert.deepEqual((await q(`select question_id from qbank_question_subtopics`)).map(r => r.question_id), [practice])
+    assert.equal(await n(q, `select count(*)::int n from qbank_question_subtopics where question_id in ($1, $2)`, [exam, other]), 0)
+    await q(`insert into qbank_question_subtopics (question_id, subtopic_id) select $1, subtopic_id from qbank_question_subtopics`, [practice])
+      .then(() => assert.fail('a student must not add tags'), () => {})
   })
 
   run('a trial enrolment opens the subject; a finished one closes it', async ({ q, signIn, maths }) => {

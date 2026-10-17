@@ -63,6 +63,8 @@ export default function Resources() {
   const [subjectId, setSubjectId] = useState('')
   const [subjPop, setSubjPop] = useState(null)   // anchor rect for the subject popover
   const [topicIds, setTopicIds] = useState([])   // [] = all topics in the subject
+  const [subtopicIds, setSubtopicIds] = useState([])   // [] = all subtopics / inquiry questions of those topics
+  const [tagRows, setTagRows] = useState([])     // qbank_question_subtopics for the questions this student can read
   const [level, setLevel] = useState('')         // '' | 'easy' | 'medium' | 'hard' — the question's own level
   const [qtype, setQtype] = useState('')         // '' | 'mcq' | 'extended'
   const [seed, setSeed] = useState(newSeed)      // the stream's shuffle; new when the filters change
@@ -98,6 +100,11 @@ export default function Resources() {
         .select('*, qbank_question_parts(*), qbank_question_images(id, storage_path, alt, sort_order, role)')
         .order('id'))
         .then(setQuestions, () => setQuestions([]))
+      // Which subtopics (Chemistry: inquiry questions) each question is filed
+      // under — row-level security returns only the student's own practice
+      // questions' tags.
+      fetchAllRows(() => supabase.from('qbank_question_subtopics').select('question_id, subtopic_id').order('question_id').order('subtopic_id'))
+        .then(setTagRows, () => setTagRows([]))
     }
     load()
   }, [router])
@@ -137,16 +144,40 @@ export default function Resources() {
   const selSubjectId = subjectId || mySubjects[0]?.id || ''
   const topicsForSubject = useMemo(() => (tax && selSubjectId ? (tax.topicsBySubject[selSubjectId] || []) : []), [tax, selSubjectId])
 
+  // Subtopics of the chosen topics. Chemistry calls them inquiry questions —
+  // each one a syllabus dot point, its examples on the lines after the first.
+  const selSubject = tax?.subjects.find(s => String(s.id) === String(selSubjectId))
+  const isChem = /chem/i.test(selSubject?.name || '')
+  const subLabel = isChem ? { many: 'Inquiry questions', all: 'all inquiry questions', pick: 'Pick a module above to narrow it to an inquiry question.' }
+    : { many: 'Subtopics', all: 'all subtopics', pick: 'Pick a topic above to narrow it to a subtopic.' }
+  const subtopicsOf = useMemo(() => (tax ? topicIds.flatMap(t => tax.subtopicsByTopic[t] || []) : []), [tax, topicIds])
+  const tagsByQuestion = useMemo(() => {
+    const m = {}
+    for (const r of tagRows) (m[r.question_id] ||= new Set()).add(r.subtopic_id)
+    for (const q of questions || []) if (q.subtopic_id) (m[q.id] ||= new Set()).add(q.subtopic_id)
+    return m
+  }, [tagRows, questions])
+
   const latest = useMemo(() => latestRatings(ratingRows), [ratingRows])
   // Everything in the chosen subject (the tabs), and what matches the filters (the stream).
   const subjectQuestions = useMemo(() => (questions || []).filter(q =>
     q.audience !== 'exam' && labelFor(q)?.subject?.id === selSubjectId), [questions, labelFor, selSubjectId])
   const pool = useMemo(() => subjectQuestions.filter(q => {
     if (topicIds.length && !topicIds.includes(labelFor(q)?.topic?.id)) return false
+    if (subtopicIds.length && !subtopicIds.some(id => tagsByQuestion[q.id]?.has(id))) return false
     if (level && !LEVEL_BANDS[level].includes(q.difficulty)) return false
     if (qtype && q.qtype !== qtype) return false
     return true
-  }), [subjectQuestions, topicIds, level, qtype, labelFor])
+  }), [subjectQuestions, topicIds, subtopicIds, tagsByQuestion, level, qtype, labelFor])
+  // Questions under each subtopic of the chosen topics (before the level/type filters).
+  const subtopicCounts = useMemo(() => {
+    const c = {}
+    for (const q of subjectQuestions) {
+      if (topicIds.length && !topicIds.includes(labelFor(q)?.topic?.id)) continue
+      for (const id of tagsByQuestion[q.id] || []) c[id] = (c[id] || 0) + 1
+    }
+    return c
+  }, [subjectQuestions, topicIds, tagsByQuestion, labelFor])
   const order = useMemo(() => shuffleOrder(pool.map(q => q.id), seeded(seed)), [pool, seed])
   const stream = useMemo(() => streamOf(pool, order, latest), [pool, order, latest])
   const counts = useMemo(() => tabCounts(subjectQuestions, latest), [subjectQuestions, latest])
@@ -239,7 +270,7 @@ export default function Resources() {
               <SearchSelectPopover anchor={subjPop}
                 options={mySubjects.map(s => ({ value: s.id, label: `Year ${s.year_level} · ${s.name}` }))}
                 currentValue={selSubjectId} placeholder="Search subjects…"
-                onSelect={v => { setSubjectId(v); setTopicIds([]); restart(); setSubjPop(null) }}
+                onSelect={v => { setSubjectId(v); setTopicIds([]); setSubtopicIds([]); restart(); setSubjPop(null) }}
                 onClose={() => setSubjPop(null)} />
             )}
             {tax && mySubjects.length === 0 && (
@@ -274,8 +305,8 @@ export default function Resources() {
             <div className="bg-white rounded-2xl border border-[#E5ECFF] p-4 space-y-3 mb-5">
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-semibold text-[#2A2035]/50">Topics</label>
-                  <span className="text-[10px] text-[#2A2035]/40">{topicIds.length ? `${topicIds.length} selected` : 'all topics'}</span>
+                  <label className="text-[11px] font-semibold text-[#2A2035]/50">{isChem ? 'Modules' : 'Topics'}</label>
+                  <span className="text-[10px] text-[#2A2035]/40">{topicIds.length ? `${topicIds.length} selected` : (isChem ? 'all modules' : 'all topics')}</span>
                 </div>
                 {topicsForSubject.length === 0 ? (
                   <p className="text-xs text-[#2A2035]/40">No topics for this subject yet.</p>
@@ -285,7 +316,12 @@ export default function Resources() {
                       const on = topicIds.includes(t.id)
                       return (
                         <button key={t.id} type="button"
-                          onClick={() => { setTopicIds(ids => on ? ids.filter(x => x !== t.id) : [...ids, t.id]); restart() }}
+                          onClick={() => {
+                            setTopicIds(ids => on ? ids.filter(x => x !== t.id) : [...ids, t.id])
+                            // Unpicking a topic drops its subtopics from the selection.
+                            if (on) setSubtopicIds(ids => ids.filter(id => !(tax.subtopicsByTopic[t.id] || []).some(st => st.id === id)))
+                            restart()
+                          }}
                           className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition ${on ? 'bg-[#325099] text-white border-[#325099]' : 'bg-white text-[#2A2035]/60 border-[#DEE7FF] hover:border-[#325099]'}`}>
                           {t.name}
                         </button>
@@ -294,6 +330,40 @@ export default function Resources() {
                   </div>
                 )}
               </div>
+              {topicsForSubject.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[11px] font-semibold text-[#2A2035]/50">{subLabel.many}</label>
+                    {topicIds.length > 0 && <span className="text-[10px] text-[#2A2035]/40">{subtopicIds.length ? `${subtopicIds.length} selected` : subLabel.all}</span>}
+                  </div>
+                  {topicIds.length === 0 ? (
+                    <p className="text-xs text-[#2A2035]/40">{subLabel.pick}</p>
+                  ) : subtopicsOf.length === 0 ? (
+                    <p className="text-xs text-[#2A2035]/40">None for {topicIds.length === 1 ? 'this' : 'these'} yet.</p>
+                  ) : (
+                    <div className="max-h-72 overflow-y-auto -mx-1 px-1 space-y-1">
+                      {subtopicsOf.map(st => {
+                        const on = subtopicIds.includes(st.id)
+                        const count = subtopicCounts[st.id] || 0
+                        const [head, ...examples] = String(st.name || '').split('\n')
+                        return (
+                          <button key={st.id} type="button" disabled={!count && !on}
+                            onClick={() => { setSubtopicIds(ids => on ? ids.filter(x => x !== st.id) : [...ids, st.id]); restart() }}
+                            title={count ? undefined : 'No practice questions here yet'}
+                            className={`w-full text-left flex items-start gap-2 px-3 py-2 rounded-xl border transition ${on ? 'bg-[#EEF3FF] border-[#325099]' : count ? 'bg-white border-[#DEE7FF] hover:border-[#325099]' : 'bg-white border-[#F0F2F7] opacity-50 cursor-not-allowed'}`}>
+                            <span className={`mt-0.5 w-3.5 h-3.5 shrink-0 rounded border ${on ? 'bg-[#325099] border-[#325099]' : 'border-[#BACBFF]'}`} />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-xs text-[#2A2035] leading-snug">{head}</span>
+                              {examples.length > 0 && <span className="block text-[11px] text-[#2A2035]/45 leading-snug whitespace-pre-wrap">{examples.map(l => l.trim()).join('\n')}</span>}
+                            </span>
+                            <span className="text-[10px] font-semibold text-[#2A2035]/40 tabular-nums shrink-0">{count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-semibold text-[#2A2035]/50 block mb-1">Question level</label>
