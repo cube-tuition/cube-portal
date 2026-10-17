@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { fmtDate } from '../../../lib/format'
+import { fmtDate, isoDate } from '../../../lib/format'
 import { registerUndoAction } from '../../../lib/undo'
 import { HOW_HEARD_CHANNELS, HOW_HEARD_COLORS, HOW_HEARD_UNKNOWN_COLOR, channelStats } from '../../../lib/howHeard'
 import { fetchAllTerms, getEnrolmentTerm } from '../../../lib/terms'
@@ -16,6 +16,7 @@ import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
 import TrialReminderModal from '../../../components/trials/TrialReminderModal'
 import { reminderFamilyFor, trialDatesFor } from '../../../lib/trialReminderEmail'
+import { earliestTrialStart } from '../../../lib/trialDates'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
@@ -156,7 +157,58 @@ function StatsBar({ submissions }) {
 }
 
 // ── Trial card ────────────────────────────────────────────────────────────────
-function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onReminderEmail, canRemind }) {
+// A class's regular lesson dates from `from` on (today by default), cancelled
+// ones left out — the dates a trial can start on.
+async function lessonDatesFrom(classId, from = isoDate(new Date())) {
+  const { data } = await supabase.from('lessons').select('lesson_date')
+    .eq('class_id', classId).eq('is_makeup', false).neq('status', 'cancelled')
+    .gte('lesson_date', from).order('lesson_date', { ascending: true }).limit(30)
+  return [...new Set((data || []).map(l => l.lesson_date))]
+}
+const fmtDay = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+
+// The first trial lesson, chosen from the class's upcoming lessons. Students
+// can start the same class on different weeks; the trial then covers that
+// lesson and the next one (trialDatesFor), which is what the roll, the trial
+// reminder and the pipeline nudges all read from enrolments.trial_start_date.
+function TrialStartPicker({ classId, value, onChange }) {
+  const [dates, setDates] = useState(null)
+  const today = isoDate(new Date())
+  const from = value && value < today ? value : today
+  useEffect(() => {
+    let live = true
+    lessonDatesFrom(classId, from).then(d => { if (live) setDates(d) })
+    return () => { live = false }
+  }, [classId, from])
+  if (!dates) return null
+  const upcoming = dates.filter(d => d >= today)
+  const opts = [...new Set([...(value ? [value] : []), ...upcoming])].sort()
+  const trial = value ? trialDatesFor(dates, value) : []
+  return (
+    <span className="inline-flex items-center gap-1.5 flex-wrap">
+      <label className="text-[10px] font-semibold uppercase tracking-wider text-[#325099]/60">First trial</label>
+      <select
+        value={value || ''}
+        onChange={e => e.target.value && onChange(e.target.value)}
+        className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
+        title="The first trial lesson — the trial covers this lesson and the next one"
+      >
+        {!value && <option value="">Choose a lesson…</option>}
+        {opts.map(d => (
+          <option key={d} value={d}>
+            {fmtDay(d)}{d === upcoming[0] ? ' · earliest' : ''}{d < today ? ' · started' : ''}{!dates.includes(d) ? ' · no lesson that day' : ''}
+          </option>
+        ))}
+      </select>
+      {trial.length > 0 && (
+        <span className="text-[10px] text-[#325099]/60">Trial lessons: {trial.map(fmtDay).join(' & ')}</span>
+      )}
+      {upcoming.length === 0 && <span className="text-[10px] text-[#B45309]">No upcoming lessons in this class yet</span>}
+    </span>
+  )
+}
+
+function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onReminderEmail, canRemind }) {
   const [expanded,     setExpanded]     = useState(false)
   const [editNotes,    setEditNotes]    = useState(false)
   const [notes,        setNotes]        = useState(sub.admin_notes || '')
@@ -406,6 +458,9 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
               value={sub.trial_class_id || ''}
               onChange={async e => {
                 const val = e.target.value ? Number(e.target.value) : null
+                // The trial starts at the class's earliest upcoming lesson by
+                // default; the First trial picker beside this changes it.
+                const firstLesson = val ? earliestTrialStart(await lessonDatesFrom(val), isoDate(new Date())) : null
 
                 let studentId = sub.converted_student_id
 
@@ -434,13 +489,14 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                   if (studentId) {
                     const { data: newEnrol } = await supabase.from('enrolments').insert({
                       student_id: studentId, class_id: val, status: 'trial',
-                      trial_start_date: new Date().toISOString().split('T')[0],
+                      trial_start_date: firstLesson,
                     }).select('id').single()
                     // Assigning a class IS scheduling the trial: a card still at
                     // New or Contacted moves on with it.
                     const sched = ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
                     await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, ...sched }).eq('id', sub.id)
-                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, ...sched })
+                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, _trialStart: firstLesson, ...sched })
+                    onReload()
                   }
                   return
                 }
@@ -455,12 +511,12 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                   // price (enrolment_default_price), like a class change in the
                   // database explorer.
                   await supabase.from('enrolments')
-                    .update({ class_id: val, price: null, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
+                    .update({ class_id: val, price: null, trial_start_date: firstLesson })
                     .eq('id', sub.enrolment_id)
                 } else if (studentId) {
                   // Fallback: update by student_id if no enrolment_id yet
                   await supabase.from('enrolments')
-                    .update({ class_id: val, price: null, trial_start_date: val ? new Date().toISOString().split('T')[0] : null })
+                    .update({ class_id: val, price: null, trial_start_date: firstLesson })
                     .eq('student_id', studentId)
                     .eq('status', 'trial')
                     .is('class_id', null)
@@ -473,7 +529,8 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                   await supabase.from('students').update({ status: 'trial' })
                     .eq('id', studentId).eq('status', 'pending')
                 }
-                onUpdate(sub.id, { trial_class_id: val, ...sched })
+                onUpdate(sub.id, { trial_class_id: val, _trialStart: firstLesson, ...sched })
+                onReload()
                 registerUndoAction('trial class assignment', async () => {
                   if (sub.enrolment_id && prevEnrol) {
                     await supabase.from('enrolments')
@@ -481,7 +538,8 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                       .eq('id', sub.enrolment_id)
                   }
                   await supabase.from('trial_submissions').update({ trial_class_id: prevTrialClassId }).eq('id', sub.id)
-                  onUpdate(sub.id, { trial_class_id: prevTrialClassId })
+                  onUpdate(sub.id, { trial_class_id: prevTrialClassId, _trialStart: prevEnrol?.trial_start_date ?? null })
+                  onReload()
                 })
               }}
               className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
@@ -491,6 +549,30 @@ function TrialCard({ sub, classes, students, onUpdate, onConvertDrop, progress, 
                 <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
               ))}
             </select>
+
+            {/* First trial lesson — defaults to the class's earliest lesson */}
+            {sub.trial_class_id && sub.converted_student_id && (
+              <TrialStartPicker
+                classId={sub.trial_class_id}
+                value={sub._trialStart || null}
+                onChange={async (date) => {
+                  const prev = sub._trialStart || null
+                  const write = (d) => sub.enrolment_id
+                    ? supabase.from('enrolments').update({ trial_start_date: d }).eq('id', sub.enrolment_id)
+                    : supabase.from('enrolments').update({ trial_start_date: d })
+                        .eq('student_id', sub.converted_student_id).eq('class_id', sub.trial_class_id).eq('status', 'trial')
+                  const { error } = await write(date)
+                  if (error) { alert('Could not change the first trial lesson: ' + error.message); return }
+                  onUpdate(sub.id, { _trialStart: date })
+                  onReload()
+                  registerUndoAction('first trial lesson', async () => {
+                    await write(prev)
+                    onUpdate(sub.id, { _trialStart: prev })
+                    onReload()
+                  })
+                }}
+              />
+            )}
 
             {/* Trial invitation — the FIRST email: welcome + a proposed trial
                 class matched to year/subject/availability. Hidden once the
@@ -616,8 +698,10 @@ export default function TrialsPage() {
     })
   }, [router])
 
-  const loadData = useCallback(async () => {
-    setLoading(true)
+  // quiet: refresh in place (after a class or trial date change) without the
+  // loading screen.
+  const loadData = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true)
     // Trials join the term being taught now (or the upcoming one during
     // holidays) — classes are per-term rows, so an unscoped fetch would list
     // every class once per term. Holiday rows exist in terms (pay periods,
@@ -723,6 +807,11 @@ export default function TrialsPage() {
     // Trial reminder material per submission: each trial class with its two
     // lesson dates, and the parent's email (the enquiry's, else the guardian's).
     const trialRows = (byStudent.data || []).filter(r => r.status === 'trial' && r.class_id != null)
+    // Each card's first trial lesson: the trial start on its class's enrolment.
+    for (const s of merged) {
+      const row = trialRows.find(r => r.student_id === s.converted_student_id && r.class_id === s.trial_class_id)
+      s._trialStart = row?.trial_start_date || null
+    }
     const trialClassIds = [...new Set(trialRows.map(r => r.class_id))]
     const [lessonRes, guardianRes] = await Promise.all([
       trialClassIds.length
@@ -998,6 +1087,7 @@ export default function TrialsPage() {
                     classes={classes}
                     students={students}
                     onUpdate={handleUpdate}
+                    onReload={() => loadData({ quiet: true })}
                     onConvertDrop={handleConvertDrop}
                     progress={trialProgress[sub.converted_student_id]}
                     onOutcomeEmail={() => setOutcomeSub(sub)}

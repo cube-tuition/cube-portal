@@ -4,6 +4,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { staleTrials, trialNudgePush } from '../lib/trialPipeline.js'
+import { earliestTrialStart, trialDatesFor } from '../lib/trialDates.js'
 
 const now = new Date('2026-10-14T21:00:00Z')                    // Thu 15 Oct, 8am Sydney
 const hoursAgo = (h) => new Date(now.getTime() - h * 3600e3).toISOString()
@@ -79,4 +80,15 @@ test('the morning push names the first few, by first name and stage', () => {
   assert.equal(push.title, '📞 2 trials waiting on you for 2+ days')
   assert.equal(push.body, 'Kim (New), Ana (Trial scheduled).')
   assert.equal(push.url, '/tutor/trials')
+})
+
+test('a trial defaults to the class’s earliest lesson from today; with none scheduled, today', () => {
+  const lessons = ['2026-10-10', '2026-10-17', '2026-10-24']
+  assert.equal(earliestTrialStart(lessons, '2026-10-15'), '2026-10-17')
+  assert.equal(earliestTrialStart(lessons, '2026-10-17'), '2026-10-17')   // a lesson today still counts
+  assert.equal(earliestTrialStart(lessons, '2026-10-25'), '2026-10-25')
+  assert.equal(earliestTrialStart([], '2026-10-15'), '2026-10-15')
+  // A later first lesson moves both trial lessons along.
+  assert.deepEqual(trialDatesFor(lessons, '2026-10-24'), ['2026-10-24'])
+  assert.deepEqual(trialDatesFor([...lessons, '2026-10-31'], '2026-10-24'), ['2026-10-24', '2026-10-31'])
 })
