@@ -85,8 +85,6 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const subtopicItems = topicItem
     ? groupRowsByName(subtopics.filter((st) => topicItem.rows.some((t) => t.id === st.topic_id)), (st) => yearOfTopic[st.topic_id])
     : []
-  // "Y7 only" while a stage's two years don't yet agree on an item.
-  const onlyIn = (item) => (activeStage && item.years.length < memberSubjects.length ? `Y${item.years.join(' & ')} only` : null)
   // Skills are shared across a whole stage, not owned by one year: editing the
   // list from Year 8 edits the same list Years 7 and 9-12 see. The heading above
   // the column says so, because the change is invisible otherwise.
@@ -347,7 +345,6 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                       <button onClick={() => { setTopicId(t.key); setSubtopicId('') }}
                         className={`flex-1 min-w-0 break-words text-left text-sm max-md:py-1 ${topicId === t.key ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {t.name}
-                        {onlyIn(t) && <span className="ml-1.5 text-[10px] font-semibold text-[#B45309] bg-amber-50 border border-amber-200 rounded-full px-1.5 py-px align-middle">{onlyIn(t)}</span>}
                       </button>
                       <button className={editBtn} onClick={() => moveItem(T_QBANK_TOPICS, topicItems, t, -1)}>↑</button>
                       <button className={editBtn} onClick={() => moveItem(T_QBANK_TOPICS, topicItems, t, 1)}>↓</button>
@@ -399,7 +396,6 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                       <button onClick={() => setSubtopicId(st.key)}
                         className={`flex-1 min-w-0 break-words whitespace-pre-wrap text-left text-sm max-md:py-1 ${subtopicId === st.key ? 'font-bold text-[#325099]' : 'text-[#2A2035]'}`}>
                         {st.name}
-                        {onlyIn(st) && <span className="ml-1.5 text-[10px] font-semibold text-[#B45309] bg-amber-50 border border-amber-200 rounded-full px-1.5 py-px align-middle whitespace-nowrap">{onlyIn(st)}</span>}
                       </button>
                       <button className={editBtn} onClick={() => moveItem(T_QBANK_SUBTOPICS, subtopicItems, st, -1)}>↑</button>
                       <button className={editBtn} onClick={() => moveItem(T_QBANK_SUBTOPICS, subtopicItems, st, 1)}>↓</button>
