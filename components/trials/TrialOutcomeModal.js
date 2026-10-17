@@ -3,10 +3,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
-import { buildTrialOutcomeEmailHtml, DEFAULT_TRIAL_OUTCOME_CONTENT, fillTrialVars } from '../../lib/trialOutcomeEmail'
+import { buildTrialOutcomeEmailHtml, fillTrialVars, stageGroups, nextLessonText, TRIAL_EMAIL_STAGES } from '../../lib/trialOutcomeEmail'
 
 /*
- * Trial outcome email — composed per student from the trial pipeline.
+ * Trial feedback emails — composed per student from the trial pipeline. One
+ * composer, two stages:
+ *   lesson1  each subject's FIRST trial lesson, plus the next trial lesson's
+ *            date and time (prefilled, editable)
+ *   outcome  each subject's SECOND trial lesson, plus how to continue
  *
  * Pulls every trial lesson the student attended (attendance rows carrying the
  * tutor's trial_feedback, written in SessionMarker) and groups them by class.
@@ -17,7 +21,6 @@ import { buildTrialOutcomeEmailHtml, DEFAULT_TRIAL_OUTCOME_CONTENT, fillTrialVar
  * (e.g. 2/2) and staff decide when to send.
  */
 
-const EXPECTED_LESSONS = 2   // a standard CUBE trial — shown as "n/2", not enforced
 
 const FIELDS = [
   { key: 'subject',         label: 'Subject line', rows: 1 },
@@ -30,10 +33,13 @@ const FIELDS = [
   { key: 'signoff',         label: 'Sign-off',     rows: 2 },
 ]
 
-export default function TrialOutcomeModal({ sub, onClose, onSent }) {
+export default function TrialOutcomeModal({ sub, stage = 'outcome', onClose, onSent }) {
+  const stageInfo = TRIAL_EMAIL_STAGES[stage] || TRIAL_EMAIL_STAGES.outcome
   const [loading, setLoading] = useState(true)
-  const [groups,  setGroups]  = useState([])          // [{ classId, subject, lessons:[{label, feedback, date}] }]
-  const [content, setContent] = useState(DEFAULT_TRIAL_OUTCOME_CONTENT)
+  const [groups,  setGroups]  = useState([])          // this stage's lesson per class: [{ classId, subject, lessons:[{label, feedback, date}] }]
+  const [missing, setMissing] = useState([])          // subjects trialled that haven't had this lesson yet
+  const [nextLesson, setNextLesson] = useState('')    // lesson1: the next trial lesson, for {{next_lesson}}
+  const [content, setContent] = useState(stageInfo.defaults)
   const [showCopy, setShowCopy] = useState(false)
   const [sending, setSending] = useState(false)
   const [result,  setResult]  = useState(null)
@@ -49,7 +55,7 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
     let active = true
     ;(async () => {
       setLoading(true)
-      if (!sub.converted_student_id) { if (active) { setGroups([]); setLoading(false) }; return }
+      if (!sub.converted_student_id) { if (active) { setGroups([]); setMissing([]); setLoading(false) }; return }
       // Only trial lessons: trial_feedback is written (and required) while the
       // enrolment is a trial, so it marks the lesson as part of the trial and
       // keeps an already-enrolled student's ongoing lessons out of this list.
@@ -80,15 +86,35 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
           feedback: r.trial_feedback || '',
         })),
       }))
-      if (active) { setGroups(built); setLoading(false) }
+      const staged = stageGroups(built, stage)
+      // lesson1: the next trial lesson in each subject — the class's next
+      // lesson after the one just had (its own time, else the class's).
+      let next = ''
+      if (stage === 'lesson1' && staged.length) {
+        const { data: cls } = await supabase.from('classes').select('id, start_time, end_time').in('id', staged.map(g => g.classId))
+        const clsById = Object.fromEntries((cls || []).map(c => [c.id, c]))
+        const upcoming = await Promise.all(staged.map(g => supabase.from('lessons')
+          .select('lesson_date, start_time, end_time').eq('class_id', g.classId).eq('is_makeup', false).neq('status', 'cancelled')
+          .gt('lesson_date', g.lessons[0].date).order('lesson_date', { ascending: true }).limit(1)))
+        next = nextLessonText(staged.map((g, i) => {
+          const l = upcoming[i].data?.[0]
+          return l ? { subject: g.subject, date: l.lesson_date, start: l.start_time || clsById[g.classId]?.start_time, end: l.end_time || clsById[g.classId]?.end_time } : null
+        }).filter(Boolean))
+      }
+      if (active) {
+        setGroups(staged)
+        setMissing(built.filter(g => !staged.some(x => x.classId === g.classId)).map(g => g.subject))
+        setNextLesson(next)
+        setLoading(false)
+      }
     })()
     return () => { active = false }
-  }, [sub.converted_student_id])
+  }, [sub.converted_student_id, stage])
 
-  const vars = useMemo(() => ({ parentName, studentName }), [parentName, studentName])
+  const vars = useMemo(() => ({ parentName, studentName, nextLesson }), [parentName, studentName, nextLesson])
   const html = useMemo(
-    () => buildTrialOutcomeEmailHtml(vars, groups, content),
-    [vars, groups, content],
+    () => buildTrialOutcomeEmailHtml(vars, groups, content, stage),
+    [vars, groups, content, stage],
   )
 
   const setLesson = (gi, li, feedback) => setGroups(gs =>
@@ -102,18 +128,18 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
       const res = await authedFetch('/api/send-trial-outcome-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parentEmail, parentName, studentName, groups, content, test }),
+        body: JSON.stringify({ parentEmail, parentName, studentName, groups, content, test, stage, nextLesson, submissionId: sub.id }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || `Send failed (${res.status})`)
       setResult(test ? `Test sent to ${TEST_RECIPIENT}` : `Sent to ${parentEmail}`)
-      if (!test) onSent?.()
+      if (!test) onSent?.(stageInfo.sentField, json.sentAt)
     } catch (e) {
       setError(e.message)
     } finally {
       setSending(false)
     }
-  }, [parentEmail, parentName, studentName, groups, content, onSent])
+  }, [parentEmail, parentName, studentName, groups, content, onSent, stage, nextLesson, sub.id, stageInfo.sentField])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
@@ -122,7 +148,7 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
 
         <div className="flex items-start justify-between px-6 py-4 border-b border-[#F0F4FF]">
           <div>
-            <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">Trial outcome email</p>
+            <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">{stageInfo.label} email</p>
             <h2 className="text-sm font-bold text-[#062E63]">
               {studentName || 'Student'}
               {parentEmail
@@ -139,7 +165,9 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
             <div>
               <p className="text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Tutor feedback</p>
               <p className="text-[11px] text-[#2A2035]/50">
-                Written after each trial lesson. Edit anything here before it goes to a parent — attendance records aren’t changed.
+                {stage === 'lesson1'
+                  ? 'Written after the first trial lesson. Edit anything here before it goes to a parent — attendance records aren’t changed.'
+                  : 'Written after the second trial lesson. Edit anything here before it goes to a parent — attendance records aren’t changed.'}
               </p>
             </div>
 
@@ -147,7 +175,7 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
               <p className="text-xs text-[#2A2035]/40 py-6 text-center">Loading trial lessons…</p>
             ) : groups.length === 0 ? (
               <div className="text-center py-8 px-4 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl">
-                <p className="text-sm text-[#2A2035]/50">No attended trial lessons found for this student.</p>
+                <p className="text-sm text-[#2A2035]/50">No {stage === 'lesson1' ? 'first' : 'second'} trial lesson marked yet for this student.</p>
                 <p className="text-[11px] text-[#2A2035]/40 mt-1">
                   Lessons appear here once they’re marked present in the session marker.
                 </p>
@@ -156,11 +184,8 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
               <div key={g.classId ?? gi} className="border border-[#DEE7FF] rounded-xl overflow-hidden">
                 <div className="bg-[#F8FAFF] px-3 py-2 flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-[#062E63] truncate">{g.subject}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                    g.lessons.length >= EXPECTED_LESSONS
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-amber-100 text-amber-700'}`}>
-                    {g.lessons.length}/{EXPECTED_LESSONS} lessons
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 bg-emerald-100 text-emerald-700">
+                    Lesson {stageInfo.lessonIndex + 1} marked
                   </span>
                 </div>
                 <div className="p-3 space-y-3">
@@ -182,6 +207,26 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
               </div>
             ))}
 
+            {!loading && missing.length > 0 && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Not in this email yet: {missing.join(', ')} — lesson {stageInfo.lessonIndex + 1} hasn’t been marked there.
+              </p>
+            )}
+            {stage === 'lesson1' && !loading && groups.length > 0 && (
+              <div>
+                <label className="block text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Next trial lesson</label>
+                <input
+                  value={nextLesson}
+                  onChange={e => setNextLesson(e.target.value)}
+                  placeholder="e.g. Saturday 24 October, 9:00am–10:30am"
+                  className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]"
+                />
+                <p className="text-[10px] text-[#2A2035]/45 mt-1">
+                  Filled in from the class’s next lesson. Goes into the email wherever {'{{next_lesson}}'} appears.
+                </p>
+              </div>
+            )}
+
             {/* Wording — collapsed by default; the defaults are usually fine. */}
             <div className="border border-[#DEE7FF] rounded-xl overflow-hidden">
               <button onClick={() => setShowCopy(s => !s)}
@@ -192,7 +237,7 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
               {showCopy && (
                 <div className="p-3 space-y-2.5">
                   <p className="text-[10px] text-[#2A2035]/45">
-                    {'{{parent_name}}'} and {'{{student_name}}'} are filled in automatically. **bold** works.
+                    {'{{parent_name}}'}, {'{{student_name}}'}{stage === 'lesson1' ? <> and {'{{next_lesson}}'}</> : null} are filled in automatically. **bold** works.
                   </p>
                   {FIELDS.map(f => (
                     <div key={f.key}>
@@ -205,7 +250,7 @@ export default function TrialOutcomeModal({ sub, onClose, onSent }) {
                       />
                     </div>
                   ))}
-                  <button onClick={() => setContent(DEFAULT_TRIAL_OUTCOME_CONTENT)}
+                  <button onClick={() => setContent(stageInfo.defaults)}
                     className="text-[11px] font-semibold text-[#325099] hover:underline">Reset wording</button>
                 </div>
               )}

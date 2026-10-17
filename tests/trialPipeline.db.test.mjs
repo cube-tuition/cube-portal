@@ -20,7 +20,7 @@ run('acting on a case restarts the clock and clears the "told the directors" mar
   const { id: cls } = await one(`insert into classes (class_name) values ('Y8 Maths') returning id`)
   const { id } = await one(`insert into trial_submissions (student_name, status, submitted_at, stale_notified_at)
     values ('Kim', 'new', '2026-10-01 09:00+10', '2026-10-05 08:00+11') returning id`)
-  for (const change of [`status = 'contacted'`, `admin_notes = 'Called mum'`, `trial_class_id = ${cls}`, `invitation_sent_at = now()`]) {
+  for (const change of [`status = 'contacted'`, `admin_notes = 'Called mum'`, `trial_class_id = ${cls}`, `invitation_sent_at = now()`, `lesson1_feedback_sent_at = now()`, `outcome_sent_at = now()`]) {
     await q(`update trial_submissions set last_activity_at = '2026-10-01', stale_notified_at = '2026-10-05' where id = $1`, [id])
     await q(`update trial_submissions set ${change} where id = $1`, [id])
     const r = await one(`select last_activity_at > '2026-10-02' restarted, stale_notified_at from trial_submissions where id = $1`, [id])

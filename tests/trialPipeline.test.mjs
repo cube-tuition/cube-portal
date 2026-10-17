@@ -92,3 +92,48 @@ test('a trial defaults to the class’s earliest lesson from today; with none sc
   assert.deepEqual(trialDatesFor(lessons, '2026-10-24'), ['2026-10-24'])
   assert.deepEqual(trialDatesFor([...lessons, '2026-10-31'], '2026-10-24'), ['2026-10-24', '2026-10-31'])
 })
+
+describe('trial feedback emails', () => {
+  // now = Thu 15 Oct, 8am Sydney. Lesson days end 23:59 Sydney.
+  const lessonsByClass = { 7: ['2026-10-06', '2026-10-13', '2026-10-20'] }
+  const trialEnrolments = [{ student_id: 'kim', class_id: 7, trial_start_date: '2026-10-06' }]
+  const base = { status: 'trial_scheduled', converted_student_id: 'kim', last_activity_at: hoursAgo(1) }
+
+  test('lesson 1 marked and its feedback not sent → due 2 days after that lesson', () => {
+    const trialLessons = { kim: { 7: ['2026-10-06'] } }
+    const r = staleTrials({ now, lessonsByClass, trialEnrolments: [{ ...trialEnrolments[0], trial_start_date: '2026-10-13' }], trialLessons, subs: [sub(base)] })
+    assert.deepEqual(ids(r), [[1, 'send the lesson 1 feedback email']])
+    // …even though the case was touched an hour ago: the email itself is what's owed.
+    const notYet = staleTrials({ now: new Date('2026-10-07T12:00:00Z'), lessonsByClass, trialEnrolments, trialLessons, subs: [sub(base)] })
+    assert.deepEqual(notYet, [])
+  })
+
+  test('once lesson 1 feedback is sent, nothing is owed until lesson 2 is marked', () => {
+    const trialLessons = { kim: { 7: ['2026-10-06'] } }
+    const r = staleTrials({ now, lessonsByClass, trialEnrolments: [{ ...trialEnrolments[0], trial_start_date: '2026-10-13' }], trialLessons,
+      subs: [sub({ ...base, lesson1_feedback_sent_at: hoursAgo(150) })] })
+    assert.deepEqual(r, [])
+  })
+
+  test('lesson 2 marked → the outcome email is owed (and replaces an unsent lesson 1 email)', () => {
+    const trialLessons = { kim: { 7: ['2026-10-06', '2026-10-13'] } }
+    const later = new Date('2026-10-15T15:00:00Z')                   // 2 days after the 13th ended
+    assert.deepEqual(ids(staleTrials({ now: later, lessonsByClass, trialEnrolments, trialLessons, subs: [sub(base)] })),
+      [[1, 'send the trial outcome email']])
+    assert.deepEqual(staleTrials({ now, lessonsByClass, trialEnrolments, trialLessons, subs: [sub(base)] }), [])   // only ~31h
+  })
+
+  test('with the outcome sent, the case falls back to the usual follow-up', () => {
+    const trialLessons = { kim: { 7: ['2026-10-06', '2026-10-13'] } }
+    const later = new Date('2026-10-15T15:00:00Z')
+    const r = staleTrials({ now: later, lessonsByClass, trialEnrolments, trialLessons,
+      subs: [sub({ ...base, outcome_sent_at: hoursAgo(10), last_activity_at: hoursAgo(500) })] })
+    assert.deepEqual(ids(r), [[1, 'follow up — the trial has finished']])
+  })
+
+  test('two subjects: lesson 2 in either one makes the outcome due', () => {
+    const trialLessons = { kim: { 7: ['2026-10-06', '2026-10-13'], 9: ['2026-10-09'] } }
+    const r = staleTrials({ now: new Date('2026-10-15T15:00:00Z'), lessonsByClass, trialEnrolments, trialLessons, subs: [sub(base)] })
+    assert.deepEqual(ids(r), [[1, 'send the trial outcome email']])
+  })
+})

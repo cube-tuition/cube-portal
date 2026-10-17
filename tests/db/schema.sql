@@ -514,6 +514,8 @@ create table public.trial_submissions (
   reminder_sent_at timestamp with time zone,
   last_activity_at timestamp with time zone,
   stale_notified_at timestamp with time zone,
+  lesson1_feedback_sent_at timestamp with time zone,
+  outcome_sent_at timestamp with time zone,
   constraint trial_submissions_pkey PRIMARY KEY (id),
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'enrolled'::text, 'declined'::text])))
 );
@@ -2116,7 +2118,9 @@ begin
      or new.enrolment_id       is distinct from old.enrolment_id
      or new.contacted_at       is distinct from old.contacted_at
      or new.invitation_sent_at is distinct from old.invitation_sent_at
-     or new.reminder_sent_at   is distinct from old.reminder_sent_at then
+     or new.reminder_sent_at   is distinct from old.reminder_sent_at
+     or new.lesson1_feedback_sent_at is distinct from old.lesson1_feedback_sent_at
+     or new.outcome_sent_at    is distinct from old.outcome_sent_at then
     new.last_activity_at := now();
     new.stale_notified_at := null;
   end if;

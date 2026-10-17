@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
-import { buildTrialOutcomeEmailHtml, fillTrialVars, mergeTrialOutcomeContent } from '../../../lib/trialOutcomeEmail'
+import { createClient } from '@supabase/supabase-js'
+import { buildTrialOutcomeEmailHtml, fillTrialVars, mergeTrialOutcomeContent, TRIAL_EMAIL_STAGES } from '../../../lib/trialOutcomeEmail'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 import { requireApiRole } from '../../../lib/apiAuth'
 
@@ -11,13 +12,19 @@ import { requireApiRole } from '../../../lib/apiAuth'
  *   parentName?: string,
  *   studentName?: string,
  *   groups:      [{ subject, lessons: [{ label, feedback }] }],
- *   content?:    object,   // per-send edits to DEFAULT_TRIAL_OUTCOME_CONTENT
+ *   stage?:      'lesson1' | 'outcome',   // which of the two emails (default outcome)
+ *   nextLesson?: string,   // lesson1: the next trial lesson, for {{next_lesson}}
+ *   content?:    object,   // per-send edits to the stage's default wording
+ *   submissionId?: number, // trial_submissions row to date the send on
  *   test?:       boolean,  // deliver to staff only (applyEmailTestMode)
  * }
  *
- * Sends one parent the outcome of their child's trial: the tutors' per-lesson
- * feedback plus how to continue. One family per call — this is sent from the
- * trial pipeline after a human has read the feedback, not in bulk.
+ * Sends one parent a trial feedback email: after lesson 1 (the tutor's notes
+ * and the next trial lesson) or after lesson 2 (the notes and how to
+ * continue). One family per call — sent from the trial pipeline after a human
+ * has read the feedback, not in bulk. A real send dates the submission's
+ * lesson1_feedback_sent_at / outcome_sent_at — from the FIRST send; a resend
+ * never shifts it.
  * Staff-only; never an anonymous relay.
  */
 export async function POST(request) {
@@ -25,11 +32,12 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { parentEmail, parentName, studentName, groups, content, test } = await request.json()
+    const { parentEmail, parentName, studentName, groups, content, test, nextLesson, submissionId, stage: rawStage } = await request.json()
     if (!parentEmail) return Response.json({ error: 'Missing parentEmail' }, { status: 400 })
+    const stage = TRIAL_EMAIL_STAGES[rawStage] ? rawStage : 'outcome'
 
-    const vars = { parentName, studentName }
-    const c = mergeTrialOutcomeContent(content)
+    const vars = { parentName, studentName, nextLesson }
+    const c = mergeTrialOutcomeContent(content, stage)
     const subject = fillTrialVars(c.subject, vars)
 
     const resend    = new Resend(process.env.RESEND_API_KEY)
@@ -40,11 +48,22 @@ export async function POST(request) {
       to:   [parentEmail],
       bcc:  [PORTAL_BCC],
       subject,
-      html: buildTrialOutcomeEmailHtml(vars, groups || [], content),
+      html: buildTrialOutcomeEmailHtml(vars, groups || [], content, stage),
     }, test))
 
     if (error) return Response.json({ error: error.message }, { status: 500 })
-    return Response.json({ success: true, sentTo: test ? 'staff (test)' : parentEmail })
+
+    // Date the card from the first real send.
+    let sentAt = null
+    if (!test && submissionId) {
+      const field = TRIAL_EMAIL_STAGES[stage].sentField
+      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+      const now = new Date().toISOString()
+      await sb.from('trial_submissions').update({ [field]: now }).eq('id', submissionId).is(field, null)
+      const { data } = await sb.from('trial_submissions').select(field).eq('id', submissionId).maybeSingle()
+      sentAt = data?.[field] || now
+    }
+    return Response.json({ success: true, sentTo: test ? 'staff (test)' : parentEmail, stage, sentAt })
   } catch (err) {
     console.error('[send-trial-outcome-email]', err)
     return Response.json({ error: err.message }, { status: 500 })

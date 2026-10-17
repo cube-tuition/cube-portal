@@ -261,6 +261,23 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
                 ✉ Reminded {fmtDate(sub.reminder_sent_at)}
               </span>
             )}
+            {/* …the feedback emails after each trial lesson — first-send dates too. */}
+            {sub.lesson1_feedback_sent_at && (
+              <span
+                className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"
+                title={`Lesson 1 feedback emailed ${fmtDate(sub.lesson1_feedback_sent_at)}`}
+              >
+                ✉ Lesson 1 feedback {fmtDate(sub.lesson1_feedback_sent_at)}
+              </span>
+            )}
+            {sub.outcome_sent_at && (
+              <span
+                className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"
+                title={`Trial outcome emailed ${fmtDate(sub.outcome_sent_at)}`}
+              >
+                ✉ Outcome sent {fmtDate(sub.outcome_sent_at)}
+              </span>
+            )}
             {/* Trial progress, counted per subject: green only once EVERY
                 trialled subject has had its lessons. Hover for the split. */}
             {progress?.lessons > 0 && (
@@ -606,16 +623,30 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
               </button>
             )}
 
-            {/* Trial outcome email — the tutors' per-lesson feedback plus how to
+            {/* Trial feedback emails, one after each trial lesson: lesson 1's
+                feedback with the next lesson's date, then lesson 2's with how to
                 continue. No completion gate: staff read the feedback and decide. */}
             {sub.converted_student_id && sub.status !== 'declined' && (
-              <button
-                onClick={onOutcomeEmail}
-                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-                title="Compose the trial outcome email — tutor feedback and next steps"
-              >
-                ✉ Outcome email
-              </button>
+              <>
+                <button
+                  onClick={() => onOutcomeEmail('lesson1')}
+                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+                  title={sub.lesson1_feedback_sent_at
+                    ? `Lesson 1 feedback emailed ${fmtDate(sub.lesson1_feedback_sent_at)} — compose and send again`
+                    : 'Email the family the first trial lesson’s feedback, with the next lesson’s date'}
+                >
+                  {sub.lesson1_feedback_sent_at ? '✉ Resend lesson 1 feedback' : '✉ Lesson 1 feedback'}
+                </button>
+                <button
+                  onClick={() => onOutcomeEmail('outcome')}
+                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+                  title={sub.outcome_sent_at
+                    ? `Trial outcome emailed ${fmtDate(sub.outcome_sent_at)} — compose and send again`
+                    : 'Email the second trial lesson’s feedback and how to continue'}
+                >
+                  {sub.outcome_sent_at ? '✉ Resend outcome' : '✉ Trial outcome'}
+                </button>
+              </>
             )}
 
             {/* Convert / Drop with double confirmation */}
@@ -683,7 +714,7 @@ export default function TrialsPage() {
   const [showArchive, setShowArchive] = useState(false)
   // studentId → { attended, withFeedback } for the trial-lesson badge
   const [trialProgress, setTrialProgress] = useState({})
-  // the trial whose outcome-email composer is open
+  // the trial feedback email being composed: { sub, stage: 'lesson1' | 'outcome' }
   const [outcomeSub,    setOutcomeSub]    = useState(null)
   const [invitationSub, setInvitationSub] = useState(null)
   const [reminderFamilies, setReminderFamilies] = useState({})   // submission id → family payload for the reminder
@@ -1093,7 +1124,7 @@ export default function TrialsPage() {
                     onReload={() => loadData({ quiet: true })}
                     onConvertDrop={handleConvertDrop}
                     progress={trialProgress[sub.converted_student_id]}
-                    onOutcomeEmail={() => setOutcomeSub(sub)}
+                    onOutcomeEmail={(stage) => setOutcomeSub({ sub, stage })}
                     onInvitationEmail={() => setInvitationSub(sub)}
                     canRemind={!!reminderFamilies[sub.id]}
                     onReminderEmail={() => setReminderEntries([{ sub, family: reminderFamilies[sub.id] }])}
@@ -1107,9 +1138,14 @@ export default function TrialsPage() {
 
       {outcomeSub && (
         <TrialOutcomeModal
-          sub={outcomeSub}
+          sub={outcomeSub.sub}
+          stage={outcomeSub.stage}
           onClose={() => setOutcomeSub(null)}
-          onSent={() => setOutcomeSub(null)}
+          onSent={(field, sentAt) => {
+            // Keep the first-send date the server recorded.
+            if (field) handleUpdate(outcomeSub.sub.id, { [field]: outcomeSub.sub[field] || sentAt || new Date().toISOString() })
+            setOutcomeSub(null)
+          }}
         />
       )}
 
