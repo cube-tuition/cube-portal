@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
 import { buildTrialOutcomeEmailHtml, fillTrialVars, stageGroups, nextLessonText, TRIAL_EMAIL_STAGES } from '../../lib/trialOutcomeEmail'
+import EmailWording from './EmailWording'
 
 /*
  * Trial feedback emails — composed per student from the trial pipeline. One
@@ -40,7 +41,6 @@ export default function TrialOutcomeModal({ sub, stage = 'outcome', onClose, onS
   const [missing, setMissing] = useState([])          // subjects trialled that haven't had this lesson yet
   const [nextLesson, setNextLesson] = useState('')    // lesson1: the next trial lesson, for {{next_lesson}}
   const [content, setContent] = useState(stageInfo.defaults)
-  const [showCopy, setShowCopy] = useState(false)
   const [sending, setSending] = useState(false)
   const [result,  setResult]  = useState(null)
   const [error,   setError]   = useState(null)
@@ -159,9 +159,9 @@ export default function TrialOutcomeModal({ sub, stage = 'outcome', onClose, onS
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 gap-0 divide-x divide-[#F0F4FF]">
+        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 gap-0 divide-x divide-[#F0F4FF] bg-[#F8FAFF]">
           {/* Left: the tutors' feedback, editable */}
-          <div className="px-6 py-5 space-y-4">
+          <div className="px-6 py-5 space-y-4 bg-white">
             <div>
               <p className="text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Tutor feedback</p>
               <p className="text-[11px] text-[#2A2035]/50">
@@ -227,38 +227,17 @@ export default function TrialOutcomeModal({ sub, stage = 'outcome', onClose, onS
               </div>
             )}
 
-            {/* Wording — collapsed by default; the defaults are usually fine. */}
-            <div className="border border-[#DEE7FF] rounded-xl overflow-hidden">
-              <button onClick={() => setShowCopy(s => !s)}
-                className="w-full bg-[#F8FAFF] px-3 py-2 flex items-center justify-between text-xs font-bold text-[#062E63]">
-                <span>Email wording</span>
-                <span className="text-[#325099]/50">{showCopy ? '−' : '+'}</span>
-              </button>
-              {showCopy && (
-                <div className="p-3 space-y-2.5">
-                  <p className="text-[10px] text-[#2A2035]/45">
-                    {'{{parent_name}}'}, {'{{student_name}}'}{stage === 'lesson1' ? <> and {'{{next_lesson}}'}</> : null} are filled in automatically. **bold** works.
-                  </p>
-                  {FIELDS.map(f => (
-                    <div key={f.key}>
-                      <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099]/70 mb-1">{f.label}</label>
-                      <textarea
-                        value={content[f.key]}
-                        onChange={e => setContent(c => ({ ...c, [f.key]: e.target.value }))}
-                        rows={f.rows}
-                        className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] resize-y"
-                      />
-                    </div>
-                  ))}
-                  <button onClick={() => setContent(stageInfo.defaults)}
-                    className="text-[11px] font-semibold text-[#325099] hover:underline">Reset wording</button>
-                </div>
-              )}
-            </div>
+            <EmailWording
+              fields={FIELDS}
+              values={content}
+              onChange={(k, v) => setContent(c => ({ ...c, [k]: v }))}
+              onReset={() => setContent(stageInfo.defaults)}
+              hint={stage === 'lesson1' ? '{{parent_name}}, {{student_name}} and {{next_lesson}} fill in automatically.' : '{{parent_name}} and {{student_name}} fill in automatically.'}
+            />
           </div>
 
           {/* Right: exactly what the parent receives */}
-          <div className="px-6 py-5 bg-[#F8FAFF]">
+          <div className="px-6 py-5 md:sticky md:top-0 md:self-start">
             <p className="text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Preview</p>
             <p className="text-[11px] text-[#2A2035]/50 mb-3">
               Subject: <span className="font-semibold text-[#2A2035]/70">{fillTrialVars(content.subject, vars)}</span>

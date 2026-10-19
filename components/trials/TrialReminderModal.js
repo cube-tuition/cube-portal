@@ -21,7 +21,6 @@ export default function TrialReminderModal({ entries, termId, termName, onClose,
   const [wording, setWording] = useState({ template: DEFAULT_TRIAL_REMINDER_TEMPLATE, subject: DEFAULT_TRIAL_REMINDER_SUBJECT })
   const [picked, setPicked]   = useState(() => new Set(entries.filter(e => !e.sub.reminder_sent_at || !bulk).map(e => e.sub.id)))
   const [focus, setFocus]     = useState(entries[0]?.sub.id ?? null)
-  const [showCopy, setShowCopy] = useState(false)
   const [sending, setSending] = useState(false)
   const [note, setNote]       = useState(null)
   const [error, setError]     = useState(null)
@@ -66,8 +65,8 @@ export default function TrialReminderModal({ entries, termId, termName, onClose,
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 divide-x divide-[#F0F4FF]">
-          <div className="px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 divide-x divide-[#F0F4FF] bg-[#F8FAFF]">
+          <div className="px-6 py-5 space-y-4 bg-white">
             {bulk && (
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -112,22 +111,18 @@ export default function TrialReminderModal({ entries, termId, termName, onClose,
               <input value={wording.subject} onChange={e => updateWording({ subject: e.target.value })}
                 className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
             </div>
-            <div className="border border-[#DEE7FF] rounded-xl overflow-hidden">
-              <button onClick={() => setShowCopy(s => !s)} className="w-full bg-[#F8FAFF] px-3 py-2 flex items-center justify-between text-xs font-bold text-[#062E63]">
-                <span>Email wording</span><span className="text-[#325099]/50">{showCopy ? '−' : '+'}</span>
-              </button>
-              {showCopy && (
-                <div className="p-3 space-y-2">
-                  <p className="text-[10px] text-[#2A2035]/45">{'{{parent_name}}'}, {'{{student_names}}'} and {'{{class_details}}'} fill in per family. **bold** works. Saved for next time.</p>
-                  <textarea value={wording.template} onChange={e => updateWording({ template: e.target.value })} rows={14}
-                    className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] resize-y font-mono" />
-                  <button onClick={() => updateWording({ template: DEFAULT_TRIAL_REMINDER_TEMPLATE, subject: DEFAULT_TRIAL_REMINDER_SUBJECT })} className="text-[11px] font-semibold text-[#325099] hover:underline">Reset wording</button>
-                </div>
-              )}
+            <div>
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <label className="block text-[11px] font-bold tracking-widest uppercase text-[#325099]">Email</label>
+                <button onClick={() => updateWording({ template: DEFAULT_TRIAL_REMINDER_TEMPLATE, subject: DEFAULT_TRIAL_REMINDER_SUBJECT })} className="text-[11px] font-semibold text-[#325099] hover:underline">Reset to template</button>
+              </div>
+              <p className="text-[10px] text-[#2A2035]/45 mb-1.5">The template text — edit it freely. {'{{parent_name}}'}, {'{{student_names}}'} and {'{{class_details}}'} fill in per family. **bold** works. Saved for next time.</p>
+              <textarea value={wording.template} onChange={e => updateWording({ template: e.target.value })} rows={16}
+                className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs leading-relaxed text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] resize-y" />
             </div>
           </div>
 
-          <div className="px-6 py-5 bg-[#F8FAFF]">
+          <div className="px-6 py-5 md:sticky md:top-0 md:self-start">
             <p className="text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Preview{bulk && focused ? ` · ${focused.sub.student_name}` : ''}</p>
             <p className="text-[11px] text-[#2A2035]/50 mb-3">Subject: <span className="font-semibold text-[#2A2035]/70">{focused ? fillReminderTemplate(wording.subject, focused.family, termName) : ''}</span></p>
             <iframe title="Trial reminder email preview" srcDoc={html} className="w-full h-[52vh] bg-white border border-[#DEE7FF] rounded-xl" />

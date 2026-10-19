@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
+import EmailWording from './EmailWording'
 import {
   buildTrialInvitationEmailHtml, classTimeLabel, mergeTrialInvitationContent, joinNames,
   fillTrialVars, firstWeekdayOnOrAfter, fmtLessonDate, matchTrialClasses,
@@ -13,8 +14,8 @@ import {
  * from the pipeline. Matches classes to the student's year + subject, ranks
  * them by the availability windows the family gave on the enquiry form, and
  * proposes the best fit with its next scheduled lesson date. Staff pick a
- * different proposal, tick which alternatives to include, and add a personal
- * note; the preview is exactly what sends.
+ * different proposal, tick which alternatives to include, and edit the
+ * email's text (pre-filled from the template); the preview is exactly what sends.
  *
  * A family that asked about more than one trial (two subjects for one child,
  * or two children) gets ONE email: `related` is the family's other open
@@ -48,7 +49,6 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const [choice, setChoice]     = useState({})      // sub id → { proposalId, altIds: Set }
   const [loading, setLoading]   = useState(true)
   const [edits, setEdits]       = useState({})      // wording the user changed (else the defaults)
-  const [showCopy, setShowCopy] = useState(false)
   const [sending, setSending]   = useState(false)
   const [result,  setResult]    = useState(null)
   const [error,   setError]     = useState(null)
@@ -187,9 +187,9 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#2A2035]/40 hover:bg-[#F0F4FF] transition text-lg shrink-0">×</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 gap-0 divide-x divide-[#F0F4FF]">
-          {/* Left: class proposal + personal note + wording */}
-          <div className="px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto grid md:grid-cols-2 gap-0 divide-x divide-[#F0F4FF] bg-[#F8FAFF]">
+          {/* Left: class proposal + the email text */}
+          <div className="px-6 py-5 space-y-4 bg-white">
             {candidates.length > 1 && (
               <div className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-3 py-2.5">
                 <p className="text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">In this email</p>
@@ -267,49 +267,17 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
               )
             })}
 
-            <div>
-              <label className="block text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Personal note <span className="font-normal normal-case text-[#2A2035]/40">(optional — appears after the welcome)</span></label>
-              <textarea
-                value={content.personalNote}
-                onChange={e => setEdits(c => ({ ...c, personalNote: e.target.value }))}
-                rows={3}
-                placeholder={`Anything specific to ${studentName || 'this student'} — what you discussed on the phone, what to bring, parking…`}
-                className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] resize-y"
-              />
-            </div>
-
-            {/* Wording — collapsed by default; the defaults are usually fine. */}
-            <div className="border border-[#DEE7FF] rounded-xl overflow-hidden">
-              <button onClick={() => setShowCopy(s => !s)}
-                className="w-full bg-[#F8FAFF] px-3 py-2 flex items-center justify-between text-xs font-bold text-[#062E63]">
-                <span>Email wording</span>
-                <span className="text-[#325099]/50">{showCopy ? '−' : '+'}</span>
-              </button>
-              {showCopy && (
-                <div className="p-3 space-y-2.5">
-                  <p className="text-[10px] text-[#2A2035]/45">
-                    {'{{parent_name}}'} and {'{{student_name}}'} are filled in automatically. **bold** works.
-                  </p>
-                  {FIELDS.map(f => (
-                    <div key={f.key}>
-                      <label className="block text-[10px] font-bold tracking-widest uppercase text-[#325099]/70 mb-1">{f.label}</label>
-                      <textarea
-                        value={content[f.key]}
-                        onChange={e => setEdits(c => ({ ...c, [f.key]: e.target.value }))}
-                        rows={f.rows}
-                        className="w-full border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs text-[#2A2035] bg-white focus:outline-none focus:border-[#325099] resize-y"
-                      />
-                    </div>
-                  ))}
-                  <button onClick={() => setEdits(c => ({ personalNote: c.personalNote || '' }))}
-                    className="text-[11px] font-semibold text-[#325099] hover:underline">Reset wording</button>
-                </div>
-              )}
-            </div>
+            <EmailWording
+              fields={FIELDS}
+              values={content}
+              onChange={(k, v) => setEdits(c => ({ ...c, [k]: v }))}
+              onReset={() => setEdits({})}
+              hint="{{parent_name}} and {{student_name}} fill in automatically."
+            />
           </div>
 
           {/* Right: exactly what the parent receives */}
-          <div className="px-6 py-5 bg-[#F8FAFF]">
+          <div className="px-6 py-5 md:sticky md:top-0 md:self-start">
             <p className="text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Preview</p>
             <p className="text-[11px] text-[#2A2035]/50 mb-3">
               Subject: <span className="font-semibold text-[#2A2035]/70">{fillTrialVars(content.subject, vars)}</span>
