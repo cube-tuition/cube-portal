@@ -224,6 +224,22 @@ describe('the job log (system monitoring)', () => {
   })
 })
 
+describe('level test invitations (the parent form’s link tokens)', () => {
+  run('only directors read or write them — a tutor or student never sees a token', async ({ q, signIn, rejects }) => {
+    const [{ id: sub }] = await q(`insert into trial_submissions (student_name, parent_email) values ('Akari', 'p@example.com') returning id`)
+    await q(`insert into level_test_invites (token, submission_id, slots) values ('tok-secret', $1, '[{"date":"2026-10-24","start":"10:00"}]')`, [sub])
+    for (const who of [[MONICA, 'tutor'], [KIM, 'student']]) {
+      await signIn(...who)
+      assert.equal(await n(q, `select count(*)::int n from level_test_invites`), 0, who[1])
+      await rejects(`insert into level_test_invites (token, submission_id) values ('x', $1)`, [sub], /row-level security/)
+    }
+    await signIn(RYAN, 'admin')
+    assert.equal(await n(q, `select count(*)::int n from level_test_invites`), 1)
+    await q(`update level_test_invites set parent_note = 'Sundays'`)
+    assert.equal(await n(q, `select count(*)::int n from level_test_invites where parent_note = 'Sundays'`), 1)
+  })
+})
+
 describe('a director', () => {
   run('reads and writes all of it', async ({ q, signIn }) => {
     await signIn(RYAN, 'admin')

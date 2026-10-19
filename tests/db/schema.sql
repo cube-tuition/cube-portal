@@ -527,18 +527,9 @@ create table public.trial_submissions (
   stale_notified_at timestamp with time zone,
   lesson1_feedback_sent_at timestamp with time zone,
   outcome_sent_at timestamp with time zone,
+  level_test_invitation_sent_at timestamp with time zone,
   constraint trial_submissions_pkey PRIMARY KEY (id),
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'enrolled'::text, 'declined'::text])))
-);
-
-create table public.practice_ratings (
-  id bigint generated always as identity not null,
-  student_id uuid not null,
-  question_id uuid not null,
-  rating text not null,
-  rated_at timestamp with time zone default now() not null,
-  constraint practice_ratings_pkey PRIMARY KEY (id),
-  constraint practice_ratings_rating_check CHECK ((rating = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text, 'very_hard'::text])))
 );
 
 create table public.qbank_topics (
@@ -549,6 +540,16 @@ create table public.qbank_topics (
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
   constraint qbank_topics_pkey PRIMARY KEY (id)
+);
+
+create table public.practice_ratings (
+  id bigint generated always as identity not null,
+  student_id uuid not null,
+  question_id uuid not null,
+  rating text not null,
+  rated_at timestamp with time zone default now() not null,
+  constraint practice_ratings_pkey PRIMARY KEY (id),
+  constraint practice_ratings_rating_check CHECK ((rating = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text, 'very_hard'::text])))
 );
 
 create table public.qbank_skills (
@@ -591,6 +592,26 @@ create table public.qbank_subject_links (
   constraint qbank_subject_links_check CHECK ((subject_id <> shows_subject_id))
 );
 
+create table public.level_test_invites (
+  id uuid default gen_random_uuid() not null,
+  token text not null,
+  submission_id integer not null,
+  student_id uuid,
+  student_name text,
+  build_ids uuid[] default '{}'::uuid[] not null,
+  slots jsonb default '[]'::jsonb not null,
+  lesson_id integer,
+  chosen_slot jsonb,
+  parent_note text,
+  sent_at timestamp with time zone,
+  responded_at timestamp with time zone,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  constraint level_test_invites_submission_id_key UNIQUE (submission_id),
+  constraint level_test_invites_token_key UNIQUE (token),
+  constraint level_test_invites_pkey PRIMARY KEY (id)
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -613,6 +634,9 @@ alter table public.invoices add constraint invoices_term_id_fkey FOREIGN KEY (te
 alter table public.lessons add constraint lessons_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.lessons add constraint lessons_makeup_source_lesson_id_fkey FOREIGN KEY (makeup_source_lesson_id) REFERENCES lessons(id) ON DELETE SET NULL;
 alter table public.lessons add constraint lessons_makeup_student_id_fkey FOREIGN KEY (makeup_student_id) REFERENCES students(id) ON DELETE SET NULL;
+alter table public.level_test_invites add constraint level_test_invites_lesson_id_fkey FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE SET NULL;
+alter table public.level_test_invites add constraint level_test_invites_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL;
+alter table public.level_test_invites add constraint level_test_invites_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES trial_submissions(id) ON DELETE CASCADE;
 alter table public.practice_ratings add constraint practice_ratings_question_id_fkey FOREIGN KEY (question_id) REFERENCES qbank_questions(id) ON DELETE CASCADE;
 alter table public.practice_ratings add constraint practice_ratings_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
 alter table public.qbank_question_images add constraint qbank_question_images_part_id_fkey FOREIGN KEY (part_id) REFERENCES qbank_question_parts(id) ON DELETE CASCADE;
@@ -2151,6 +2175,7 @@ begin
      or new.enrolment_id       is distinct from old.enrolment_id
      or new.contacted_at       is distinct from old.contacted_at
      or new.invitation_sent_at is distinct from old.invitation_sent_at
+     or new.level_test_invitation_sent_at is distinct from old.level_test_invitation_sent_at
      or new.reminder_sent_at   is distinct from old.reminder_sent_at
      or new.lesson1_feedback_sent_at is distinct from old.lesson1_feedback_sent_at
      or new.outcome_sent_at    is distinct from old.outcome_sent_at then
@@ -2343,12 +2368,13 @@ alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
 alter table public.qbank_subjects enable row level security;
 alter table public.trial_submissions enable row level security;
-alter table public.practice_ratings enable row level security;
 alter table public.qbank_topics enable row level security;
+alter table public.practice_ratings enable row level security;
 alter table public.qbank_skills enable row level security;
 alter table public.qbank_subtopics enable row level security;
 alter table public.qbank_question_subtopics enable row level security;
 alter table public.qbank_subject_links enable row level security;
+alter table public.level_test_invites enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -2382,6 +2408,7 @@ create policy lessons_student_read on public.lessons as PERMISSIVE for SELECT to
    FROM enrolments e
   WHERE ((e.class_id = lessons.class_id) AND (e.student_id = auth.uid()))))));
 create policy lessons_write_admin on public.lessons as PERMISSIVE for ALL to authenticated using ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text]))) with check ((((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = ANY (ARRAY['admin'::text, 'director'::text])));
+create policy admin_all on public.level_test_invites as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy staff_all on public.online_resources as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy pay_runs_admin_all on public.pay_runs as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy portal_settings_admin_all on public.portal_settings as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));

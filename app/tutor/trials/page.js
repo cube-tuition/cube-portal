@@ -15,6 +15,7 @@ import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
 import TrialReminderModal from '../../../components/trials/TrialReminderModal'
+import LevelTestInvitationModal from '../../../components/trials/LevelTestInvitationModal'
 import { reminderFamilyFor, trialDatesFor } from '../../../lib/trialReminderEmail'
 import { earliestTrialStart } from '../../../lib/trialDates'
 
@@ -166,6 +167,12 @@ async function lessonDatesFrom(classId, from = isoDate(new Date())) {
   return [...new Set((data || []).map(l => l.lesson_date))]
 }
 const fmtDay = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+// A booked level test on the card: "Sat 25 Oct, 10am".
+const fmtLevelTest = ({ date, start }) => {
+  const [h, m] = String(start || '').split(':').map(Number)
+  const time = Number.isFinite(h) ? `${((h + 11) % 12) + 1}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}` : ''
+  return [fmtDay(date), time].filter(Boolean).join(', ')
+}
 
 // The first trial lesson, chosen from the class's upcoming lessons. Students
 // can start the same class on different weeks; the trial then covers that
@@ -208,7 +215,7 @@ function TrialStartPicker({ classId, value, onChange }) {
   )
 }
 
-function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onReminderEmail, canRemind }) {
+function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemind }) {
   const [expanded,     setExpanded]     = useState(false)
   const [editNotes,    setEditNotes]    = useState(false)
   const [notes,        setNotes]        = useState(sub.admin_notes || '')
@@ -250,6 +257,31 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
                 title={`Trial invitation emailed ${fmtDate(sub.invitation_sent_at)}`}
               >
                 ✉ Invited {fmtDate(sub.invitation_sent_at)}
+              </span>
+            )}
+            {/* Invited to a level test first — and what the family answered on the form. */}
+            {sub.level_test_invitation_sent_at && !sub._levelTest?.booked && !sub._levelTest?.note && (
+              <span
+                className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"
+                title={`Level test invitation emailed ${fmtDate(sub.level_test_invitation_sent_at)} — no time picked yet`}
+              >
+                ✉ Level test invited {fmtDate(sub.level_test_invitation_sent_at)}
+              </span>
+            )}
+            {sub._levelTest?.booked && (
+              <span
+                className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"
+                title="The family booked this on the level test form — it's on Monitoring → Level tests"
+              >
+                📝 Level test {fmtLevelTest(sub._levelTest.booked)}
+              </span>
+            )}
+            {sub._levelTest?.note && (
+              <span
+                className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full max-w-[22rem] truncate"
+                title={`None of the level test times suited. They said: ${sub._levelTest.note}`}
+              >
+                📝 Level test: other times — “{sub._levelTest.note}”
               </span>
             )}
             {/* …and the reminder with the trial dates — also dated from the first send. */}
@@ -349,6 +381,7 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
             <div><span className="font-semibold">Time pref:</span> {sub.time_preference || '—'}</div>
             <div><span className="font-semibold">Submitted:</span> {fmtDate(sub.submitted_at)} ({age}d ago)</div>
             <div><span className="font-semibold">Invitation sent:</span> {sub.invitation_sent_at ? fmtDate(sub.invitation_sent_at) : '—'}</div>
+            <div><span className="font-semibold">Level test invitation:</span> {sub.level_test_invitation_sent_at ? fmtDate(sub.level_test_invitation_sent_at) : '—'}</div>
             <div><span className="font-semibold">Reminder sent:</span> {sub.reminder_sent_at ? fmtDate(sub.reminder_sent_at) : '—'}</div>
             {/* The first trial lesson lives on the enrolment (set with the First
                 trial picker beside the class); trial_submissions.trial_date is
@@ -609,6 +642,20 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
               </button>
             )}
 
+            {/* Level test invitation — the alternative first email: suggested
+                times and a form link; the family's pick books the level test. */}
+            {!['enrolled', 'declined'].includes(sub.status) && (
+              <button
+                onClick={onLevelTestInvitation}
+                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+                title={sub.level_test_invitation_sent_at
+                  ? `Already emailed ${fmtDate(sub.level_test_invitation_sent_at)} — change the times and send again`
+                  : 'Invite them to sit a level test first — suggested times, booked from a form'}
+              >
+                {sub.level_test_invitation_sent_at ? '✉ Resend level test invitation' : '✉ Level test invitation'}
+              </button>
+            )}
+
             {/* Trial reminder — the SECOND email: the two trial lesson dates and
                 time, once a class is assigned. Replaces the Emails → Trials page. */}
             {canRemind && !['enrolled', 'declined'].includes(sub.status) && (
@@ -717,6 +764,7 @@ export default function TrialsPage() {
   // the trial feedback email being composed: { sub, stage: 'lesson1' | 'outcome' }
   const [outcomeSub,    setOutcomeSub]    = useState(null)
   const [invitationSub, setInvitationSub] = useState(null)
+  const [levelTestSub,  setLevelTestSub]  = useState(null)
   const [reminderFamilies, setReminderFamilies] = useState({})   // submission id → family payload for the reminder
   const [reminderEntries, setReminderEntries] = useState(null)   // [{ sub, family }] open in the reminder modal
   const [enrolTerm,     setEnrolTerm]     = useState(null)   // trial target term (holiday rows excluded)
@@ -908,6 +956,19 @@ export default function TrialsPage() {
       setTrialProgress(prog)
     } else {
       setTrialProgress({})
+    }
+
+    // Level test invitations: the family's answer on their form — the booked
+    // test, or the times they gave when none suited.
+    const { data: invites } = await supabase.from('level_test_invites')
+      .select('submission_id, lesson_id, parent_note, responded_at, lessons:lesson_id(lesson_date, start_time, end_time)')
+    const inviteBySub = Object.fromEntries((invites || []).map(i => [i.submission_id, i]))
+    for (const s of merged) {
+      const i = inviteBySub[s.id]
+      s._levelTest = i ? {
+        booked: i.lessons ? { date: i.lessons.lesson_date, start: String(i.lessons.start_time || '').slice(0, 5) } : null,
+        note: i.responded_at && !i.lessons ? (i.parent_note || '') : '',
+      } : null
     }
 
     setSubmissions(merged)
@@ -1126,6 +1187,7 @@ export default function TrialsPage() {
                     progress={trialProgress[sub.converted_student_id]}
                     onOutcomeEmail={(stage) => setOutcomeSub({ sub, stage })}
                     onInvitationEmail={() => setInvitationSub(sub)}
+                    onLevelTestInvitation={() => setLevelTestSub(sub)}
                     canRemind={!!reminderFamilies[sub.id]}
                     onReminderEmail={() => setReminderEntries([{ sub, family: reminderFamilies[sub.id] }])}
                   />
@@ -1158,6 +1220,21 @@ export default function TrialsPage() {
           onSent={(ids) => {
             const now = new Date().toISOString()
             setSubmissions(prev => prev.map(s => ids.includes(s.id) ? { ...s, reminder_sent_at: s.reminder_sent_at || now } : s))
+          }}
+        />
+      )}
+
+      {levelTestSub && (
+        <LevelTestInvitationModal
+          sub={levelTestSub}
+          onClose={() => { setLevelTestSub(null); loadData({ quiet: true }) }}
+          onSent={(sentAt, stamped) => {
+            const now = sentAt || new Date().toISOString()
+            handleUpdate(levelTestSub.id, {
+              // first-send date only — a resend keeps the original
+              level_test_invitation_sent_at: levelTestSub.level_test_invitation_sent_at || now,
+              ...(stamped ? { status: 'contacted', contacted_at: now } : {}),
+            })
           }}
         />
       )}
