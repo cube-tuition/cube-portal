@@ -45,6 +45,8 @@ export default function LevelTestBookingsPage() {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [confirmDel, setConfirmDel] = useState(null)
+  const [editing, setEditing] = useState(null)        // { id, ids, locked } — a booking's tests being changed
+  const [editErr, setEditErr] = useState('')
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -134,6 +136,23 @@ export default function LevelTestBookingsPage() {
     if (error) { setErr('Could not book the level test: ' + error.message); return }
     setBookings(bs => [{ ...data, students: student ? { full_name: student.full_name, year: student.year, status: student.status } : null }, ...bs])
     setForm(EMPTY_FORM)
+  }
+
+  // A booking's tests can be chosen afterwards — a family that booked from the
+  // level test invitation in a year with no test matched, or a second subject.
+  // Once marks are entered a test can be added but not taken away (its marks
+  // would be left pointing at nothing).
+  const startEdit = (b, ids) => { setEditErr(''); setEditing({ id: b.id, ids, locked: (markCounts[b.id] || 0) > 0 ? ids : [] }) }
+  const toggleEditTest = (tid) => setEditing(e => (e.locked.includes(tid) ? e : {
+    ...e, ids: e.ids.includes(tid) ? e.ids.filter(x => x !== tid) : [...e.ids, tid],
+  }))
+  const saveTests = async () => {
+    if (!editing) return
+    const patch = { level_test_build_ids: editing.ids, level_test_build_id: editing.ids[0] || null }
+    const { error } = await supabase.from('lessons').update(patch).eq('id', editing.id)
+    if (error) { setEditErr('Could not save: ' + error.message); return }
+    setBookings(bs => bs.map(b => (b.id === editing.id ? { ...b, ...patch } : b)))
+    setEditing(null)
   }
 
   const removeBooking = async (id) => {
@@ -268,6 +287,9 @@ export default function LevelTestBookingsPage() {
                   ? b.level_test_build_ids : (b.level_test_build_id ? [b.level_test_build_id] : [])
                 const names = buildIds.map(tid => (testById[tid] ? levelTestDisplayName(testById[tid]) : 'Deleted test'))
                 const who = b.students?.full_name || b.student_name || 'Student'
+                const isEditing = editing?.id === b.id
+                // The student's year first, then the rest of the bank.
+                const testChoices = [...tests].sort((x, y) => (String(y.year) === String(b.students?.year)) - (String(x.year) === String(b.students?.year)))
                 const trial = b.students?.status === 'trial'
                 const marked = markCounts[b.id] || 0
                 const past = b.lesson_date <= new Date().toISOString().slice(0, 10)
@@ -279,10 +301,43 @@ export default function LevelTestBookingsPage() {
                         {b.students?.year && <span className="text-[#325099]/60 font-normal"> · Y{b.students.year}</span>}
                         {trial && <span className="ml-1.5 text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E]">Trial</span>}
                       </p>
-                      <p className="text-[11px] text-[#2A2035]/50 mt-0.5 truncate">
+                      <p className="text-[11px] text-[#2A2035]/50 mt-0.5">
                         {fmtDate(b.lesson_date)} · {fmt12(b.start_time)}{b.end_time ? `–${fmt12(b.end_time)}` : ''}
-                        {b.room ? ` · ${b.room}` : ''} · {names.join(' + ')}
+                        {b.room ? ` · ${b.room}` : ''}
+                        {names.length ? ` · ${names.join(' + ')}` : <> · <span className="font-semibold text-[#B45309]">no level test chosen</span></>}
+                        {!isEditing && (
+                          <button onClick={() => startEdit(b, buildIds)} className="ml-2 font-semibold text-[#325099] hover:underline">
+                            {names.length ? 'Change tests' : 'Choose tests'}
+                          </button>
+                        )}
                       </p>
+                      {isEditing && (
+                        <div className="mt-2 rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-3 py-2.5">
+                          <div className="flex flex-wrap gap-1.5">
+                            {testChoices.map(t => {
+                              const on = editing.ids.includes(t.id)
+                              const locked = editing.locked.includes(t.id)
+                              return (
+                                <button key={t.id} type="button" onClick={() => toggleEditTest(t.id)} disabled={locked}
+                                  title={locked ? 'Marks are entered for this test — it stays' : undefined}
+                                  className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border transition ${on
+                                    ? 'bg-[#062E63] text-white border-[#062E63]'
+                                    : 'bg-white text-[#2A2035]/65 border-[#DEE7FF] hover:border-[#325099]'} ${locked ? 'cursor-not-allowed opacity-80' : ''}`}>
+                                  {on ? '✓ ' : ''}{levelTestDisplayName(t)}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          {b.students?.year && !tests.some(t => String(t.year) === String(b.students.year)) && (
+                            <p className="text-[11px] text-[#B45309] mt-2">No Year {b.students.year} level test in the exam bank yet — build one under Resources → Exams → Level Tests, or pick another year&rsquo;s.</p>
+                          )}
+                          <div className="flex items-center gap-3 mt-2.5">
+                            <button onClick={saveTests} className="text-[11px] font-bold text-white bg-[#062E63] hover:bg-[#325099] rounded-full px-4 py-1.5 transition">Save tests</button>
+                            <button onClick={() => setEditing(null)} className="text-[11px] font-semibold text-[#2A2035]/50 hover:text-[#2A2035]">Cancel</button>
+                            {editErr && <span className="text-[11px] font-semibold text-[#991B1B]">{editErr}</span>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${marked > 0
                       ? 'bg-[#DCFCE7] text-[#166534] border-[#A7F3D0]'
