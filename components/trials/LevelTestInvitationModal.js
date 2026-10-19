@@ -8,7 +8,7 @@ import { subjectCode } from '../../lib/format'
 import { fillTrialVars, firstWeekdayOnOrAfter } from '../../lib/trialInvitationEmail'
 import {
   buildLevelTestInvitationEmailHtml, mergeLevelTestInvitationContent, matchLevelTests,
-  normaliseSlots, plusHour, slotLabel,
+  normaliseSlots, testEnd, availabilitySlots, slotLabel,
 } from '../../lib/levelTestInvite'
 
 /*
@@ -34,10 +34,12 @@ const FIELDS = [
   { key: 'signoff',      label: 'Sign-off',     rows: 2 },
 ]
 
-const isoToday = () => {
+const isoDay = (offset = 0) => {
   const d = new Date(), pad = (n) => String(n).padStart(2, '0')
+  d.setDate(d.getDate() + offset)
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
+const isoToday = () => isoDay(0)
 const levelTestName = (t) => {
   const code = subjectCode(t.subject)
   return (t.year && code) ? `${t.year}.${code}. Level Test` : (t.title || 'Level test')
@@ -79,12 +81,16 @@ export default function LevelTestInvitationModal({ sub, onClose, onSent }) {
       setInvite(inv || null)
       setBooking(lesson)
       setBuildIds(inv?.build_ids?.length ? inv.build_ids : matchLevelTests(lts || [], sub.student_year, subjects))
-      // A resend starts from the times sent last; a first send from next
-      // Saturday 10–11am (when most level tests run) plus a blank row.
+      // A resend starts from the times sent last; a first send from every
+      // window of the family's availability (the next such day from tomorrow),
+      // else next Saturday 10am (when most level tests run) — plus a blank row.
       const saved = normaliseSlots(inv?.slots).filter(s => s.date >= isoToday())
+      const fromAvailability = availabilitySlots(sub.availability, isoDay(1))
       setSlots(saved.length
         ? saved.map(s => ({ ...s, end: s.end || '', room: s.room || '' }))
-        : [{ date: firstWeekdayOnOrAfter(isoToday(), 'Saturday'), start: '10:00', end: '11:00', room: '' }, emptySlot()])
+        : [...(fromAvailability.length
+            ? fromAvailability
+            : [{ date: firstWeekdayOnOrAfter(isoToday(), 'Saturday'), start: '10:00', end: testEnd('10:00'), room: '' }]), emptySlot()])
       setLoading(false)
     })()
     return () => { alive = false }
@@ -99,8 +105,8 @@ export default function LevelTestInvitationModal({ sub, onClose, onSent }) {
   const setSlot = (i, k, v) => setSlots(list => list.map((s, j) => {
     if (j !== i) return s
     const next = { ...s, [k]: v }
-    // A new start time moves a one-hour end with it.
-    if (k === 'start' && (!s.end || s.end === plusHour(s.start))) next.end = plusHour(v)
+    // A new start time moves a default-length end with it.
+    if (k === 'start' && (!s.end || s.end === testEnd(s.start))) next.end = testEnd(v)
     return next
   }))
   const toggleTest = (id) => setBuildIds(ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]))

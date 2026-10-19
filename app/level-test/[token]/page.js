@@ -130,7 +130,7 @@ function LevelTestForm() {
         <h1 className="text-xl font-bold text-[#062E63] mb-3">{Who}&rsquo;s level test</h1>
         <div className="bg-[#F0F4FF] border border-[#DEE7FF] rounded-xl px-4 py-3">{card(booked, true)}</div>
         <p className="text-sm text-[#2A2035]/70 mt-4 leading-relaxed">
-          {done?.preview ? 'In the real form, the family now gets a confirmation email.' : 'We’ve emailed you a confirmation.'}{' '}It&rsquo;s free of charge and takes about 45–60 minutes. Afterwards we&rsquo;ll send you a feedback report and recommend the right class.
+          {done?.preview ? 'In the real form, the family now gets a confirmation email.' : 'We’ve emailed you a confirmation.'}{' '}It takes about 90 minutes. Afterwards we&rsquo;ll send you a feedback report and recommend the right class.
         </p>
         {!info.locked && !done?.preview && (
           <button onClick={() => { setChanging(true); setPick(null); setDone(null) }}
@@ -154,7 +154,7 @@ function LevelTestForm() {
       <div className="bg-white rounded-2xl border border-[#DEE7FF] p-5 md:p-6">
         <h1 className="text-xl md:text-2xl font-bold text-[#062E63]">{changing ? 'Choose a new time' : `Book ${info.firstName ? `${info.firstName}’s` : 'your'} level test`}</h1>
         <p className="text-sm text-[#2A2035]/70 mt-1.5 leading-relaxed">
-          Free of charge, about 45–60 minutes. Afterwards we&rsquo;ll send you a feedback report and recommend the right class.
+          It takes about 90 minutes. Afterwards we&rsquo;ll send you a feedback report and recommend the right class.
         </p>
         {info.responded && !booked && info.note && !changing && (
           <p className="text-xs text-[#325099] mt-3 bg-[#F0F4FF] rounded-lg px-3 py-2">You told us: &ldquo;{info.note}&rdquo; — you can still pick one of the times below.</p>
