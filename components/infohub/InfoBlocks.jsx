@@ -453,7 +453,7 @@ function OneBlock({ b, canReveal, pageId }) {
     case 'contact':    return <Contact {...b} />
     case 'faq':        return <Faq items={b.items} />
     case 'systemstable': return <SystemsTable block={b} pageId={pageId} />
-    case 'trialflow':  return <PipelineFlow />
+    case 'trialflow':  return <PipelineFlow collapsible={false} />
     default:           return null
   }
 }

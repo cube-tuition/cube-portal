@@ -55,8 +55,10 @@ function Arrow({ points, label, labelAt }) {
 
 const STORE = 'cube_trials_flow_open'
 
-export default function PipelineFlow() {
-  const [open, setOpen] = useState(true)
+// collapsible: false — always open, no toggle (the Info Centre page shows it in full).
+export default function PipelineFlow({ collapsible = true }) {
+  const [stored, setOpen] = useState(true)
+  const open = !collapsible || stored
   // The remembered choice lives in the browser; read it after mount.
   useEffect(() => {
     const t = setTimeout(() => {
@@ -76,11 +78,15 @@ export default function PipelineFlow() {
   const r2 = [35, 215, 395, 575, 755, 935]
 
   return (
-    <div className="bg-white border border-[#DEE7FF] rounded-xl mb-6 overflow-hidden">
-      <button onClick={toggle} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[#F8FAFF] transition">
-        <span className="text-sm font-semibold text-[#062E63]">How a trial moves</span>
-        <span className="text-[#325099]/40 text-sm">{open ? '▲' : '▼'}</span>
-      </button>
+    <div className={`bg-white border border-[#DEE7FF] rounded-xl overflow-hidden ${collapsible ? 'mb-6' : ''}`}>
+      {collapsible ? (
+        <button onClick={toggle} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[#F8FAFF] transition">
+          <span className="text-sm font-semibold text-[#062E63]">How a trial moves</span>
+          <span className="text-[#325099]/40 text-sm">{open ? '▲' : '▼'}</span>
+        </button>
+      ) : (
+        <p className="px-4 py-3 text-sm font-semibold text-[#062E63]">How a trial moves</p>
+      )}
       {open && (
         <div className="border-t border-[#DEE7FF] px-4 pt-3 pb-4">
           <div className="overflow-x-auto">
