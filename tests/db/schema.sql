@@ -528,8 +528,11 @@ create table public.trial_submissions (
   lesson1_feedback_sent_at timestamp with time zone,
   outcome_sent_at timestamp with time zone,
   level_test_invitation_sent_at timestamp with time zone,
+  held_at timestamp with time zone,
+  hold_until date,
+  hold_notified_at timestamp with time zone,
   constraint trial_submissions_pkey PRIMARY KEY (id),
-  constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'enrolled'::text, 'declined'::text])))
+  constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'on_hold'::text, 'enrolled'::text, 'declined'::text])))
 );
 
 create table public.qbank_topics (

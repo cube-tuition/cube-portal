@@ -6,7 +6,7 @@ import { getRunningTerm, isHolidayTerm } from '../../../../lib/terms'
 import { normaliseTerms } from '../../../../lib/termDates'
 import { syncQueuedInvoices } from '../../../../lib/invoiceSync'
 import { recordJob, checkSystemHealth, healthPush } from '../../../../lib/systemHealth'
-import { loadStaleTrials, trialNudgePush } from '../../../../lib/trialPipeline'
+import { loadStaleTrials, trialNudgePush, loadHeldTrialsDue, heldTrialPush } from '../../../../lib/trialPipeline'
 
 /*
  * GET /api/reminders/daily — Vercel cron, early each morning Sydney time.
@@ -159,6 +159,19 @@ export async function GET(request) {
     if (error) throw error
     return fresh.length
   })
+  // Trials on hold whose check-back date has come: one push, once per hold
+  // (a new date clears the mark).
+  const heldDue = await step('trials on hold', async () => {
+    const fresh = (await loadHeldTrialsDue(admin)).filter(c => !c.notified)
+    if (!fresh.length) return 0
+    const r = await sendPushToAll(heldTrialPush(fresh, `trials-hold-${today}`))
+    sent += r?.sent || 0
+    const { error } = await admin.from('trial_submissions')
+      .update({ hold_notified_at: new Date().toISOString() })
+      .eq('status', 'on_hold').lte('hold_until', today).is('hold_notified_at', null)
+    if (error) throw error
+    return fresh.length
+  })
   // Riding on this cron (the plan allows two): draft invoices catch up with
   // yesterday's enrolment changes even on a day nobody opens the invoices page.
   const invoiceSync = await step('draft invoice sync', () => syncQueuedInvoices(admin))
@@ -169,7 +182,7 @@ export async function GET(request) {
     if (error) throw error
     return data
   })
-  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved }
+  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved }
   await recordJob(admin, 'daily', { startedAt, ok: !errors.length, detail, error: errors.join(' · ') || null })
 
   // The morning system check (lib/systemHealth): jobs, the invoice queue and

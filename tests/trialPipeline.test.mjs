@@ -3,7 +3,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { staleTrials, trialNudgePush } from '../lib/trialPipeline.js'
+import { staleTrials, trialNudgePush, heldTrialsDue } from '../lib/trialPipeline.js'
 import { earliestTrialStart, trialDatesFor } from '../lib/trialDates.js'
 
 const now = new Date('2026-10-14T21:00:00Z')                    // Thu 15 Oct, 8am Sydney
@@ -136,4 +136,21 @@ describe('trial feedback emails', () => {
     const r = staleTrials({ now: new Date('2026-10-15T15:00:00Z'), lessonsByClass, trialEnrolments, trialLessons, subs: [sub(base)] })
     assert.deepEqual(ids(r), [[1, 'send the trial outcome email']])
   })
+})
+
+test('a hold is due from its check-back date, never before, and not without one', () => {
+  const now = new Date('2026-11-16T09:00:00+11:00')   // Mon 16 Nov, Sydney
+  const subs = [
+    { id: 1, status: 'on_hold', student_name: 'Noah Hew', hold_until: '2026-11-16', hold_notified_at: null },
+    { id: 2, status: 'on_hold', student_name: 'Ava Li', hold_until: '2026-11-17' },
+    { id: 3, status: 'on_hold', student_name: 'Ben Ng', hold_until: null },
+    { id: 4, status: 'contacted', student_name: 'Cal Wu', hold_until: '2026-11-01' },
+    { id: 5, status: 'on_hold', student_name: 'Dee Yu', hold_until: '2026-11-02', hold_notified_at: '2026-11-02T08:00:00Z' },
+  ]
+  assert.deepEqual(heldTrialsDue(subs, now), [
+    { id: 5, student_name: 'Dee Yu', hold_until: '2026-11-02', notified: true },
+    { id: 1, student_name: 'Noah Hew', hold_until: '2026-11-16', notified: false },
+  ])
+  // on hold is not an open case: no stale nudge however long it sits
+  assert.deepEqual(staleTrials({ subs: [{ id: 6, status: 'on_hold', student_name: 'X', submitted_at: '2026-01-01T00:00:00Z' }], now }), [])
 })

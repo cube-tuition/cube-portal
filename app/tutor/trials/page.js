@@ -114,6 +114,9 @@ const STAGES = [
   { id: 'contacted',       label: 'Contacted',        color: 'bg-blue-100 text-blue-800 border-blue-200',      dot: 'bg-blue-400'  },
   { id: 'trial_scheduled', label: 'Trial Scheduled',  color: 'bg-purple-100 text-purple-800 border-purple-200', dot: 'bg-purple-400' },
   { id: 'trial_completed', label: 'Trial Completed',  color: 'bg-indigo-100 text-indigo-800 border-indigo-200', dot: 'bg-indigo-400' },
+  // Paused by the family ("we'll hold off for now"): off the active list and
+  // the nudges, trial enrolment ended, reopened by setting another stage.
+  { id: 'on_hold',         label: 'On hold',          color: 'bg-slate-100 text-slate-600 border-slate-300',    dot: 'bg-slate-400' },
   { id: 'enrolled',        label: 'Enrolled',         color: 'bg-emerald-100 text-emerald-800 border-emerald-200', dot: 'bg-emerald-400' },
   { id: 'declined',        label: 'Declined',         color: 'bg-gray-100 text-gray-500 border-gray-200',      dot: 'bg-gray-300'  },
 ]
@@ -346,6 +349,13 @@ async function setStage(subs, next, onUpdate) {
   const now = new Date().toISOString()
   for (const s of open) onUpdate(s.id, { status: next, ...(next === 'contacted' && !s.contacted_at ? { contacted_at: now } : {}) })
   const { error } = await supabase.from('trial_submissions').update({ status: next }).in('id', open.map(s => s.id))
+  // Reopened: the hold and its check-back date go.
+  const held = open.filter(s => s.status === 'on_hold' && next !== 'on_hold')
+  if (!error && held.length) {
+    const clear = { held_at: null, hold_until: null, hold_notified_at: null }
+    await supabase.from('trial_submissions').update(clear).in('id', held.map(s => s.id))
+    for (const s of held) onUpdate(s.id, clear)
+  }
   if (!error && next === 'contacted') {
     await supabase.from('trial_submissions').update({ contacted_at: now }).in('id', open.map(s => s.id)).is('contacted_at', null)
   }
@@ -353,6 +363,130 @@ async function setStage(subs, next, onUpdate) {
     alert('Could not change the stage: ' + error.message)
     for (const s of open) onUpdate(s.id, { status: s.status, contacted_at: s.contacted_at ?? null })
   }
+}
+
+const addDays = (iso, n) => {
+  const d = new Date(`${iso}T00:00:00`)
+  d.setDate(d.getDate() + n)
+  return isoDate(d)
+}
+
+/*
+ * Put a student's open subjects on hold. Each trial enrolment is ended (so
+ * they are off the class roll and the trial reminders) and the submission
+ * forgets its class — reopening starts the scheduling afresh. The student
+ * goes back to pending unless they still attend or trial something else.
+ * An optional note is added to the admin notes with the date.
+ */
+async function putOnHold(subs, { holdUntil, note }, onUpdate, onReload) {
+  const open = subs.filter(s => !['enrolled', 'declined'].includes(s.status))
+  if (!open.length) return
+  const now = new Date().toISOString()
+  const today = isoDate(new Date())
+  for (const s of open) {
+    if (s.converted_student_id && s.trial_class_id != null) {
+      let q = supabase.from('enrolments').update({ status: 'disenrol', ended_at: today, end_reason: 'Trial on hold' })
+      q = s.enrolment_id ? q.eq('id', s.enrolment_id) : q.eq('student_id', s.converted_student_id).eq('class_id', s.trial_class_id)
+      const { error } = await q.in('status', ['trial', 'trial complete'])
+      if (error) { alert('Could not end the trial enrolment: ' + error.message); return }
+    }
+    const notes = note?.trim()
+      ? [s.admin_notes?.trim(), `On hold (${fmtDate(now)}): ${note.trim()}`].filter(Boolean).join('\n')
+      : (s.admin_notes ?? null)
+    const patch = {
+      status: 'on_hold', held_at: s.status === 'on_hold' ? (s.held_at || now) : now,
+      hold_until: holdUntil || null, hold_notified_at: null,
+      trial_class_id: null, enrolment_id: null, admin_notes: notes,
+    }
+    const { error } = await supabase.from('trial_submissions').update(patch).eq('id', s.id)
+    if (error) { alert('Could not put the trial on hold: ' + error.message); return }
+    onUpdate(s.id, { ...patch, _trialStart: null })
+  }
+  for (const sid of [...new Set(open.map(s => s.converted_student_id).filter(Boolean))]) {
+    const { data: still } = await supabase.from('enrolments').select('id').eq('student_id', sid).in('status', ['active', 'trial', 'trial complete']).limit(1)
+    if (!still?.length) await supabase.from('students').update({ status: 'pending' }).eq('id', sid).in('status', ['trial', 'pending'])
+  }
+  onReload()
+}
+
+// When to check back in with a family that has put their trial on hold.
+function HoldDialog({ subs, nextTermStart, onClose, onUpdate, onReload }) {
+  const today = isoDate(new Date())
+  const current = subs.find(s => s.status === 'on_hold')
+  const [until, setUntil] = useState(current ? (current.hold_until || '') : addDays(today, 28))
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const name = subs[0]?.student_name || 'this student'
+  const chips = [
+    { label: '2 weeks', value: addDays(today, 14) },
+    { label: '4 weeks', value: addDays(today, 28) },
+    ...(nextTermStart ? [{ label: 'Start of next term', value: nextTermStart }] : []),
+    { label: 'No date', value: '' },
+  ]
+  const hasClass = subs.some(s => s.trial_class_id != null && !['enrolled', 'declined'].includes(s.status))
+  const save = async () => {
+    setSaving(true)
+    await putOnHold(subs, { holdUntil: until, note }, onUpdate, onReload)
+    setSaving(false)
+    onClose()
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+        <div>
+          <p className="text-[10px] tracking-widest uppercase font-bold text-[#325099]/60 mb-0.5">{current ? 'On hold' : 'Put on hold'}</p>
+          <h2 className="text-sm font-bold text-[#062E63]">{name}</h2>
+          <p className="text-xs text-[#2A2035]/60 mt-1">
+            The card leaves the active list and stops sending nudges.
+            {hasClass && ' The trial class is released, so they come off its roll.'}
+            {' '}Set another stage on the card to reopen it.
+          </p>
+        </div>
+        <div>
+          <p className="text-[11px] font-semibold text-[#325099]/70 mb-1.5">Check back in on</p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {chips.map(c => (
+              <button key={c.label} onClick={() => setUntil(c.value)}
+                className={`text-[11px] font-semibold px-3 py-1 rounded-full border transition ${until === c.value ? 'bg-[#062E63] text-white border-[#062E63]' : 'border-[#DEE7FF] text-[#325099] hover:border-[#325099]'}`}>
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <input type="date" value={until} min={today} onChange={e => setUntil(e.target.value)}
+            className="text-xs border border-[#DEE7FF] rounded-lg px-3 py-1.5 text-[#062E63] focus:outline-none focus:border-[#325099]" />
+          <p className="text-[10px] text-[#325099]/50 mt-1">
+            {until ? `That morning the directors get a reminder to get back in touch (${fmtDay(until)}).` : 'No reminder — it stays on hold until someone reopens it.'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[11px] font-semibold text-[#325099]/70 mb-1.5">Note <span className="font-normal text-[#325099]/40">(added to the admin notes)</span></p>
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+            placeholder="e.g. Mum is holding off for now — may contact us again later"
+            className="w-full text-xs border border-[#DEE7FF] rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-[#325099]" />
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onClose} className="text-xs text-[#325099]/60 hover:text-[#325099] px-3 py-1.5">Cancel</button>
+          <button onClick={save} disabled={saving}
+            className="text-xs font-semibold bg-[#062E63] text-white px-4 py-1.5 rounded-full hover:bg-[#325099] transition disabled:opacity-40">
+            {saving ? 'Saving…' : current ? 'Save' : 'Put on hold'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// The badge on a held card — click to change the check-back date.
+function HoldBadge({ sub, onClick }) {
+  const due = sub.hold_until && sub.hold_until <= isoDate(new Date())
+  return (
+    <button onClick={onClick}
+      className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full transition ${due ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-slate-600 bg-slate-50 border-slate-200 hover:border-slate-400'}`}
+      title={`On hold since ${fmtDate(sub.held_at)} — click to change the check-back date`}>
+      ⏸ {sub.hold_until ? `${due ? 'Check back in — due' : 'Check back'} ${fmtDay(sub.hold_until)}` : 'On hold'}
+    </button>
+  )
 }
 
 // The student's details, how they heard, the referrer and the admin notes.
@@ -558,7 +692,7 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
               }).select('id').single()
               // Assigning a class IS scheduling the trial: a card still at
               // New or Contacted moves on with it.
-              const sched = ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
+              const sched = ['new', 'contacted', 'on_hold'].includes(sub.status) ? { status: 'trial_scheduled', held_at: null, hold_until: null, hold_notified_at: null } : {}
               await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, ...sched }).eq('id', sub.id)
               onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, _trialStart: firstLesson, ...sched })
               onReload()
@@ -586,7 +720,7 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
               .eq('status', 'trial')
               .is('class_id', null)
           }
-          const sched = val && ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
+          const sched = val && ['new', 'contacted', 'on_hold'].includes(sub.status) ? { status: 'trial_scheduled', held_at: null, hold_until: null, hold_notified_at: null } : {}
           await supabase.from('trial_submissions').update({ trial_class_id: val, ...sched }).eq('id', sub.id)
           // Assigning a class makes a pending student a trial student
           // (active stays active — e.g. trialling a second subject).
@@ -800,8 +934,9 @@ function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onTo
   )
 }
 
-function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemind }) {
+function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemind, nextTermStart }) {
   const [expanded, setExpanded] = useState(false)
+  const [holding, setHolding] = useState(false)
   const age   = daysSince(sub.submitted_at)
   const stale = ['new', 'contacted'].includes(sub.status) && age > 7
   const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
@@ -811,9 +946,10 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
       <CardHeader
         sub={sub} status={sub.status} stale={stale} age={age}
         subjects={subjects !== '—' && <span className="text-[11px] text-[#325099]/60">{subjects}</span>}
-        onStage={next => setStage([sub], next, onUpdate)}
+        onStage={next => (next === 'on_hold' ? setHolding(true) : setStage([sub], next, onUpdate))}
         expanded={expanded} onToggle={() => setExpanded(e => !e)}
       >
+        {sub.status === 'on_hold' && <HoldBadge sub={sub} onClick={() => setHolding(true)} />}
         <FamilyBadges sub={sub} />
         <SubjectBadges sub={sub} />
         <ProgressBadge progress={progress} />
@@ -831,6 +967,7 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
           </div>
         </div>
       )}
+      {holding && <HoldDialog subs={[sub]} nextTermStart={nextTermStart} onClose={() => setHolding(false)} onUpdate={onUpdate} onReload={onReload} />}
     </div>
   )
 }
@@ -840,16 +977,20 @@ const subjectLabel = (s) => (Array.isArray(s.subjects) ? s.subjects.join(', ') :
 // The student's overall stage: the furthest-along open subject, or — once
 // every subject is decided — Enrolled if any enrolled, else Declined.
 function groupStage(subs) {
-  const open = subs.filter(s => !['enrolled', 'declined'].includes(s.status))
-  if (!open.length) return subs.some(s => s.status === 'enrolled') ? 'enrolled' : 'declined'
+  const open = subs.filter(s => !['enrolled', 'declined', 'on_hold'].includes(s.status))
+  if (!open.length) {
+    if (subs.some(s => s.status === 'on_hold')) return 'on_hold'
+    return subs.some(s => s.status === 'enrolled') ? 'enrolled' : 'declined'
+  }
   const rank = (st) => STAGES.findIndex(x => x.id === st)
   return open.reduce((best, s) => (rank(s.status) > rank(best) ? s.status : best), open[0].status)
 }
 
 // A student trialling more than one subject: the stage, the family's emails
 // and the student's details once, then a tab per subject for its scheduling.
-function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemindFor }) {
+function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemindFor, nextTermStart }) {
   const [expanded, setExpanded] = useState(false)
+  const [holding, setHolding] = useState(false)
   const [tab, setTab] = useState(subs[0].id)
   const status = groupStage(subs)
   // Earliest enquiry: the family's first contact, for the age and the details.
@@ -882,9 +1023,10 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
             </button>
           )
         })}
-        onStage={next => setStage(subs, next, onUpdate)}
+        onStage={next => (next === 'on_hold' ? setHolding(true) : setStage(subs, next, onUpdate))}
         expanded={expanded} onToggle={() => setExpanded(e => !e)}
       >
+        {status === 'on_hold' && <HoldBadge sub={subs.find(s => s.status === 'on_hold')} onClick={() => setHolding(true)} />}
         <FamilyBadges sub={family} />
         <ProgressBadge progress={progress} />
       </CardHeader>
@@ -930,6 +1072,7 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
           </div>
         </div>
       )}
+      {holding && <HoldDialog subs={subs} nextTermStart={nextTermStart} onClose={() => setHolding(false)} onUpdate={onUpdate} onReload={onReload} />}
     </div>
   )
 }
@@ -956,6 +1099,7 @@ export default function TrialsPage() {
   const [studentReminders, setStudentReminders] = useState({})   // student id → { sub, subs, family } for the bulk send
   const [reminderEntries, setReminderEntries] = useState(null)   // [{ sub, family }] open in the reminder modal
   const [enrolTerm,     setEnrolTerm]     = useState(null)   // trial target term (holiday rows excluded)
+  const [nextTermStart, setNextTermStart] = useState(null)   // a hold's "start of next term" check-back
 
   useEffect(() => {
     getAuthProfile().then(({ profile, role }) => {
@@ -978,8 +1122,11 @@ export default function TrialsPage() {
     // holiday workshops) but a trial belongs to a REAL term's classes: during
     // the break getEnrolmentTerm would otherwise return the holiday row and
     // starve the class list.
-    const term = getEnrolmentTerm((await fetchAllTerms()).filter(t => !/holiday/i.test(t.name || '')))
+    const realTerms = (await fetchAllTerms()).filter(t => !/holiday/i.test(t.name || ''))
+    const term = getEnrolmentTerm(realTerms)
     setEnrolTerm(term)
+    const todayIso = isoDate(new Date())
+    setNextTermStart(realTerms.map(t => t.start_date).filter(d => d && d > todayIso).sort()[0] || null)
     const classCols = 'id, class_name, day_of_week, start_time, end_time, course_id'
     const classQuery = term?.id ? classesForTerm(term.id, classCols) : classesAllTerms(classCols)
     const [subRes, classRes, studentRes] = await Promise.all([
@@ -1027,6 +1174,8 @@ export default function TrialsPage() {
     }
     const healed = []
     const merged = subs.map(s => {
+      // On hold released its class on purpose; leave it be.
+      if (s.status === 'on_hold') return s
       let live = s.enrolment_id ? classByEnrol[s.enrolment_id] : undefined
       // Fall back to the student's trial enrolments when the direct link
       // yields nothing (missing row) or no class.
@@ -1129,7 +1278,7 @@ export default function TrialsPage() {
     const studentFams = {}
     for (const s of merged) {
       if (!s.converted_student_id || studentFams[s.converted_student_id]) continue
-      const open = merged.filter(x => x.converted_student_id === s.converted_student_id && fams[x.id] && !['enrolled', 'declined'].includes(x.status))
+      const open = merged.filter(x => x.converted_student_id === s.converted_student_id && fams[x.id] && !['enrolled', 'declined', 'on_hold'].includes(x.status))
       if (!open.length) continue
       const classIds = new Set(open.map(x => x.trial_class_id).filter(c => c != null))
       let rows = trialRows.filter(r => r.student_id === s.converted_student_id && (classIds.size === 0 || classIds.has(r.class_id)))
@@ -1336,6 +1485,8 @@ export default function TrialsPage() {
   const ARCHIVE = ['enrolled', 'declined']
   const visible = groups.filter(g => {
     if (!showArchive && ARCHIVE.includes(g.status)) return false
+    // On hold sits out of the main list — its own pill shows them.
+    if (filterStage === 'all' && g.status === 'on_hold') return false
     if (filterStage !== 'all' && g.status !== filterStage) return false
     if (search) {
       const q = search.toLowerCase()
@@ -1459,6 +1610,7 @@ export default function TrialsPage() {
                     onInvitationEmail={(sub) => setInvitationSub(sub)}
                     onLevelTestInvitation={(sub) => setLevelTestSub(sub)}
                     canRemindFor={(sub) => !!reminderFamilies[sub.id]}
+                    nextTermStart={nextTermStart}
                     onReminderEmail={(sub) => setReminderEntries([{ sub, family: reminderFamilies[sub.id] }])}
                   />
                 ) : (
@@ -1475,6 +1627,7 @@ export default function TrialsPage() {
                     onInvitationEmail={() => setInvitationSub(g.subs[0])}
                     onLevelTestInvitation={() => setLevelTestSub(g.subs[0])}
                     canRemind={!!reminderFamilies[g.subs[0].id]}
+                    nextTermStart={nextTermStart}
                     onReminderEmail={() => setReminderEntries([{ sub: g.subs[0], family: reminderFamilies[g.subs[0].id] }])}
                   />
                 ))}
