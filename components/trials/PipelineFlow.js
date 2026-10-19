@@ -6,8 +6,8 @@ import { useEffect, useState } from 'react'
  * on the Trials page. Two rows: before the trial (with or without a level
  * test first) and the trial itself, through to Convert / Drop.
  *
- * Each step says where it happens; a dashed step has no button in the portal
- * yet. Collapsible, remembered per browser.
+ * Each step says where it happens; ⚡ marks the emails that send themselves
+ * (lib/autoReminders, 24 hours before). Collapsible, remembered per browser.
  */
 
 const W = 150, H = 46
@@ -18,7 +18,7 @@ const KIND = {
   end:    { fill: '#E9F8F1', stroke: '#2F9E6E', text: '#14563A' },
 }
 
-function Node({ x, y, kind, lines, caption, dashed = false, w = W }) {
+function Node({ x, y, kind, lines, caption, dashed = false, auto = false, w = W }) {
   const k = KIND[kind]
   return (
     <g>
@@ -28,6 +28,13 @@ function Node({ x, y, kind, lines, caption, dashed = false, w = W }) {
         <text key={i} x={x + w / 2} y={y + H / 2 + (i - (lines.length - 1) / 2) * 14 + 4}
           textAnchor="middle" fontSize={12} fontWeight={i === 0 ? 600 : 400} fill={k.text}>{t}</text>
       ))}
+      {/* sent automatically */}
+      {auto && (
+        <g>
+          <circle cx={x + w - 2} cy={y + 2} r={10} fill="#FDE68A" stroke="#D97706" strokeWidth={1.2} />
+          <text x={x + w - 2} y={y + 6} textAnchor="middle" fontSize={11}>⚡</text>
+        </g>
+      )}
       {caption && (
         <text x={x + w / 2} y={y + H + 14} textAnchor="middle" fontSize={10} fill="#325099" opacity={0.65}>{caption}</text>
       )}
@@ -97,7 +104,7 @@ export default function PipelineFlow() {
               <Arrow points={[[dx, dy - 34], [dx, yes2], [300, yes2]]} label="Yes" labelAt={[dx + 6, yes2 + 30]} />
               <Node x={300} y={yes} kind="email" lines={['Level test invitation']} caption="Trial card · → Contacted" />
               <Arrow points={[[450, yes2], [480, yes2]]} />
-              <Node x={480} y={yes} kind="email" lines={['Level test reminder']} caption="Not in the portal yet" dashed />
+              <Node x={480} y={yes} kind="email" lines={['Level test reminder']} caption="Automatic · 24h before the test" auto />
               <Arrow points={[[630, yes2], [660, yes2]]} />
               <Node x={660} y={yes} kind="lesson" lines={['Level test results']} caption="Monitoring → Level tests" />
               <Arrow points={[[810, yes2], [915, yes2], [915, mid - 2]]} />
@@ -108,15 +115,15 @@ export default function PipelineFlow() {
               <Node x={840} y={mid} kind="email" lines={['Trial invitation']} caption="Trial card · → Contacted" />
 
               {/* The trial */}
-              <text x={0} y={row2 - 22} fontSize={10} fontWeight={700} letterSpacing={1} fill="#325099" opacity={0.5}>THE TRIAL</text>
+              <text x={0} y={row2 - 22} fontSize={10} fontWeight={700} letterSpacing={1} fill="#325099" opacity={0.5}>THE TRIAL <tspan fontWeight={400} letterSpacing={0}>— assigning a class moves the card to Trial scheduled</tspan></text>
               <Arrow points={[[990, mid2], [1060, mid2], [1060, row2 - 14], [r2[0] + W / 2, row2 - 14], [r2[0] + W / 2, row2 - 2]]} />
-              <Node x={r2[0]} y={row2} kind="email" lines={['Trial lesson reminder']} caption="Assign a class · → Trial scheduled" />
+              <Node x={r2[0]} y={row2} kind="email" lines={['Trial lesson reminder']} caption="Automatic · 24h before lesson 1" auto />
               <Arrow points={[[r2[0] + W, row2 + H / 2], [r2[1], row2 + H / 2]]} />
               <Node x={r2[1]} y={row2} kind="lesson" lines={['Trial lesson 1', '1/2']} caption="Tutor marks the roll" />
               <Arrow points={[[r2[1] + W, row2 + H / 2], [r2[2], row2 + H / 2]]} />
               <Node x={r2[2]} y={row2} kind="email" lines={['Lesson 1 feedback']} caption="Trial card" />
               <Arrow points={[[r2[2] + W, row2 + H / 2], [r2[3], row2 + H / 2]]} />
-              <Node x={r2[3]} y={row2} kind="lesson" lines={['Trial lesson 2', '2/2']} caption="→ Trial completed" />
+              <Node x={r2[3]} y={row2} kind="lesson" lines={['Trial lesson 2', '2/2']} caption="⚡ Reminder 24h before · → Trial completed" />
               <Arrow points={[[r2[3] + W, row2 + H / 2], [r2[4], row2 + H / 2]]} />
               <Node x={r2[4]} y={row2} kind="email" lines={['Trial outcome']} caption="Trial card" />
               <Arrow points={[[r2[4] + W, row2 + H / 2], [r2[5], row2 + H / 2]]} />
@@ -130,7 +137,7 @@ export default function PipelineFlow() {
               </span>
             ))}
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded border border-dashed border-[#325099]" />Not in the portal yet
+              <span className="w-4 h-4 rounded-full bg-[#FDE68A] border border-[#D97706] text-[9px] leading-none flex items-center justify-center">⚡</span>Sent automatically
             </span>
             <span className="ml-auto">Any time: <strong>On hold</strong> when the family pauses — set a stage to reopen it.</span>
           </div>

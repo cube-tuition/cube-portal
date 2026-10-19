@@ -615,9 +615,21 @@ create table public.level_test_invites (
   constraint level_test_invites_pkey PRIMARY KEY (id)
 );
 
+create table public.auto_reminders (
+  key text not null,
+  kind text not null,
+  submission_id integer,
+  to_email text,
+  starts_at timestamp with time zone,
+  sent_at timestamp with time zone default now() not null,
+  constraint auto_reminders_pkey PRIMARY KEY (key),
+  constraint auto_reminders_kind_check CHECK ((kind = ANY (ARRAY['trial'::text, 'level_test'::text])))
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
+alter table public.auto_reminders add constraint auto_reminders_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES trial_submissions(id) ON DELETE SET NULL;
 alter table public.cash_log add constraint cash_log_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
 alter table public.cash_log add constraint cash_log_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id) ON DELETE SET NULL;
 alter table public.cash_pay_status add constraint cash_pay_status_cash_log_id_fkey FOREIGN KEY (cash_log_id) REFERENCES cash_log(id) ON DELETE SET NULL;
@@ -2378,12 +2390,14 @@ alter table public.qbank_subtopics enable row level security;
 alter table public.qbank_question_subtopics enable row level security;
 alter table public.qbank_subject_links enable row level security;
 alter table public.level_test_invites enable row level security;
+alter table public.auto_reminders enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
 create policy "Staff update attendance" on public.attendance as PERMISSIVE for UPDATE to public using (is_staff()) with check (is_staff());
 create policy "Students see own attendance" on public.attendance as PERMISSIVE for SELECT to public using ((auth.uid() = student_id));
 create policy authenticated_full_access on public.attendance as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy auto_reminders_admin_read on public.auto_reminders as PERMISSIVE for SELECT to public using (is_admin(auth.uid()));
 create policy cash_log_admin_all on public.cash_log as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy cash_pay_status_admin_all on public.cash_pay_status as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy "Admin write classes" on public.classes as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));

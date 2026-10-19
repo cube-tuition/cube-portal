@@ -240,6 +240,20 @@ describe('level test invitations (the parent form’s link tokens)', () => {
   })
 })
 
+describe('the automatic reminder log (families’ emails)', () => {
+  run('directors read it; nobody signed in writes it — only the service role sends', async ({ q, signIn, rejects }) => {
+    await q(`insert into auto_reminders (key, kind, to_email) values ('trial:e1:2026-10-24', 'trial', 'p@example.com')`)
+    for (const who of [[MONICA, 'tutor'], [KIM, 'student']]) {
+      await signIn(...who)
+      assert.equal(await n(q, `select count(*)::int n from auto_reminders`), 0, who[1])
+      await rejects(`insert into auto_reminders (key, kind) values ('x', 'trial')`, [], /row-level security/)
+    }
+    await signIn(RYAN, 'admin')
+    assert.equal(await n(q, `select count(*)::int n from auto_reminders`), 1)
+    await rejects(`insert into auto_reminders (key, kind) values ('y', 'trial')`, [], /row-level security/)
+  })
+})
+
 describe('a director', () => {
   run('reads and writes all of it', async ({ q, signIn }) => {
     await signIn(RYAN, 'admin')

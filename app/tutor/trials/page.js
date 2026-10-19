@@ -14,11 +14,9 @@ import { logReferralWithCredits } from '../../../lib/referralCredits'
 import SearchSelectPopover from '../../../components/SearchSelectPopover'
 import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
-import TrialReminderModal from '../../../components/trials/TrialReminderModal'
 import LevelTestInvitationModal from '../../../components/trials/LevelTestInvitationModal'
 import PipelineFlow from '../../../components/trials/PipelineFlow'
-import { reminderFamilyFor, trialDatesFor } from '../../../lib/trialReminderEmail'
-import { earliestTrialStart } from '../../../lib/trialDates'
+import { earliestTrialStart, trialDatesFor } from '../../../lib/trialDates'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
@@ -266,7 +264,7 @@ function FamilyBadges({ sub }) {
 function SubjectBadges({ sub }) {
   return (
     <>
-    {/* …and the reminder with the trial dates — also dated from the first send. */}
+    {/* …the trial reminder (sent automatically the day before) — first send. */}
     {sub.reminder_sent_at && (
       <span
         className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full"
@@ -648,7 +646,7 @@ function StudentDetails({ sub, subs, status, students, onUpdate, grouped = false
 
 // One subject's trial: its class, first lesson, reminder and feedback emails,
 // and Convert / Drop. `familyButtons` sits in the same row on a one-subject card.
-function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOutcomeEmail, onReminderEmail, canRemind, familyButtons = null }) {
+function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOutcomeEmail, familyButtons = null }) {
   const [confirmAction, setConfirmAction] = useState(null) // 'convert' | 'drop' | null
   const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
   return (
@@ -775,20 +773,6 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
       )}
 
       {familyButtons}
-
-      {/* Trial reminder — the SECOND email: the two trial lesson dates and
-          time, once a class is assigned. Replaces the Emails → Trials page. */}
-      {canRemind && !['enrolled', 'declined'].includes(sub.status) && (
-        <button
-          onClick={onReminderEmail}
-          className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-          title={sub.reminder_sent_at
-            ? `Already emailed ${fmtDate(sub.reminder_sent_at)} — send the trial dates again`
-            : 'Email the family their trial lesson dates and time'}
-        >
-          {sub.reminder_sent_at ? '✉ Resend reminder' : '✉ Trial reminder'}
-        </button>
-      )}
 
       {/* Trial feedback emails, one after each trial lesson: lesson 1's
           feedback with the next lesson's date, then lesson 2's with how to
@@ -935,7 +919,7 @@ function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onTo
   )
 }
 
-function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemind, nextTermStart }) {
+function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, nextTermStart }) {
   const [expanded, setExpanded] = useState(false)
   const [holding, setHolding] = useState(false)
   const age   = daysSince(sub.submitted_at)
@@ -962,7 +946,7 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
           <div className="pt-1 border-t border-[#DEE7FF]">
             <SubjectActions
               sub={sub} classes={classes} onUpdate={onUpdate} onReload={onReload} onConvertDrop={onConvertDrop}
-              onOutcomeEmail={onOutcomeEmail} onReminderEmail={onReminderEmail} canRemind={canRemind}
+              onOutcomeEmail={onOutcomeEmail}
               familyButtons={<FamilyButtons sub={sub} status={sub.status} onInvitationEmail={onInvitationEmail} onLevelTestInvitation={onLevelTestInvitation} />}
             />
           </div>
@@ -989,7 +973,7 @@ function groupStage(subs) {
 
 // A student trialling more than one subject: the stage, the family's emails
 // and the student's details once, then a tab per subject for its scheduling.
-function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemindFor, nextTermStart }) {
+function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, nextTermStart }) {
   const [expanded, setExpanded] = useState(false)
   const [holding, setHolding] = useState(false)
   const [tab, setTab] = useState(subs[0].id)
@@ -1066,8 +1050,6 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
                 key={active.id}
                 sub={active} classes={classes} onUpdate={onUpdate} onReload={onReload} onConvertDrop={onConvertDrop}
                 onOutcomeEmail={(stage) => onOutcomeEmail(active, stage)}
-                onReminderEmail={() => onReminderEmail(active)}
-                canRemind={canRemindFor(active)}
               />
             </div>
           </div>
@@ -1096,9 +1078,6 @@ export default function TrialsPage() {
   const [outcomeSub,    setOutcomeSub]    = useState(null)
   const [invitationSub, setInvitationSub] = useState(null)
   const [levelTestSub,  setLevelTestSub]  = useState(null)
-  const [reminderFamilies, setReminderFamilies] = useState({})   // submission id → family payload for the reminder
-  const [studentReminders, setStudentReminders] = useState({})   // student id → { sub, subs, family } for the bulk send
-  const [reminderEntries, setReminderEntries] = useState(null)   // [{ sub, family }] open in the reminder modal
   const [enrolTerm,     setEnrolTerm]     = useState(null)   // trial target term (holiday rows excluded)
   const [nextTermStart, setNextTermStart] = useState(null)   // a hold's "start of next term" check-back
 
@@ -1237,59 +1216,14 @@ export default function TrialsPage() {
         .eq('id', s.id).eq('status', 'new').then(() => {})
     }
 
-    // Trial reminder material per submission: each trial class with its two
-    // lesson dates, and the parent's email (the enquiry's, else the guardian's).
+    // The trial reminders send themselves 24 hours before each trial lesson
+    // (lib/autoReminders); the card only shows the first trial lesson.
     const trialRows = (byStudent.data || []).filter(r => r.status === 'trial' && r.class_id != null)
     // Each card's first trial lesson: the trial start on its class's enrolment.
     for (const s of merged) {
       const row = trialRows.find(r => r.student_id === s.converted_student_id && r.class_id === s.trial_class_id)
       s._trialStart = row?.trial_start_date || null
     }
-    const trialClassIds = [...new Set(trialRows.map(r => r.class_id))]
-    const [lessonRes, guardianRes] = await Promise.all([
-      trialClassIds.length
-        ? supabase.from('lessons').select('class_id, lesson_date').in('class_id', trialClassIds).eq('is_makeup', false).neq('status', 'cancelled').order('lesson_date', { ascending: true })
-        : Promise.resolve({ data: [] }),
-      studentIds.length ? supabase.from('guardians').select('student_id, full_name, email').in('student_id', studentIds) : Promise.resolve({ data: [] }),
-    ])
-    const lessonsByClass = {}
-    for (const l of lessonRes.data || []) (lessonsByClass[l.class_id] ||= []).push(l.lesson_date)
-    const guardianByStudent = {}
-    for (const g of guardianRes.data || []) if (!guardianByStudent[g.student_id] || (!guardianByStudent[g.student_id].email && g.email)) guardianByStudent[g.student_id] = g
-    const classById = Object.fromEntries(classList.map(c => [c.id, c]))
-    const fams = {}
-    const famFor = (s, rows) => {
-      const g = guardianByStudent[s.converted_student_id]
-      return reminderFamilyFor(s, rows.map(r => ({ ...(classById[r.class_id] || { class_id: r.class_id }), class_id: r.class_id, dates: trialDatesFor(lessonsByClass[r.class_id] || [], r.trial_start_date) })),
-        { parentEmail: s.parent_email || g?.email || '', parentName: s.parent_name || g?.full_name || '' })
-    }
-    for (const s of merged) {
-      if (!s.converted_student_id) continue
-      const siblings = merged.filter(x => x.converted_student_id === s.converted_student_id).length
-      let rows = trialRows.filter(r => r.student_id === s.converted_student_id)
-      // One subject of several: its own class only — the other subject has
-      // its own reminder in its own tab.
-      if (siblings > 1) rows = rows.filter(r => r.class_id === s.trial_class_id)
-      if (!rows.length && s.trial_class_id != null) rows = [{ class_id: s.trial_class_id, trial_start_date: null }]
-      if (!rows.length) continue
-      fams[s.id] = famFor(s, rows)
-    }
-    // The page's "Send reminders": one email per student with every subject's
-    // dates, stamped on each subject it covers.
-    const studentFams = {}
-    for (const s of merged) {
-      if (!s.converted_student_id || studentFams[s.converted_student_id]) continue
-      const open = merged.filter(x => x.converted_student_id === s.converted_student_id && fams[x.id] && !['enrolled', 'declined', 'on_hold'].includes(x.status))
-      if (!open.length) continue
-      const classIds = new Set(open.map(x => x.trial_class_id).filter(c => c != null))
-      let rows = trialRows.filter(r => r.student_id === s.converted_student_id && (classIds.size === 0 || classIds.has(r.class_id)))
-      if (!rows.length) rows = [...classIds].map(c => ({ class_id: c, trial_start_date: null }))
-      if (!rows.length) continue
-      studentFams[s.converted_student_id] = { sub: open[0], subs: open, family: { ...famFor(open[0], rows), submission_ids: open.map(x => x.id) } }
-    }
-    setReminderFamilies(fams)
-    setStudentReminders(studentFams)
-
     // Trial lesson progress per student. A trial runs per SUBJECT — someone
     // trialling Maths and English sits two sets of lessons — so progress is
     // counted per class and reported as the least-advanced one. Summing rows
@@ -1521,24 +1455,6 @@ export default function TrialsPage() {
             <p className="text-sm text-[#325099]/60 mt-1">Manage free trial submissions and active trial enrolments.</p>
           </div>
           <div className="flex items-center gap-2">
-            {(() => {
-              // One entry per student — a two-subject trial gets one email with
-              // both subjects' dates. It counts as sent once every subject is.
-              const due = Object.values(studentReminders).map(r => ({
-                sub: { ...r.sub, reminder_sent_at: r.subs.every(x => x.reminder_sent_at) ? r.subs.map(x => x.reminder_sent_at).sort()[0] : null },
-                family: r.family,
-              }))
-              const unsent = due.filter(e => !e.sub.reminder_sent_at)
-              return due.length > 0 && (
-                <button
-                  onClick={() => setReminderEntries(due)}
-                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full hover:border-[#325099] transition"
-                  title="Email every trial family their lesson dates — tick who, preview each, send in one go"
-                >
-                  ✉ Send reminders{unsent.length ? ` (${unsent.length} to go)` : ''}
-                </button>
-              )
-            })()}
             <a
               href="/api/trial-submission"
               target="_blank"
@@ -1613,9 +1529,7 @@ export default function TrialsPage() {
                     onOutcomeEmail={(sub, stage) => setOutcomeSub({ sub, stage, classId: sub.trial_class_id })}
                     onInvitationEmail={(sub) => setInvitationSub(sub)}
                     onLevelTestInvitation={(sub) => setLevelTestSub(sub)}
-                    canRemindFor={(sub) => !!reminderFamilies[sub.id]}
                     nextTermStart={nextTermStart}
-                    onReminderEmail={(sub) => setReminderEntries([{ sub, family: reminderFamilies[sub.id] }])}
                   />
                 ) : (
                   <TrialCard
@@ -1630,9 +1544,7 @@ export default function TrialsPage() {
                     onOutcomeEmail={(stage) => setOutcomeSub({ sub: g.subs[0], stage })}
                     onInvitationEmail={() => setInvitationSub(g.subs[0])}
                     onLevelTestInvitation={() => setLevelTestSub(g.subs[0])}
-                    canRemind={!!reminderFamilies[g.subs[0].id]}
                     nextTermStart={nextTermStart}
-                    onReminderEmail={() => setReminderEntries([{ sub: g.subs[0], family: reminderFamilies[g.subs[0].id] }])}
                   />
                 ))}
               </div>
@@ -1651,19 +1563,6 @@ export default function TrialsPage() {
             // Keep the first-send date the server recorded.
             if (field) handleUpdate(outcomeSub.sub.id, { [field]: outcomeSub.sub[field] || sentAt || new Date().toISOString() })
             setOutcomeSub(null)
-          }}
-        />
-      )}
-
-      {reminderEntries && (
-        <TrialReminderModal
-          entries={reminderEntries}
-          termId={enrolTerm?.id}
-          termName={enrolTerm?.name}
-          onClose={() => setReminderEntries(null)}
-          onSent={(ids) => {
-            const now = new Date().toISOString()
-            setSubmissions(prev => prev.map(s => ids.includes(s.id) ? { ...s, reminder_sent_at: s.reminder_sent_at || now } : s))
           }}
         />
       )}
