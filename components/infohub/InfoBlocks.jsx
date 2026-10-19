@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { qbankImageUrl } from '../../lib/qbank'
 import { inlineHtml, inlineMultiline, videoEmbedUrl } from '../../lib/infohub/inline'
+import PipelineFlow from '../trials/PipelineFlow'
 import { calloutVariant, AUTOMATION_LEVELS, automationLevel } from '../../lib/infohub/blocks'
 
 const html = (s) => ({ dangerouslySetInnerHTML: { __html: s } })
@@ -452,6 +453,7 @@ function OneBlock({ b, canReveal, pageId }) {
     case 'contact':    return <Contact {...b} />
     case 'faq':        return <Faq items={b.items} />
     case 'systemstable': return <SystemsTable block={b} pageId={pageId} />
+    case 'trialflow':  return <PipelineFlow />
     default:           return null
   }
 }

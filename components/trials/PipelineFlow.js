@@ -84,7 +84,7 @@ export default function PipelineFlow() {
       {open && (
         <div className="border-t border-[#DEE7FF] px-4 pt-3 pb-4">
           <div className="overflow-x-auto">
-            <svg viewBox="0 0 1120 350" className="w-full min-w-[880px]" role="img"
+            <svg viewBox="0 0 1120 350" className="w-full min-w-[700px]" role="img"
               aria-label="Trial pipeline: new trial, optional level test, trial invitation, trial lesson reminder, two trial lessons with feedback, trial outcome, then convert or drop">
               <defs>
                 <marker id="pf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">

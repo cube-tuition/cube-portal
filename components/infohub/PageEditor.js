@@ -326,6 +326,8 @@ function BlockFields({ block, onChange }) {
           <input className={I} value={block.phone} placeholder="Phone" onChange={e => set({ phone: e.target.value })} />
         </div>
       )
+    case 'trialflow':
+      return <p className="text-xs text-[#2A2035]/55">The trial pipeline flow chart from the Trials page. Nothing to edit — it updates itself whenever the pipeline changes.</p>
     default: return null
   }
 }
