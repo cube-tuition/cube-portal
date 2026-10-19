@@ -1,12 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 import { requireCronSecret, requireApiRole } from '../../../../lib/apiAuth'
-import { sendPushToAll } from '../../../../lib/push'
+import { sendPushToAll, sendPushToUsers } from '../../../../lib/push'
 import { DUE_DATES } from '../../../../lib/complianceDates'
 import { getRunningTerm, isHolidayTerm } from '../../../../lib/terms'
 import { normaliseTerms } from '../../../../lib/termDates'
 import { syncQueuedInvoices } from '../../../../lib/invoiceSync'
 import { recordJob, checkSystemHealth, healthPush } from '../../../../lib/systemHealth'
 import { loadStaleTrials, trialNudgePush, loadHeldTrialsDue, heldTrialPush } from '../../../../lib/trialPipeline'
+import { loadUnmarkedByTutor, rollNudgeEmail, rollNudgePush } from '../../../../lib/rollNudges'
+import { Resend } from 'resend'
 
 /*
  * GET /api/reminders/daily — Vercel cron, early each morning Sydney time.
@@ -172,6 +174,25 @@ export async function GET(request) {
     if (error) throw error
     return fresh.length
   })
+  // Unmarked rolls: each tutor gets one nudge for their lessons from the last
+  // week with no attendance saved (lib/rollNudges) — an email, and a push if
+  // they have the app. Directors still see every gap in the Action Centre.
+  const rollNudges = await step('roll nudges', async () => {
+    const groups = await loadUnmarkedByTutor(admin)
+    const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+    const from = `CUBE Tuition <${process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'}>`
+    let emailed = 0
+    for (const g of groups) {
+      try { const r = await sendPushToUsers([g.tutor.id], rollNudgePush(g)); sent += r?.sent || 0 } catch (e) { errors.push(`roll push ${g.tutor.full_name}: ${e?.message}`) }
+      if (resend && g.tutor.email) {
+        const { subject, html } = rollNudgeEmail(g)
+        const { error } = await resend.emails.send({ from, to: [g.tutor.email], subject, html }).then(r => r, e => ({ error: e }))
+        if (error) errors.push(`roll email ${g.tutor.full_name}: ${error.message || error}`)
+        else emailed++
+      }
+    }
+    return { tutors: groups.length, lessons: groups.reduce((n, g) => n + g.lessons.length, 0), emailed }
+  })
   // Riding on this cron (the plan allows two): draft invoices catch up with
   // yesterday's enrolment changes even on a day nobody opens the invoices page.
   const invoiceSync = await step('draft invoice sync', () => syncQueuedInvoices(admin))
@@ -182,7 +203,7 @@ export async function GET(request) {
     if (error) throw error
     return data
   })
-  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved }
+  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, rollNudges, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved }
   await recordJob(admin, 'daily', { startedAt, ok: !errors.length, detail, error: errors.join(' · ') || null })
 
   // The morning system check (lib/systemHealth): jobs, the invoice queue and
