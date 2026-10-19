@@ -16,6 +16,7 @@ import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
 import TrialReminderModal from '../../../components/trials/TrialReminderModal'
 import LevelTestInvitationModal from '../../../components/trials/LevelTestInvitationModal'
+import PipelineFlow from '../../../components/trials/PipelineFlow'
 import { reminderFamilyFor, trialDatesFor } from '../../../lib/trialReminderEmail'
 import { earliestTrialStart } from '../../../lib/trialDates'
 
@@ -1557,6 +1558,9 @@ export default function TrialsPage() {
           <>
             {/* Counted per student: a two-subject trial is one student. */}
             <StatsBar submissions={groups} />
+
+            {/* The flow the team works to, step by step */}
+            <PipelineFlow />
 
             {/* Acquisition channels report */}
             <ChannelInsights submissions={submissions} />
