@@ -362,7 +362,13 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const current = channels.find(c => c.id === active) || null
   // Writing as CUBE: a director in CUBE mode, or anyone (a director) inside a CUBE thread.
   const cubeMode = !!me?.isAdmin && persona === 'cube'
-  const asCube = !forStudents && !!me?.isAdmin && (cubeMode || current?.kind === 'cube_dm')
+  // Student messaging: a director always speaks as CUBE, except in a class
+  // channel for a class they teach (the database enforces the same rule —
+  // migrations/20261019_chat_students_directors_as_cube.sql).
+  const first = (n) => String(n || '').trim().split(/\s+/)[0].toLowerCase()
+  const teachesCurrent = forStudents && !!current?.class_id && !!classById[current.class_id]?.teacher
+    && first(classById[current.class_id].teacher) === first(me?.full_name)
+  const asCube = !!me?.isAdmin && (forStudents ? !teachesCurrent : (cubeMode || current?.kind === 'cube_dm'))
   const canPost = !!current && current.mine && (!current.directors_only || me.isAdmin)
   const send = async () => {
     const body = text.trim()
@@ -1126,7 +1132,8 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                   </div>
                 </div>
               )}
-              {asCube && !editing && <p className="text-[11px] text-[#062E63] mb-1">Sending as <b>CUBE</b>{current.kind !== 'cube_dm' ? ' · switch to your own name at the top of the list' : ''}</p>}
+              {asCube && !editing && <p className="text-[11px] text-[#062E63] mb-1">Sending as <b>CUBE</b>{forStudents ? ' · students see CUBE, not your name' : current.kind !== 'cube_dm' ? ' · switch to your own name at the top of the list' : ''}</p>}
+              {forStudents && me?.isAdmin && teachesCurrent && !editing && <p className="text-[11px] text-[#062E63] mb-1">Sending as <b>{me.full_name?.split(' ')[0]}</b> · you teach this class</p>}
               {!canPost ? (
                 <div className="rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 text-xs text-[#2A2035]/50">
                   📣 Only directors can post in {channelLabel(current)}. You can still react to messages.
