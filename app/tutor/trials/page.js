@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
@@ -215,531 +215,718 @@ function TrialStartPicker({ classId, value, onChange }) {
   )
 }
 
-function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemind }) {
-  const [expanded,     setExpanded]     = useState(false)
-  const [editNotes,    setEditNotes]    = useState(false)
-  const [notes,        setNotes]        = useState(sub.admin_notes || '')
-  const [saving,       setSaving]       = useState(false)
-  const [confirmAction, setConfirmAction] = useState(null) // 'convert' | 'drop' | null
-  const [refPicker,    setRefPicker]    = useState(null) // { rect } → referrer popover open
-  const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
-  const age   = daysSince(sub.submitted_at)
-  const stale = ['new','contacted'].includes(sub.status) && age > 7
+// The family-level badges: emails that go to the family once, whatever the
+// number of subjects (the invitation covers every subject in one email).
+function FamilyBadges({ sub }) {
+  return (
+    <>
+    {/* The family has been sent the trial invitation — dated from the first send. */}
+    {sub.invitation_sent_at && (
+      <span
+        className="text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full"
+        title={`Trial invitation emailed ${fmtDate(sub.invitation_sent_at)}`}
+      >
+        ✉ Invited {fmtDate(sub.invitation_sent_at)}
+      </span>
+    )}
+    {/* Invited to a level test first — and what the family answered on the form. */}
+    {sub.level_test_invitation_sent_at && !sub._levelTest?.booked && !sub._levelTest?.note && (
+      <span
+        className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"
+        title={`Level test invitation emailed ${fmtDate(sub.level_test_invitation_sent_at)} — no time picked yet`}
+      >
+        ✉ Level test invited {fmtDate(sub.level_test_invitation_sent_at)}
+      </span>
+    )}
+    {sub._levelTest?.booked && (
+      <span
+        className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"
+        title="The family booked this on the level test form — it's on Monitoring → Level tests"
+      >
+        📝 Level test {fmtLevelTest(sub._levelTest.booked)}
+      </span>
+    )}
+    {sub._levelTest?.note && (
+      <span
+        className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full max-w-[22rem] truncate"
+        title={`None of the level test times suited. They said: ${sub._levelTest.note}`}
+      >
+        📝 Level test: other times — “{sub._levelTest.note}”
+      </span>
+    )}
+    </>
+  )
+}
 
-  const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
+// Emails tied to one subject's trial class: the reminder and the feedback.
+function SubjectBadges({ sub }) {
+  return (
+    <>
+    {/* …and the reminder with the trial dates — also dated from the first send. */}
+    {sub.reminder_sent_at && (
+      <span
+        className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full"
+        title={`Trial reminder emailed ${fmtDate(sub.reminder_sent_at)}`}
+      >
+        ✉ Reminded {fmtDate(sub.reminder_sent_at)}
+      </span>
+    )}
+    {/* …the feedback emails after each trial lesson — first-send dates too. */}
+    {sub.lesson1_feedback_sent_at && (
+      <span
+        className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"
+        title={`Lesson 1 feedback emailed ${fmtDate(sub.lesson1_feedback_sent_at)}`}
+      >
+        ✉ Lesson 1 feedback {fmtDate(sub.lesson1_feedback_sent_at)}
+      </span>
+    )}
+    {sub.outcome_sent_at && (
+      <span
+        className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"
+        title={`Trial outcome emailed ${fmtDate(sub.outcome_sent_at)}`}
+      >
+        ✉ Outcome sent {fmtDate(sub.outcome_sent_at)}
+      </span>
+    )}
+    </>
+  )
+}
 
+function ProgressBadge({ progress }) {
+  return (
+    <>
+    {/* Trial progress, counted per subject: green only once EVERY
+        trialled subject has had its lessons. Hover for the split. */}
+    {progress?.lessons > 0 && (
+      <span
+        className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full ${
+          progress.lessons >= TRIAL_LESSONS
+            ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+            : 'text-[#325099] bg-[#F0F4FF] border-[#DEE7FF]'}`}
+        title={progress.subjects > 1
+          ? `Trial lessons per subject — ${progress.breakdown}`
+          : `${progress.lessons} of ${TRIAL_LESSONS} trial lessons attended`}
+      >
+        {progress.lessons}/{TRIAL_LESSONS} lesson{progress.lessons === 1 ? '' : 's'}
+        {progress.subjects > 1 && ` · ${progress.subjects} subjects`}
+      </span>
+    )}
+    </>
+  )
+}
+
+// The stage, set by hand (a phone call is contact too). Emails sent from the
+// card still stamp their own dates; Enrolled and Declined stay behind
+// Convert / Drop, which also move enrolments.
+function StageSelect({ status, onChange }) {
+  const stage = STAGE_MAP[status] || STAGE_MAP.new
+  if (['enrolled', 'declined'].includes(status)) {
+    return <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full ${stage.color}`}>{stage.label}</span>
+  }
+  return (
+    <select
+      value={status}
+      onClick={e => e.stopPropagation()}
+      onChange={e => onChange(e.target.value)}
+      title="Set the stage by hand — e.g. after a phone call"
+      className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full cursor-pointer appearance-none pr-5 bg-no-repeat bg-[length:10px] bg-[right_6px_center] ${stage.color}`}
+      style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23555' stroke-width='1.5'/%3E%3C/svg%3E\")" }}
+    >
+      {STAGES.filter(st => !['enrolled', 'declined'].includes(st.id)).map(st => (
+        <option key={st.id} value={st.id}>{st.label}</option>
+      ))}
+    </select>
+  )
+}
+
+// Move every open subject in `subs` to `next`. Marking Contacted by hand
+// records first contact, like a sent invitation does.
+async function setStage(subs, next, onUpdate) {
+  const open = subs.filter(s => !['enrolled', 'declined'].includes(s.status))
+  const now = new Date().toISOString()
+  for (const s of open) onUpdate(s.id, { status: next, ...(next === 'contacted' && !s.contacted_at ? { contacted_at: now } : {}) })
+  const { error } = await supabase.from('trial_submissions').update({ status: next }).in('id', open.map(s => s.id))
+  if (!error && next === 'contacted') {
+    await supabase.from('trial_submissions').update({ contacted_at: now }).in('id', open.map(s => s.id)).is('contacted_at', null)
+  }
+  if (error) {
+    alert('Could not change the stage: ' + error.message)
+    for (const s of open) onUpdate(s.id, { status: s.status, contacted_at: s.contacted_at ?? null })
+  }
+}
+
+// The student's details, how they heard, the referrer and the admin notes.
+// One student, so a grouped card writes these to every subject's submission.
+function StudentDetails({ sub, subs, status, students, onUpdate, grouped = false }) {
+  const [editNotes, setEditNotes] = useState(false)
+  // Notes typed on separate subject cards before they were grouped are kept:
+  // the distinct ones are joined and saved back to every subject.
+  const initialNotes = [...new Set(subs.map(s => (s.admin_notes || '').trim()).filter(Boolean))].join('\n\n')
+  const [notes, setNotes] = useState(initialNotes)
+  const [saving, setSaving] = useState(false)
+  const [refPicker, setRefPicker] = useState(null) // { rect } → referrer popover open
+  const age = daysSince(sub.submitted_at)
+  const ids = subs.map(s => s.id)
+
+  const writeAll = async (patch) => {
+    await supabase.from('trial_submissions').update(patch).in('id', ids)
+    for (const id of ids) onUpdate(id, patch)
+  }
   const saveNotes = async () => {
     setSaving(true)
-    await supabase.from('trial_submissions').update({ admin_notes: notes }).eq('id', sub.id)
+    await writeAll({ admin_notes: notes })
     setSaving(false)
     setEditNotes(false)
-    onUpdate(sub.id, { admin_notes: notes })
   }
 
   return (
-    <div className={`bg-white border rounded-xl overflow-hidden transition ${stale ? 'border-amber-300 shadow-amber-100 shadow-sm' : 'border-[#DEE7FF]'}`}>
-      {/* Header */}
-      <div className="px-4 py-3 flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm text-[#062E63]">{sub.student_name || 'Unknown student'}</span>
-            <span className="text-[11px] bg-[#F0F4FF] text-[#325099] px-2 py-0.5 rounded-full font-medium">
-              Year {sub.student_year ? String(sub.student_year).replace(/^year\s*/i, '') : '?'}
-            </span>
-            {subjects !== '—' && (
-              <span className="text-[11px] text-[#325099]/60">{subjects}</span>
-            )}
-            {stale && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Stale {age}d</span>}
-            {/* The family has been sent the trial invitation — dated from the first send. */}
-            {sub.invitation_sent_at && (
-              <span
-                className="text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full"
-                title={`Trial invitation emailed ${fmtDate(sub.invitation_sent_at)}`}
-              >
-                ✉ Invited {fmtDate(sub.invitation_sent_at)}
-              </span>
-            )}
-            {/* Invited to a level test first — and what the family answered on the form. */}
-            {sub.level_test_invitation_sent_at && !sub._levelTest?.booked && !sub._levelTest?.note && (
-              <span
-                className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"
-                title={`Level test invitation emailed ${fmtDate(sub.level_test_invitation_sent_at)} — no time picked yet`}
-              >
-                ✉ Level test invited {fmtDate(sub.level_test_invitation_sent_at)}
-              </span>
-            )}
-            {sub._levelTest?.booked && (
-              <span
-                className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"
-                title="The family booked this on the level test form — it's on Monitoring → Level tests"
-              >
-                📝 Level test {fmtLevelTest(sub._levelTest.booked)}
-              </span>
-            )}
-            {sub._levelTest?.note && (
-              <span
-                className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full max-w-[22rem] truncate"
-                title={`None of the level test times suited. They said: ${sub._levelTest.note}`}
-              >
-                📝 Level test: other times — “{sub._levelTest.note}”
-              </span>
-            )}
-            {/* …and the reminder with the trial dates — also dated from the first send. */}
-            {sub.reminder_sent_at && (
-              <span
-                className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full"
-                title={`Trial reminder emailed ${fmtDate(sub.reminder_sent_at)}`}
-              >
-                ✉ Reminded {fmtDate(sub.reminder_sent_at)}
-              </span>
-            )}
-            {/* …the feedback emails after each trial lesson — first-send dates too. */}
-            {sub.lesson1_feedback_sent_at && (
-              <span
-                className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"
-                title={`Lesson 1 feedback emailed ${fmtDate(sub.lesson1_feedback_sent_at)}`}
-              >
-                ✉ Lesson 1 feedback {fmtDate(sub.lesson1_feedback_sent_at)}
-              </span>
-            )}
-            {sub.outcome_sent_at && (
-              <span
-                className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"
-                title={`Trial outcome emailed ${fmtDate(sub.outcome_sent_at)}`}
-              >
-                ✉ Outcome sent {fmtDate(sub.outcome_sent_at)}
-              </span>
-            )}
-            {/* Trial progress, counted per subject: green only once EVERY
-                trialled subject has had its lessons. Hover for the split. */}
-            {progress?.lessons > 0 && (
-              <span
-                className={`text-[10px] font-semibold border px-1.5 py-0.5 rounded-full ${
-                  progress.lessons >= TRIAL_LESSONS
-                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                    : 'text-[#325099] bg-[#F0F4FF] border-[#DEE7FF]'}`}
-                title={progress.subjects > 1
-                  ? `Trial lessons per subject — ${progress.breakdown}`
-                  : `${progress.lessons} of ${TRIAL_LESSONS} trial lessons attended`}
-              >
-                {progress.lessons}/{TRIAL_LESSONS} lesson{progress.lessons === 1 ? '' : 's'}
-                {progress.subjects > 1 && ` · ${progress.subjects} subjects`}
-              </span>
-            )}
-          </div>
-          <p className="text-[11px] text-[#325099]/50 mt-0.5">
-            {sub.parent_name && <span className="mr-2">{sub.parent_name}</span>}
-            {sub.parent_email && <a href={'mailto:' + sub.parent_email} className="mr-2 hover:underline text-blue-600">{sub.parent_email}</a>}
-            {sub.parent_phone && <a href={'tel:' + sub.parent_phone} className="hover:underline">{sub.parent_phone}</a>}
-          </p>
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1 text-xs text-[#325099]/70">
+        <div><span className="font-semibold">School:</span> {sub.school || '—'}</div>
+        <div><span className="font-semibold">Day pref:</span> {sub.day_preference || '—'}</div>
+        <div><span className="font-semibold">Time pref:</span> {sub.time_preference || '—'}</div>
+        <div><span className="font-semibold">Submitted:</span> {fmtDate(sub.submitted_at)} ({age}d ago)</div>
+        <div><span className="font-semibold">Invitation sent:</span> {sub.invitation_sent_at ? fmtDate(sub.invitation_sent_at) : '—'}</div>
+        <div><span className="font-semibold">Level test invitation:</span> {sub.level_test_invitation_sent_at ? fmtDate(sub.level_test_invitation_sent_at) : '—'}</div>
+        {/* per subject on a grouped card — shown in each subject's tab */}
+        {!grouped && <div><span className="font-semibold">Reminder sent:</span> {sub.reminder_sent_at ? fmtDate(sub.reminder_sent_at) : '—'}</div>}
+        {/* The first trial lesson lives on the enrolment (set with the First
+            trial picker beside the class); trial_submissions.trial_date is
+            never filled in. */}
+        {!grouped && <div><span className="font-semibold">First trial lesson:</span> {sub._trialStart ? fmtDay(sub._trialStart) : (sub.trial_date ? fmtDate(sub.trial_date) : '—')}</div>}
+        <div><span className="font-semibold">Source:</span> {sub.source || '—'}</div>
+        <div className="col-span-full flex items-center gap-2 flex-wrap">
+          <span className="font-semibold">How heard:</span>
+          <select
+            value={HOW_HEARD_CHANNELS.includes(sub.how_heard) ? sub.how_heard : (sub.how_heard ? 'Other' : '')}
+            onChange={async e => {
+              const v = e.target.value || null
+              const prev = sub.how_heard ?? null
+              await writeAll({ how_heard: v })
+              registerUndoAction('how-heard channel', async () => {
+                await writeAll({ how_heard: prev })
+              })
+            }}
+            className="text-[11px] border border-[#DEE7FF] rounded-full px-2 py-1 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
+          >
+            <option value="">— not recorded —</option>
+            {HOW_HEARD_CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {sub.how_heard && (
-            <span className={`hidden sm:inline text-[10px] font-semibold border px-2 py-0.5 rounded-full ${HOW_HEARD_COLORS[sub.how_heard] ?? HOW_HEARD_UNKNOWN_COLOR}`} title="How they heard about CUBE">
-              {sub.how_heard}
+        {/* Referrer — pick the CUBE family (or mark as outside CUBE). On
+            convert, a family referrer triggers the $50 credit to BOTH
+            families' invoices via lib/referralCredits. */}
+        <div className="col-span-full flex items-center gap-2 flex-wrap">
+          <span className="font-semibold">Referred by:</span>
+          <button
+            type="button"
+            onClick={e => setRefPicker({ rect: e.currentTarget.getBoundingClientRect() })}
+            className="min-w-[220px] text-left border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs bg-white hover:border-[#325099] focus:outline-none focus:border-[#325099] flex items-center justify-between gap-2"
+          >
+            <span className={sub.referrer_outside || sub.referrer_student_id ? 'text-[#2A2035] font-semibold' : 'text-[#2A2035]/40'}>
+              {sub.referrer_outside
+                ? 'Outside of CUBE'
+                : (students.find(s => s.id === sub.referrer_student_id)?.full_name || 'Select student…')}
+            </span>
+            <span className="text-[#2A2035]/30">▾</span>
+          </button>
+          {refPicker && (
+            <SearchSelectPopover
+              anchor={refPicker.rect}
+              placeholder="Search student or family…"
+              clearLabel="— not set —"
+              options={(() => {
+                const { famGroups, singles } = referrerGroups(students || [])
+                return [
+                  { value: 'outside', label: 'Outside of CUBE', sub: 'Referrer isn’t a CUBE family — no credit' },
+                  ...famGroups.flatMap(g => g.members.map(s => ({ value: s.id, label: s.full_name, sub: g.label }))),
+                  ...singles.map(s => ({ value: s.id, label: s.full_name, sub: 'No family linked' })),
+                ]
+              })()}
+              currentValue={sub.referrer_outside ? 'outside' : (sub.referrer_student_id || '')}
+              onClose={() => setRefPicker(null)}
+              onSelect={async v => {
+                setRefPicker(null)
+                const patch = v === 'outside'
+                  ? { referrer_student_id: null, referrer_outside: true }
+                  : { referrer_student_id: v || null, referrer_outside: false }
+                // Keep the display/text field in sync when a student is picked.
+                if (v && v !== 'outside') {
+                  const st = students.find(s => s.id === v)
+                  if (st) patch.referred_by = st.full_name
+                }
+                const prev = { referrer_student_id: sub.referrer_student_id ?? null, referrer_outside: !!sub.referrer_outside, referred_by: sub.referred_by ?? null }
+                await writeAll(patch)
+                registerUndoAction('referrer', async () => {
+                  await writeAll(prev)
+                })
+              }}
+            />
+          )}
+          {sub.referrer_student_id && (
+            <span className="text-[11px] text-emerald-700">
+              {status === 'enrolled' ? '$50 referral credits applied to both families' : '$50 credit applies to both families on enrolment'}
             </span>
           )}
-          {/* The stage is yours to set — a phone call is contact too. Emails
-              sent from the card still stamp their own dates; Enrolled and
-              Declined stay behind Convert / Drop, which also move enrolments. */}
-          {['enrolled', 'declined'].includes(sub.status) ? (
-            <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full ${stage.color}`}>{stage.label}</span>
-          ) : (
-            <select
-              value={sub.status}
-              onClick={e => e.stopPropagation()}
-              onChange={async e => {
-                const next = e.target.value
-                const patch = { status: next }
-                // Marking Contacted by hand records first contact, like a sent invitation does.
-                if (next === 'contacted' && !sub.contacted_at) patch.contacted_at = new Date().toISOString()
-                onUpdate(sub.id, patch)
-                const { error } = await supabase.from('trial_submissions').update(patch).eq('id', sub.id)
-                if (error) { alert('Could not change the stage: ' + error.message); onUpdate(sub.id, { status: sub.status }) }
-              }}
-              title="Set the stage by hand — e.g. after a phone call"
-              className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full cursor-pointer appearance-none pr-5 bg-no-repeat bg-[length:10px] bg-[right_6px_center] ${stage.color}`}
-              style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23555' stroke-width='1.5'/%3E%3C/svg%3E\")" }}
-            >
-              {STAGES.filter(st => !['enrolled', 'declined'].includes(st.id)).map(st => (
-                <option key={st.id} value={st.id}>{st.label}</option>
-              ))}
-            </select>
+          {sub.referrer_outside && <span className="text-[11px] text-[#325099]/50">No referral credit (outside CUBE)</span>}
+          {!sub.referrer_student_id && !sub.referrer_outside && sub.referred_by && (
+            <span className="text-[11px] text-[#325099]/60">Form says: <strong>{sub.referred_by}</strong> — pick them above to apply the credit</span>
           )}
-          <button onClick={() => setExpanded(e => !e)} className="text-[#325099]/40 hover:text-[#325099] text-sm">
-            {expanded ? '▲' : '▼'}
-          </button>
         </div>
       </div>
 
-      {/* Expanded detail */}
+      {/* Admin notes */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider">Admin notes</span>
+          {!editNotes && (
+            <button onClick={() => setEditNotes(true)} className="text-[11px] text-[#325099] hover:underline">Edit</button>
+          )}
+        </div>
+        {editNotes ? (
+          <div className="flex gap-2">
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              className="flex-1 text-xs border border-[#DEE7FF] rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:border-[#325099]"
+            />
+            <div className="flex flex-col gap-1">
+              <button onClick={saveNotes} disabled={saving}
+                className="text-[11px] font-semibold bg-[#062E63] text-white px-3 py-1 rounded-lg disabled:opacity-40">
+                {saving ? '…' : 'Save'}
+              </button>
+              <button onClick={() => { setEditNotes(false); setNotes(initialNotes) }}
+                className="text-[11px] text-[#325099]/50 hover:text-[#325099] px-3 py-1">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-[#325099]/60 italic">{notes || 'No notes yet'}</p>
+        )}
+      </div>
+
+    </>
+  )
+}
+
+// One subject's trial: its class, first lesson, reminder and feedback emails,
+// and Convert / Drop. `familyButtons` sits in the same row on a one-subject card.
+function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOutcomeEmail, onReminderEmail, canRemind, familyButtons = null }) {
+  const [confirmAction, setConfirmAction] = useState(null) // 'convert' | 'drop' | null
+  const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {/* Assign class */}
+      <select
+        value={sub.trial_class_id || ''}
+        onChange={async e => {
+          const val = e.target.value ? Number(e.target.value) : null
+          // The trial starts at the class's earliest upcoming lesson by
+          // default; the First trial picker beside this changes it.
+          const firstLesson = val ? earliestTrialStart(await lessonDatesFrom(val), isoDate(new Date())) : null
+
+          let studentId = sub.converted_student_id
+
+          // If no student exists yet (old submission), create one now
+          if (!studentId && val) {
+            const { data: existing } = await supabase
+              .from('students').select('id')
+              .ilike('full_name', sub.student_name || '')
+              .maybeSingle()
+            if (existing) {
+              studentId = existing.id
+            } else {
+              const { data: newStudent } = await supabase
+                .from('students')
+                .insert({ full_name: sub.student_name || 'Unknown', year: sub.student_year || null, school: sub.school || null, status: 'trial' })
+                .select('id').single()
+              studentId = newStudent?.id
+              if (studentId && (sub.parent_name || sub.parent_email || sub.parent_phone)) {
+                await supabase.from('guardians').insert({
+                  student_id: studentId, full_name: sub.parent_name || null,
+                  email: sub.parent_email || null, phone: sub.parent_phone || null,
+                })
+              }
+            }
+            // Create the trial enrolment for the first time
+            if (studentId) {
+              const { data: newEnrol } = await supabase.from('enrolments').insert({
+                student_id: studentId, class_id: val, status: 'trial',
+                trial_start_date: firstLesson,
+              }).select('id').single()
+              // Assigning a class IS scheduling the trial: a card still at
+              // New or Contacted moves on with it.
+              const sched = ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
+              await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, ...sched }).eq('id', sub.id)
+              onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, _trialStart: firstLesson, ...sched })
+              onReload()
+            }
+            return
+          }
+
+          // Student already exists — update the specific linked enrolment by enrolment_id
+          const prevTrialClassId = sub.trial_class_id ?? null
+          let prevEnrol = null
+          if (sub.enrolment_id) {
+            const { data } = await supabase.from('enrolments').select('class_id, trial_start_date, price').eq('id', sub.enrolment_id).maybeSingle()
+            prevEnrol = data
+            // price: null → the database fills the new class's course
+            // price (enrolment_default_price), like a class change in the
+            // database explorer.
+            await supabase.from('enrolments')
+              .update({ class_id: val, price: null, trial_start_date: firstLesson })
+              .eq('id', sub.enrolment_id)
+          } else if (studentId) {
+            // Fallback: update by student_id if no enrolment_id yet
+            await supabase.from('enrolments')
+              .update({ class_id: val, price: null, trial_start_date: firstLesson })
+              .eq('student_id', studentId)
+              .eq('status', 'trial')
+              .is('class_id', null)
+          }
+          const sched = val && ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
+          await supabase.from('trial_submissions').update({ trial_class_id: val, ...sched }).eq('id', sub.id)
+          // Assigning a class makes a pending student a trial student
+          // (active stays active — e.g. trialling a second subject).
+          if (val && studentId) {
+            await supabase.from('students').update({ status: 'trial' })
+              .eq('id', studentId).eq('status', 'pending')
+          }
+          onUpdate(sub.id, { trial_class_id: val, _trialStart: firstLesson, ...sched })
+          onReload()
+          registerUndoAction('trial class assignment', async () => {
+            if (sub.enrolment_id && prevEnrol) {
+              await supabase.from('enrolments')
+                .update({ class_id: prevEnrol.class_id, trial_start_date: prevEnrol.trial_start_date, price: prevEnrol.price ?? null })
+                .eq('id', sub.enrolment_id)
+            }
+            await supabase.from('trial_submissions').update({ trial_class_id: prevTrialClassId }).eq('id', sub.id)
+            onUpdate(sub.id, { trial_class_id: prevTrialClassId, _trialStart: prevEnrol?.trial_start_date ?? null })
+            onReload()
+          })
+        }}
+        className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
+      >
+        <option value="">Assign a class…</option>
+        {classes.map(c => (
+          <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
+        ))}
+      </select>
+
+      {/* First trial lesson — defaults to the class's earliest lesson */}
+      {sub.trial_class_id && sub.converted_student_id && (
+        <TrialStartPicker
+          classId={sub.trial_class_id}
+          value={sub._trialStart || null}
+          onChange={async (date) => {
+            const prev = sub._trialStart || null
+            const write = (d) => sub.enrolment_id
+              ? supabase.from('enrolments').update({ trial_start_date: d }).eq('id', sub.enrolment_id)
+              : supabase.from('enrolments').update({ trial_start_date: d })
+                  .eq('student_id', sub.converted_student_id).eq('class_id', sub.trial_class_id).eq('status', 'trial')
+            const { error } = await write(date)
+            if (error) { alert('Could not change the first trial lesson: ' + error.message); return }
+            onUpdate(sub.id, { _trialStart: date })
+            onReload()
+            registerUndoAction('first trial lesson', async () => {
+              await write(prev)
+              onUpdate(sub.id, { _trialStart: prev })
+              onReload()
+            })
+          }}
+        />
+      )}
+
+      {familyButtons}
+
+      {/* Trial reminder — the SECOND email: the two trial lesson dates and
+          time, once a class is assigned. Replaces the Emails → Trials page. */}
+      {canRemind && !['enrolled', 'declined'].includes(sub.status) && (
+        <button
+          onClick={onReminderEmail}
+          className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+          title={sub.reminder_sent_at
+            ? `Already emailed ${fmtDate(sub.reminder_sent_at)} — send the trial dates again`
+            : 'Email the family their trial lesson dates and time'}
+        >
+          {sub.reminder_sent_at ? '✉ Resend reminder' : '✉ Trial reminder'}
+        </button>
+      )}
+
+      {/* Trial feedback emails, one after each trial lesson: lesson 1's
+          feedback with the next lesson's date, then lesson 2's with how to
+          continue. No completion gate: staff read the feedback and decide. */}
+      {sub.converted_student_id && sub.status !== 'declined' && (
+        <>
+          <button
+            onClick={() => onOutcomeEmail('lesson1')}
+            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+            title={sub.lesson1_feedback_sent_at
+              ? `Lesson 1 feedback emailed ${fmtDate(sub.lesson1_feedback_sent_at)} — compose and send again`
+              : 'Email the family the first trial lesson’s feedback, with the next lesson’s date'}
+          >
+            {sub.lesson1_feedback_sent_at ? '✉ Resend lesson 1 feedback' : '✉ Lesson 1 feedback'}
+          </button>
+          <button
+            onClick={() => onOutcomeEmail('outcome')}
+            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+            title={sub.outcome_sent_at
+              ? `Trial outcome emailed ${fmtDate(sub.outcome_sent_at)} — compose and send again`
+              : 'Email the second trial lesson’s feedback and how to continue'}
+          >
+            {sub.outcome_sent_at ? '✉ Resend outcome' : '✉ Trial outcome'}
+          </button>
+        </>
+      )}
+
+      {/* Convert / Drop with double confirmation */}
+      {sub.status !== 'enrolled' && sub.status !== 'declined' && (
+        confirmAction ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#325099]/70">
+              {confirmAction === 'convert' ? 'Convert to active student?' : 'Drop this trial?'}
+            </span>
+            <button
+              onClick={() => { onConvertDrop(sub, confirmAction); setConfirmAction(null) }}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full transition text-white ${confirmAction === 'convert' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-500 hover:bg-red-600'}`}
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmAction(null)}
+              className="text-xs text-[#325099]/50 hover:text-[#325099] px-2 py-1.5"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => setConfirmAction('convert')}
+              className="text-xs font-semibold bg-emerald-600 text-white px-4 py-1.5 rounded-full hover:bg-emerald-700 transition"
+            >
+              Convert
+            </button>
+            <button
+              onClick={() => setConfirmAction('drop')}
+              className="text-xs font-semibold text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full hover:border-gray-400 transition"
+            >
+              Drop
+            </button>
+          </>
+        )
+      )}
+
+      {/* Status badge if already resolved */}
+      {(sub.status === 'enrolled' || sub.status === 'declined') && (
+        <span className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${stage.color}`}>
+          {stage.label}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// The invitation and the level test invitation: first contact with the family.
+function FamilyButtons({ sub, status, onInvitationEmail, onLevelTestInvitation }) {
+  return (
+    <>
+      {/* Trial invitation — the FIRST email: welcome + a proposed trial
+          class matched to year/subject/availability. Hidden once the
+          trial is decided either way. */}
+      {!['enrolled', 'declined'].includes(status) && (
+        <button
+          onClick={onInvitationEmail}
+          className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+          title={sub.invitation_sent_at
+            ? `Already emailed ${fmtDate(sub.invitation_sent_at)} — compose and send again`
+            : 'Compose the trial invitation — welcome, suggested class and trial date'}
+        >
+          {sub.invitation_sent_at ? '✉ Resend invitation' : '✉ Trial invitation'}
+        </button>
+      )}
+
+      {/* Level test invitation — the alternative first email: suggested
+          times and a form link; the family's pick books the level test. */}
+      {!['enrolled', 'declined'].includes(status) && (
+        <button
+          onClick={onLevelTestInvitation}
+          className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+          title={sub.level_test_invitation_sent_at
+            ? `Already emailed ${fmtDate(sub.level_test_invitation_sent_at)} — change the times and send again`
+            : 'Invite them to sit a level test first — suggested times, booked from a form'}
+        >
+          {sub.level_test_invitation_sent_at ? '✉ Resend level test invitation' : '✉ Level test invitation'}
+        </button>
+      )}
+
+    </>
+  )
+}
+
+function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onToggle, children }) {
+  return (
+    <div className="px-4 py-3 flex items-start justify-between gap-2">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-sm text-[#062E63]">{sub.student_name || 'Unknown student'}</span>
+          <span className="text-[11px] bg-[#F0F4FF] text-[#325099] px-2 py-0.5 rounded-full font-medium">
+            Year {sub.student_year ? String(sub.student_year).replace(/^year\s*/i, '') : '?'}
+          </span>
+          {subjects}
+          {stale && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Stale {age}d</span>}
+          {children}
+        </div>
+        <p className="text-[11px] text-[#325099]/50 mt-0.5">
+          {sub.parent_name && <span className="mr-2">{sub.parent_name}</span>}
+          {sub.parent_email && <a href={'mailto:' + sub.parent_email} className="mr-2 hover:underline text-blue-600">{sub.parent_email}</a>}
+          {sub.parent_phone && <a href={'tel:' + sub.parent_phone} className="hover:underline">{sub.parent_phone}</a>}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {sub.how_heard && (
+          <span className={`hidden sm:inline text-[10px] font-semibold border px-2 py-0.5 rounded-full ${HOW_HEARD_COLORS[sub.how_heard] ?? HOW_HEARD_UNKNOWN_COLOR}`} title="How they heard about CUBE">
+            {sub.how_heard}
+          </span>
+        )}
+        <StageSelect status={status} onChange={onStage} />
+        <button onClick={onToggle} className="text-[#325099]/40 hover:text-[#325099] text-sm">
+          {expanded ? '▲' : '▼'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemind }) {
+  const [expanded, setExpanded] = useState(false)
+  const age   = daysSince(sub.submitted_at)
+  const stale = ['new', 'contacted'].includes(sub.status) && age > 7
+  const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
+
+  return (
+    <div className={`bg-white border rounded-xl overflow-hidden transition ${stale ? 'border-amber-300 shadow-amber-100 shadow-sm' : 'border-[#DEE7FF]'}`}>
+      <CardHeader
+        sub={sub} status={sub.status} stale={stale} age={age}
+        subjects={subjects !== '—' && <span className="text-[11px] text-[#325099]/60">{subjects}</span>}
+        onStage={next => setStage([sub], next, onUpdate)}
+        expanded={expanded} onToggle={() => setExpanded(e => !e)}
+      >
+        <FamilyBadges sub={sub} />
+        <SubjectBadges sub={sub} />
+        <ProgressBadge progress={progress} />
+      </CardHeader>
+
       {expanded && (
         <div className="border-t border-[#DEE7FF] px-4 py-3 space-y-3 bg-[#F8FAFF]">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1 text-xs text-[#325099]/70">
-            <div><span className="font-semibold">School:</span> {sub.school || '—'}</div>
-            <div><span className="font-semibold">Day pref:</span> {sub.day_preference || '—'}</div>
-            <div><span className="font-semibold">Time pref:</span> {sub.time_preference || '—'}</div>
-            <div><span className="font-semibold">Submitted:</span> {fmtDate(sub.submitted_at)} ({age}d ago)</div>
-            <div><span className="font-semibold">Invitation sent:</span> {sub.invitation_sent_at ? fmtDate(sub.invitation_sent_at) : '—'}</div>
-            <div><span className="font-semibold">Level test invitation:</span> {sub.level_test_invitation_sent_at ? fmtDate(sub.level_test_invitation_sent_at) : '—'}</div>
-            <div><span className="font-semibold">Reminder sent:</span> {sub.reminder_sent_at ? fmtDate(sub.reminder_sent_at) : '—'}</div>
-            {/* The first trial lesson lives on the enrolment (set with the First
-                trial picker beside the class); trial_submissions.trial_date is
-                never filled in. */}
-            <div><span className="font-semibold">First trial lesson:</span> {sub._trialStart ? fmtDay(sub._trialStart) : (sub.trial_date ? fmtDate(sub.trial_date) : '—')}</div>
-            <div><span className="font-semibold">Source:</span> {sub.source || '—'}</div>
-            <div className="col-span-full flex items-center gap-2 flex-wrap">
-              <span className="font-semibold">How heard:</span>
-              <select
-                value={HOW_HEARD_CHANNELS.includes(sub.how_heard) ? sub.how_heard : (sub.how_heard ? 'Other' : '')}
-                onChange={async e => {
-                  const v = e.target.value || null
-                  const prev = sub.how_heard ?? null
-                  await supabase.from('trial_submissions').update({ how_heard: v }).eq('id', sub.id)
-                  onUpdate(sub.id, { how_heard: v })
-                  registerUndoAction('how-heard channel', async () => {
-                    await supabase.from('trial_submissions').update({ how_heard: prev }).eq('id', sub.id)
-                    onUpdate(sub.id, { how_heard: prev })
-                  })
-                }}
-                className="text-[11px] border border-[#DEE7FF] rounded-full px-2 py-1 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
-              >
-                <option value="">— not recorded —</option>
-                {HOW_HEARD_CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            {/* Referrer — pick the CUBE family (or mark as outside CUBE). On
-                convert, a family referrer triggers the $50 credit to BOTH
-                families' invoices via lib/referralCredits. */}
-            <div className="col-span-full flex items-center gap-2 flex-wrap">
-              <span className="font-semibold">Referred by:</span>
-              <button
-                type="button"
-                onClick={e => setRefPicker({ rect: e.currentTarget.getBoundingClientRect() })}
-                className="min-w-[220px] text-left border border-[#DEE7FF] rounded-lg px-3 py-2 text-xs bg-white hover:border-[#325099] focus:outline-none focus:border-[#325099] flex items-center justify-between gap-2"
-              >
-                <span className={sub.referrer_outside || sub.referrer_student_id ? 'text-[#2A2035] font-semibold' : 'text-[#2A2035]/40'}>
-                  {sub.referrer_outside
-                    ? 'Outside of CUBE'
-                    : (students.find(s => s.id === sub.referrer_student_id)?.full_name || 'Select student…')}
-                </span>
-                <span className="text-[#2A2035]/30">▾</span>
-              </button>
-              {refPicker && (
-                <SearchSelectPopover
-                  anchor={refPicker.rect}
-                  placeholder="Search student or family…"
-                  clearLabel="— not set —"
-                  options={(() => {
-                    const { famGroups, singles } = referrerGroups(students || [])
-                    return [
-                      { value: 'outside', label: 'Outside of CUBE', sub: 'Referrer isn’t a CUBE family — no credit' },
-                      ...famGroups.flatMap(g => g.members.map(s => ({ value: s.id, label: s.full_name, sub: g.label }))),
-                      ...singles.map(s => ({ value: s.id, label: s.full_name, sub: 'No family linked' })),
-                    ]
-                  })()}
-                  currentValue={sub.referrer_outside ? 'outside' : (sub.referrer_student_id || '')}
-                  onClose={() => setRefPicker(null)}
-                  onSelect={async v => {
-                    setRefPicker(null)
-                    const patch = v === 'outside'
-                      ? { referrer_student_id: null, referrer_outside: true }
-                      : { referrer_student_id: v || null, referrer_outside: false }
-                    // Keep the display/text field in sync when a student is picked.
-                    if (v && v !== 'outside') {
-                      const st = students.find(s => s.id === v)
-                      if (st) patch.referred_by = st.full_name
-                    }
-                    const prev = { referrer_student_id: sub.referrer_student_id ?? null, referrer_outside: !!sub.referrer_outside, referred_by: sub.referred_by ?? null }
-                    await supabase.from('trial_submissions').update(patch).eq('id', sub.id)
-                    onUpdate(sub.id, patch)
-                    registerUndoAction('referrer', async () => {
-                      await supabase.from('trial_submissions').update(prev).eq('id', sub.id)
-                      onUpdate(sub.id, prev)
-                    })
-                  }}
-                />
-              )}
-              {sub.referrer_student_id && (
-                <span className="text-[11px] text-emerald-700">
-                  {sub.status === 'enrolled' ? '$50 referral credits applied to both families' : '$50 credit applies to both families on enrolment'}
-                </span>
-              )}
-              {sub.referrer_outside && <span className="text-[11px] text-[#325099]/50">No referral credit (outside CUBE)</span>}
-              {!sub.referrer_student_id && !sub.referrer_outside && sub.referred_by && (
-                <span className="text-[11px] text-[#325099]/60">Form says: <strong>{sub.referred_by}</strong> — pick them above to apply the credit</span>
-              )}
-            </div>
+          <StudentDetails sub={sub} subs={[sub]} status={sub.status} students={students} onUpdate={onUpdate} />
+          <div className="pt-1 border-t border-[#DEE7FF]">
+            <SubjectActions
+              sub={sub} classes={classes} onUpdate={onUpdate} onReload={onReload} onConvertDrop={onConvertDrop}
+              onOutcomeEmail={onOutcomeEmail} onReminderEmail={onReminderEmail} canRemind={canRemind}
+              familyButtons={<FamilyButtons sub={sub} status={sub.status} onInvitationEmail={onInvitationEmail} onLevelTestInvitation={onLevelTestInvitation} />}
+            />
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
-          {/* Admin notes */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider">Admin notes</span>
-              {!editNotes && (
-                <button onClick={() => setEditNotes(true)} className="text-[11px] text-[#325099] hover:underline">Edit</button>
-              )}
-            </div>
-            {editNotes ? (
-              <div className="flex gap-2">
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  rows={2}
-                  className="flex-1 text-xs border border-[#DEE7FF] rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:border-[#325099]"
-                />
-                <div className="flex flex-col gap-1">
-                  <button onClick={saveNotes} disabled={saving}
-                    className="text-[11px] font-semibold bg-[#062E63] text-white px-3 py-1 rounded-lg disabled:opacity-40">
-                    {saving ? '…' : 'Save'}
-                  </button>
-                  <button onClick={() => { setEditNotes(false); setNotes(sub.admin_notes || '') }}
-                    className="text-[11px] text-[#325099]/50 hover:text-[#325099] px-3 py-1">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-[#325099]/60 italic">{notes || 'No notes yet'}</p>
-            )}
-          </div>
+const subjectLabel = (s) => (Array.isArray(s.subjects) ? s.subjects.join(', ') : s.subjects) || 'Subject'
 
-          {/* Actions */}
+// The student's overall stage: the furthest-along open subject, or — once
+// every subject is decided — Enrolled if any enrolled, else Declined.
+function groupStage(subs) {
+  const open = subs.filter(s => !['enrolled', 'declined'].includes(s.status))
+  if (!open.length) return subs.some(s => s.status === 'enrolled') ? 'enrolled' : 'declined'
+  const rank = (st) => STAGES.findIndex(x => x.id === st)
+  return open.reduce((best, s) => (rank(s.status) > rank(best) ? s.status : best), open[0].status)
+}
+
+// A student trialling more than one subject: the stage, the family's emails
+// and the student's details once, then a tab per subject for its scheduling.
+function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvertDrop, progress, onOutcomeEmail, onInvitationEmail, onLevelTestInvitation, onReminderEmail, canRemindFor }) {
+  const [expanded, setExpanded] = useState(false)
+  const [tab, setTab] = useState(subs[0].id)
+  const status = groupStage(subs)
+  // Earliest enquiry: the family's first contact, for the age and the details.
+  const first = subs.reduce((a, b) => (new Date(a.submitted_at) <= new Date(b.submitted_at) ? a : b))
+  const age   = daysSince(first.submitted_at)
+  const stale = ['new', 'contacted'].includes(status) && age > 7
+  // Family emails: show the first send across the subjects.
+  const earliest = (field) => subs.map(s => s[field]).filter(Boolean).sort()[0] || null
+  const family = {
+    ...first,
+    invitation_sent_at: earliest('invitation_sent_at'),
+    level_test_invitation_sent_at: earliest('level_test_invitation_sent_at'),
+    _levelTest: subs.find(s => s._levelTest?.booked)?._levelTest || subs.find(s => s._levelTest)?._levelTest || null,
+  }
+  const active = subs.find(s => s.id === tab) || subs[0]
+  const className = (id) => classes.find(c => c.id === id)?.class_name
+
+  return (
+    <div className={`bg-white border rounded-xl overflow-hidden transition ${stale ? 'border-amber-300 shadow-amber-100 shadow-sm' : 'border-[#DEE7FF]'}`}>
+      <CardHeader
+        sub={family} status={status} stale={stale} age={age}
+        subjects={subs.map(s => {
+          const st = STAGE_MAP[s.status] || STAGE_MAP.new
+          return (
+            <button key={s.id} onClick={() => { setTab(s.id); setExpanded(true) }}
+              className="inline-flex items-center gap-1 text-[11px] text-[#325099] bg-white border border-[#DEE7FF] hover:border-[#325099] px-2 py-0.5 rounded-full transition"
+              title={`${subjectLabel(s)} — ${st.label}${s.trial_class_id ? ` · ${className(s.trial_class_id) || 'class assigned'}` : ' · no class yet'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+              {subjectLabel(s)}
+            </button>
+          )
+        })}
+        onStage={next => setStage(subs, next, onUpdate)}
+        expanded={expanded} onToggle={() => setExpanded(e => !e)}
+      >
+        <FamilyBadges sub={family} />
+        <ProgressBadge progress={progress} />
+      </CardHeader>
+
+      {expanded && (
+        <div className="border-t border-[#DEE7FF] px-4 py-3 space-y-3 bg-[#F8FAFF]">
+          <StudentDetails sub={family} subs={subs} status={status} students={students} onUpdate={onUpdate} grouped />
           <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-[#DEE7FF]">
-            {/* Assign class */}
-            <select
-              value={sub.trial_class_id || ''}
-              onChange={async e => {
-                const val = e.target.value ? Number(e.target.value) : null
-                // The trial starts at the class's earliest upcoming lesson by
-                // default; the First trial picker beside this changes it.
-                const firstLesson = val ? earliestTrialStart(await lessonDatesFrom(val), isoDate(new Date())) : null
+            <FamilyButtons sub={family} status={status}
+              onInvitationEmail={() => onInvitationEmail(subs.find(s => !['enrolled', 'declined'].includes(s.status)) || first)}
+              onLevelTestInvitation={() => onLevelTestInvitation(subs.find(s => !['enrolled', 'declined'].includes(s.status)) || first)} />
+          </div>
 
-                let studentId = sub.converted_student_id
-
-                // If no student exists yet (old submission), create one now
-                if (!studentId && val) {
-                  const { data: existing } = await supabase
-                    .from('students').select('id')
-                    .ilike('full_name', sub.student_name || '')
-                    .maybeSingle()
-                  if (existing) {
-                    studentId = existing.id
-                  } else {
-                    const { data: newStudent } = await supabase
-                      .from('students')
-                      .insert({ full_name: sub.student_name || 'Unknown', year: sub.student_year || null, school: sub.school || null, status: 'trial' })
-                      .select('id').single()
-                    studentId = newStudent?.id
-                    if (studentId && (sub.parent_name || sub.parent_email || sub.parent_phone)) {
-                      await supabase.from('guardians').insert({
-                        student_id: studentId, full_name: sub.parent_name || null,
-                        email: sub.parent_email || null, phone: sub.parent_phone || null,
-                      })
-                    }
-                  }
-                  // Create the trial enrolment for the first time
-                  if (studentId) {
-                    const { data: newEnrol } = await supabase.from('enrolments').insert({
-                      student_id: studentId, class_id: val, status: 'trial',
-                      trial_start_date: firstLesson,
-                    }).select('id').single()
-                    // Assigning a class IS scheduling the trial: a card still at
-                    // New or Contacted moves on with it.
-                    const sched = ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
-                    await supabase.from('trial_submissions').update({ trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, ...sched }).eq('id', sub.id)
-                    onUpdate(sub.id, { trial_class_id: val, converted_student_id: studentId, enrolment_id: newEnrol?.id, _trialStart: firstLesson, ...sched })
-                    onReload()
-                  }
-                  return
-                }
-
-                // Student already exists — update the specific linked enrolment by enrolment_id
-                const prevTrialClassId = sub.trial_class_id ?? null
-                let prevEnrol = null
-                if (sub.enrolment_id) {
-                  const { data } = await supabase.from('enrolments').select('class_id, trial_start_date, price').eq('id', sub.enrolment_id).maybeSingle()
-                  prevEnrol = data
-                  // price: null → the database fills the new class's course
-                  // price (enrolment_default_price), like a class change in the
-                  // database explorer.
-                  await supabase.from('enrolments')
-                    .update({ class_id: val, price: null, trial_start_date: firstLesson })
-                    .eq('id', sub.enrolment_id)
-                } else if (studentId) {
-                  // Fallback: update by student_id if no enrolment_id yet
-                  await supabase.from('enrolments')
-                    .update({ class_id: val, price: null, trial_start_date: firstLesson })
-                    .eq('student_id', studentId)
-                    .eq('status', 'trial')
-                    .is('class_id', null)
-                }
-                const sched = val && ['new', 'contacted'].includes(sub.status) ? { status: 'trial_scheduled' } : {}
-                await supabase.from('trial_submissions').update({ trial_class_id: val, ...sched }).eq('id', sub.id)
-                // Assigning a class makes a pending student a trial student
-                // (active stays active — e.g. trialling a second subject).
-                if (val && studentId) {
-                  await supabase.from('students').update({ status: 'trial' })
-                    .eq('id', studentId).eq('status', 'pending')
-                }
-                onUpdate(sub.id, { trial_class_id: val, _trialStart: firstLesson, ...sched })
-                onReload()
-                registerUndoAction('trial class assignment', async () => {
-                  if (sub.enrolment_id && prevEnrol) {
-                    await supabase.from('enrolments')
-                      .update({ class_id: prevEnrol.class_id, trial_start_date: prevEnrol.trial_start_date, price: prevEnrol.price ?? null })
-                      .eq('id', sub.enrolment_id)
-                  }
-                  await supabase.from('trial_submissions').update({ trial_class_id: prevTrialClassId }).eq('id', sub.id)
-                  onUpdate(sub.id, { trial_class_id: prevTrialClassId, _trialStart: prevEnrol?.trial_start_date ?? null })
-                  onReload()
-                })
-              }}
-              className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
-            >
-              <option value="">Assign a class…</option>
-              {classes.map(c => (
-                <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
-              ))}
-            </select>
-
-            {/* First trial lesson — defaults to the class's earliest lesson */}
-            {sub.trial_class_id && sub.converted_student_id && (
-              <TrialStartPicker
-                classId={sub.trial_class_id}
-                value={sub._trialStart || null}
-                onChange={async (date) => {
-                  const prev = sub._trialStart || null
-                  const write = (d) => sub.enrolment_id
-                    ? supabase.from('enrolments').update({ trial_start_date: d }).eq('id', sub.enrolment_id)
-                    : supabase.from('enrolments').update({ trial_start_date: d })
-                        .eq('student_id', sub.converted_student_id).eq('class_id', sub.trial_class_id).eq('status', 'trial')
-                  const { error } = await write(date)
-                  if (error) { alert('Could not change the first trial lesson: ' + error.message); return }
-                  onUpdate(sub.id, { _trialStart: date })
-                  onReload()
-                  registerUndoAction('first trial lesson', async () => {
-                    await write(prev)
-                    onUpdate(sub.id, { _trialStart: prev })
-                    onReload()
-                  })
-                }}
+          {/* A tab per subject: its own class, trial dates, emails and outcome. */}
+          <div className="bg-white border border-[#DEE7FF] rounded-xl overflow-hidden">
+            <div className="flex border-b border-[#DEE7FF] bg-[#F8FAFF]">
+              {subs.map(s => {
+                const st = STAGE_MAP[s.status] || STAGE_MAP.new
+                const on = s.id === active.id
+                return (
+                  <button key={s.id} onClick={() => setTab(s.id)}
+                    className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold border-b-2 -mb-px transition ${on ? 'border-[#062E63] text-[#062E63] bg-white' : 'border-transparent text-[#325099]/60 hover:text-[#325099]'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                    {subjectLabel(s)}
+                    {['enrolled', 'declined'].includes(s.status) && <span className={`text-[9px] font-semibold border px-1.5 py-px rounded-full ${st.color}`}>{st.label}</span>}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap text-xs text-[#325099]/70">
+                <span><span className="font-semibold">First trial lesson:</span> {active._trialStart ? fmtDay(active._trialStart) : '—'}</span>
+                <SubjectBadges sub={active} />
+              </div>
+              <SubjectActions
+                key={active.id}
+                sub={active} classes={classes} onUpdate={onUpdate} onReload={onReload} onConvertDrop={onConvertDrop}
+                onOutcomeEmail={(stage) => onOutcomeEmail(active, stage)}
+                onReminderEmail={() => onReminderEmail(active)}
+                canRemind={canRemindFor(active)}
               />
-            )}
-
-            {/* Trial invitation — the FIRST email: welcome + a proposed trial
-                class matched to year/subject/availability. Hidden once the
-                trial is decided either way. */}
-            {!['enrolled', 'declined'].includes(sub.status) && (
-              <button
-                onClick={onInvitationEmail}
-                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-                title={sub.invitation_sent_at
-                  ? `Already emailed ${fmtDate(sub.invitation_sent_at)} — compose and send again`
-                  : 'Compose the trial invitation — welcome, suggested class and trial date'}
-              >
-                {sub.invitation_sent_at ? '✉ Resend invitation' : '✉ Trial invitation'}
-              </button>
-            )}
-
-            {/* Level test invitation — the alternative first email: suggested
-                times and a form link; the family's pick books the level test. */}
-            {!['enrolled', 'declined'].includes(sub.status) && (
-              <button
-                onClick={onLevelTestInvitation}
-                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-                title={sub.level_test_invitation_sent_at
-                  ? `Already emailed ${fmtDate(sub.level_test_invitation_sent_at)} — change the times and send again`
-                  : 'Invite them to sit a level test first — suggested times, booked from a form'}
-              >
-                {sub.level_test_invitation_sent_at ? '✉ Resend level test invitation' : '✉ Level test invitation'}
-              </button>
-            )}
-
-            {/* Trial reminder — the SECOND email: the two trial lesson dates and
-                time, once a class is assigned. Replaces the Emails → Trials page. */}
-            {canRemind && !['enrolled', 'declined'].includes(sub.status) && (
-              <button
-                onClick={onReminderEmail}
-                className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-                title={sub.reminder_sent_at
-                  ? `Already emailed ${fmtDate(sub.reminder_sent_at)} — send the trial dates again`
-                  : 'Email the family their trial lesson dates and time'}
-              >
-                {sub.reminder_sent_at ? '✉ Resend reminder' : '✉ Trial reminder'}
-              </button>
-            )}
-
-            {/* Trial feedback emails, one after each trial lesson: lesson 1's
-                feedback with the next lesson's date, then lesson 2's with how to
-                continue. No completion gate: staff read the feedback and decide. */}
-            {sub.converted_student_id && sub.status !== 'declined' && (
-              <>
-                <button
-                  onClick={() => onOutcomeEmail('lesson1')}
-                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-                  title={sub.lesson1_feedback_sent_at
-                    ? `Lesson 1 feedback emailed ${fmtDate(sub.lesson1_feedback_sent_at)} — compose and send again`
-                    : 'Email the family the first trial lesson’s feedback, with the next lesson’s date'}
-                >
-                  {sub.lesson1_feedback_sent_at ? '✉ Resend lesson 1 feedback' : '✉ Lesson 1 feedback'}
-                </button>
-                <button
-                  onClick={() => onOutcomeEmail('outcome')}
-                  className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
-                  title={sub.outcome_sent_at
-                    ? `Trial outcome emailed ${fmtDate(sub.outcome_sent_at)} — compose and send again`
-                    : 'Email the second trial lesson’s feedback and how to continue'}
-                >
-                  {sub.outcome_sent_at ? '✉ Resend outcome' : '✉ Trial outcome'}
-                </button>
-              </>
-            )}
-
-            {/* Convert / Drop with double confirmation */}
-            {sub.status !== 'enrolled' && sub.status !== 'declined' && (
-              confirmAction ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-[#325099]/70">
-                    {confirmAction === 'convert' ? 'Convert to active student?' : 'Drop this trial?'}
-                  </span>
-                  <button
-                    onClick={() => { onConvertDrop(sub.id, sub.converted_student_id, confirmAction); setConfirmAction(null) }}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-full transition text-white ${confirmAction === 'convert' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-500 hover:bg-red-600'}`}
-                  >
-                    Confirm
-                  </button>
-                  <button
-                    onClick={() => setConfirmAction(null)}
-                    className="text-xs text-[#325099]/50 hover:text-[#325099] px-2 py-1.5"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setConfirmAction('convert')}
-                    className="text-xs font-semibold bg-emerald-600 text-white px-4 py-1.5 rounded-full hover:bg-emerald-700 transition"
-                  >
-                    Convert
-                  </button>
-                  <button
-                    onClick={() => setConfirmAction('drop')}
-                    className="text-xs font-semibold text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full hover:border-gray-400 transition"
-                  >
-                    Drop
-                  </button>
-                </>
-              )
-            )}
-
-            {/* Status badge if already resolved */}
-            {(sub.status === 'enrolled' || sub.status === 'declined') && (
-              <span className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${stage.color}`}>
-                {stage.label}
-              </span>
-            )}
+            </div>
           </div>
         </div>
       )}
@@ -766,6 +953,7 @@ export default function TrialsPage() {
   const [invitationSub, setInvitationSub] = useState(null)
   const [levelTestSub,  setLevelTestSub]  = useState(null)
   const [reminderFamilies, setReminderFamilies] = useState({})   // submission id → family payload for the reminder
+  const [studentReminders, setStudentReminders] = useState({})   // student id → { sub, subs, family } for the bulk send
   const [reminderEntries, setReminderEntries] = useState(null)   // [{ sub, family }] open in the reminder modal
   const [enrolTerm,     setEnrolTerm]     = useState(null)   // trial target term (holiday rows excluded)
 
@@ -828,13 +1016,26 @@ export default function TrialsPage() {
     for (const r of (byStudent.data || [])) {
       if (r.class_id != null || !(r.student_id in classByStudent)) classByStudent[r.student_id] = r.class_id
     }
+    // A student trialling two subjects has one submission per subject, each
+    // linked to its own enrolment. The fallback below must not hand one
+    // subject the class its sibling already holds (Maths and English would
+    // both read the Maths class), so it skips classes a sibling claims.
+    const claimedByStudent = {}
+    for (const s of subs) {
+      const c = s.enrolment_id ? classByEnrol[s.enrolment_id] : null
+      if (s.converted_student_id && c != null) (claimedByStudent[s.converted_student_id] ||= new Set()).add(c)
+    }
     const healed = []
     const merged = subs.map(s => {
       let live = s.enrolment_id ? classByEnrol[s.enrolment_id] : undefined
       // Fall back to the student's trial enrolments when the direct link
       // yields nothing (missing row) or no class.
-      if ((live === undefined || live === null) && s.converted_student_id && classByStudent[s.converted_student_id] != null) {
-        live = classByStudent[s.converted_student_id]
+      if ((live === undefined || live === null) && s.converted_student_id) {
+        const claimed = claimedByStudent[s.converted_student_id] || new Set()
+        const siblings = subs.filter(x => x.converted_student_id === s.converted_student_id).length
+        const spare = (byStudent.data || []).find(r => r.student_id === s.converted_student_id && r.class_id != null && !claimed.has(r.class_id))
+        if (siblings > 1) { if (spare) live = spare.class_id }
+        else if (classByStudent[s.converted_student_id] != null) live = classByStudent[s.converted_student_id]
       }
       // undefined = no enrolment row found; null = enrolment exists with no class
       if (live !== undefined && live !== s.trial_class_id) {
@@ -907,16 +1108,37 @@ export default function TrialsPage() {
     for (const g of guardianRes.data || []) if (!guardianByStudent[g.student_id] || (!guardianByStudent[g.student_id].email && g.email)) guardianByStudent[g.student_id] = g
     const classById = Object.fromEntries(classList.map(c => [c.id, c]))
     const fams = {}
-    for (const s of merged) {
-      if (!s.converted_student_id) continue
-      let rows = trialRows.filter(r => r.student_id === s.converted_student_id)
-      if (!rows.length && s.trial_class_id != null) rows = [{ class_id: s.trial_class_id, trial_start_date: null }]
-      if (!rows.length) continue
+    const famFor = (s, rows) => {
       const g = guardianByStudent[s.converted_student_id]
-      fams[s.id] = reminderFamilyFor(s, rows.map(r => ({ ...(classById[r.class_id] || { class_id: r.class_id }), class_id: r.class_id, dates: trialDatesFor(lessonsByClass[r.class_id] || [], r.trial_start_date) })),
+      return reminderFamilyFor(s, rows.map(r => ({ ...(classById[r.class_id] || { class_id: r.class_id }), class_id: r.class_id, dates: trialDatesFor(lessonsByClass[r.class_id] || [], r.trial_start_date) })),
         { parentEmail: s.parent_email || g?.email || '', parentName: s.parent_name || g?.full_name || '' })
     }
+    for (const s of merged) {
+      if (!s.converted_student_id) continue
+      const siblings = merged.filter(x => x.converted_student_id === s.converted_student_id).length
+      let rows = trialRows.filter(r => r.student_id === s.converted_student_id)
+      // One subject of several: its own class only — the other subject has
+      // its own reminder in its own tab.
+      if (siblings > 1) rows = rows.filter(r => r.class_id === s.trial_class_id)
+      if (!rows.length && s.trial_class_id != null) rows = [{ class_id: s.trial_class_id, trial_start_date: null }]
+      if (!rows.length) continue
+      fams[s.id] = famFor(s, rows)
+    }
+    // The page's "Send reminders": one email per student with every subject's
+    // dates, stamped on each subject it covers.
+    const studentFams = {}
+    for (const s of merged) {
+      if (!s.converted_student_id || studentFams[s.converted_student_id]) continue
+      const open = merged.filter(x => x.converted_student_id === s.converted_student_id && fams[x.id] && !['enrolled', 'declined'].includes(x.status))
+      if (!open.length) continue
+      const classIds = new Set(open.map(x => x.trial_class_id).filter(c => c != null))
+      let rows = trialRows.filter(r => r.student_id === s.converted_student_id && (classIds.size === 0 || classIds.has(r.class_id)))
+      if (!rows.length) rows = [...classIds].map(c => ({ class_id: c, trial_start_date: null }))
+      if (!rows.length) continue
+      studentFams[s.converted_student_id] = { sub: open[0], subs: open, family: { ...famFor(open[0], rows), submission_ids: open.map(x => x.id) } }
+    }
     setReminderFamilies(fams)
+    setStudentReminders(studentFams)
 
     // Trial lesson progress per student. A trial runs per SUBJECT — someone
     // trialling Maths and English sits two sets of lessons — so progress is
@@ -1003,10 +1225,33 @@ export default function TrialsPage() {
     setSubmissions(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s))
   }, [])
 
-  const handleConvertDrop = useCallback(async (id, studentId, action) => {
+  // The latest submissions, for the convert/drop handler (which is memoised).
+  const subsRef = useRef([])
+  useEffect(() => { subsRef.current = submissions }, [submissions])
+
+  // A student trialling several subjects converts or drops ONE subject at a
+  // time: only that subject's trial enrolment moves. A one-subject trial moves
+  // every trial enrolment, as it always has (it may have classless stubs).
+  const trialEnrolments = (sub) => {
+    let q = supabase.from('enrolments')
+    const siblings = subsRef.current.filter(x => x.converted_student_id && x.converted_student_id === sub.converted_student_id && x.id !== sub.id)
+    const scoped = siblings.length > 0
+    return {
+      update: (patch) => {
+        q = q.update(patch)
+        if (scoped && sub.enrolment_id) return q.eq('id', sub.enrolment_id).in('status', ['trial', 'trial complete'])
+        if (scoped) return q.eq('student_id', sub.converted_student_id).eq('class_id', sub.trial_class_id ?? -1).in('status', ['trial', 'trial complete'])
+        return q.eq('student_id', sub.converted_student_id).in('status', ['trial', 'trial complete'])
+      },
+    }
+  }
+
+  const handleConvertDrop = useCallback(async (sub, action) => {
+    const id = sub.id
+    const studentId = sub.converted_student_id
     if (action === 'convert') {
       if (studentId) {
-        await supabase.from('enrolments').update({ status: 'active' }).eq('student_id', studentId).in('status', ['trial', 'trial complete'])
+        await trialEnrolments(sub).update({ status: 'active' })
         await supabase.from('students').update({ status: 'active' }).eq('id', studentId)
       }
       await supabase.from('trial_submissions').update({ status: 'enrolled', converted_at: new Date().toISOString() }).eq('id', id)
@@ -1050,16 +1295,14 @@ export default function TrialsPage() {
         // the term rollover (which only carries active/trial rows) then dropped
         // them from the new term entirely.
         const today = new Date().toISOString().split('T')[0]
-        await supabase.from('enrolments')
-          .update({ status: 'disenrol', ended_at: today, end_reason: 'Trial declined' })
-          .eq('student_id', studentId)
-          .in('status', ['trial', 'trial complete'])
+        await trialEnrolments(sub).update({ status: 'disenrol', ended_at: today, end_reason: 'Trial declined' })
 
         // Only mark the student as having quit if this was their only tie to
         // CUBE. Someone already attending other classes has not quit because
-        // one trial for a different subject was declined.
+        // one trial for a different subject was declined — nor has someone
+        // still trialling their other subject.
         const { data: remaining } = await supabase.from('enrolments')
-          .select('id').eq('student_id', studentId).eq('status', 'active').limit(1)
+          .select('id').eq('student_id', studentId).in('status', ['active', 'trial', 'trial complete']).limit(1)
         if (!remaining?.length) {
           await supabase.from('students').update({ status: 'quit trial' }).eq('id', studentId)
         }
@@ -1069,14 +1312,34 @@ export default function TrialsPage() {
     }
   }, [])
 
-  // Filter submissions
+  // One card per student: a student trialling Maths and English has a
+  // submission per subject, grouped by their student record (or, before one
+  // exists, by name + parent email). Newest enquiry first, as before.
+  const groups = useMemo(() => {
+    const byKey = new Map()
+    for (const s of submissions) {
+      const key = s.converted_student_id
+        || `${(s.student_name || '').trim().toLowerCase()}|${(s.parent_email || '').trim().toLowerCase()}`
+      if (!byKey.has(key)) byKey.set(key, [])
+      byKey.get(key).push(s)
+    }
+    return [...byKey.entries()].map(([key, subs]) => ({
+      key,
+      // subject tabs in a stable order: first enquiry first
+      subs: [...subs].sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at)),
+      status: groupStage(subs),
+      submitted_at: subs.map(x => x.submitted_at).filter(Boolean).sort()[0] || null,
+    }))
+  }, [submissions])
+
+  // Filter students
   const ARCHIVE = ['enrolled', 'declined']
-  const visible = submissions.filter(s => {
-    if (!showArchive && ARCHIVE.includes(s.status)) return false
-    if (filterStage !== 'all' && s.status !== filterStage) return false
+  const visible = groups.filter(g => {
+    if (!showArchive && ARCHIVE.includes(g.status)) return false
+    if (filterStage !== 'all' && g.status !== filterStage) return false
     if (search) {
       const q = search.toLowerCase()
-      return (
+      return g.subs.some(s =>
         s.student_name?.toLowerCase().includes(q) ||
         s.parent_name?.toLowerCase().includes(q)  ||
         s.parent_email?.toLowerCase().includes(q) ||
@@ -1088,7 +1351,7 @@ export default function TrialsPage() {
 
   const stagesWithCount = STAGES.map(st => ({
     ...st,
-    count: submissions.filter(s => s.status === st.id && !(ARCHIVE.includes(st.id) && !showArchive)).length,
+    count: groups.filter(g => g.status === st.id && !(ARCHIVE.includes(st.id) && !showArchive)).length,
   }))
 
   return (
@@ -1107,11 +1370,16 @@ export default function TrialsPage() {
           </div>
           <div className="flex items-center gap-2">
             {(() => {
-              const due = submissions.filter(s => reminderFamilies[s.id] && !['enrolled', 'declined'].includes(s.status))
-              const unsent = due.filter(s => !s.reminder_sent_at)
+              // One entry per student — a two-subject trial gets one email with
+              // both subjects' dates. It counts as sent once every subject is.
+              const due = Object.values(studentReminders).map(r => ({
+                sub: { ...r.sub, reminder_sent_at: r.subs.every(x => x.reminder_sent_at) ? r.subs.map(x => x.reminder_sent_at).sort()[0] : null },
+                family: r.family,
+              }))
+              const unsent = due.filter(e => !e.sub.reminder_sent_at)
               return due.length > 0 && (
                 <button
-                  onClick={() => setReminderEntries(due.map(sub => ({ sub, family: reminderFamilies[sub.id] })))}
+                  onClick={() => setReminderEntries(due)}
                   className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-3 py-1.5 rounded-full hover:border-[#325099] transition"
                   title="Email every trial family their lesson dates — tick who, preview each, send in one go"
                 >
@@ -1136,7 +1404,8 @@ export default function TrialsPage() {
           </div>
         ) : (
           <>
-            <StatsBar submissions={submissions} />
+            {/* Counted per student: a two-subject trial is one student. */}
+            <StatsBar submissions={groups} />
 
             {/* Acquisition channels report */}
             <ChannelInsights submissions={submissions} />
@@ -1175,21 +1444,38 @@ export default function TrialsPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {visible.map(sub => (
-                  <TrialCard
-                    key={sub.id}
-                    sub={sub}
+                {visible.map(g => g.subs.length > 1 ? (
+                  <TrialGroupCard
+                    key={g.key}
+                    subs={g.subs}
                     classes={classes}
                     students={students}
                     onUpdate={handleUpdate}
                     onReload={() => loadData({ quiet: true })}
                     onConvertDrop={handleConvertDrop}
-                    progress={trialProgress[sub.converted_student_id]}
-                    onOutcomeEmail={(stage) => setOutcomeSub({ sub, stage })}
-                    onInvitationEmail={() => setInvitationSub(sub)}
-                    onLevelTestInvitation={() => setLevelTestSub(sub)}
-                    canRemind={!!reminderFamilies[sub.id]}
-                    onReminderEmail={() => setReminderEntries([{ sub, family: reminderFamilies[sub.id] }])}
+                    progress={trialProgress[g.subs[0].converted_student_id]}
+                    // feedback for this subject's class only
+                    onOutcomeEmail={(sub, stage) => setOutcomeSub({ sub, stage, classId: sub.trial_class_id })}
+                    onInvitationEmail={(sub) => setInvitationSub(sub)}
+                    onLevelTestInvitation={(sub) => setLevelTestSub(sub)}
+                    canRemindFor={(sub) => !!reminderFamilies[sub.id]}
+                    onReminderEmail={(sub) => setReminderEntries([{ sub, family: reminderFamilies[sub.id] }])}
+                  />
+                ) : (
+                  <TrialCard
+                    key={g.key}
+                    sub={g.subs[0]}
+                    classes={classes}
+                    students={students}
+                    onUpdate={handleUpdate}
+                    onReload={() => loadData({ quiet: true })}
+                    onConvertDrop={handleConvertDrop}
+                    progress={trialProgress[g.subs[0].converted_student_id]}
+                    onOutcomeEmail={(stage) => setOutcomeSub({ sub: g.subs[0], stage })}
+                    onInvitationEmail={() => setInvitationSub(g.subs[0])}
+                    onLevelTestInvitation={() => setLevelTestSub(g.subs[0])}
+                    canRemind={!!reminderFamilies[g.subs[0].id]}
+                    onReminderEmail={() => setReminderEntries([{ sub: g.subs[0], family: reminderFamilies[g.subs[0].id] }])}
                   />
                 ))}
               </div>
@@ -1202,6 +1488,7 @@ export default function TrialsPage() {
         <TrialOutcomeModal
           sub={outcomeSub.sub}
           stage={outcomeSub.stage}
+          classId={outcomeSub.classId ?? null}
           onClose={() => setOutcomeSub(null)}
           onSent={(field, sentAt) => {
             // Keep the first-send date the server recorded.

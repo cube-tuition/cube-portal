@@ -34,7 +34,8 @@ const FIELDS = [
   { key: 'signoff',         label: 'Sign-off',     rows: 2 },
 ]
 
-export default function TrialOutcomeModal({ sub, stage = 'outcome', onClose, onSent }) {
+// classId: one subject of a multi-subject trial — only that class's lessons.
+export default function TrialOutcomeModal({ sub, stage = 'outcome', classId = null, onClose, onSent }) {
   const stageInfo = TRIAL_EMAIL_STAGES[stage] || TRIAL_EMAIL_STAGES.outcome
   const [loading, setLoading] = useState(true)
   const [groups,  setGroups]  = useState([])          // this stage's lesson per class: [{ classId, subject, lessons:[{label, feedback, date}] }]
@@ -66,6 +67,7 @@ export default function TrialOutcomeModal({ sub, stage = 'outcome', onClose, onS
         .in('status', ['present', 'late'])
         .not('trial_feedback', 'is', null)
         .order('session_date', { ascending: true })
+        .match(classId != null ? { class_id: classId } : {})
       const classIds = [...new Set((rows || []).map(r => r.class_id).filter(Boolean))]
       const { data: classRows } = classIds.length
         ? await supabase.from('classes').select('id, class_name').in('id', classIds)
@@ -109,7 +111,7 @@ export default function TrialOutcomeModal({ sub, stage = 'outcome', onClose, onS
       }
     })()
     return () => { active = false }
-  }, [sub.converted_student_id, stage])
+  }, [sub.converted_student_id, stage, classId])
 
   const vars = useMemo(() => ({ parentName, studentName, nextLesson }), [parentName, studentName, nextLesson])
   const html = useMemo(

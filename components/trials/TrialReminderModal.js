@@ -44,7 +44,7 @@ export default function TrialReminderModal({ entries, termId, termName, onClose,
       const res = await sendTrialReminders(targets.map(t => t.family), { termId, termName, template: wording.template, subject: wording.subject, test })
       if (test) { setNote(`Test for ${focused.family.parent_name || focused.family.parent_email} sent to ${TEST_RECIPIENT}.`); return }
       setResults(res)
-      onSent?.(res.filter(r => r.success).map(r => r.submission_id))
+      onSent?.(res.filter(r => r.success).flatMap(r => r.submission_ids || [r.submission_id]))
     } catch (e) { setError(e.message) } finally { setSending(false) }
   }
 
