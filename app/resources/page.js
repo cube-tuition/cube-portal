@@ -160,8 +160,10 @@ export default function Resources() {
 
   const latest = useMemo(() => latestRatings(ratingRows), [ratingRows])
   // Everything in the chosen subject (the tabs), and what matches the filters (the stream).
+  // A linked subject's questions practise alongside (Year 11 Ext 1 → Year 11 Adv).
+  const practiceSubjectIds = useMemo(() => [selSubjectId, ...(tax?.linksBySubject?.[selSubjectId] || [])], [tax, selSubjectId])
   const subjectQuestions = useMemo(() => (questions || []).filter(q =>
-    q.audience !== 'exam' && labelFor(q)?.subject?.id === selSubjectId), [questions, labelFor, selSubjectId])
+    q.audience !== 'exam' && practiceSubjectIds.includes(labelFor(q)?.subject?.id)), [questions, labelFor, practiceSubjectIds])
   const pool = useMemo(() => subjectQuestions.filter(q => {
     if (topicIds.length && !topicIds.includes(labelFor(q)?.topic?.id)) return false
     if (subtopicIds.length && !subtopicIds.some(id => tagsByQuestion[q.id]?.has(id))) return false

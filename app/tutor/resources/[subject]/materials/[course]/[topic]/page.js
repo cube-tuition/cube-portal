@@ -148,8 +148,15 @@ export default function TopicPage() {
         .from('qbank_subjects').select('id').eq('year_level', t.year).eq('name', t.subject).maybeSingle()
       if (dead) return
       if (!subj) { setBank({ total: 0, subtopics: [] }); return }
-      const { data: qt } = await supabase
+      let { data: qt } = await supabase
         .from('qbank_topics').select('id').eq('subject_id', subj.id).ilike('name', t.name).maybeSingle()
+      // Not one of the subject's own topics: it may be a linked subject's
+      // (Year 11 Ext 1 shows Year 11 Adv's topics).
+      if (!qt) {
+        const { data: links } = await supabase.from('qbank_subject_links').select('shows_subject_id').eq('subject_id', subj.id)
+        const ids = (links || []).map((l) => l.shows_subject_id)
+        if (ids.length) ({ data: qt } = await supabase.from('qbank_topics').select('id').in('subject_id', ids).ilike('name', t.name).limit(1).maybeSingle())
+      }
       if (dead) return
       if (!qt) { setBank({ total: 0, subtopics: [] }); return }
       const { data: subs } = await supabase

@@ -517,7 +517,12 @@ export default function QuestionEditor({ questionId = null, staffName, onSaved =
             <select value={topicId} disabled={!subjectId} className={inputCls}
               onChange={(e) => { if (e.target.value === '__new__') { addTopic(); return } setTopicId(e.target.value) }}>
               <option value="">—</option>
-              {topicsForSubject.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {/* A linked subject's topics (Year 11 Ext 1 shows Year 11 Adv's) are labelled:
+                  a question filed under one belongs to that subject. */}
+              {topicsForSubject.map((t) => {
+                const from = t.linkedFrom && tax?.subjects.find((x) => x.id === t.linkedFrom)
+                return <option key={t.id} value={t.id}>{t.name}{from ? ` · Year ${from.year_level} ${from.name}` : ''}</option>
+              })}
               {subjectId && <option value="__new__">{isChem ? '＋ New module…' : '＋ New topic…'}</option>}
             </select>
           </div>

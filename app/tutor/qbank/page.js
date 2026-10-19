@@ -130,8 +130,11 @@ function QuestionBankInner() {
   const yearStage = MATHS_STAGES.find((st) => `stage:${st.stage}` === year) || null
   const yearSubjectIds = useMemo(() => (yearStage
     ? (tax?.subjects || []).filter((s) => s.name === 'Maths' && yearStage.years.includes(Number(s.year_level))).map((s) => s.id)
-    : (year ? [year] : [])), [tax, year, yearStage])
+    : (year ? [year, ...(tax?.linksBySubject?.[year] || [])] : [])), [tax, year, yearStage])   // + a linked subject's (Ext 1 → Adv)
   const subjectId = yearSubjectIds[0] || ''   // a year's row (a stage: its first year)
+  // Where the topic list comes from: a stage's years, else the one subject
+  // (whose list already carries any linked subject's topics).
+  const topicSourceIds = yearStage ? yearSubjectIds : (subjectId ? [subjectId] : [])
   // Pills: each Maths stage, followed by its own years.
   const yearPills = useMemo(() => {
     const out = []
@@ -140,10 +143,10 @@ function QuestionBankInner() {
       if (st && !out.some((p) => p.id === `stage:${st.stage}`)) {
         out.push({ id: `stage:${st.stage}`, label: `Stage ${st.stage}`, ids: yearOptions.filter((x) => mathsStageOf(x) === st).map((x) => x.id) })
       }
-      out.push({ id: s.id, subject: s, ids: [s.id] })
+      out.push({ id: s.id, subject: s, ids: [s.id, ...(tax?.linksBySubject?.[s.id] || [])] })
     }
     return out
-  }, [yearOptions])
+  }, [yearOptions, tax])
   // Question counts per master tab (family-aware, for the tab badges).
   // Untagged is its own bucket: deleting a topic keeps its questions and clears
   // their tags, and without somewhere to list them they would be invisible here.
@@ -172,8 +175,9 @@ function QuestionBankInner() {
   }, [questions, labelFor])
   // Topic / subtopic filter options as name-grouped items: a stage shows its
   // shared list once, each item standing for both years' rows.
-  const topicItems = useMemo(() => (tax ? groupRowsByName(yearSubjectIds.flatMap((id) => tax.topicsBySubject[id] || [])) : []), [tax, yearSubjectIds])
+  const topicItems = useMemo(() => (tax ? groupRowsByName(topicSourceIds.flatMap((id) => tax.topicsBySubject[id] || [])) : []), [tax, topicSourceIds])
   const topicItem = topicItems.find((i) => i.key === topicId) || null
+  const subjectLabelOf = (id) => { const s = tax?.subjects.find((x) => x.id === id); return s ? `Year ${s.year_level} ${s.name.replace(/\s*Maths\s*/i, '').trim() || s.name}` : '' }
   const subtopicItems = useMemo(() => (tax && topicItem ? groupRowsByName(topicItem.rows.flatMap((t) => tax.subtopicsByTopic[t.id] || [])) : []), [tax, topicItem])
   const subtopicItem = subtopicItems.find((i) => i.key === subtopicId) || null
   // Skills are a subject-level dimension — available as soon as a year/subject is picked.
@@ -333,7 +337,7 @@ function QuestionBankInner() {
             clearLabel={activeSubject === 'Chemistry' ? 'All modules' : 'All topics'}
             disabled={!subjectId}
             disabledHint="Pick a year first"
-            options={topicItems.map((t) => ({ value: t.key, label: t.name }))}
+            options={topicItems.map((t) => ({ value: t.key, label: t.rows[0]?.linkedFrom ? `${t.name} · from ${subjectLabelOf(t.rows[0].linkedFrom)}` : t.name }))}
             onSelect={(v) => { setTopicId(v); setSubtopicId(''); setSkillId('') }}
           />
           <FilterSelect

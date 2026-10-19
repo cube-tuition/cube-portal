@@ -123,6 +123,29 @@ describe('a student', () => {
     assert.equal(await n(q, `select count(*)::int n from qbank_questions`), 0)
   })
 
+  run('an Ext 1 enrolment also opens the linked Year 11 Adv practice questions — never their exam questions', async ({ q, signIn }) => {
+    const JO = '00000000-0000-0000-0000-0000000000c3'
+    await q(`insert into students (id, full_name) values ($1, 'Jo Park')`, [JO])
+    const [{ id: course }] = await q(`insert into courses (course_name, course_code) values ('Y11 Ext 1 Maths', '11.M3') returning id`)
+    const [{ id: cls }] = await q(`insert into classes (class_name, course_id, term_id) values ('Y11 Ext 1 Maths', $1, $2) returning id`, [course, T4])
+    await q(`insert into enrolments (student_id, class_id, price) values ($1, $2, 700)`, [JO, cls])
+    const [{ id: e1 }] = await q(`insert into qbank_subjects (year_level, name) values (11, 'Ext 1 Maths') returning id`)
+    const [{ id: adv }] = await q(`insert into qbank_subjects (year_level, name) values (11, 'Adv Maths') returning id`)
+    const [{ id: e1Topic }] = await q(`insert into qbank_topics (subject_id, name) values ($1, 'Binomial theorem') returning id`, [e1])
+    const [{ id: advTopic }] = await q(`insert into qbank_topics (subject_id, name) values ($1, 'Calculus') returning id`, [adv])
+    await q(`insert into qbank_questions (stem_latex, solution_latex, audience, topic_id) values
+      ('Ext 1 practice', 's', 'student', $1), ('Adv practice', 's', 'student', $2), ('Adv exam', 's', 'exam', $2)`, [e1Topic, advTopic])
+    const stems = async () => (await q(`select stem_latex from qbank_questions where stem_latex like '%practice' or stem_latex like 'Adv%' order by stem_latex`)).map(r => r.stem_latex)
+    await signIn(JO, 'student')
+    assert.deepEqual(await stems(), ['Ext 1 practice'])           // not linked yet: Ext 1 only
+    await q(`reset role`)
+    await q(`insert into qbank_subject_links (subject_id, shows_subject_id) values ($1, $2)`, [e1, adv])
+    await signIn(JO, 'student')
+    assert.deepEqual(await stems(), ['Adv practice', 'Ext 1 practice'])
+    await q(`insert into qbank_subject_links (subject_id, shows_subject_id) values ($1, $1)`, [adv])
+      .then(() => assert.fail('a student must not add links'), () => {})
+  })
+
   run('sees the inquiry-question tags of its own practice questions only', async ({ q, signIn, practice, exam, other }) => {
     await signIn(KIM, 'student')   // enrolled in Y8 Maths
     assert.deepEqual((await q(`select question_id from qbank_question_subtopics`)).map(r => r.question_id), [practice])

@@ -531,16 +531,6 @@ create table public.trial_submissions (
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'enrolled'::text, 'declined'::text])))
 );
 
-create table public.qbank_topics (
-  id uuid default gen_random_uuid() not null,
-  subject_id uuid not null,
-  name text not null,
-  sort_order integer default 0 not null,
-  active boolean default true not null,
-  created_at timestamp with time zone default now() not null,
-  constraint qbank_topics_pkey PRIMARY KEY (id)
-);
-
 create table public.practice_ratings (
   id bigint generated always as identity not null,
   student_id uuid not null,
@@ -549,6 +539,16 @@ create table public.practice_ratings (
   rated_at timestamp with time zone default now() not null,
   constraint practice_ratings_pkey PRIMARY KEY (id),
   constraint practice_ratings_rating_check CHECK ((rating = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text, 'very_hard'::text])))
+);
+
+create table public.qbank_topics (
+  id uuid default gen_random_uuid() not null,
+  subject_id uuid not null,
+  name text not null,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint qbank_topics_pkey PRIMARY KEY (id)
 );
 
 create table public.qbank_skills (
@@ -582,6 +582,13 @@ create table public.qbank_question_subtopics (
   question_id uuid not null,
   subtopic_id uuid not null,
   constraint qbank_question_subtopics_pkey PRIMARY KEY (question_id, subtopic_id)
+);
+
+create table public.qbank_subject_links (
+  subject_id uuid not null,
+  shows_subject_id uuid not null,
+  constraint qbank_subject_links_pkey PRIMARY KEY (subject_id, shows_subject_id),
+  constraint qbank_subject_links_check CHECK ((subject_id <> shows_subject_id))
 );
 
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
@@ -621,6 +628,8 @@ alter table public.qbank_questions add constraint qbank_questions_topic_id_fkey 
 alter table public.qbank_skills add constraint qbank_skills_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
 alter table public.qbank_skills add constraint qbank_skills_subtopic_id_fkey FOREIGN KEY (subtopic_id) REFERENCES qbank_subtopics(id) ON DELETE SET NULL;
 alter table public.qbank_skills add constraint qbank_skills_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE CASCADE;
+alter table public.qbank_subject_links add constraint qbank_subject_links_shows_subject_id_fkey FOREIGN KEY (shows_subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
+alter table public.qbank_subject_links add constraint qbank_subject_links_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
 alter table public.qbank_subtopics add constraint qbank_subtopics_topic_id_fkey FOREIGN KEY (topic_id) REFERENCES qbank_topics(id) ON DELETE CASCADE;
 alter table public.qbank_topics add constraint qbank_topics_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES qbank_subjects(id) ON DELETE CASCADE;
 alter table public.shifts add constraint shifts_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE SET NULL;
@@ -2213,14 +2222,20 @@ CREATE OR REPLACE FUNCTION public.student_qbank_subject_ids(p_student uuid)
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  select distinct s.id
-  from public.enrolments e
-  join public.classes c on c.id = e.class_id
-  left join public.courses co on co.id = c.course_id
-  cross join lateral public.qbank_subject_key(co.course_code, c.class_name) k
-  join public.qbank_subjects s on s.year_level = k.year_level and lower(s.name) = lower(k.subject_name)
-  where e.student_id = p_student
-    and e.status in ('active', 'trial') and e.ended_at is null
+  with direct as (
+    select distinct s.id
+    from public.enrolments e
+    join public.classes c on c.id = e.class_id
+    left join public.courses co on co.id = c.course_id
+    cross join lateral public.qbank_subject_key(co.course_code, c.class_name) k
+    join public.qbank_subjects s on s.year_level = k.year_level and lower(s.name) = lower(k.subject_name)
+    where e.student_id = p_student
+      and e.status in ('active', 'trial') and e.ended_at is null
+  )
+  select id from direct
+  union
+  -- A linked subject comes with it (Year 11 Ext 1 → Year 11 Adv).
+  select l.shows_subject_id from public.qbank_subject_links l join direct d on d.id = l.subject_id
 $function$
 ;
 
@@ -2328,11 +2343,12 @@ alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
 alter table public.qbank_subjects enable row level security;
 alter table public.trial_submissions enable row level security;
-alter table public.qbank_topics enable row level security;
 alter table public.practice_ratings enable row level security;
+alter table public.qbank_topics enable row level security;
 alter table public.qbank_skills enable row level security;
 alter table public.qbank_subtopics enable row level security;
 alter table public.qbank_question_subtopics enable row level security;
+alter table public.qbank_subject_links enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -2385,6 +2401,8 @@ create policy qbank_questions_read on public.qbank_questions as PERMISSIVE for S
 create policy staff_all on public.qbank_questions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy read_authenticated on public.qbank_skills as PERMISSIVE for SELECT to authenticated using (true);
 create policy staff_all on public.qbank_skills as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy admin_write on public.qbank_subject_links as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy read_authenticated on public.qbank_subject_links as PERMISSIVE for SELECT to authenticated using (true);
 create policy read_authenticated on public.qbank_subjects as PERMISSIVE for SELECT to authenticated using (true);
 create policy staff_all on public.qbank_subjects as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy read_authenticated on public.qbank_subtopics as PERMISSIVE for SELECT to authenticated using (true);

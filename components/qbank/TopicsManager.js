@@ -34,6 +34,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const [topics, setTopics] = useState([])
   const [subtopics, setSubtopics] = useState([])
   const [skills, setSkills] = useState([])
+  const [links, setLinks] = useState([])   // qbank_subject_links: a subject showing another's topics
   const [subjectId, setSubjectId] = useState('')
   const [topicId, setTopicId] = useState('')
   const [subtopicId, setSubtopicId] = useState('')
@@ -52,13 +53,14 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const [newSkill, setNewSkill] = useState('')
 
   const reload = useCallback(async () => {
-    const [s, t, sub, k] = await Promise.all([
+    const [s, t, sub, k, ln] = await Promise.all([
       supabase.from(T_QBANK_SUBJECTS).select('*').order('year_level').order('sort_order').order('name'),
       supabase.from(T_QBANK_TOPICS).select('*').order('sort_order').order('name'),
       supabase.from(T_QBANK_SUBTOPICS).select('*').order('sort_order').order('name'),
       supabase.from(T_QBANK_SKILLS).select('*').order('sort_order').order('name'),
+      supabase.from('qbank_subject_links').select('subject_id, shows_subject_id'),
     ])
-    setSubjects(s.data || []); setTopics(t.data || []); setSubtopics(sub.data || []); setSkills(k.data || [])
+    setSubjects(s.data || []); setTopics(t.data || []); setSubtopics(sub.data || []); setSkills(k.data || []); setLinks(ln.data || [])
   }, [])
 
   useEffect(() => {
@@ -85,6 +87,11 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
   const subtopicItems = topicItem
     ? groupRowsByName(subtopics.filter((st) => topicItem.rows.some((t) => t.id === st.topic_id)), (st) => yearOfTopic[st.topic_id])
     : []
+  // A linked subject's topics show beneath this one's (Year 11 Ext 1 → Year 11
+  // Adv). They are that subject's rows, so they are edited there.
+  const linkedGroups = (activeStage ? [] : links.filter((l) => l.subject_id === subjectId))
+    .map((l) => subjects.find((s) => s.id === l.shows_subject_id)).filter(Boolean)
+    .map((ls) => ({ subject: ls, items: groupRowsByName(topics.filter((t) => t.subject_id === ls.id)) }))
   // Skills are shared across a whole stage, not owned by one year: editing the
   // list from Year 8 edits the same list Years 7 and 9-12 see. The heading above
   // the column says so, because the change is invisible otherwise.
@@ -344,7 +351,7 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                   <button onClick={addTopic} className="px-2.5 max-md:min-w-10 rounded-lg bg-[#325099] text-white text-xs font-semibold">+</button>
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {topicItems.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Topics.toLowerCase()} yet.</p>}
+                  {topicItems.length === 0 && linkedGroups.length === 0 && <p className="text-xs text-[#2A2035]/30 italic px-3 py-3">No {L.Topics.toLowerCase()} yet.</p>}
                   {topicItems.map((t) => (
                     <Row key={t.key}>
                       <button onClick={() => { setTopicId(t.key); setSubtopicId('') }}
@@ -356,6 +363,20 @@ export default function TopicsManager({ scope: scopeProp = null, backHref = '/tu
                       <button className={editBtn} onClick={() => { const n = prompt(`Rename ${L.topic}`, t.name); if (n != null && n.trim() && n.trim() !== t.name) proposeTopic('rename', t.name, n.trim()) }}>edit</button>
                       <button className={editBtn} onClick={() => proposeTopic('delete', t.name)}>✕</button>
                     </Row>
+                  ))}
+                  {linkedGroups.map((g) => (
+                    <div key={g.subject.id} className="mt-3 pt-2 border-t border-[#F0F4FF]">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 mb-0.5">From Year {g.subject.year_level} {g.subject.name} · shared</p>
+                      <p className="text-[10px] text-[#2A2035]/40 px-3 mb-1">Shown here too — click one to edit it there.</p>
+                      {g.items.map((t) => (
+                        <Row key={t.key}>
+                          <button onClick={() => { setSubjectId(g.subject.id); setTopicId(t.key); setSubtopicId('') }}
+                            className="flex-1 min-w-0 break-words text-left text-sm max-md:py-1 text-[#2A2035]/70">
+                            {t.name} <span className="text-[10px] text-[#325099]/50">→</span>
+                          </button>
+                        </Row>
+                      ))}
+                    </div>
                   ))}
                 </div>
               </>
