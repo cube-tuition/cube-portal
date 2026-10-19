@@ -860,15 +860,17 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
   const [query, setQuery]             = useState('')
   const [assigning, setAssigning]     = useState(null)
   const [error, setError]             = useState('')
+  // Recently edited first by default — the booklet being filed into the
+  // curriculum is almost always the one just published or updated.
+  const [sortBy, setSortBy]           = useState('recent')   // 'recent' | 'name'
 
   useEffect(() => {
     supabase
       .from('booklets')
-      .select('id, booklet_name, topic, term_number, week, pdf_filenames, file_paths, file_path, is_exam')
+      .select('id, booklet_name, topic, term_number, week, pdf_filenames, file_paths, file_path, is_exam, updated_at')
       .eq('year', year)
       .eq('subject', subject)
-      .order('topic', { nullsFirst: false })
-      .order('booklet_name')
+      .order('updated_at', { ascending: false, nullsFirst: false })
       .then(({ data }) => { setAllBooklets((data || []).filter(b => !b.is_exam)); setLoading(false) })
     supabase
       .from('qbank_exams')
@@ -878,7 +880,11 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
   }, [year, subject])
 
   const q = query.trim().toLowerCase()
-  const filtered = allBooklets.filter(b => !q || b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q))
+  const filtered = allBooklets
+    .filter(b => !q || b.booklet_name?.toLowerCase().includes(q) || b.topic?.toLowerCase().includes(q))
+    .sort(sortBy === 'name'
+      ? (a, b) => (a.topic || '￿').localeCompare(b.topic || '￿') || (a.booklet_name || '').localeCompare(b.booklet_name || '')
+      : (a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
   const examsFiltered = (exams || []).filter(e => !q || (e.title || '').toLowerCase().includes(q))
 
   const handleAssign = async (booklet) => {
@@ -940,15 +946,26 @@ function AssignBookletModal({ year, subject, term, week, onClose, onAssigned, on
           </div>
         )}
 
-        <div className="px-4 pt-3 pb-2">
+        <div className="px-4 pt-3 pb-2 flex gap-2">
           <input
             autoFocus
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder={tab === 'booklet' ? 'Search workbooks…' : 'Search exams…'}
-            className="w-full border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-[#F8FAFF]"
+            className="flex-1 min-w-0 border border-[#DEE7FF] rounded-xl px-3 py-2 text-xs text-[#2A2035] focus:outline-none focus:border-[#325099] bg-[#F8FAFF]"
           />
+          {tab === 'booklet' && (
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              title="Sort the list"
+              className="shrink-0 border border-[#DEE7FF] rounded-xl px-2 py-2 text-[11px] font-semibold text-[#325099] bg-[#F8FAFF] focus:outline-none focus:border-[#325099] cursor-pointer"
+            >
+              <option value="recent">Last edited</option>
+              <option value="name">A–Z</option>
+            </select>
+          )}
         </div>
 
         {error && <p className="px-5 text-[11px] text-[#DC2626] pb-1">{error}</p>}
