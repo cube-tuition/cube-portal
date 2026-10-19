@@ -327,10 +327,12 @@ function SystemDrawer({ slug, onClose }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
   const blocks = page ? ((page.published && page.published.length ? page.published : page.draft) || []) : []
+  // A page with the trial flow chart opens wide enough to show it whole.
+  const wide = blocks.some(b => b.type === 'trialflow')
   return (
     <div className="fixed inset-0 z-[80]">
       <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="absolute right-0 top-0 bottom-0 w-full max-w-[560px] bg-white border-l border-[#DEE7FF] shadow-2xl flex flex-col">
+      <aside className={`absolute right-0 top-0 bottom-0 w-full ${wide ? 'max-w-[1220px]' : 'max-w-[560px]'} bg-white border-l border-[#DEE7FF] shadow-2xl flex flex-col transition-[max-width]`}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#F0F4FF] shrink-0">
           <div className="min-w-0">
             <p className="font-bold text-sm text-[#062E63] truncate">{page ? `${page.icon || ''} ${page.title}`.trim() : 'Loading…'}</p>
