@@ -70,6 +70,33 @@ function classSlot(cls) {
   return slot ? `(${slot})` : ''
 }
 
+// Class channels wear a subject badge instead of a "#": a soft tile with the
+// subject's short name, coloured per subject.
+const SUBJECT_BADGES = [
+  [/chem/i, 'Ch', '#0F766E', '#E6F4F1'],
+  [/phys/i, 'Ph', '#4338CA', '#EEEDFB'],
+  [/bio/i, 'Bi', '#15803D', '#E9F6EC'],
+  [/eald|english/i, 'En', '#BE185D', '#FBEAF2'],
+  [/math|adv|ext/i, 'Ma', '#325099', '#EAF0FC'],
+  [/sci/i, 'Sc', '#0E7490', '#E6F4F7'],
+]
+function subjectBadge(name) {
+  const hit = SUBJECT_BADGES.find(([re]) => re.test(name || ''))
+  if (hit) return { text: hit[1], fg: hit[2], bg: hit[3] }
+  const w = String(name || '').replace(/^\s*Y(?:ear)?\s*\d{1,2}\s*/i, '').trim()
+  return { text: (w[0] || '•').toUpperCase(), fg: '#325099', bg: '#EAF0FC' }
+}
+function ClassBadge({ name, big = false }) {
+  const b = subjectBadge(name)
+  return (
+    <span className={`${big ? 'w-8 h-8 text-[11px] rounded-lg' : 'w-6 h-6 text-[9.5px] rounded-md'} shrink-0 flex items-center justify-center font-bold tracking-tight`}
+      style={{ color: b.fg, background: b.bg, boxShadow: `inset 0 0 0 1px ${b.fg}22` }}>{b.text}</span>
+  )
+}
+// "Y12 Chemistry 1:1" → "Chemistry 1:1" under its Year 12 heading.
+const shortClassName = (name) => String(name || '').replace(/^\s*Y(?:ear)?\s*\d{1,2}\s*/i, '').trim() || name
+const classSlotText = (cls) => classSlot(cls).replace(/^\(|\)$/g, '')
+
 export default function StaffChat({ me, initialChannel = '', className = 'h-[calc(100dvh-64px)]', onConversationOpen, audience = 'staff' }) {
   const forStudents = audience === 'students'
   const [classOptions, setClassOptions] = useState([])   // students mode: this term's classes for "+ Class"
@@ -163,7 +190,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   // A CUBE thread reads as the teacher's name inside the CUBE profile (the
   // whole inbox is CUBE's there) and as "CUBE" to the teacher.
   const channelLabel = useCallback((c) => c.kind === 'dm' ? nameOf(c.otherId)
-    : c.kind === 'cube_dm' ? (isAdmin ? nameOf(c.otherId) : 'CUBE') : `#${c.name}`, [nameOf, isAdmin])
+    : c.kind === 'cube_dm' ? (isAdmin ? nameOf(c.otherId) : 'CUBE') : c.class_id ? c.name : `#${c.name}`, [nameOf, isAdmin])
 
   const refreshChannels = useCallback(async (uid) => {
     const [all, un] = await Promise.all([loadChannels(uid), loadUnread()])
@@ -644,8 +671,21 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           ? <span className="relative shrink-0"><span className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center" style={{ background: colorFor(c.otherId) }}>{initials(nameOf(c.otherId))}</span>{online.has(c.otherId) && <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#10b981] ring-1 ring-white" />}</span>
           : c.kind === 'cube_dm'
           ? <span className="w-5 h-5 rounded-full bg-[#062E63] text-white flex items-center justify-center shrink-0"><CubeLogo className="h-3 w-auto" /></span>
+          : c.class_id
+          ? <ClassBadge name={c.name} />
           : null}
-        <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}{oneOnOneStudent(c) && ` · ${oneOnOneStudent(c)}`}{c.class_id && classById[c.class_id] && <span className="text-[#2A2035]/40 font-normal"> {classSlot(classById[c.class_id])}</span>}</span>
+        {c.class_id ? (
+          <span className={`min-w-0 flex-1 leading-tight ${!c.mine ? 'opacity-50' : ''}`}>
+            <span className="block truncate">{shortClassName(c.name)}</span>
+            {(classById[c.class_id] || oneOnOneStudent(c)) && (
+              <span className={`block truncate text-[10.5px] font-normal ${active === c.id ? 'text-[#325099]/70' : 'text-[#2A2035]/45'}`}>
+                {[classById[c.class_id] && classSlotText(classById[c.class_id]), oneOnOneStudent(c)].filter(Boolean).join(' · ')}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className={`truncate flex-1 ${c.kind === 'channel' && !c.mine ? 'opacity-50' : ''}`}>{c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)}</span>
+        )}
         {c.kind === 'channel' && !c.mine && <span className="text-[10px] text-[#325099]">join</span>}
         {allScheduled.some(s => s.channel_id === c.id) && <span className="text-[10px] opacity-60" title="You have scheduled messages here">🕒</span>}
         {(c.muted || c.quiet) && <span className="text-[10px] opacity-50" title={c.quiet ? 'Quiet channel — only @mentions notify anyone' : 'Muted — only @mentions notify you'}>🔕</span>}
@@ -694,7 +734,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                   return (
                     <li key={s.id} className={`group/sc flex items-start ${active === s.channel_id ? 'bg-[#EEF4FF]' : 'hover:bg-white'}`}>
                       <button onClick={() => { selectChannel(s.channel_id); setSchedOpen(true) }} title="Open the conversation" className="flex-1 min-w-0 text-left px-3 py-1.5 cursor-pointer">
-                        <p className="text-[11px] font-semibold text-[#062E63] truncate">{c ? (c.kind === 'channel' ? `# ${c.name}` : channelLabel(c)) : 'Conversation'}</p>
+                        <p className="text-[11px] font-semibold text-[#062E63] truncate">{c ? (c.kind === 'channel' && !c.class_id ? `# ${c.name}` : channelLabel(c)) : 'Conversation'}</p>
                         <p className={`text-[10px] ${s.error ? 'text-[#B23A3A]' : 'text-[#325099]'}`}>{s.error ? 'Not sent' : fmtWhen(s.send_at)}{s.as_cube ? ' · as CUBE' : ''}{s.sender_id !== me.id ? ` · by ${nameOf(s.sender_id).split(' ')[0]}` : ''}</p>
                         <p className="text-[11px] text-[#2A2035]/60 truncate">{bodyPreview(s.body)}</p>
                       </button>
@@ -901,8 +941,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               className="md:hidden w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-[#325099] text-2xl active:bg-[#EEF3FF]">‹</button>
             {current ? (
               <>
+                {current.class_id && <ClassBadge name={current.name} big />}
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}{current.class_id && classById[current.class_id] && <span className="font-normal text-[#2A2035]/45"> {classSlot(classById[current.class_id])}</span>}</p>
+                  <p className="text-sm font-bold text-[#062E63] truncate">{channelLabel(current)}{current.class_id && classById[current.class_id] && <span className="font-normal text-[#2A2035]/45"> · {classSlotText(classById[current.class_id])}</span>}</p>
                   <p className="text-[11px] text-[#2A2035]/45 truncate">
                     {forStudents && current.kind === 'dm' ? 'Student thread · every director sees this · not yet visible to the student' : (forStudents || current.class_id) ? `${current.members.filter(id => staffById[id]?.role === 'student').length} students · not yet visible to them` : current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
