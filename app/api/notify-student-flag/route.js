@@ -1,11 +1,13 @@
 import { requireApiRole } from '../../../lib/apiAuth'
+import { sendPushToAll } from '../../../lib/push'
 
 /*
  * POST /api/notify-student-flag
- * Emails the admin inbox when a tutor flags a student from the lesson page.
- * Caller must be staff. Sends via Resend; skips quietly if email isn't
- * configured, because the flag itself is already saved and shows in the
- * Action Centre — a mail outage must never look like a lost concern.
+ * Tells the directors when a tutor flags a student from the lesson page: a
+ * push to their phones (the iPhone app and web push) and an email to the
+ * admin inbox. Caller must be staff. Both are best effort — the flag itself
+ * is already saved and listed on /tutor/flags, so a push or mail outage must
+ * never look like a lost concern.
  *
  * Body: { studentName, className, lessonDate, reason, reasonLabel, note, raisedBy }
  */
@@ -32,8 +34,6 @@ export async function POST(req) {
   let body
   try { body = await req.json() } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
-  if (!process.env.RESEND_API_KEY) return Response.json({ ok: false, skipped: 'email not configured' })
-
   const to = 'cubehsctuition@gmail.com'
   const from = process.env.RESEND_FROM_EMAIL || 'CUBE Tuition <admin@cubetuition.com.au>'
 
@@ -46,6 +46,15 @@ export async function POST(req) {
   const label = reasonLabel || reason
   const dateLabel = fmtDate(lessonDate)
   const context = [className, dateLabel].filter(Boolean).join(' · ')
+
+  // The push first — it is what the directors see straight away.
+  const pushed = await sendPushToAll({
+    title: `${urgent ? '🚨' : '🚩'} ${studentName} flagged — ${label}`,
+    body: [note, [context, raisedBy && `raised by ${raisedBy}`].filter(Boolean).join(' · ')].filter(Boolean).join('\n') || 'No further detail given.',
+    url: '/tutor/flags', tag: `flag-${studentName}-${reason}-${lessonDate || ''}`,
+  }).then(r => r?.sent ?? 0).catch(() => 0)
+
+  if (!process.env.RESEND_API_KEY) return Response.json({ ok: true, pushed, emailed: false })
 
   const html = `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;max-width:640px;line-height:1.5">
@@ -62,7 +71,7 @@ export async function POST(req) {
         ? `<div style="font-size:13px;background:#F8FAFF;border:1px solid #DEE7FF;border-radius:8px;padding:10px 12px;white-space:pre-wrap">${esc(note)}</div>`
         : '<p style="font-size:13px;color:#888">No further detail was given.</p>'}
       <p style="font-size:12px;color:#888;margin-top:16px">
-        This flag stays in the Action Centre on the portal home page until a director resolves it.
+        Open flags are listed on the portal’s Flags page (/tutor/flags) until a director resolves them.
       </p>
     </div>`
 
@@ -75,7 +84,7 @@ export async function POST(req) {
   })
   if (!resendRes.ok) {
     const t = await resendRes.text().catch(() => '')
-    return Response.json({ error: `Resend error: ${t}` }, { status: 502 })
+    return Response.json({ error: `Resend error: ${t}`, pushed }, { status: 502 })
   }
-  return Response.json({ ok: true })
+  return Response.json({ ok: true, pushed, emailed: true })
 }

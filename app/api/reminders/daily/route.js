@@ -22,8 +22,7 @@ import { Resend } from 'resend'
  *     a week before and the day before, unless marked done on the dashboard.
  *   • Term start — the day before a teaching term begins.
  *
- * The payroll arithmetic mirrors lib/payrollAlerts.js (bank = fortnight start
- * + 14 days; cash = fortnight start + 7 + weekday − 1); a holiday break is one
+ * Payroll arithmetic: bank = fortnight start + 14 days; cash = fortnight start + 7 + weekday − 1); a holiday break is one
  * pay period (bank on the Monday it ends, cash in its last week). Super has no
  * entry: under Payday Super it is paid with each pay run.
  *
