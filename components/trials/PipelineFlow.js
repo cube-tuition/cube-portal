@@ -145,7 +145,7 @@ export default function PipelineFlow({ collapsible = true }) {
             <span className="inline-flex items-center gap-1.5">
               <span className="w-4 h-4 rounded-full bg-[#FDE68A] border border-[#D97706] text-[9px] leading-none flex items-center justify-center">⚡</span>Sent automatically
             </span>
-            <span className="ml-auto">Any time: <strong>On hold</strong> when the family pauses — set a stage to reopen it.</span>
+            <span className="ml-auto">Any time: <strong>On hold</strong> when the family pauses — from the opened card, which reopens it too.</span>
           </div>
         </div>
       )}

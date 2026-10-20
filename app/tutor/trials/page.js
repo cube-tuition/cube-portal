@@ -321,32 +321,8 @@ function ProgressBadge({ progress }) {
   )
 }
 
-// The stage, set by hand (a phone call is contact too). Emails sent from the
-// card still stamp their own dates; Enrolled and Declined stay behind
-// Convert / Drop, which also move enrolments.
-function StageSelect({ status, onChange }) {
-  const stage = STAGE_MAP[status] || STAGE_MAP.new
-  if (['enrolled', 'declined'].includes(status)) {
-    return <span className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full ${stage.color}`}>{stage.label}</span>
-  }
-  return (
-    <select
-      value={status}
-      onClick={e => e.stopPropagation()}
-      onChange={e => onChange(e.target.value)}
-      title="Set the stage by hand — e.g. after a phone call"
-      className={`text-[10px] font-semibold border px-2 py-0.5 rounded-full cursor-pointer appearance-none pr-5 bg-no-repeat bg-[length:10px] bg-[right_6px_center] ${stage.color}`}
-      style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23555' stroke-width='1.5'/%3E%3C/svg%3E\")" }}
-    >
-      {STAGES.filter(st => !['enrolled', 'declined'].includes(st.id)).map(st => (
-        <option key={st.id} value={st.id}>{st.label}</option>
-      ))}
-    </select>
-  )
-}
-
-// Move every open subject in `subs` to `next`. Marking Contacted by hand
-// records first contact, like a sent invitation does.
+// Move every open subject in `subs` to `next` — now only reopening a held
+// trial. Marking Contacted records first contact, like a sent invitation does.
 async function setStage(subs, next, onUpdate) {
   const open = subs.filter(s => !['enrolled', 'declined'].includes(s.status))
   const now = new Date().toISOString()
@@ -443,7 +419,7 @@ function HoldDialog({ subs, nextTermStart, onClose, onUpdate, onReload }) {
           <p className="text-xs text-[#2A2035]/60 mt-1">
             The card leaves the active list and stops sending nudges.
             {hasClass && ' The trial class is released, so they come off its roll.'}
-            {' '}Set another stage on the card to reopen it.
+            {' '}Reopen it from the card when the family is ready.
           </p>
         </div>
         <div>
@@ -946,17 +922,34 @@ function StagePills({ items, onAct }) {
   )
 }
 
-// What used to sit on the closed card — the stage dropdown, On hold and the
-// sent-email dates — now opens with the card.
-function StatusRow({ status, onStage, children }) {
+// The opened card's top row: the sent-email badges, and On hold — put a
+// trial on hold, or (once held) change its check-back date or reopen it.
+// The stage itself moves with the emails, the form and the roll.
+function StatusRow({ held, closed, onHold, onReopen, children }) {
   return (
     <div className="flex items-center gap-2 flex-wrap pb-2 border-b border-[#DEE7FF]">
-      <span className="text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider">Stage</span>
-      <StageSelect status={status} onChange={onStage} />
       {children}
+      <span className="ml-auto flex items-center gap-1.5">
+        {closed ? null : held ? (
+          <button onClick={onReopen}
+            className="text-[11px] font-semibold text-[#325099] border border-[#DEE7FF] hover:border-[#325099] px-2.5 py-0.5 rounded-full transition"
+            title="Back into the pipeline where it left off (its class was released when it went on hold)">
+            ▶ Reopen
+          </button>
+        ) : (
+          <button onClick={onHold}
+            className="text-[11px] font-semibold text-slate-500 border border-slate-200 hover:border-slate-400 hover:text-slate-700 px-2.5 py-0.5 rounded-full transition"
+            title="The family is pausing — take the card off the active list, with a date to check back in">
+            ⏸ Put on hold
+          </button>
+        )}
+      </span>
     </div>
   )
 }
+
+// Where a reopened trial goes: Contacted once the family has heard from us.
+const reopenStage = (subs) => (subs.some(s => s.contacted_at || s.invitation_sent_at || s.level_test_invitation_sent_at) ? 'contacted' : 'new')
 
 function CardHeader({ sub, stale, age, subjects, expanded, onToggle, next = null }) {
   return (
@@ -1015,7 +1008,7 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
 
       {expanded && (
         <div className="border-t border-[#DEE7FF] px-4 py-3 space-y-3 bg-[#F8FAFF]">
-          <StatusRow status={sub.status} onStage={next => (next === 'on_hold' ? setHolding(true) : setStage([sub], next, onUpdate))}>
+          <StatusRow held={sub.status === 'on_hold'} closed={['enrolled', 'declined'].includes(sub.status)} onHold={() => setHolding(true)} onReopen={() => setStage([sub], reopenStage([sub]), onUpdate)}>
             {sub.status === 'on_hold' && <HoldBadge sub={sub} onClick={() => setHolding(true)} />}
             <FamilyBadges sub={sub} />
             <SubjectBadges sub={sub} />
@@ -1124,7 +1117,8 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
 
       {expanded && (
         <div className="border-t border-[#DEE7FF] px-4 py-3 space-y-3 bg-[#F8FAFF]">
-          <StatusRow status={status} onStage={next => (next === 'on_hold' ? setHolding(true) : setStage(subs, next, onUpdate))}>
+          <StatusRow held={subs.some(s => s.status === 'on_hold')} closed={subs.every(s => ['enrolled', 'declined'].includes(s.status))} onHold={() => setHolding(true)}
+            onReopen={() => { const held = subs.filter(s => s.status === 'on_hold'); setStage(held, reopenStage(held), onUpdate) }}>
             {status === 'on_hold' && <HoldBadge sub={subs.find(s => s.status === 'on_hold')} onClick={() => setHolding(true)} />}
             <FamilyBadges sub={family} />
             <ProgressBadge progress={progress} />
