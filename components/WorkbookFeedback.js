@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { addLessonItem, removeItem, itemsForLesson, fmtItemDate } from '../lib/bookletChecklist'
+import { addLessonItem, removeItem, itemsForLesson, fmtItemDate, notifyFeedback } from '../lib/bookletChecklist'
 
 /*
  * <WorkbookFeedback booklet={...} classId={...} dateISO="YYYY-MM-DD" ... />
@@ -98,6 +98,7 @@ export default function WorkbookFeedback({ booklet, classId, dateISO, className,
       })
       setLists(l => ({ ...l, [list]: next }))
       setDrafts(d => ({ ...d, [list]: '' }))
+      notifyFeedback({ bookletId: booklet.id, list, text, className, date: dateISO })
     } catch (e) {
       setErr(e.message || String(e))
     } finally {

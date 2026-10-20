@@ -1088,6 +1088,10 @@ function BookletsPageInner() {
   }, [router])
 
   // Load booklets
+  // ?booklet=<id> (the link in a workbook-feedback notification) opens that
+  // booklet's info panel, checklist included, once — closing it reloads the
+  // list, which must not open it again.
+  const openOnLoad = useRef(searchParams.get('booklet'))
   const load = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase
@@ -1096,6 +1100,11 @@ function BookletsPageInner() {
       .order('year').order('subject').order('term_number', { nullsFirst: false }).order('week', { nullsFirst: false })
     setBooklets(data || [])
     setLoading(false)
+    if (openOnLoad.current) {
+      const target = (data || []).find(b => b.id === openOnLoad.current)
+      openOnLoad.current = null
+      if (target) setInfoFor(target)
+    }
   }, [])
 
   useEffect(() => { if (staff) load() }, [staff, load])

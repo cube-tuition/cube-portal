@@ -9,7 +9,7 @@ import { isChemistry, chemModuleNumber, chemModuleLabel } from '../../lib/format
 import LatexContent from '../qbank/LatexContent'
 import {
   fmtItemDate, sortItems, openCount,
-  addStaffItem, setItemDone, removeItem,
+  addStaffItem, setItemDone, removeItem, notifyFeedback,
 } from '../../lib/bookletChecklist'
 import { useCourseCurriculum } from '../../lib/courses'
 
@@ -164,6 +164,7 @@ function ChecklistColumn({ list, items, bookletId, staff, busy, setBusy, onList,
         <button
           onClick={() => run('add:' + list, async () => {
             const next = await addStaffItem({ bookletId, list, text: draft.trim(), author: staff?.full_name })
+            notifyFeedback({ bookletId, list, text: draft.trim() })
             setDraft('')
             return next
           })}
