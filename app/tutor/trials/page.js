@@ -1055,7 +1055,16 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
   // the trial's own steps are per subject ("Maths: ✉ Lesson 1 feedback").
   const today = isoDate(new Date())
   const FAMILY_KEYS = ['first', 'invitation', 'level_test', 'lt_results']
-  const stepOf = Object.fromEntries(subs.map(s => [s.id, nextStep(s, today)]))
+  // The first emails go to the family, so a level test or invitation sent from
+  // one subject's card counts for every subject (Luke's level test was booked
+  // from his Maths enquiry; his English one is covered by it too).
+  const withFamily = (s) => ({
+    ...s,
+    invitation_sent_at: s.invitation_sent_at || family.invitation_sent_at,
+    level_test_invitation_sent_at: s.level_test_invitation_sent_at || family.level_test_invitation_sent_at,
+    _levelTest: s._levelTest?.booked ? s._levelTest : (family._levelTest || s._levelTest),
+  })
+  const stepOf = Object.fromEntries(subs.map(s => [s.id, nextStep(withFamily(s), today)]))
   const seen = new Set()
   const items = subs.flatMap(s => {
     const step = stepOf[s.id]
