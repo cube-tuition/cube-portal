@@ -72,25 +72,25 @@ export default function PipelineFlow({ collapsible = true }) {
   })
 
   // Row 1 (before the trial) and row 2 (the trial), vertical centres.
-  const yes = 22, mid = 104, no = 186, row2 = 268
+  // "No" runs straight along the middle line to the invitation; the trial row
+  // sits close under it.
+  const yes = 22, mid = 96, row2 = 200
   const mid2 = mid + H / 2, yes2 = yes + H / 2
   const dx = 210, dy = mid2           // decision diamond centre
   const r2 = [35, 215, 395, 575, 755, 935]
 
   return (
-    <div className={`bg-white border border-[#DEE7FF] rounded-xl overflow-hidden ${collapsible ? 'mb-6' : ''}`}>
+    <div className={`ih-wide bg-white border border-[#DEE7FF] rounded-xl overflow-hidden ${collapsible ? 'mb-6' : ''}`}>
       {collapsible ? (
         <button onClick={toggle} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[#F8FAFF] transition">
           <span className="text-sm font-semibold text-[#062E63]">How a trial moves</span>
           <span className="text-[#325099]/40 text-sm">{open ? '▲' : '▼'}</span>
         </button>
-      ) : (
-        <p className="px-4 py-3 text-sm font-semibold text-[#062E63]">How a trial moves</p>
-      )}
+      ) : null}
       {open && (
-        <div className="border-t border-[#DEE7FF] px-4 pt-3 pb-4">
+        <div className={`${collapsible ? 'border-t border-[#DEE7FF] ' : ''}px-4 pt-3 pb-4`}>
           <div className="overflow-x-auto">
-            <svg viewBox="0 0 1120 350" className="w-full min-w-[700px]" role="img"
+            <svg viewBox="0 0 1120 268" className="w-full min-w-[700px]" role="img"
               aria-label="Trial pipeline: new trial, optional level test, trial invitation, trial lesson reminder, two trial lessons with feedback, trial outcome, then convert or drop">
               <defs>
                 <marker id="pf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -116,7 +116,7 @@ export default function PipelineFlow({ collapsible = true }) {
               <Arrow points={[[810, yes2], [915, yes2], [915, mid - 2]]} />
 
               {/* No: straight to the invitation */}
-              <Arrow points={[[dx, dy + 34], [dx, no + H / 2], [800, no + H / 2], [800, mid2], [838, mid2]]} label="No" labelAt={[dx + 6, dy + 56]} />
+              <Arrow points={[[dx + 52, dy], [838, mid2]]} label="No" labelAt={[dx + 62, dy - 7]} />
 
               <Node x={840} y={mid} kind="email" lines={['Trial invitation']} caption="Family picks a class → books itself" />
 

@@ -529,7 +529,7 @@ export const IH_CSS = `
    the extra width exists for the blocks that genuinely need it. Left-aligned,
    not centred, so a paragraph starts on the same edge as the table under it. */
 .ih-block{ margin:0 0 18px; max-width:var(--ih-measure); }
-.ih-block:has(table), .ih-block:has(img), .ih-block:has(iframe), .ih-block:has(.ih-cols){ max-width:none; }
+.ih-block:has(table), .ih-block:has(img), .ih-block:has(iframe), .ih-block:has(.ih-cols), .ih-block:has(.ih-wide){ max-width:none; }
 .ih-block:last-child{ margin-bottom:0; }
 .ih-h2{ font-size:1.35rem; font-weight:700; color:#062E63; margin:26px 0 8px; line-height:1.3; }
 .ih-h3{ font-size:1.08rem; font-weight:700; color:#325099; margin:20px 0 6px; }
