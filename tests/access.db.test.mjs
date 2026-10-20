@@ -254,6 +254,19 @@ describe('the automatic reminder log (families’ emails)', () => {
   })
 })
 
+describe('trial class pickers (the token in a family’s email)', () => {
+  run('directors only — the family’s form goes through the service role', async ({ q, signIn, rejects }) => {
+    await q(`insert into trial_invites (token, submission_ids, sections) values ('t-1', '{1}', '[]')`)
+    for (const who of [[MONICA, 'tutor'], [KIM, 'student']]) {
+      await signIn(...who)
+      assert.equal(await n(q, `select count(*)::int n from trial_invites`), 0, who[1])
+      await rejects(`insert into trial_invites (token, submission_ids, sections) values ('t-2', '{1}', '[]')`, [], /row-level security/)
+    }
+    await signIn(RYAN, 'admin')
+    assert.equal(await n(q, `select count(*)::int n from trial_invites`), 1)
+  })
+})
+
 describe('a director', () => {
   run('reads and writes all of it', async ({ q, signIn }) => {
     await signIn(RYAN, 'admin')

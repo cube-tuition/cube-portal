@@ -287,6 +287,7 @@ export default function LevelTestLessonPage() {
       const out = await res.json()
       if (!res.ok) throw new Error(out.error || 'Email failed')
       setToast(`${kids.length > 1 ? `${kids.length} reports` : 'Report'} emailed to ${to}`
+        + (out.trialInvite ? ', with the trial class picker' : '')
         + (out.stamped === false ? ' — but not recorded as sent' : ''))
       load()   // pick up the sent stamps
     } catch (e) {

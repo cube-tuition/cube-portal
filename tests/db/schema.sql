@@ -626,6 +626,24 @@ create table public.auto_reminders (
   constraint auto_reminders_kind_check CHECK ((kind = ANY (ARRAY['trial'::text, 'level_test'::text])))
 );
 
+create table public.trial_invites (
+  id uuid default gen_random_uuid() not null,
+  token text not null,
+  submission_ids integer[] default '{}'::integer[] not null,
+  parent_email text,
+  parent_name text,
+  student_name text,
+  sections jsonb default '[]'::jsonb not null,
+  picks jsonb default '{}'::jsonb not null,
+  note text,
+  source text default 'invitation'::text not null,
+  created_at timestamp with time zone default now() not null,
+  responded_at timestamp with time zone,
+  constraint trial_invites_token_key UNIQUE (token),
+  constraint trial_invites_pkey PRIMARY KEY (id),
+  constraint trial_invites_source_check CHECK ((source = ANY (ARRAY['invitation'::text, 'level_test'::text])))
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -2391,6 +2409,7 @@ alter table public.qbank_question_subtopics enable row level security;
 alter table public.qbank_subject_links enable row level security;
 alter table public.level_test_invites enable row level security;
 alter table public.auto_reminders enable row level security;
+alter table public.trial_invites enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -2465,6 +2484,7 @@ create policy "Admin write terms" on public.terms as PERMISSIVE for ALL to authe
 create policy "Anyone can read terms" on public.terms as PERMISSIVE for SELECT to public using (true);
 create policy authenticated_full_access on public.terms as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy terms_read_authenticated on public.terms as PERMISSIVE for SELECT to authenticated using (true);
+create policy trial_invites_admin on public.trial_invites as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy staff_all on public.trial_submissions as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy trm_admin_all on public.tutor_rate_matrix as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy trm_tutor_select on public.tutor_rate_matrix as PERMISSIVE for SELECT to public using ((tutor_id = auth.uid()));

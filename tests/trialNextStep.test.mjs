@@ -27,6 +27,13 @@ test('invited but no class yet: assign the trial class', () => {
   assert.equal(key({ status: 'contacted', invitation_sent_at: '2026-10-18T00:00:00Z' }), 'assign')
 })
 
+test('the class picker: a class books itself, a 1:1 time or a note needs staff', () => {
+  const inv = { status: 'contacted', invitation_sent_at: '2026-10-18T00:00:00Z' }
+  assert.match(wait({ ...inv, _trialInvite: { pick: null, note: '' } }), /pick a class/)
+  assert.deepEqual(step({ ...inv, _trialInvite: { pick: { kind: 'slot', date: '2026-10-25', start: '15:00' } } }), { key: 'assign', label: 'Set up 1:1 trial · Sun 25 Oct 15:00' })
+  assert.equal(key({ ...inv, _trialInvite: { pick: null, note: 'Mondays after 5' } }), 'invitation')
+})
+
 test('a booked trial waits for its lessons, then asks for each email', () => {
   const booked = { status: 'trial_scheduled', trial_class_id: 7, _trialDates: ['2026-10-24', '2026-10-31'] }
   assert.match(wait(booked), /Waiting for trial lesson 1 · Sat 24 Oct — reminder sends automatically/)

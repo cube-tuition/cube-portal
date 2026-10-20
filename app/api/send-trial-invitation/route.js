@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { buildTrialInvitationEmailHtml, fillTrialVars, mergeTrialInvitationContent } from '../../../lib/trialInvitationEmail'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 import { requireApiRole } from '../../../lib/apiAuth'
+import { createTrialInvite, trialPreviewLink } from '../../../lib/trialInviteServer'
+import { normaliseSections } from '../../../lib/trialInvite'
 
 /*
  * POST /api/send-trial-invitation
@@ -18,6 +20,9 @@ import { requireApiRole } from '../../../lib/apiAuth'
  *   alternatives?: [{ className, day, time, date }],
  *   content?:      object,      // per-send edits to DEFAULT_TRIAL_INVITATION_CONTENT
  *   test?:         boolean,     // deliver to staff only (applyEmailTestMode)
+ *   formSections?: [{ submission_id, label, options }],  // what the family's
+ *                  class picker offers (lib/trialInvite); a real send saves it
+ *                  and the email links to /trial/<token>, a test links to a preview
  * }
  *
  * The first email of a trial: welcome + a proposed trial class. One family per
@@ -30,7 +35,7 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { submissionId, submissionIds, sections, parentEmail, parentName, studentName, proposal, alternatives, content, test } = await request.json()
+    const { submissionId, submissionIds, sections, parentEmail, parentName, studentName, proposal, alternatives, content, test, formSections } = await request.json()
     if (!parentEmail) return Response.json({ error: 'Missing parentEmail' }, { status: 400 })
     const ids = [...new Set([...(Array.isArray(submissionIds) ? submissionIds : []), ...(submissionId != null ? [submissionId] : [])].map(Number).filter(Number.isFinite))]
     const multi = Array.isArray(sections) && sections.length > 1
@@ -38,6 +43,19 @@ export async function POST(request) {
     const vars = { parentName, studentName }
     const c = mergeTrialInvitationContent(content, multi)
     const subject = fillTrialVars(c.subject, vars)
+
+    // The family's class picker: saved on a real send (the link is the key),
+    // a preview of the same form on a test.
+    const offered = normaliseSections(formSections)
+    let formLink = ''
+    if (offered.length) {
+      if (test) formLink = trialPreviewLink(offered)
+      else {
+        const sbForm = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+        const inv = await createTrialInvite(sbForm, { submissionIds: ids, parentEmail, parentName, studentName, sections: offered })
+        formLink = inv?.link || ''
+      }
+    }
 
     const resend    = new Resend(process.env.RESEND_API_KEY)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
@@ -47,7 +65,7 @@ export async function POST(request) {
       to:   [parentEmail],
       bcc:  [PORTAL_BCC],
       subject,
-      html: buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null),
+      html: buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null, formLink),
     }, test))
     if (error) return Response.json({ error: error.message }, { status: 500 })
 

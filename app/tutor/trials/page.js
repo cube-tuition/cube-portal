@@ -1403,6 +1403,24 @@ export default function TrialsPage() {
       } : null
     }
 
+    // Trial invitation class pickers: what the family chose on the form (a
+    // class books itself; a 1:1 time is for staff to set up) or the times
+    // they gave when nothing suited. The newest invite for each request wins.
+    const { data: trialInvites } = await supabase.from('trial_invites')
+      .select('submission_ids, sections, picks, note, responded_at, created_at').order('created_at')
+    const trialInviteBySub = {}
+    for (const inv of trialInvites || []) {
+      for (const sid of inv.submission_ids || []) {
+        const sec = (inv.sections || []).find(x => x.submission_id === sid)
+        const pickedId = inv.picks?.[sid]?.option_id
+        trialInviteBySub[sid] = {
+          pick: pickedId ? (sec?.options || []).find(o => o.id === pickedId) || null : null,
+          note: inv.responded_at && !pickedId ? (inv.note || '') : '',
+        }
+      }
+    }
+    for (const s of merged) s._trialInvite = trialInviteBySub[s.id] || null
+
     setSubmissions(merged)
     setClasses(classList)
     setStudents((studentRes.data || []).filter(s => !REFERRER_EXCLUDED_STATUSES.includes((s.status || '').toLowerCase())))

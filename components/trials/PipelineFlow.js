@@ -112,16 +112,16 @@ export default function PipelineFlow({ collapsible = true }) {
               <Arrow points={[[450, yes2], [480, yes2]]} />
               <Node x={480} y={yes} kind="email" lines={['Level test reminder']} caption="Automatic · 24h before the test" auto />
               <Arrow points={[[630, yes2], [660, yes2]]} />
-              <Node x={660} y={yes} kind="lesson" lines={['Level test results']} caption="Monitoring → Level tests" />
+              <Node x={660} y={yes} kind="lesson" lines={['Level test results', '+ trial invitation']} caption="Monitoring → Level tests · one email" />
               <Arrow points={[[810, yes2], [915, yes2], [915, mid - 2]]} />
 
               {/* No: straight to the invitation */}
               <Arrow points={[[dx, dy + 34], [dx, no + H / 2], [800, no + H / 2], [800, mid2], [838, mid2]]} label="No" labelAt={[dx + 6, dy + 56]} />
 
-              <Node x={840} y={mid} kind="email" lines={['Trial invitation']} caption="Trial card · → Contacted" />
+              <Node x={840} y={mid} kind="email" lines={['Trial invitation']} caption="Family picks a class → books itself" />
 
               {/* The trial */}
-              <text x={0} y={row2 - 22} fontSize={10} fontWeight={700} letterSpacing={1} fill="#325099" opacity={0.5}>THE TRIAL <tspan fontWeight={400} letterSpacing={0}>— assigning a class moves the card to Trial scheduled</tspan></text>
+              <text x={0} y={row2 - 22} fontSize={10} fontWeight={700} letterSpacing={1} fill="#325099" opacity={0.5}>THE TRIAL <tspan fontWeight={400} letterSpacing={0}>— the family’s pick (or assigning a class) moves the card to Trial scheduled</tspan></text>
               <Arrow points={[[990, mid2], [1060, mid2], [1060, row2 - 14], [r2[0] + W / 2, row2 - 14], [r2[0] + W / 2, row2 - 2]]} />
               <Node x={r2[0]} y={row2} kind="email" lines={['Trial lesson reminder']} caption="Automatic · 24h before lesson 1" auto />
               <Arrow points={[[r2[0] + W, row2 + H / 2], [r2[1], row2 + H / 2]]} />

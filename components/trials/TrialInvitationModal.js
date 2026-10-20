@@ -47,6 +47,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const [included, setIncluded] = useState(() => new Set([sub.id, ...related.filter(r => r.id !== sub.id && !r.invitation_sent_at).map(r => r.id)]))
   const [bySub, setBySub]       = useState({})      // sub id → scored classes + nextDate
   const [choice, setChoice]     = useState({})      // sub id → { proposalId, altIds: Set }
+  const [slots, setSlots]       = useState({})      // sub id → [{ date, start, end }] — 1:1 times offered by hand
   const [loading, setLoading]   = useState(true)
   const [edits, setEdits]       = useState({})      // wording the user changed (else the defaults)
   const [sending, setSending]   = useState(false)
@@ -118,19 +119,39 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
     time: classTimeLabel(c),
     date: fmtLessonDate(dateISO || c.nextDate),
   }), [])
+  // A 1:1 time staff typed in, as an email card.
+  const oneToOneCard = useCallback((t) => ({ className: '1:1 lesson', time: classTimeLabel({ start_time: t.start, end_time: t.end }), date: fmtLessonDate(t.date), once: true }), [])
+  const timesOf = useCallback((s) => (slots[s.id] || []).filter(t => t.date && t.start), [slots])
   const pick = useCallback((s) => {
     const list = bySub[s.id] || [], ch = choice[s.id] || { proposalId: null, altIds: new Set() }
+    const times = timesOf(s).map(oneToOneCard)
+    const proposal = slotOf(list.find(c => c.id === ch.proposalId), ch.dates?.[ch.proposalId]) || null
+    const alternatives = list.filter(c => c.id !== ch.proposalId && ch.altIds.has(c.id)).map(slotOf)
+    // No class to propose (a 1:1): the first offered time leads.
+    return proposal ? { proposal, alternatives: [...alternatives, ...times] } : { proposal: times[0] || null, alternatives: times.slice(1) }
+  }, [bySub, choice, slotOf, timesOf, oneToOneCard])
+  // What the family's form offers (lib/trialInvite): the proposal, the ticked
+  // alternatives and any 1:1 times, each with its real class and first date.
+  const formSections = useMemo(() => subs.map(s => {
+    const list = bySub[s.id] || [], ch = choice[s.id] || { proposalId: null, altIds: new Set() }
+    const asOption = (c, date) => ({ kind: 'class', class_id: c.id, class_name: c.class_name, day: c.day_of_week || '', start: String(c.start_time || '').slice(0, 5), end: String(c.end_time || '').slice(0, 5), date })
+    const prop = list.find(c => c.id === ch.proposalId)
     return {
-      proposal: slotOf(list.find(c => c.id === ch.proposalId), ch.dates?.[ch.proposalId]) || null,
-      alternatives: list.filter(c => c.id !== ch.proposalId && ch.altIds.has(c.id)).map(slotOf),
+      submission_id: s.id, label: labelOf(s),
+      options: [
+        ...(prop ? [asOption(prop, ch.dates?.[prop.id] || prop.nextDate)] : []),
+        ...list.filter(c => c.id !== ch.proposalId && ch.altIds.has(c.id)).map(c => asOption(c, c.nextDate)),
+        ...timesOf(s).map(t => ({ kind: 'slot', date: t.date, start: t.start, end: t.end })),
+      ].filter(o => o.date),
     }
-  }, [bySub, choice, slotOf])
+  }), [subs, bySub, choice, labelOf, timesOf])
+  const hasForm = formSections.some(x => x.options.length)
   const sections = useMemo(() => subs.map(s => ({ label: labelOf(s), ...pick(s) })), [subs, labelOf, pick])
   const { proposal, alternatives } = sections[0] || { proposal: null, alternatives: [] }
   const vars = useMemo(() => ({ parentName, studentName }), [parentName, studentName])
   const html = useMemo(
-    () => buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null),
-    [vars, proposal, alternatives, content, multi, sections],
+    () => buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null, hasForm ? '#' : ''),
+    [vars, proposal, alternatives, content, multi, sections, hasForm],
   )
   const setDate = (sid, cid, iso) => setChoice(m => {
     const cur = m[sid] || { proposalId: null, altIds: new Set() }
@@ -154,7 +175,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           submissionIds: subs.map(s => s.id), parentEmail, parentName, studentName,
-          proposal, alternatives, sections: multi ? sections : null, content, test,
+          proposal, alternatives, sections: multi ? sections : null, content, test, formSections,
         }),
       })
       const json = await res.json()
@@ -166,7 +187,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
     } finally {
       setSending(false)
     }
-  }, [subs, parentEmail, parentName, studentName, proposal, alternatives, multi, sections, content, onSent])
+  }, [subs, parentEmail, parentName, studentName, proposal, alternatives, multi, sections, content, onSent, formSections])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
@@ -263,6 +284,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
                       )}
                     </label>
                   ))}
+                  <OneToOneTimes times={slots[s.id] || []} onChange={list => setSlots(m => ({ ...m, [s.id]: list }))} />
                 </div>
               )
             })}
@@ -317,13 +339,45 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
               onClick={() => send(false)}
               disabled={sending || !parentEmail}
               className="text-xs font-semibold bg-[#325099] text-white px-4 py-2 rounded-lg hover:bg-[#062E63] transition disabled:opacity-40"
-              title={`Send to ${parentEmail}`}
+              title={`Send to ${parentEmail}${hasForm ? ' — with a form to pick the class, which books it' : ''}`}
             >
               {sending ? 'Sending…' : 'Send invitation'}
             </button>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// A 1:1 with flexible times: staff offer a few dates and times by hand. The
+// family picks one on the form; staff then set up the 1:1 (it isn't booked
+// into a class automatically).
+function OneToOneTimes({ times, onChange }) {
+  const set = (i, k, v) => onChange(times.map((t, j) => (j === i ? { ...t, [k]: v } : t)))
+  const plusHour = (t) => {
+    const [h, m] = String(t || '').split(':').map(Number)
+    return Number.isFinite(h) ? `${String(Math.min(h + 1, 23)).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}` : ''
+  }
+  return (
+    <div className="rounded-xl border border-dashed border-[#C7D4F5] px-3 py-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold text-[#325099]">1:1 times <span className="font-normal text-[#2A2035]/45">— for a flexible 1:1, offer times by hand</span></p>
+        <button type="button" onClick={() => onChange([...times, { date: '', start: '', end: '' }])}
+          className="text-[11px] font-semibold text-[#325099] hover:underline">+ Add a time</button>
+      </div>
+      {times.map((t, i) => (
+        <div key={i} className="mt-2 flex items-center gap-2 flex-wrap">
+          <input type="date" value={t.date} onChange={e => set(i, 'date', e.target.value)}
+            className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+          <input type="time" value={t.start} onChange={e => onChange(times.map((x, j) => (j === i ? { ...x, start: e.target.value, end: !x.end || x.end === plusHour(x.start) ? plusHour(e.target.value) : x.end } : x)))}
+            className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+          <span className="text-[11px] text-[#2A2035]/40">to</span>
+          <input type="time" value={t.end} onChange={e => set(i, 'end', e.target.value)}
+            className="border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]" />
+          <button type="button" onClick={() => onChange(times.filter((_, j) => j !== i))} className="text-[11px] text-rose-500 px-1">✕</button>
+        </div>
+      ))}
     </div>
   )
 }
