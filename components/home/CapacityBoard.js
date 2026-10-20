@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { supabase } from '../../lib/supabase'
 import { T_ENROLMENTS, T_COURSES } from '../../lib/tables'
 import { isOneToOneClass, CLASS_CAPACITY } from '../../lib/classFormat'
-import { WidgetShell } from './TrialFunnel'
 
 /*
  * CapacityBoard — director home widget. Surfaces classes that need attention on
@@ -131,6 +130,21 @@ function Tile({ label, value, sub, tone }) {
       <p className="text-[9px] tracking-[0.15em] uppercase text-[#325099]/70 font-semibold truncate">{label}</p>
       <p className={`text-lg font-bold tabular-nums ${toneCls}`}>{value}</p>
       <p className="text-[9px] text-[#2A2035]/40">{sub}</p>
+    </div>
+  )
+}
+
+export function WidgetShell({ title, eyebrow, action, children }) {
+  return (
+    <div className="bg-white rounded-2xl border border-[#DEE7FF] p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          {eyebrow && <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099] font-semibold mb-1 font-display">{eyebrow}</p>}
+          <h2 className="text-lg font-semibold text-[#2A2035] font-display">{title}</h2>
+        </div>
+        {action}
+      </div>
+      {children}
     </div>
   )
 }

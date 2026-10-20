@@ -11,7 +11,6 @@ import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS } from '../../lib/tabl
 import { buildClassLabelMap } from '../../lib/classLabels'
 import { isCurrentMember } from '../../lib/enrolments'
 import ActionCentre from '../../components/ActionCentre'
-import TrialFunnel from '../../components/home/TrialFunnel'
 import CapacityBoard from '../../components/home/CapacityBoard'
 
 /*
@@ -397,10 +396,10 @@ export default function TutorHome() {
             doesn't even mount it or run its checks) */}
         {isAdmin && <ActionCentre authorized />}
 
-        {/* Director insight widgets — pipeline, capacity */}
+        {/* Director insight widget — class capacity (the trial pipeline
+            lives on its own page, /tutor/trials) */}
         {isAdmin && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-            <TrialFunnel />
+          <div className="mb-6">
             <CapacityBoard classes={classes} currentTermId={currentTerm?.id} classLabelMap={classLabelMap} />
           </div>
         )}
