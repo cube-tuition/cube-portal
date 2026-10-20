@@ -202,7 +202,16 @@ export async function GET(request) {
     if (error) throw error
     return data
   })
-  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, rollNudges, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved }
+  // Student class channels: one per high school class of the current term,
+  // carried onto next term's copy of the class, archived when it ends
+  // (migrations/20261020_chat_students_safeguarding.sql). Enrolment changes
+  // sync members as they happen; this catches new classes and the term turn.
+  const classChannels = await step('class channels', async () => {
+    const { data, error } = await admin.rpc('chat_roll_class_channels')
+    if (error) throw error
+    return data
+  })
+  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, rollNudges, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved, classChannels }
   await recordJob(admin, 'daily', { startedAt, ok: !errors.length, detail, error: errors.join(' · ') || null })
 
   // The morning system check (lib/systemHealth): jobs, the invoice queue and

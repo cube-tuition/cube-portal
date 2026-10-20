@@ -9,6 +9,7 @@ import {
   loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   scheduleMessage, loadAllScheduled, updateScheduled, cancelScheduled,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
+  setStudentReplies, reportMessage, loadReports, resolveReport, loadHistory,
   loadShortcuts, saveShortcuts, fillShortcut, shortcutVarsFor, builtinShortcutsFor, shortcutFits, loadTermClasses, classesTextFor,
   isHighSchoolYear, classYearOf,
 } from '../../lib/chat'
@@ -134,6 +135,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [nextTerm, setNextTerm] = useState(null)    // upcoming (or current) teaching term
   const [termClasses, setTermClasses] = useState([]) // its active classes, for {classes}
   const [reactions, setReactions] = useState({})   // messageId → [{ emoji, user_id }]
+  const channelsRef = useRef([])                    // the list, for loaders that shouldn't re-run on it
+  const [reports, setReports] = useState({})       // messageId → open reports (student conversations)
+  const [history, setHistory] = useState({})       // messageId → earlier text (directors)
+  const [showOriginal, setShowOriginal] = useState(null)   // messageId whose earlier text is open
+  const [showArchived, setShowArchived] = useState(false) // the Archived class channels group
   const [picker, setPicker] = useState(null)       // message id with the emoji picker open
   const [reactorsOpen, setReactorsOpen] = useState(null)   // `${messageId}:${emoji}` whose names are showing (phones: after a long press)
   const longPress = useRef(null)
@@ -198,6 +204,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
     // directors see those under the Students tab instead).
     const cs = all.filter(c => (c.audience || 'staff') === audience
       || (audience === 'staff' && !isAdmin && c.audience === 'students' && c.class_id))
+    channelsRef.current = cs
     setChannels(cs); setUnread(un)
     return cs
   }, [audience, isAdmin])
@@ -269,6 +276,12 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       const ms = await loadMessages(active)
       setMessages(ms); setErr('')
       setReactions(await loadReactions(ms.map(m => m.id)).catch(() => ({})))
+      // Student conversations: open reports, and (directors) what was edited or deleted.
+      const chan = channelsRef.current.find(c => c.id === active)
+      if (chan?.audience === 'students') {
+        setReports(await loadReports(active).catch(() => ({})))
+        setHistory(me.isAdmin ? await loadHistory(ms.filter(m => m.edited_at || m.deleted_at).map(m => m.id)).catch(() => ({})) : {})
+      } else { setReports({}); setHistory({}) }
     } catch (e) { setErr(e.message || 'Could not load messages'); setMessages([]) }
   }, [active, me])
   useEffect(() => { const t = setTimeout(loadConversation, 0); return () => clearTimeout(t) }, [loadConversation])
@@ -396,7 +409,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const teachesCurrent = forStudents && !!current?.class_id && !!classById[current.class_id]?.teacher
     && first(classById[current.class_id].teacher) === first(me?.full_name)
   const asCube = !!me?.isAdmin && (forStudents ? !teachesCurrent : (cubeMode || current?.kind === 'cube_dm'))
-  const canPost = !!current && current.mine && (!current.directors_only || me.isAdmin)
+  // Staff post in a student class channel; students only once replies are
+  // on (the database checks it too). An archived channel is read-only.
+  const canPost = !!current && current.mine && !current.archived_at && (!current.directors_only || me.isAdmin)
   const send = async () => {
     const body = text.trim()
     if (!body || !current || !me) return
@@ -540,6 +555,17 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const toggleQuiet = async (c) => {
     try { await setQuiet(c.id, !c.quiet); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
   }
+  const toggleReplies = async (c) => {
+    try { await setStudentReplies(c.id, !c.student_replies); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
+  }
+  const report = async (m) => {
+    const reason = window.prompt('Report this message to the directors.\nWhat’s wrong? (optional)')
+    if (reason === null) return
+    try { await reportMessage(m.id, reason); setReports(await loadReports(active).catch(() => reports)) } catch (e) { setErr(e.message) }
+  }
+  const resolve = async (r) => {
+    try { await resolveReport(r.id); setReports(await loadReports(active).catch(() => reports)) } catch (e) { setErr(e.message) }
+  }
   const toggleAnnounce = async (c) => {
     try { await setDirectorsOnly(c.id, !c.directors_only); await refreshChannels(me.id) } catch (e) { setErr(e.message) }
   }
@@ -636,8 +662,10 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   const pinnedSet = new Set(pins)
   const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && c.kind === 'channel' && inProfile(c))
-  const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id) && (forStudents || !c.class_id))
-  const myClasses = forStudents ? [] : channels.filter(c => c.class_id && !pinnedSet.has(c.id))
+  const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id) && !c.archived_at && (forStudents || !c.class_id))
+  // Class channels whose class has ended — kept for the record, read-only.
+  const archived = forStudents ? channels.filter(c => c.kind === 'channel' && c.archived_at) : []
+  const myClasses = forStudents ? [] : channels.filter(c => c.class_id && !c.archived_at && !pinnedSet.has(c.id))
   // Class channels by year, then timetable order (the directors' Students tab
   // and a teacher's "My classes" alike).
   const classOf = (c) => classById[c.class_id] || { class_name: c.name }
@@ -777,6 +805,15 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         )}
         {forStudents && open.length === 0 && <p className="px-4 py-1 text-[11px] text-[#2A2035]/40">Pick a class above to open its channel.</p>}
         {forStudents ? <GroupedChannels list={open} /> : open.map(c => <Row key={c.id} c={c} />)}
+        {archived.length > 0 && (
+          <>
+            <button onClick={() => setShowArchived(v => !v)}
+              className="w-full text-left text-[10px] font-semibold text-[#2A2035]/40 hover:text-[#325099] pl-4 pt-2 pb-0.5">
+              {showArchived ? '▾' : '▸'} Archived · {archived.length} <span className="font-normal">— classes that have ended</span>
+            </button>
+            {showArchived && archived.map(c => <Row key={c.id} c={c} />)}
+          </>
+        )}
         {myClasses.length > 0 && (
           <>
             <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 pt-3 py-1">My classes</p>
@@ -948,6 +985,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                     {forStudents && current.kind === 'dm' ? 'Student thread · every director sees this · not yet visible to the student' : (forStudents || current.class_id) ? `${current.members.filter(id => staffById[id]?.role === 'student').length} students · not yet visible to them` : current.kind === 'dm' ? 'Direct message · only the two of you' : current.kind === 'cube_dm' ? (isAdmin ? 'CUBE profile · every director sees this thread' : 'Direct message with CUBE') : `${current.members.length} member${current.members.length === 1 ? '' : 's'} · ${current.members.map(nameOf).map(n => n.split(' ')[0]).join(', ')}`}
                   </p>
                 </div>
+                {current.audience === 'students' && current.kind === 'channel' && (current.archived_at
+                  ? <span className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-slate-100 text-slate-600" title="The class has ended — kept for the record, read-only">🗄 Archived</span>
+                  : !current.student_replies && <span className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]" title="Students read this channel but can't reply — staff post as usual">📣 Announcements only</span>)}
                 {current.kind === 'channel' && current.directors_only && (
                   <span className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-[#FFF7E6] text-[#92400E]">📣 Directors post</span>
                 )}
@@ -967,10 +1007,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                             ...(current.kind === 'channel' ? [{ label: pins.includes(current.id) ? '📌 Unpin' : '📌 Pin to top', run: () => togglePin(current.id) }] : []),
                             { label: current.muted ? '🔔 Unmute notifications' : '🔕 Mute notifications', run: () => toggleMute(current) },
                             ...(current.kind === 'channel' ? [{ label: `👥 Members · ${current.members.length}`, run: () => setMembersOpen(o => !o) }] : []),
+                            ...(current.kind === 'channel' && current.audience === 'students' && me.isAdmin && !current.archived_at ? [{ label: current.student_replies ? '📣 Announcements only (students can’t reply)' : '💬 Let students reply', run: () => toggleReplies(current) }] : []),
                             ...(current.kind === 'channel' && me.isAdmin ? [{ label: current.directors_only ? '📣 Let everyone post' : '📣 Only directors post', run: () => toggleAnnounce(current) }] : []),
                             ...(current.kind === 'channel' && me.isAdmin ? [{ label: current.quiet ? '🔔 Notify everyone of new messages' : '🔕 Quiet channel (notify only @mentions)', run: () => toggleQuiet(current) }] : []),
                             ...(canManage(current) ? [{ label: '✏️ Rename', run: () => rename(current) }] : []),
-                            ...(canManage(current) && !current.is_default ? [{ label: '🗑 Delete channel', run: () => setDeleting({ channel: current, step: 1, typed: '' }), danger: true }] : []),
+                            ...(canManage(current) && !current.is_default && current.audience !== 'students' ? [{ label: '🗑 Delete channel', run: () => setDeleting({ channel: current, step: 1, typed: '' }), danger: true }] : []),
                             ...(current.kind === 'channel' && !current.is_default ? [{ label: '🚪 Leave channel', run: () => leave(current), danger: true }] : []),
                           ].map((item) => (
                             <button key={item.label} onClick={() => { setMenuOpen(false); item.run() }}
@@ -1058,6 +1099,30 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                       {m.deleted_at
                         ? <p className="text-[13px] italic text-[#2A2035]/35">message deleted</p>
                         : <p className={`text-[14px] leading-relaxed text-[#2A2035] break-words ${editing === m.id ? 'bg-[#FFFBEB] rounded px-1 -mx-1' : ''}`} dangerouslySetInnerHTML={{ __html: renderBody(m.body, staffNames) + (m.edited_at ? ' <span class="text-[10px] text-[#2A2035]/35">(edited)</span>' : '') }} />}
+                      {/* Directors: what an edit or a delete replaced — never lost in a student conversation. */}
+                      {history[m.id]?.length > 0 && (
+                        <div className="mt-0.5">
+                          <button onClick={() => setShowOriginal(o => (o === m.id ? null : m.id))} className="text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099]">
+                            🕘 {showOriginal === m.id ? 'Hide' : 'Show'} earlier text · directors only
+                          </button>
+                          {showOriginal === m.id && history[m.id].map((h, k) => (
+                            <div key={k} className="mt-1 rounded-lg border border-[#E4EAFB] bg-[#F8FAFF] px-2.5 py-1.5">
+                              <p className="text-[10px] text-[#2A2035]/45">{h.action === 'deleted' ? 'Deleted' : 'Before an edit'} · {fmtDay(h.changed_at)} {fmtTime(h.changed_at)}</p>
+                              <p className="text-[13px] text-[#2A2035]/80 break-words" dangerouslySetInnerHTML={{ __html: renderBody(h.body, staffNames) }} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {reports[m.id]?.length > 0 && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          {reports[m.id].map(r => (
+                            <span key={r.id} className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200">
+                              ⚑ {r.reported_by === me.id ? 'You reported this' : `Reported by ${nameOf(r.reported_by)}`}{r.reason ? ` — ${r.reason}` : ''}
+                              {me.isAdmin && <button onClick={() => resolve(r)} className="underline font-bold">Resolve</button>}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {(() => {
                         const rs = reactions[m.id] || []
                         if (!rs.length || m.deleted_at) return null
@@ -1092,6 +1157,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                           <button key={e} onClick={() => react(m, e)} className="text-[15px] leading-none w-7 h-7 rounded-full hover:bg-[#F0F4FF]" title={`React ${e}`}>{e}</button>
                         ))}
                         <button onClick={() => setPicker(picker === m.id ? null : m.id)} className="text-[11px] w-7 h-7 rounded-full text-[#325099] hover:bg-[#F0F4FF]" title="More">{picker === m.id ? '✕' : '＋'}</button>
+                        {!mine && current?.audience === 'students' && !(reports[m.id] || []).some(r => r.reported_by === me.id) && (
+                          <button onClick={() => report(m)} title="Report this message to the directors" className="text-[11px] px-1.5 text-[#2A2035]/40 hover:text-[#B23A3A]">⚑ Report</button>
+                        )}
                         {mine && (
                           <>
                             <button onClick={() => startEdit(m)} className="text-[11px] px-1.5 text-[#325099] hover:underline">Edit</button>
@@ -1177,7 +1245,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
               {forStudents && me?.isAdmin && teachesCurrent && !editing && <p className="text-[11px] text-[#062E63] mb-1">Sending as <b>{me.full_name?.split(' ')[0]}</b> · you teach this class</p>}
               {!canPost ? (
                 <div className="rounded-xl border border-dashed border-[#DEE7FF] px-4 py-3 text-xs text-[#2A2035]/50">
-                  📣 Only directors can post in {channelLabel(current)}. You can still react to messages.
+                  {current.archived_at
+                    ? `🗄 ${channelLabel(current)} has ended — this channel is kept for the record and is read-only.`
+                    : `📣 Only directors can post in ${channelLabel(current)}. You can still react to messages.`}
                 </div>
               ) : (
               <div className="flex items-end gap-2">
