@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { solutionsUnlockAt } from '../lib/terms'
+import { bookletPaths, isSolutionsPath, isStaffOnlyPath } from '../lib/bookletFiles'
 import { accessFromEnrolments, weekOpen } from '../lib/classAccess'
 import useChemModules from './booklet/useChemModules'
 
@@ -15,8 +16,8 @@ import useChemModules from './booklet/useChemModules'
  * (lib/classAccess); later weeks show as closed.
  */
 const WEEKS = Array.from({ length: 10 }, (_, i) => i + 1)
-const isSolPath = (p) => /_solutions|_teacher|\.mt\./i.test(p || '')
-const pathsOf = (b) => (b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : []))
+const isSolPath = isSolutionsPath
+const pathsOf = bookletPaths
 
 export default function PastClassWork({ cls, term, studentId, col }) {
   const { groupLabel } = useChemModules()
@@ -106,7 +107,8 @@ export default function PastClassWork({ cls, term, studentId, col }) {
         <div className="divide-y divide-[#F0F4FF]">
           {items.map(b => {
             const online = b.delivery === 'online'
-            const pdfs = pathsOf(b).filter(p => !isSolPath(p))
+            // The revision quiz copy is staff-only (lib/bookletFiles).
+            const pdfs = pathsOf(b).filter(p => !isStaffOnlyPath(p))
             const hasSol = pathsOf(b).some(isSolPath)
             return (
               <div key={b.id} className="px-5 md:px-6 py-4 flex items-center justify-between gap-3 flex-wrap">

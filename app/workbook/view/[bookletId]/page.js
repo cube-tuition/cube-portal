@@ -1,5 +1,6 @@
 'use client'
 import { Suspense, useEffect, useMemo, useState } from 'react'
+import { isSolutionsPath, isStaffOnlyPath } from '../../../../lib/bookletFiles'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 import { subjectCode } from '../../../../lib/format'
@@ -83,10 +84,10 @@ function ViewerInner() {
       setBooklet(b)
 
       const paths = b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : [])
-      const isSol = (p) => /_solutions|_teacher|\.mt\./i.test(p || '')
       // Student copy by default; the solutions copy only via the time-gated
-      // ?copy=solutions path above.
-      const pool = paths.filter(p => wantSolutions ? isSol(p) : !isSol(p))
+      // ?copy=solutions path above. The revision quiz copy is never served
+      // here — it is staff-only (lib/bookletFiles).
+      const pool = paths.filter(p => wantSolutions ? isSolutionsPath(p) : !isStaffOnlyPath(p))
       const pick = pool[idx] || pool[0]
       if (!pick) { setErr(wantSolutions ? 'No solutions file is attached to this workbook.' : 'No workbook file has been attached yet.'); return }
       const { data: pub } = supabase.storage.from('booklets').getPublicUrl(pick)

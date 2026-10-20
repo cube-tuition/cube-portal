@@ -10,6 +10,7 @@ import CourseDetail, { inferSubject, subjectColor, subjectsMatch } from '../../.
 import { fetchAllTerms, getEnrolmentTerm, getCurrentTerm, weekOfTerm, solutionsUnlockAt, formatTermLabel, filterByTerm } from '../../../lib/terms'
 import { T_ATTENDANCE, T_QUIZ_RESULTS, T_RESULTS, T_STUDENTS } from '../../../lib/tables'
 import useChemModules from '../../../components/booklet/useChemModules'
+import { bookletPaths, isSolutionsPath, isStaffOnlyPath } from '../../../lib/bookletFiles'
 
 /*
  * One class — /classes/<id> (student portal)
@@ -122,14 +123,9 @@ export default function ClassPage() {
   // A printed workbook opens in a read-only viewer rather than as a file link,
   // so it can be read in class without handing the PDF over — and the solutions
   // copy is filtered out however the files happen to be ordered.
-  const studentPdfs = (b) => {
-    const paths = b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : [])
-    return paths.filter(p => !/_solutions|_teacher|\.mt\./i.test(p || ''))
-  }
-  const hasSolutionsPdf = (b) => {
-    const paths = b.file_paths?.length ? b.file_paths : (b.file_path ? [b.file_path] : [])
-    return paths.some(p => /_solutions|_teacher|\.mt\./i.test(p || ''))
-  }
+  // The revision quiz copy is staff-only too (lib/bookletFiles).
+  const studentPdfs = (b) => bookletPaths(b).filter(p => !isStaffOnlyPath(p))
+  const hasSolutionsPdf = (b) => bookletPaths(b).some(isSolutionsPath)
   // The solutions copy for week w unlocks once the NEXT lesson has finished —
   // one week after the week-w lesson, at lesson end time — so the homework due
   // in between can't be copied from the answers.

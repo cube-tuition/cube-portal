@@ -14,7 +14,8 @@ import { T_BOOKLET_BUILDS, T_BOOKLETS, T_QBANK_QUESTIONS, T_TERMS } from '../../
 const AUTO_IN_PROGRESS_BLOCKS = 5
 import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHtml, questionChunksHtml, BOOKLET_CSS, DEFAULT_LT_INSTRUCTIONS, DEFAULT_LT_TOTALS } from '../../../../../lib/bookletRender'
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
-import { bookletPdfName } from '../../../../../lib/bookletNaming'
+import { bookletPdfName, bookletQuizPdfName } from '../../../../../lib/bookletNaming'
+import { printPdf } from '../../../../../lib/printPdf'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
@@ -650,6 +651,20 @@ export default function BookletBuilderEditor() {
   }
   const closePreview = () => { if (preview?.url) URL.revokeObjectURL(preview.url); setPreview(null) }
 
+  // Print the revision quiz on its own, straight from the blocks as they are
+  // now — no publish, no download: the quiz is rendered and the browser's
+  // print dialog opens on it (lib/printPdf).
+  const hasQuiz = (bk?.blocks || []).some(b => b.section === 'revision')
+  const printQuiz = async () => {
+    setExporting(true)
+    try {
+      const res = await exportBookletPdf({ meta, blocks: bk.blocks, solutions: false, preview: true, part: 'quiz' })
+      await printPdf(res.blob)
+      URL.revokeObjectURL(res.url)
+    } catch (e) { alert('Could not print the quiz: ' + e.message) }
+    finally { setExporting(false) }
+  }
+
   /*
    * Publish: render both PDFs, upload to the booklets bucket, upsert a booklets
    * row (so it can be assigned to a class on the curriculum page), link it back.
@@ -684,9 +699,9 @@ export default function BookletBuilderEditor() {
       let fontEmbedCSS
       const subjectLower = (bk.subject || 'mathematics').toLowerCase()
       const stamp = `${Date.now()}_${Math.random().toString(36).slice(2)}`
-      const upload = async (solutions, tag, from, to) => {
+      const upload = async (solutions, tag, from, to, part = 'all') => {
         const res = await exportBookletPdf({
-          meta, blocks: bk.blocks, solutions, preview: true, fontEmbedCSS,
+          meta, blocks: bk.blocks, solutions, preview: true, fontEmbedCSS, part,
           onProgress: stageProgress(from, to - 0.04),
         })
         const { blob } = res
@@ -700,15 +715,20 @@ export default function BookletBuilderEditor() {
       }
       // Online workbooks are delivered as a typeable student doc — publishing
       // links them into the curriculum but renders no PDFs at all.
+      // The revision quiz is sat in class, so it is left out of the student
+      // copy and published as its own PDF (staff-only; printed from the
+      // class page on the day). The teacher copy stays whole, answers included.
       const isOnline = bk.delivery === 'online'
-      const studentPath = isOnline ? null : await upload(false, 'student', 0.04, 0.50)
-      const solutionsPath = isOnline ? null : await upload(true, 'solutions', 0.50, 0.94)
-      const filePaths = isOnline ? [] : [studentPath, solutionsPath]
-      // Name the two copies so student vs solutions (teacher) is clear in the
-      // curriculum, e.g. "5.MS. Algebra 1" and "5.MT. Algebra 1". Order matches
-      // filePaths (student, then solutions).
+      const withQuiz = !isOnline && hasQuiz
+      const studentPath = isOnline ? null : await upload(false, 'student', 0.04, withQuiz ? 0.40 : 0.50, withQuiz ? 'main' : 'all')
+      const solutionsPath = isOnline ? null : await upload(true, 'solutions', withQuiz ? 0.40 : 0.50, withQuiz ? 0.80 : 0.94)
+      const quizPath = withQuiz ? await upload(false, 'quiz', 0.80, 0.94, 'quiz') : null
+      const filePaths = isOnline ? [] : [studentPath, solutionsPath, ...(quizPath ? [quizPath] : [])]
+      // Name the copies so student vs solutions (teacher) vs quiz is clear in
+      // the curriculum, e.g. "5.MS. Algebra 1", "5.MT. Algebra 1" and
+      // "5.MS. Algebra 1 — Revision Quiz". Order matches filePaths.
       const meta2 = { year: bk.year, subject: bk.subject, title: bk.title }
-      const pdfFilenames = isOnline ? [] : [bookletPdfName(meta2, 'S'), bookletPdfName(meta2, 'T')]
+      const pdfFilenames = isOnline ? [] : [bookletPdfName(meta2, 'S'), bookletPdfName(meta2, 'T'), ...(quizPath ? [bookletQuizPdfName(meta2)] : [])]
       const payload = {
         booklet_name: bk.title, year: Number(bk.year), subject: bk.subject,
         topic: bk.topic || null,
@@ -1075,6 +1095,10 @@ export default function BookletBuilderEditor() {
           </button>
           <button onClick={() => openExport(false)} disabled={exporting} className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Student PDF</button>
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
+          {hasQuiz && !isExamStyle && (
+            <button onClick={printQuiz} disabled={exporting} title="Print the revision quiz on its own, without downloading anything"
+              className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">🖨 Print quiz</button>
+          )}
           {/* Workbooks only — a pre-test / level test has no place in the
               workbook database, so it isn't offered the button. */}
           {!isExamStyle && (

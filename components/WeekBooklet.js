@@ -2,7 +2,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { T_CLASS_BOOKLETS } from '../lib/tables'
-import { bookletPdfName } from '../lib/bookletNaming'
+import { bookletPdfName, bookletQuizPdfName } from '../lib/bookletNaming'
+import { isQuizPath, isSolutionsPath } from '../lib/bookletFiles'
+import { printPdf } from '../lib/printPdf'
 import ExamPdfButtons from './ExamPdfButtons'
 import WorkbookFeedback from './WorkbookFeedback'
 
@@ -45,6 +47,14 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
   }
   const [viewLabel,    setViewLabel]    = useState('')
   const [viewLoading,  setViewLoading]  = useState(null)    // index being loaded
+  // Print a curriculum PDF straight to the print dialog — the revision quiz on
+  // lesson day, without opening or downloading it first (lib/printPdf).
+  const [printing,     setPrinting]     = useState(null)    // path being printed
+  const printPath = async (url, path) => {
+    setPrinting(path)
+    try { await printPdf(url, { onDone: () => setPrinting(null) }) }
+    catch { setPrinting(null); alert('Could not print this PDF. Open it with View and print from there.') }
+  }
 
   // Delete state
   const [deleting,     setDeleting]     = useState(false)
@@ -328,9 +338,11 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
     const pdfNameFor = (path, i) => {
       if (names[i]) return names[i]
       const p = (path || '').toLowerCase()
-      const role = /_solutions|_teacher|\.mt\./.test(p) ? 'T'
+      const nm = { year: ab.year, subject: ab.subject, title: ab.booklet_name }
+      if (ab.year && isQuizPath(p)) return bookletQuizPdfName(nm)
+      const role = isSolutionsPath(p) ? 'T'
         : /_student|\.ms\./.test(p) ? 'S' : ''
-      if (ab.year && role) return bookletPdfName({ year: ab.year, subject: ab.subject, title: ab.booklet_name }, role)
+      if (ab.year && role) return bookletPdfName(nm, role)
       return ab.booklet_name || `Part ${i + 1}`
     }
 
@@ -375,17 +387,29 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
               const pdfLabel = pdfNameFor(path, i)
               const { data: urlData } = supabase.storage.from('booklets').getPublicUrl(path)
               const url = urlData?.publicUrl
+              const quiz = isQuizPath(path)
               return (
                 <div key={path} className="px-5 md:px-6 py-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-9 h-9 rounded-xl bg-[#FEE2E2] text-[#991B1B] flex items-center justify-center text-xs font-bold shrink-0">PDF</span>
-                    <p className="text-sm font-semibold text-[#2A2035] truncate">{pdfLabel}</p>
+                    <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 ${quiz ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-[#FEE2E2] text-[#991B1B]'}`}>{quiz ? 'QZ' : 'PDF'}</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#2A2035] truncate">{pdfLabel}</p>
+                      {quiz && <p className="text-[11px] text-[#2A2035]/50">Revision quiz · staff only — print it for the class</p>}
+                    </div>
                   </div>
                   {url && (
-                    <a href={url} target="_blank" rel="noopener noreferrer"
-                      className="text-xs font-semibold bg-[#325099] text-white px-5 py-2 rounded-full hover:bg-[#062E63] transition shrink-0">
-                      View →
-                    </a>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!readOnly && (
+                        <button onClick={() => printPath(url, path)} disabled={printing === path} title="Print without downloading"
+                          className={`text-xs font-semibold px-4 py-2 rounded-full transition disabled:opacity-60 ${quiz ? 'bg-[#92400E] text-white hover:bg-[#78350F]' : 'text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
+                          {printing === path ? 'Printing…' : '🖨 Print'}
+                        </button>
+                      )}
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs font-semibold bg-[#325099] text-white px-5 py-2 rounded-full hover:bg-[#062E63] transition">
+                        View →
+                      </a>
+                    </div>
                   )}
                 </div>
               )
