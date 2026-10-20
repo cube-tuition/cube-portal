@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 
 /*
  * ActionCentre — "what needs my attention" boxes for directors, shown at the
- * top of /tutor. One card per category (Operations, Uncontacted, …); each card
+ * top of /tutor. One card per category (Operations, Emails, …); each card
  * has its own severity summary and all-clear state. Self-gating: renders
  * nothing for tutors.
  *
@@ -28,7 +28,6 @@ const SECTIONS = [
   { id: 'Todo:Ryan',  icon: '☑️', title: 'Ryan’s to-do', clearText: 'Nothing on Ryan’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
   { id: 'Todo:Aiden', icon: '☑️', title: 'Aiden’s to-do', clearText: 'Nothing on Aiden’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
   { id: 'Operations', icon: '⚙️', title: 'Operations' },
-  { id: 'Uncontacted', icon: '📞', title: 'Uncontacted', clearText: 'Everyone has been contacted — new enquiries, absences and form sign-ups land here.' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
   { id: 'System',     icon: '🩺', title: 'System', clearText: 'All clear at this morning\u2019s check — jobs, invoice queue and crashes.' },
 ]
