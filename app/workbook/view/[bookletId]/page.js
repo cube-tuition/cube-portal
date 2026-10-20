@@ -1,9 +1,8 @@
 'use client'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { isSolutionsPath, isStaffOnlyPath } from '../../../../lib/bookletFiles'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
-import { subjectCode } from '../../../../lib/format'
 import { requireStudent } from '../../../../lib/requireStudent'
 import { solutionsUnlockAt } from '../../../../lib/terms'
 import { studentClassAccess, weekOpen } from '../../../../lib/classAccess'
@@ -96,11 +95,9 @@ function ViewerInner() {
     })()
   }, [bookletId, classId, idx, wantSolutions, router])
 
-  const title = useMemo(() => {
-    if (!booklet) return ''
-    const code = subjectCode(booklet.subject)
-    return `${booklet.year ? `${booklet.year}.${code}. ` : ''}${booklet.booklet_name}`
-  }, [booklet])
+  // Just the booklet's name — no "8.E." year code: a class can be set another
+  // year's booklet (Year 9 on a Year 8 one), and students shouldn't see that.
+  const title = booklet?.booklet_name || ''
 
   if (err) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center px-6"><p className="text-sm text-[#B23A3A] text-center max-w-md">{err}</p></div>
   if (!url) return <div className="min-h-screen bg-[#F8FAFF] flex items-center justify-center text-sm text-[#2A2035]/40 animate-pulse">Loading…</div>

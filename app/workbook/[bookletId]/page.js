@@ -1,8 +1,7 @@
 'use client'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
-import { subjectCode } from '../../../lib/format'
 import { requireStudent } from '../../../lib/requireStudent'
 import { studentClassAccess, weekOpen } from '../../../lib/classAccess'
 import PortalNav from '../../../components/PortalNav'
@@ -72,11 +71,9 @@ function StudentWorkbookInner() {
     })()
   }, [bookletId, classId, router])
 
-  const title = useMemo(() => {
-    if (!booklet) return ''
-    const code = subjectCode(booklet.subject)
-    return `${booklet.year ? `${booklet.year}.${code}. ` : ''}${booklet.booklet_name}`
-  }, [booklet])
+  // Just the booklet's name — no "8.E." year code: a class can be set another
+  // year's booklet (Year 9 on a Year 8 one), and students shouldn't see that.
+  const title = booklet?.booklet_name || ''
 
   if (err) return (
     <div className="min-h-screen bg-[#F8FAFF]">
