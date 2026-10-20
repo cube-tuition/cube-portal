@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TutorNav from '@/components/TutorNav'
 import { getAuthProfile } from '@/lib/getProfile'
-import { getCurrentTerm, normaliseTerms } from '@/lib/terms'
+import { getCurrentTerm, isHolidayTerm, normaliseTerms } from '@/lib/terms'
 import { classesForTerm } from '@/lib/classes'
 import { TAX_RATE, cashStudentIdsFrom, classMetricsFor, termSummary } from '@/lib/termFinance'
 import { SUPER_RATE } from '@/lib/teacherCost'
@@ -508,9 +508,12 @@ export default function ForecastPage() {
         revenue: Math.round(byTerm[t.id].revenue),
         enrolments: byTerm[t.id].enrolments,
         current: t.id === termId,
+        holiday: isHolidayTerm(t),
       }))
     const idx = chronological.findIndex(t => t.current)
-    const prev = idx > 0 ? chronological[idx - 1] : null
+    // Like for like: a term against the previous term, a holiday period against
+    // the previous holiday period — never a term against the holidays before it.
+    const prev = idx > 0 ? chronological.slice(0, idx).reverse().find(t => t.holiday === chronological[idx].holiday) || null : null
     const cur  = idx >= 0 ? chronological[idx] : null
     return { rows: chronological, prev, cur }
   }, [historyEnrols, terms, termId])
