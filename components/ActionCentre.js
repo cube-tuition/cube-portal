@@ -25,6 +25,8 @@ const DISMISS_KEY = 'action_centre_dismissed'
 const itemKey = (item) => `${item.section ?? 'Operations'}|${item.label}|${item.count}`
 
 const SECTIONS = [
+  { id: 'Todo:Ryan',  icon: '☑️', title: 'Ryan’s to-do', clearText: 'Nothing on Ryan’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
+  { id: 'Todo:Aiden', icon: '☑️', title: 'Aiden’s to-do', clearText: 'Nothing on Aiden’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
   { id: 'Operations', icon: '⚙️', title: 'Operations' },
   { id: 'Uncontacted', icon: '📞', title: 'Uncontacted', clearText: 'Everyone has been contacted — new enquiries, absences and form sign-ups land here.' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
@@ -43,7 +45,10 @@ function SectionCard({ section, items, loading, onDone, onDismiss, isDismissed }
   return (
     <div className={`bg-white rounded-2xl border overflow-hidden flex flex-col h-72 ${reds ? 'border-rose-200' : 'border-[#DEE7FF]'}`}>
       <div className={`flex items-center justify-between px-4 py-3 ${reds ? 'bg-rose-50/60' : 'bg-[#F8FAFF]'} border-b border-[#F0F4FF]`}>
-        <p className="text-xs font-bold text-[#062E63]">{section.icon} {section.title}</p>
+        <p className="text-xs font-bold text-[#062E63]">
+          {section.icon} {section.title}
+          {section.addHref && <Link href={section.addHref} className="ml-2 text-[10px] font-semibold text-[#325099]/60 hover:text-[#325099]">+ Add</Link>}
+        </p>
         {reds > 0
           ? <span className="text-[9px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full">{reds} act now</span>
           : clear
@@ -72,7 +77,7 @@ function SectionCard({ section, items, loading, onDone, onDismiss, isDismissed }
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDone(item.done) }}
                   className="text-[10px] font-bold text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-1 rounded-full hover:bg-emerald-100 transition shrink-0"
-                  title="Mark as sent — hides this for the rest of the term"
+                  title={item.done.taskId ? 'Tick off — marks it done on the Work page too' : 'Mark as sent — hides this for the rest of the term'}
                 >✓ Done</button>
               )}
               <span className="text-[#325099] text-xs shrink-0 opacity-0 group-hover:opacity-100 transition max-md:hidden">{item.done ? 'Open →' : 'Fix →'}</span>
@@ -203,7 +208,12 @@ export default function ActionCentre({ authorized }) {
             onDismiss={toggleDismiss}
             isDismissed={isDismissed}
             onDone={async (d) => {
-              if (d?.termId) { await markCadenceDone(d.termId, d.rowKey); load() }
+              if (d?.taskId) {
+                const { error: e } = await supabase.from('ops_tasks').update({ status: 'done', done_at: new Date().toISOString() }).eq('id', d.taskId)
+                if (e) setError(`Could not tick off the task: ${e.message}`)
+                load()
+              }
+              else if (d?.termId) { await markCadenceDone(d.termId, d.rowKey); load() }
             }}
           />
         ))}
