@@ -80,7 +80,9 @@ create table public.classes (
   course_id integer,
   source_class_id integer,
   status text default 'active'::text not null,
+  materials_owner text,
   constraint classes_pkey PRIMARY KEY (id),
+  constraint classes_materials_owner_check CHECK ((materials_owner = ANY (ARRAY['Ryan'::text, 'Aiden'::text]))),
   constraint classes_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
 );
 

@@ -8,6 +8,7 @@ import TutorNav from '../../../../components/TutorNav'
 import { daysUntil } from '../../../../lib/complianceDates'
 import { htmlToText } from '../../../../lib/richNotes'
 import { authedFetch } from '../../../../lib/authedFetch'
+import MaterialsOwners from '../../../../components/work/MaterialsOwners'
 
 /*
  * Every kind of push the directors' phones get — one line each. Kept by hand:
@@ -30,7 +31,8 @@ const NOTIFICATION_TYPES = [
  * Work — /tutor/admin/work (directors only)
  *
  * The directors' work centre: the running to-do between Ryan and Aiden
- * (ops_tasks — add, assign, tick off) and CUBE notes (work_notes).
+ * (ops_tasks — add, assign, tick off), who prepares each class's materials
+ * (classes.materials_owner) and CUBE notes (work_notes).
  * Compliance due dates live on the Accounting dashboard, not here.
  */
 
@@ -168,7 +170,7 @@ export default function WorkPage() {
 
         <div>
           <h1 className="text-2xl font-bold text-[#062E63]">Operations</h1>
-          <p className="text-sm text-[#325099]/60 mt-0.5">The running to-do between directors, and CUBE notes</p>
+          <p className="text-sm text-[#325099]/60 mt-0.5">The running to-do between directors, who does which class’s materials, and CUBE notes</p>
         </div>
 
         {error && (
@@ -277,6 +279,9 @@ export default function WorkPage() {
             </div>
           )}
         </div>
+
+        {/* ── Materials — who prepares each class's (classes.materials_owner) ── */}
+        <MaterialsOwners />
 
         {/* ── CUBE notes (work_notes) — each opens as its own document page ── */}
         <div className="bg-white border border-[#DEE7FF] rounded-2xl p-5 space-y-4">
