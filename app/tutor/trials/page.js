@@ -16,6 +16,7 @@ import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
 import LevelTestInvitationModal from '../../../components/trials/LevelTestInvitationModal'
 import PipelineFlow from '../../../components/trials/PipelineFlow'
+import { nextStep, ACTION_BUTTON } from '../../../lib/trialNextStep'
 import { earliestTrialStart, trialDatesFor } from '../../../lib/trialDates'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
@@ -112,7 +113,10 @@ const STAGES = [
   { id: 'new',             label: 'New',             color: 'bg-amber-100 text-amber-800 border-amber-200',   dot: 'bg-amber-400' },
   { id: 'contacted',       label: 'Contacted',        color: 'bg-blue-100 text-blue-800 border-blue-200',      dot: 'bg-blue-400'  },
   { id: 'trial_scheduled', label: 'Trial Scheduled',  color: 'bg-purple-100 text-purple-800 border-purple-200', dot: 'bg-purple-400' },
-  { id: 'trial_completed', label: 'Trial Completed',  color: 'bg-indigo-100 text-indigo-800 border-indigo-200', dot: 'bg-indigo-400' },
+  // The two trial lessons. Each moves on by itself when the tutor marks the
+  // roll with trial feedback (migrations/20261020_trial_lesson_progress.sql).
+  { id: 'trial_1_completed', label: 'Trial 1/2 Completed', color: 'bg-violet-100 text-violet-800 border-violet-200', dot: 'bg-violet-400' },
+  { id: 'trial_completed', label: 'Trial 2/2 Completed',  color: 'bg-indigo-100 text-indigo-800 border-indigo-200', dot: 'bg-indigo-400' },
   // Paused by the family ("we'll hold off for now"): off the active list and
   // the nudges, trial enrolment ended, reopened by setting another stage.
   { id: 'on_hold',         label: 'On hold',          color: 'bg-slate-100 text-slate-600 border-slate-300',    dot: 'bg-slate-400' },
@@ -644,9 +648,14 @@ function StudentDetails({ sub, subs, status, students, onUpdate, grouped = false
   )
 }
 
+// The button that is the card's next step (lib/trialNextStep) — the same amber
+// as the 'Next' pill on the card's top line.
+const NEXT_BTN = 'ring-2 ring-amber-400 ring-offset-1 bg-amber-50 border-amber-400 text-[#7A4B00] shadow-[0_0_0_4px_rgba(251,191,36,0.18)]'
+const NextTag = () => <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wider text-amber-700">next</span>
+
 // One subject's trial: its class, first lesson, reminder and feedback emails,
 // and Convert / Drop. `familyButtons` sits in the same row on a one-subject card.
-function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOutcomeEmail, familyButtons = null }) {
+function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOutcomeEmail, familyButtons = null, hl = [] }) {
   const [confirmAction, setConfirmAction] = useState(null) // 'convert' | 'drop' | null
   const stage = STAGE_MAP[sub.status] || STAGE_MAP.new
   return (
@@ -740,7 +749,7 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
             onReload()
           })
         }}
-        className="text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099]"
+        className={`text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099] ${hl.includes('assign') ? NEXT_BTN : ''}`}
       >
         <option value="">Assign a class…</option>
         {classes.map(c => (
@@ -781,21 +790,23 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
         <>
           <button
             onClick={() => onOutcomeEmail('lesson1')}
-            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+            className={`text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition ${hl.includes('lesson1') ? NEXT_BTN : ''}`}
             title={sub.lesson1_feedback_sent_at
               ? `Lesson 1 feedback emailed ${fmtDate(sub.lesson1_feedback_sent_at)} — compose and send again`
               : 'Email the family the first trial lesson’s feedback, with the next lesson’s date'}
           >
             {sub.lesson1_feedback_sent_at ? '✉ Resend lesson 1 feedback' : '✉ Lesson 1 feedback'}
+            {hl.includes('lesson1') && <NextTag />}
           </button>
           <button
             onClick={() => onOutcomeEmail('outcome')}
-            className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+            className={`text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition ${hl.includes('outcome') ? NEXT_BTN : ''}`}
             title={sub.outcome_sent_at
               ? `Trial outcome emailed ${fmtDate(sub.outcome_sent_at)} — compose and send again`
               : 'Email the second trial lesson’s feedback and how to continue'}
           >
             {sub.outcome_sent_at ? '✉ Resend outcome' : '✉ Trial outcome'}
+            {hl.includes('outcome') && <NextTag />}
           </button>
         </>
       )}
@@ -824,16 +835,17 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
           <>
             <button
               onClick={() => setConfirmAction('convert')}
-              className="text-xs font-semibold bg-emerald-600 text-white px-4 py-1.5 rounded-full hover:bg-emerald-700 transition"
+              className={`text-xs font-semibold bg-emerald-600 text-white px-4 py-1.5 rounded-full hover:bg-emerald-700 transition ${hl.includes('decide') ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
             >
               Convert
             </button>
             <button
               onClick={() => setConfirmAction('drop')}
-              className="text-xs font-semibold text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full hover:border-gray-400 transition"
+              className={`text-xs font-semibold text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full hover:border-gray-400 transition ${hl.includes('decide') ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
             >
               Drop
             </button>
+            {hl.includes('decide') && <NextTag />}
           </>
         )
       )}
@@ -849,7 +861,7 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
 }
 
 // The invitation and the level test invitation: first contact with the family.
-function FamilyButtons({ sub, status, onInvitationEmail, onLevelTestInvitation }) {
+function FamilyButtons({ sub, status, onInvitationEmail, onLevelTestInvitation, hl = [] }) {
   return (
     <>
       {/* Trial invitation — the FIRST email: welcome + a proposed trial
@@ -858,12 +870,13 @@ function FamilyButtons({ sub, status, onInvitationEmail, onLevelTestInvitation }
       {!['enrolled', 'declined'].includes(status) && (
         <button
           onClick={onInvitationEmail}
-          className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+          className={`text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition ${hl.includes('invitation') ? NEXT_BTN : ''}`}
           title={sub.invitation_sent_at
             ? `Already emailed ${fmtDate(sub.invitation_sent_at)} — compose and send again`
             : 'Compose the trial invitation — welcome, suggested class and trial date'}
         >
           {sub.invitation_sent_at ? '✉ Resend invitation' : '✉ Trial invitation'}
+          {hl.includes('invitation') && <NextTag />}
         </button>
       )}
 
@@ -872,12 +885,13 @@ function FamilyButtons({ sub, status, onInvitationEmail, onLevelTestInvitation }
       {!['enrolled', 'declined'].includes(status) && (
         <button
           onClick={onLevelTestInvitation}
-          className="text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition"
+          className={`text-xs font-semibold text-[#325099] border border-[#DEE7FF] px-4 py-1.5 rounded-full hover:border-[#325099] transition ${hl.includes('level_test') ? NEXT_BTN : ''}`}
           title={sub.level_test_invitation_sent_at
             ? `Already emailed ${fmtDate(sub.level_test_invitation_sent_at)} — change the times and send again`
             : 'Invite them to sit a level test first — suggested times, booked from a form'}
         >
           {sub.level_test_invitation_sent_at ? '✉ Resend level test invitation' : '✉ Level test invitation'}
+          {hl.includes('level_test') && <NextTag />}
         </button>
       )}
 
@@ -885,7 +899,40 @@ function FamilyButtons({ sub, status, onInvitationEmail, onLevelTestInvitation }
   )
 }
 
-function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onToggle, children }) {
+// The buttons inside the card that a step points at.
+const hlFor = (step) => (!step?.key ? [] : step.key === 'first' ? ['invitation', 'level_test'] : [ACTION_BUTTON[step.key]].filter(Boolean))
+const NEXT_PILL = 'text-[11px] font-bold text-[#5C3900] bg-amber-300 hover:bg-amber-400 border border-amber-400 px-2.5 py-0.5 rounded-full shadow-sm transition'
+// The card's next step (lib/trialNextStep), on its top line: an amber pill that
+// does the thing, or a grey line saying what it's waiting for. `items` holds one
+// step per subject; `onAct(key, sub)` runs a step.
+function NextStepLine({ items, onAct }) {
+  const actions = items.filter(i => i.step?.key)
+  const waits = items.filter(i => i.step?.wait)
+  if (!actions.length && !waits.length) return null
+  return (
+    <div className="mt-1.5 flex items-center gap-x-2 gap-y-1 flex-wrap">
+      {actions.length > 0 && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Next</span>}
+      {actions.map(({ step, prefix, sub }, i) => (
+        <span key={`a${i}`} className="inline-flex items-center gap-1.5">
+          {step.key === 'lt_results'
+            ? <Link href="/tutor/admin/monitoring/level-tests" className={NEXT_PILL} title="Mark the level test and email the report from Monitoring → Level tests">{prefix}{step.label} →</Link>
+            : <button onClick={() => onAct(step.key, sub)} className={NEXT_PILL}>{prefix}{step.label}</button>}
+          {step.key === 'first' && (
+            <>
+              <span className="text-[10px] text-[#2A2035]/45">or</span>
+              <button onClick={() => onAct('level_test', sub)} className={NEXT_PILL}>✉ Level test invitation</button>
+            </>
+          )}
+        </span>
+      ))}
+      {waits.map(({ step, prefix }, i) => (
+        <span key={`w${i}`} className="text-[11px] italic text-[#2A2035]/45">⏳ {prefix}{step.wait}</span>
+      ))}
+    </div>
+  )
+}
+
+function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onToggle, children, next = null }) {
   return (
     <div className="px-4 py-3 flex items-start justify-between gap-2">
       <div className="flex-1 min-w-0">
@@ -903,6 +950,7 @@ function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onTo
           {sub.parent_email && <a href={'mailto:' + sub.parent_email} className="mr-2 hover:underline text-blue-600">{sub.parent_email}</a>}
           {sub.parent_phone && <a href={'tel:' + sub.parent_phone} className="hover:underline">{sub.parent_phone}</a>}
         </p>
+        {next}
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {sub.how_heard && (
@@ -925,6 +973,15 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
   const age   = daysSince(sub.submitted_at)
   const stale = ['new', 'contacted'].includes(sub.status) && age > 7
   const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
+  const step = nextStep(sub, isoDate(new Date()))
+  const hl = hlFor(step)
+  const act = (key) => {
+    if (key === 'first' || key === 'invitation') onInvitationEmail()
+    else if (key === 'level_test') onLevelTestInvitation()
+    else if (key === 'lesson1') onOutcomeEmail('lesson1')
+    else if (key === 'outcome') onOutcomeEmail('outcome')
+    else setExpanded(true)   // assign a class, convert or drop: open the card
+  }
 
   return (
     <div className={`bg-white border rounded-xl overflow-hidden transition ${stale ? 'border-amber-300 shadow-amber-100 shadow-sm' : 'border-[#DEE7FF]'}`}>
@@ -933,6 +990,7 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
         subjects={subjects !== '—' && <span className="text-[11px] text-[#325099]/60">{subjects}</span>}
         onStage={next => (next === 'on_hold' ? setHolding(true) : setStage([sub], next, onUpdate))}
         expanded={expanded} onToggle={() => setExpanded(e => !e)}
+        next={<NextStepLine items={[{ step, prefix: '', sub }]} onAct={act} />}
       >
         {sub.status === 'on_hold' && <HoldBadge sub={sub} onClick={() => setHolding(true)} />}
         <FamilyBadges sub={sub} />
@@ -946,8 +1004,8 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
           <div className="pt-1 border-t border-[#DEE7FF]">
             <SubjectActions
               sub={sub} classes={classes} onUpdate={onUpdate} onReload={onReload} onConvertDrop={onConvertDrop}
-              onOutcomeEmail={onOutcomeEmail}
-              familyButtons={<FamilyButtons sub={sub} status={sub.status} onInvitationEmail={onInvitationEmail} onLevelTestInvitation={onLevelTestInvitation} />}
+              onOutcomeEmail={onOutcomeEmail} hl={hl}
+              familyButtons={<FamilyButtons sub={sub} status={sub.status} onInvitationEmail={onInvitationEmail} onLevelTestInvitation={onLevelTestInvitation} hl={hl} />}
             />
           </div>
         </div>
@@ -992,6 +1050,31 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
   }
   const active = subs.find(s => s.id === tab) || subs[0]
   const className = (id) => classes.find(c => c.id === id)?.class_name
+  // Each subject's next step. The family's first emails (invitation, level
+  // test) are one thing to do for the student, so they show once, unprefixed;
+  // the trial's own steps are per subject ("Maths: ✉ Lesson 1 feedback").
+  const today = isoDate(new Date())
+  const FAMILY_KEYS = ['first', 'invitation', 'level_test', 'lt_results']
+  const stepOf = Object.fromEntries(subs.map(s => [s.id, nextStep(s, today)]))
+  const seen = new Set()
+  const items = subs.flatMap(s => {
+    const step = stepOf[s.id]
+    if (!step) return []
+    const familyLevel = FAMILY_KEYS.includes(step.key) || /level test/i.test(step.wait || '')
+    const sig = familyLevel ? (step.key || step.wait) : `${s.id}`
+    if (seen.has(sig)) return []
+    seen.add(sig)
+    return [{ step, sub: s, prefix: familyLevel ? '' : `${subjectLabel(s)}: ` }]
+  })
+  const familyHl = [...new Set(items.filter(i => FAMILY_KEYS.includes(i.step.key)).flatMap(i => hlFor(i.step)))]
+  const openSub = subs.find(s => !['enrolled', 'declined'].includes(s.status)) || first
+  const act = (key, s) => {
+    if (key === 'first' || key === 'invitation') onInvitationEmail(openSub)
+    else if (key === 'level_test') onLevelTestInvitation(openSub)
+    else if (key === 'lesson1') onOutcomeEmail(s, 'lesson1')
+    else if (key === 'outcome') onOutcomeEmail(s, 'outcome')
+    else { setTab(s.id); setExpanded(true) }   // assign a class, convert or drop
+  }
 
   return (
     <div className={`bg-white border rounded-xl overflow-hidden transition ${stale ? 'border-amber-300 shadow-amber-100 shadow-sm' : 'border-[#DEE7FF]'}`}>
@@ -1010,6 +1093,7 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
         })}
         onStage={next => (next === 'on_hold' ? setHolding(true) : setStage(subs, next, onUpdate))}
         expanded={expanded} onToggle={() => setExpanded(e => !e)}
+        next={<NextStepLine items={items} onAct={act} />}
       >
         {status === 'on_hold' && <HoldBadge sub={subs.find(s => s.status === 'on_hold')} onClick={() => setHolding(true)} />}
         <FamilyBadges sub={family} />
@@ -1020,9 +1104,9 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
         <div className="border-t border-[#DEE7FF] px-4 py-3 space-y-3 bg-[#F8FAFF]">
           <StudentDetails sub={family} subs={subs} status={status} students={students} onUpdate={onUpdate} grouped />
           <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-[#DEE7FF]">
-            <FamilyButtons sub={family} status={status}
-              onInvitationEmail={() => onInvitationEmail(subs.find(s => !['enrolled', 'declined'].includes(s.status)) || first)}
-              onLevelTestInvitation={() => onLevelTestInvitation(subs.find(s => !['enrolled', 'declined'].includes(s.status)) || first)} />
+            <FamilyButtons sub={family} status={status} hl={familyHl}
+              onInvitationEmail={() => onInvitationEmail(openSub)}
+              onLevelTestInvitation={() => onLevelTestInvitation(openSub)} />
           </div>
 
           {/* A tab per subject: its own class, trial dates, emails and outcome. */}
@@ -1037,6 +1121,8 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
                     <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
                     {subjectLabel(s)}
                     {['enrolled', 'declined'].includes(s.status) && <span className={`text-[9px] font-semibold border px-1.5 py-px rounded-full ${st.color}`}>{st.label}</span>}
+                    {/* this subject has something to do */}
+                    {stepOf[s.id]?.key && !FAMILY_KEYS.includes(stepOf[s.id].key) && <span className="w-2 h-2 rounded-full bg-amber-400" title={`Next: ${stepOf[s.id].label}`} />}
                   </button>
                 )
               })}
@@ -1050,6 +1136,7 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
                 key={active.id}
                 sub={active} classes={classes} onUpdate={onUpdate} onReload={onReload} onConvertDrop={onConvertDrop}
                 onOutcomeEmail={(stage) => onOutcomeEmail(active, stage)}
+                hl={hlFor(stepOf[active.id]).filter(k => !['invitation', 'level_test'].includes(k))}
               />
             </div>
           </div>
@@ -1224,6 +1311,17 @@ export default function TrialsPage() {
       const row = trialRows.find(r => r.student_id === s.converted_student_id && r.class_id === s.trial_class_id)
       s._trialStart = row?.trial_start_date || null
     }
+    // …and both trial lesson dates, for the card's "waiting for lesson 2 · Sat 31 Oct".
+    const trialClassIds = [...new Set(merged.map(s => s.trial_class_id).filter(c => c != null))]
+    if (trialClassIds.length) {
+      const { data: tl } = await supabase.from('lessons').select('class_id, lesson_date')
+        .in('class_id', trialClassIds).eq('is_makeup', false).neq('status', 'cancelled').order('lesson_date')
+      const datesByClass = {}
+      for (const l of tl || []) (datesByClass[l.class_id] ||= []).push(l.lesson_date)
+      for (const s of merged) {
+        s._trialDates = s.trial_class_id != null ? trialDatesFor([...new Set(datesByClass[s.trial_class_id] || [])], s._trialStart) : []
+      }
+    }
     // Trial lesson progress per student. A trial runs per SUBJECT — someone
     // trialling Maths and English sits two sets of lessons — so progress is
     // counted per class and reported as the least-advanced one. Summing rows
@@ -1267,13 +1365,14 @@ export default function TrialsPage() {
     // Level test invitations: the family's answer on their form — the booked
     // test, or the times they gave when none suited.
     const { data: invites } = await supabase.from('level_test_invites')
-      .select('submission_id, lesson_id, parent_note, responded_at, lessons:lesson_id(lesson_date, start_time, end_time)')
+      .select('submission_id, lesson_id, parent_note, responded_at, lessons:lesson_id(lesson_date, start_time, end_time, report_emailed_at)')
     const inviteBySub = Object.fromEntries((invites || []).map(i => [i.submission_id, i]))
     for (const s of merged) {
       const i = inviteBySub[s.id]
       s._levelTest = i ? {
         booked: i.lessons ? { date: i.lessons.lesson_date, start: String(i.lessons.start_time || '').slice(0, 5) } : null,
         note: i.responded_at && !i.lessons ? (i.parent_note || '') : '',
+        reportSent: !!i.lessons?.report_emailed_at,
       } : null
     }
 

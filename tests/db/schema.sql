@@ -532,7 +532,7 @@ create table public.trial_submissions (
   hold_until date,
   hold_notified_at timestamp with time zone,
   constraint trial_submissions_pkey PRIMARY KEY (id),
-  constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_completed'::text, 'on_hold'::text, 'enrolled'::text, 'declined'::text])))
+  constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_1_completed'::text, 'trial_completed'::text, 'on_hold'::text, 'enrolled'::text, 'declined'::text])))
 );
 
 create table public.qbank_topics (

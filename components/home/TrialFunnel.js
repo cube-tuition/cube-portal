@@ -50,7 +50,9 @@ export default function TrialFunnel() {
 
   const now = new Date()
   const counts = Object.fromEntries(STAGES.map(s => [s.key, 0]))
-  for (const r of rows) if (counts[r.status] !== undefined) counts[r.status]++
+  // A trial under way counts as booked, whichever lesson it is up to.
+  const bucket = (st) => (['trial_1_completed', 'trial_completed'].includes(st) ? 'trial_scheduled' : st)
+  for (const r of rows) if (counts[bucket(r.status)] !== undefined) counts[bucket(r.status)]++
   const maxCount = Math.max(1, ...STAGES.map(s => counts[s.key]))
 
   // Follow-ups overdue: new (>2 days, never contacted) or contacted (>3 days, still stuck).

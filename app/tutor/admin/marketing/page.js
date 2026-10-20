@@ -188,8 +188,8 @@ export default function MarketingPage() {
   const inScope = trials
   const funnel = useMemo(() => {
     const enquired  = inScope.length
-    const contacted = inScope.filter(t => t.contacted_at || ['contacted', 'trial_scheduled', 'enrolled', 'declined'].includes(t.status)).length
-    const trialled  = inScope.filter(t => t.trial_date || ['trial_scheduled', 'enrolled'].includes(t.status)).length
+    const contacted = inScope.filter(t => t.contacted_at || ['contacted', 'trial_scheduled', 'trial_1_completed', 'trial_completed', 'on_hold', 'enrolled', 'declined'].includes(t.status)).length
+    const trialled  = inScope.filter(t => t.trial_date || ['trial_scheduled', 'trial_1_completed', 'trial_completed', 'enrolled'].includes(t.status)).length
     const enrolled  = inScope.filter(t => t.status === 'enrolled' || t.converted_student_id).length
     const referred  = inScope.filter(t => t.referred_by || /referr/i.test(t.how_heard || '')).length
     return { enquired, contacted, trialled, enrolled, referred }

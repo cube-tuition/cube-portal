@@ -125,11 +125,11 @@ export default function PipelineFlow({ collapsible = true }) {
               <Arrow points={[[990, mid2], [1060, mid2], [1060, row2 - 14], [r2[0] + W / 2, row2 - 14], [r2[0] + W / 2, row2 - 2]]} />
               <Node x={r2[0]} y={row2} kind="email" lines={['Trial lesson reminder']} caption="Automatic · 24h before lesson 1" auto />
               <Arrow points={[[r2[0] + W, row2 + H / 2], [r2[1], row2 + H / 2]]} />
-              <Node x={r2[1]} y={row2} kind="lesson" lines={['Trial lesson 1', '1/2']} caption="Tutor marks the roll" />
+              <Node x={r2[1]} y={row2} kind="lesson" lines={['Trial lesson 1', '1/2']} caption="→ Trial 1/2 completed" />
               <Arrow points={[[r2[1] + W, row2 + H / 2], [r2[2], row2 + H / 2]]} />
               <Node x={r2[2]} y={row2} kind="email" lines={['Lesson 1 feedback']} caption="Trial card" />
               <Arrow points={[[r2[2] + W, row2 + H / 2], [r2[3], row2 + H / 2]]} />
-              <Node x={r2[3]} y={row2} kind="lesson" lines={['Trial lesson 2', '2/2']} caption="⚡ Reminder 24h before · → Trial completed" />
+              <Node x={r2[3]} y={row2} kind="lesson" lines={['Trial lesson 2', '2/2']} caption="⚡ Reminder · → Trial 2/2 completed" />
               <Arrow points={[[r2[3] + W, row2 + H / 2], [r2[4], row2 + H / 2]]} />
               <Node x={r2[4]} y={row2} kind="email" lines={['Trial outcome']} caption="Trial card" />
               <Arrow points={[[r2[4] + W, row2 + H / 2], [r2[5], row2 + H / 2]]} />
