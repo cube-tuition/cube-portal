@@ -353,8 +353,12 @@ function SystemDrawer({ slug, onClose }) {
   )
 }
 
+// Most automated first (Level 5 → 1); systems on the same level keep their order.
+const byAutomation = (rows) => (rows || []).map((r, i) => ({ r, i }))
+  .sort((a, b) => automationLevel(b.r.level).id - automationLevel(a.r.level).id || a.i - b.i).map(x => x.r)
+
 function SystemsTable({ block, pageId }) {
-  const [rows, setRows] = useState(block.rows || [])
+  const [rows, setRows] = useState(() => byAutomation(block.rows))
   const [openSlug, setOpenSlug] = useState(null)
   const [savingIdx, setSavingIdx] = useState(null)
 
@@ -362,7 +366,8 @@ function SystemsTable({ block, pageId }) {
   // read-modify-write so concurrent edits to other blocks survive.
   const setLevel = async (idx, level) => {
     const prev = rows
-    const next = rows.map((r, i) => i === idx ? { ...r, level } : r)
+    // Re-sorted, so a system moves to its new level's place (and is saved there).
+    const next = byAutomation(rows.map((r, i) => i === idx ? { ...r, level } : r))
     setRows(next)
     if (!pageId) return
     setSavingIdx(idx)
