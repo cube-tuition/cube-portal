@@ -7,6 +7,7 @@ import { isQuizPath, isSolutionsPath } from '../lib/bookletFiles'
 import { printPdf } from '../lib/printPdf'
 import ExamPdfButtons from './ExamPdfButtons'
 import WorkbookFeedback from './WorkbookFeedback'
+import PrintIcon from './PrintIcon'
 
 /*
  * <WeekBooklet cls={...} term={...} week={N} isAdmin={bool} />
@@ -303,7 +304,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
           <div className="flex items-center gap-3 shrink-0">
             <button onClick={printView} title="Print this PDF without downloading it"
               className="text-xs font-semibold text-[#325099] hover:text-[#062E63] px-3 py-2 rounded-full hover:bg-[#F8FAFF] transition">
-              🖨 Print
+              <PrintIcon /> Print
             </button>
             <a href={viewUrl} download target="_blank" rel="noopener noreferrer"
               className="text-xs font-semibold text-[#325099] hover:text-[#062E63] px-3 py-2 rounded-full hover:bg-[#F8FAFF] transition">
@@ -402,7 +403,7 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
                       {!readOnly && (
                         <button onClick={() => printPath(url, path)} disabled={printing === path} title="Print without downloading"
                           className={`text-xs font-semibold px-4 py-2 rounded-full transition disabled:opacity-60 ${quiz ? 'bg-[#92400E] text-white hover:bg-[#78350F]' : 'text-[#325099] border border-[#DEE7FF] hover:bg-[#F0F4FF]'}`}>
-                          {printing === path ? 'Printing…' : '🖨 Print'}
+                          {printing === path ? 'Printing…' : <><PrintIcon /> Print</>}
                         </button>
                       )}
                       <a href={url} target="_blank" rel="noopener noreferrer"

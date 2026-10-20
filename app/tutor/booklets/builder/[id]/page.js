@@ -16,6 +16,7 @@ import { BLOCK_TYPES, BLOCK_GROUPS, HW_BLOCK_TYPES, HW_GROUPS, newBlock, blockHt
 import { exportBookletPdf } from '../../../../../lib/bookletExport'
 import { bookletPdfName, bookletQuizPdfName } from '../../../../../lib/bookletNaming'
 import { printPdf } from '../../../../../lib/printPdf'
+import PrintIcon from '../../../../../components/PrintIcon'
 import BlockEditor from '../../../../../components/booklet/BlockEditor'
 import BookletPreview from '../../../../../components/booklet/BookletPreview'
 import PdfPreviewModal from '../../../../../components/qbank/PdfPreviewModal'
@@ -1079,7 +1080,7 @@ export default function BookletBuilderEditor() {
                 ? 'bg-[#ECF9F4] text-[#0E7A5F] border-[#CBEBDF] hover:bg-[#DDF3EA]'
                 : 'bg-white text-[#2A2035]/50 border-[#DEE7FF] hover:bg-[#F8FAFF]'}`}
             >
-              {bk.delivery === 'online' ? '🌐 Online' : '🖨 Physical'}
+              {bk.delivery === 'online' ? '🌐 Online' : <><PrintIcon /> Physical</>}
             </button>
           )}
           {/* Ctrl/Cmd+Z does the same thing, but it stands down while the caret
@@ -1097,7 +1098,7 @@ export default function BookletBuilderEditor() {
           <button onClick={() => openExport(true)} disabled={exporting} className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">Solutions PDF</button>
           {hasQuiz && !isExamStyle && (
             <button onClick={printQuiz} disabled={exporting} title="Print the revision quiz on its own, without downloading anything"
-              className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40">🖨 Print quiz</button>
+              className="px-3 py-1.5 max-md:py-2.5 text-xs font-semibold text-[#325099] border border-[#DEE7FF] rounded-lg hover:bg-[#F0F4FF] disabled:opacity-40"><PrintIcon /> Print quiz</button>
           )}
           {/* Workbooks only — a pre-test / level test has no place in the
               workbook database, so it isn't offered the button. */}

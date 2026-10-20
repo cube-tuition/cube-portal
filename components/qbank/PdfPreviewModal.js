@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import PrintIcon from '../PrintIcon'
 import { getAuthProfile } from '../../lib/getProfile'
 import { authedFetch } from '../../lib/authedFetch'
 import PdfPages from '../PdfPages'
@@ -116,7 +117,7 @@ export default function PdfPreviewModal({ url, filename, title = 'Preview', down
           {!phone && (
             <button onClick={print} title="Print this PDF without downloading it"
               className="px-3.5 py-1.5 rounded-lg bg-white text-[#062E63] text-xs font-semibold hover:bg-[#EEF3FF] transition">
-              🖨 Print
+              <PrintIcon /> Print
             </button>
           )}
           <a ref={linkRef} href={downloadUrl || url} download={filename} onClick={onDownloadClick}
