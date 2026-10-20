@@ -1098,6 +1098,25 @@ export default function WorkbookDoc({
   useEffect(() => {
     if (solutions) return undefined
     let joined = false
+    // A dropped channel normally rejoins by itself within seconds (sleep, wifi
+    // change — every open tab drops at once), and the heartbeat covers the gap,
+    // so a drop alone is not worth a monitoring entry. Report only an outage
+    // that lasts: three checks 20 s apart, each with the page on screen and
+    // online, and still not rejoined. Hidden or offline resets the count, so a
+    // laptop waking from sleep gets its chance to reconnect first.
+    let downTimer = null, strikes = 0, reported = false, downStatus = ''
+    const stopWatch = () => { clearTimeout(downTimer); downTimer = null; strikes = 0 }
+    const checkDown = () => {
+      downTimer = null
+      if (document.visibilityState !== 'visible' || !navigator.onLine) strikes = 0
+      else strikes += 1
+      if (strikes >= 3) {
+        if (!reported) reportClientError(new Error(`workbook realtime channel ${downStatus} — not reconnected after a minute`))
+        reported = true
+        return
+      }
+      downTimer = setTimeout(checkDown, 20000)
+    }
     const ch = supabase.channel(`wb:${booklet.id}:${classId}:${ownerId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workbook_answers', filter: `owner_id=eq.${ownerId}` }, (p) => {
         const r = p.new
@@ -1122,14 +1141,15 @@ export default function WorkbookDoc({
         // A re-join after a dropped socket means events were missed while the
         // channel was down — pull the gap. The first join is skipped: the
         // initial-load effect has just fetched everything.
-        if (status === 'SUBSCRIBED') { if (joined) refresh(true); joined = true }
+        if (status === 'SUBSCRIBED') { if (joined) refresh(true); joined = true; stopWatch(); reported = false }
         // Failures are otherwise invisible (the heartbeat papers over them) —
-        // put one on the monitoring page so a broken realtime pipe shows up.
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          reportClientError(new Error(`workbook realtime channel ${status}`))
+        // a lasting one goes on the monitoring page (see checkDown above).
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && !downTimer && !reported) {
+          downStatus = status
+          downTimer = setTimeout(checkDown, 20000)
         }
       })
-    return () => { supabase.removeChannel(ch) }
+    return () => { stopWatch(); supabase.removeChannel(ch) }
   }, [solutions, booklet.id, classId, ownerId, commentStudentId, refresh])
 
   useEffect(() => () => clearTimeout(flushTimer.current), [])
