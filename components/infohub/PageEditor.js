@@ -11,7 +11,7 @@ import Link from 'next/link'
 import InfoBlocks from './InfoBlocks'
 import {
   BLOCK_TYPES, BLOCK_GROUPS, newBlock, duplicateBlock, blockLabel, blockIcon,
-  CALLOUT_VARIANTS, BUTTON_VARIANTS, IMAGE_WIDTHS, ALIGNMENTS, AUTOMATION_LEVELS, pageWordCount,
+  CALLOUT_VARIANTS, BUTTON_VARIANTS, IMAGE_WIDTHS, ALIGNMENTS, AUTOMATION_LEVELS, pageWordCount, isFlowBranch,
 } from '../../lib/infohub/blocks'
 import { saveDraft, publishPage, listRevisions, restoreRevision } from '../../lib/infohub/data'
 import { uploadQbankImage, qbankImageUrl } from '../../lib/qbank'
@@ -77,6 +77,63 @@ function ItemsEditor({ items, onChange, placeholder = 'List item' }) {
         </div>
       ))}
       <button onClick={() => onChange([...items, ''])} className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">＋ Add item</button>
+    </div>
+  )
+}
+
+// Flow chart: one row per box (⚡ automatic / 👤 a person), or a fork whose
+// paths are typed one box per line — start a line with ⚡ for an automatic one.
+const pathToText = (steps) => (steps || []).map(x => `${x.auto ? '⚡ ' : ''}${x.text || ''}`).join('\n')
+const textToPath = (t) => String(t || '').split('\n').map(l => l.trim()).filter(Boolean)
+  .map(l => (l.startsWith('⚡') ? { text: l.replace(/^⚡\s*/, ''), auto: true } : { text: l, auto: false }))
+function FlowEditor({ steps, onChange }) {
+  const set = (i, v) => onChange(steps.map((x, j) => (j === i ? v : x)))
+  const move = (i, d) => { const n = [...steps]; const [x] = n.splice(i, 1); n.splice(i + d, 0, x); onChange(n) }
+  return (
+    <div className="space-y-2">
+      {steps.map((s, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <span className="text-[#325099]/40 text-xs mt-2 w-4 text-right">{i + 1}.</span>
+          {isFlowBranch(s) ? (
+            <div className="flex-1 grid gap-2" style={{ gridTemplateColumns: `repeat(${s.branches.length}, minmax(0, 1fr))` }}>
+              {s.branches.map((br, b) => (
+                <div key={b} className="border border-dashed border-[#BACBFF] rounded-lg p-2 space-y-1.5">
+                  <div className="flex gap-1.5">
+                    <input className={I} value={br.label} placeholder={`Path ${b + 1} (e.g. Cash)`}
+                      onChange={e => set(i, { branches: s.branches.map((x, k) => (k === b ? { ...x, label: e.target.value } : x)) })} />
+                    {s.branches.length > 2 && <button onClick={() => set(i, { branches: s.branches.filter((_, k) => k !== b) })} className="text-rose-400 text-xs px-1">✕</button>}
+                  </div>
+                  <textarea rows={3} className={TA} value={pathToText(br.steps)} placeholder={'One box per line\n⚡ at the start = automatic'}
+                    onChange={e => set(i, { branches: s.branches.map((x, k) => (k === b ? { ...x, steps: textToPath(e.target.value) } : x)) })} />
+                </div>
+              ))}
+              {s.branches.length < 4 && (
+                <button onClick={() => set(i, { branches: [...s.branches, { label: '', steps: [] }] })}
+                  className="text-[11px] font-semibold text-[#325099] justify-self-start">＋ Path</button>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 flex gap-1.5 items-start">
+              <button onClick={() => set(i, { ...s, auto: !s.auto })} title={s.auto ? 'Runs by itself — click for a person' : 'A person does it — click for automatic'}
+                className={`shrink-0 h-[38px] w-[38px] rounded-lg border text-sm ${s.auto ? 'bg-[#FFFBEB] border-[#FCD34D]' : 'bg-white border-[#DEE7FF]'}`}>{s.auto ? '⚡' : '👤'}</button>
+              <div className="flex-1 space-y-1">
+                <input className={I} value={s.text} placeholder="What happens" onChange={e => set(i, { ...s, text: e.target.value })} />
+                <input className={I + ' text-xs'} value={s.note || ''} placeholder="Small print (optional) — where, or when" onChange={e => set(i, { ...s, note: e.target.value })} />
+              </div>
+            </div>
+          )}
+          <div className="flex flex-col">
+            <button onClick={() => move(i, -1)} disabled={i === 0} className="text-[#325099]/50 text-xs disabled:opacity-20">▲</button>
+            <button onClick={() => move(i, 1)} disabled={i === steps.length - 1} className="text-[#325099]/50 text-xs disabled:opacity-20">▼</button>
+          </div>
+          <button onClick={() => onChange(steps.filter((_, j) => j !== i))} disabled={steps.length === 1}
+            className="text-rose-400 hover:text-rose-600 mt-1.5 text-sm" aria-label="Remove step">✕</button>
+        </div>
+      ))}
+      <div className="flex gap-3">
+        <button onClick={() => onChange([...steps, { text: '', auto: false, note: '' }])} className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">＋ Step</button>
+        <button onClick={() => onChange([...steps, { branches: [{ label: '', steps: [] }, { label: '', steps: [] }] }])} className="text-[11px] font-semibold text-[#325099] hover:text-[#062E63]">＋ Fork (side-by-side paths)</button>
+      </div>
     </div>
   )
 }
@@ -326,6 +383,8 @@ function BlockFields({ block, onChange }) {
           <input className={I} value={block.phone} placeholder="Phone" onChange={e => set({ phone: e.target.value })} />
         </div>
       )
+    case 'flow':
+      return <FlowEditor steps={block.steps || []} onChange={steps => set({ steps })} />
     case 'trialflow':
       return <p className="text-xs text-[#2A2035]/55">The trial pipeline flow chart from the Trials page. Nothing to edit — it updates itself whenever the pipeline changes.</p>
     default: return null

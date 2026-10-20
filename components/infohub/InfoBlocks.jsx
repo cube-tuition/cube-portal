@@ -10,7 +10,7 @@ import { supabase } from '../../lib/supabase'
 import { qbankImageUrl } from '../../lib/qbank'
 import { inlineHtml, inlineMultiline, videoEmbedUrl } from '../../lib/infohub/inline'
 import PipelineFlow from '../trials/PipelineFlow'
-import { calloutVariant, AUTOMATION_LEVELS, automationLevel } from '../../lib/infohub/blocks'
+import { calloutVariant, AUTOMATION_LEVELS, automationLevel, isFlowBranch } from '../../lib/infohub/blocks'
 
 const html = (s) => ({ dangerouslySetInnerHTML: { __html: s } })
 
@@ -62,6 +62,48 @@ function Steps({ items }) {
         </li>
       ))}
     </ol>
+  )
+}
+
+// A typed-in flow chart (lib/infohub/blocks 'flow'): boxes top to bottom,
+// ⚡ amber for what runs by itself, plain for what a person does; a fork
+// shows its paths side by side, then the flow carries on below.
+function FlowBox({ s, small = false }) {
+  if (!(s?.text || '').trim()) return null
+  return (
+    <div className={`ih-fbox ${s.auto ? 'ih-fbox-auto' : ''} ${small ? 'ih-fbox-sm' : ''}`}>
+      <span className="ih-fbox-tag" aria-label={s.auto ? 'Automatic' : 'Done by a person'}>{s.auto ? '⚡' : '👤'}</span>
+      <span className="ih-fbox-body">
+        <span {...html(inlineHtml(s.text))} />
+        {(s.note || '').trim() && <span className="ih-fbox-note" {...html(inlineHtml(s.note))} />}
+      </span>
+    </div>
+  )
+}
+function Flow({ steps }) {
+  const list = (steps || []).filter(s => isFlowBranch(s) ? s.branches.some(b => (b.steps || []).some(x => (x.text || '').trim())) : (s?.text || '').trim())
+  if (!list.length) return null
+  return (
+    <div className="ih-flow">
+      {list.map((s, i) => (
+        <div key={i}>
+          {i > 0 && <div className="ih-farrow" aria-hidden="true">↓</div>}
+          {isFlowBranch(s) ? (
+            <div className="ih-fork" style={{ gridTemplateColumns: `repeat(${s.branches.length}, minmax(0, 1fr))` }}>
+              {s.branches.map((br, j) => (
+                <div key={j} className="ih-fpath">
+                  {(br.label || '').trim() && <div className="ih-flabel">{br.label}</div>}
+                  {(br.steps || []).filter(x => (x.text || '').trim()).map((x, k) => (
+                    <div key={k}>{k > 0 && <div className="ih-farrow ih-farrow-sm" aria-hidden="true">↓</div>}<FlowBox s={x} small /></div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : <FlowBox s={s} />}
+        </div>
+      ))}
+      <p className="ih-flegend"><span>⚡ runs by itself</span><span>👤 someone does it</span></p>
+    </div>
   )
 }
 
@@ -461,6 +503,7 @@ function OneBlock({ b, canReveal, pageId }) {
     case 'faq':        return <Faq items={b.items} />
     case 'systemstable': return <SystemsTable block={b} pageId={pageId} />
     case 'trialflow':  return <PipelineFlow collapsible={false} />
+    case 'flow':       return <Flow steps={b.steps} />
     default:           return null
   }
 }
@@ -508,6 +551,20 @@ export const IH_CSS = `
 .ih-check-box.is-done{ background:#15803D; border-color:#15803D; }
 .ih-check-done{ color:#2A2035; opacity:.55; text-decoration:line-through; }
 /* Steps */
+.ih-flow{ max-width:34rem; }
+.ih-fbox{ display:flex; gap:10px; align-items:flex-start; border:1.4px solid #C7D5F8; background:#F8FAFF; border-radius:12px; padding:9px 13px; font-size:14px; line-height:1.5; color:#062E63; }
+.ih-fbox-auto{ border-color:#FCD34D; background:#FFFBEB; }
+.ih-fbox-sm{ font-size:13px; padding:7px 10px; }
+.ih-fbox-tag{ flex:0 0 auto; font-size:13px; line-height:1.55; }
+.ih-fbox-body{ display:flex; flex-direction:column; min-width:0; }
+.ih-fbox-note{ font-size:12px; color:#325099; opacity:.75; }
+.ih-farrow{ text-align:center; color:#325099; opacity:.55; font-size:15px; line-height:1; padding:4px 0; }
+.ih-farrow-sm{ font-size:12px; padding:3px 0; }
+.ih-fork{ display:grid; gap:10px; }
+.ih-fpath{ border:1px dashed #C7D5F8; border-radius:12px; padding:8px; min-width:0; }
+.ih-flabel{ font-size:11px; font-weight:700; color:#325099; text-transform:uppercase; letter-spacing:.06em; margin:0 0 6px 2px; }
+.ih-flegend{ display:flex; gap:14px; margin:10px 0 0; font-size:11px; color:#2A2035; opacity:.5; }
+@media (max-width:480px){ .ih-fork{ grid-template-columns:1fr !important; } }
 .ih-steps{ list-style:none; margin:0; padding:0; }
 .ih-step{ display:flex; gap:12px; align-items:flex-start; margin:0 0 12px; }
 .ih-step-num{ flex:0 0 auto; width:26px; height:26px; border-radius:50%; background:#062E63; color:#fff; font-size:13px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
