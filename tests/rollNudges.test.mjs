@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { unmarkedByTutor, rollNudgeEmail, rollNudgePush } from '../lib/rollNudges.js'
+import { unmarkedByTutor, unmarkedLessons, rollNudgeEmail, rollNudgePush } from '../lib/rollNudges.js'
 
 const now = new Date('2026-10-20T08:00:00+11:00')     // Tue 20 Oct, 8am Sydney
 const staff = [
@@ -59,4 +59,15 @@ test('one nudge per tutor listing every lesson, oldest first, linking to each ro
   assert.match(html, /href="https:\/\/portal\.example\/tutor\/classes\/1\/2026-10-14"/)
   assert.equal(rollNudgePush(g).title, '📋 2 rolls to mark')
   assert.equal(rollNudgePush({ ...g, lessons: [g.lessons[0]] }).url, '/tutor/classes/1/2026-10-14')
+})
+
+test('the term list follows the real lessons: a lesson moved to another day is expected only on the day it ran', () => {
+  // Amber's Wednesday 1:1 ran on Monday 12 Oct that week; there is no lesson
+  // row on Wednesday 14 Oct, so nothing is owed for the 14th.
+  const r = unmarkedLessons({ ...base, from: '2026-10-12', lessons: [
+    L({ class_id: 2, lesson_date: '2026-10-12', start_time: '18:00' }),
+    L({ class_id: 2, lesson_date: '2026-10-13', status: 'cancelled' }),
+    L({ class_id: 1, lesson_date: '2026-10-05' }),                       // before the term
+  ] })
+  assert.deepEqual(r.map(l => [l.class_id, l.lesson_date, l.start_time, l.teacher.id]), [[2, '2026-10-12', '18:00', 'amber']])
 })

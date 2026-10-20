@@ -9,6 +9,7 @@ import { normalizeDays, fmtTime, isoDate } from '../../lib/format'
 import { fetchAllTerms, getCurrentTerm, getRunningTerm, formatTermLabel } from '../../lib/terms'
 import { T_ATTENDANCE, T_CLASSES, T_ENROLMENTS, T_LESSONS } from '../../lib/tables'
 import { buildClassLabelMap } from '../../lib/classLabels'
+import { unmarkedLessons } from '../../lib/rollNudges'
 import { isCurrentMember } from '../../lib/enrolments'
 import ActionCentre from '../../components/ActionCentre'
 import CapacityBoard from '../../components/home/CapacityBoard'
@@ -184,50 +185,28 @@ export default function TutorHome() {
       // the Action Centre's attendance row).
       // (`term` is already computed above.)
 
-      // Unsaved sessions — tutors only (not admin)
+      // Unsaved sessions — tutors only (not admin). Built from the term's real
+      // lessons (lib/rollNudges), so a lesson moved to another day is expected
+      // on the day it ran, never on the class's usual weekday — and only the
+      // lessons this tutor ran (a cover teacher's lesson is theirs to mark).
       if (!isAdmin && term && primaryClasses.length > 0) {
-        const now = new Date()
-        const todayIso = isoDate(now)
-        const nowMinutes = now.getHours() * 60 + now.getMinutes()
-
-        // Build list of expected past session dates per class
-        const candidates = [] // { classId, dateIso, class_name, start_time, end_time }
-        for (const c of primaryClasses) {
-          const days = normalizeDays(c.day_of_week)
-          if (days.length === 0) continue
-          const termStart = new Date(term.start_date + 'T00:00:00')
-          const termEnd   = new Date(term.end_date   + 'T00:00:00')
-          const cursor    = new Date(termStart)
-          while (cursor <= termEnd) {
-            const curIso = isoDate(cursor)
-            if (curIso > todayIso) break
-            const curDay = DAY_ORDER[(cursor.getDay() + 6) % 7]
-            if (days.includes(curDay)) {
-              // For today, only flag if current time is past end_time
-              if (curIso === todayIso) {
-                const endMins = startMinutes(c.end_time) // reuses existing helper
-                if (nowMinutes <= endMins) { cursor.setDate(cursor.getDate() + 1); continue }
-              }
-              candidates.push({ classId: c.id, dateIso: curIso, class_name: c.class_name, start_time: c.start_time, end_time: c.end_time })
-            }
-            cursor.setDate(cursor.getDate() + 1)
-          }
-        }
-
-        if (candidates.length > 0) {
-          // Fetch all attendance rows for these class+date combos in one query
-          // by fetching all attendance within term range for these classes.
-          const classIds = [...new Set(candidates.map(c => c.classId))]
-          const { data: attRows } = await supabase
-            .from(T_ATTENDANCE)
-            .select('class_id, session_date')
-            .in('class_id', classIds)
-            .gte('session_date', term.start_date)
-            .lte('session_date', todayIso)
-          const savedSet = new Set((attRows || []).map(r => `${r.class_id}|${r.session_date}`))
-          const missing = candidates.filter(c => !savedSet.has(`${c.classId}|${c.dateIso}`))
-          setUnsavedSessions(missing)
-        }
+        const todayIso = isoDate(new Date())
+        const classIds = primaryClasses.map(c => c.id)
+        const [{ data: lessons }, { data: attRows }, { data: enrols }] = await Promise.all([
+          supabase.from(T_LESSONS)
+            .select('id, class_id, lesson_date, start_time, end_time, status, is_makeup, lesson_type, main_teacher, scheduled_teacher_id')
+            .in('class_id', classIds).gte('lesson_date', term.start_date).lte('lesson_date', todayIso),
+          supabase.from(T_ATTENDANCE).select('class_id, session_date')
+            .in('class_id', classIds).gte('session_date', term.start_date).lte('session_date', todayIso),
+          supabase.from(T_ENROLMENTS).select('class_id').in('class_id', classIds).in('status', ['active', 'trial']),
+        ])
+        const missing = unmarkedLessons({
+          lessons: lessons || [], classes: primaryClasses,
+          marked: new Set((attRows || []).map(r => `${r.class_id}|${r.session_date}`)),
+          enrolled: new Set((enrols || []).map(e => e.class_id)),
+          staff: [{ id: user.id, full_name: profile.full_name }], from: term.start_date,
+        }).filter(l => l.teacher.id === user.id)
+        setUnsavedSessions(missing.map(l => ({ classId: l.class_id, dateIso: l.lesson_date, class_name: l.class_name, start_time: l.start_time, end_time: l.end_time })))
       }
     }
     load()

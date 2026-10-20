@@ -5,26 +5,22 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { getAuthProfile } from '../../../lib/getProfile'
 import TutorNav from '../../../components/TutorNav'
-import { normalizeDays, fmtTime, isoDate } from '../../../lib/format'
+import { fmtTime, isoDate } from '../../../lib/format'
+import { unmarkedLessons } from '../../../lib/rollNudges'
 import { fetchAllTerms, getRunningTerm, formatTermLabel } from '../../../lib/terms'
 import { T_ATTENDANCE, T_CLASSES } from '../../../lib/tables'
 
 /*
  * Unsaved sessions — /tutor/unsaved-sessions
- * Every past session this term where attendance hasn't been saved, grouped by
- * tutor. Moved here from the home dashboard "Tutor tasks" panel; the Action
+ * Every past lesson this term (the real lesson rows — a lesson moved to
+ * another day counts on the day it ran) where attendance hasn't been saved,
+ * grouped by tutor. Moved here from the home dashboard "Tutor tasks" panel; the Action
  * Centre's attendance row links straight here. Click a session to open the
  * class roll for that date.
  */
 
-const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
 const EXCLUDED = ['aiden', 'ryan']   // directors — same exclusion as the old home panel
-
-function startMinutes(t) {
-  if (!t) return 99999
-  const [h, m] = String(t).split(':').map(x => parseInt(x, 10))
-  return Number.isNaN(h) ? 99999 : h * 60 + (m || 0)
-}
+const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || ''
 
 export default function UnsavedSessionsPage() {
   const router = useRouter()
@@ -47,50 +43,30 @@ export default function UnsavedSessionsPage() {
       setTerm(t)
       if (!t) { setLoading(false); return }
 
-      const { data: classes } = await supabase
-        .from(T_CLASSES)
-        .select('id, class_name, day_of_week, start_time, end_time, teacher')
-        .eq('term_id', t.id)
-
-      const now = new Date()
-      const todayIso = isoDate(now)
-      const nowMinutes = now.getHours() * 60 + now.getMinutes()
-
-      // Expected past sessions per class (skip today's classes still in progress)
-      const candidates = []
-      for (const c of classes || []) {
-        const teacher = (c.teacher || '').trim()
-        if (!teacher) continue
-        const first = teacher.split(' ')[0]
-        if (EXCLUDED.includes(first.toLowerCase())) continue
-        const days = normalizeDays(c.day_of_week)
-        if (days.length === 0) continue
-        const cursor = new Date(t.start_date + 'T00:00:00')
-        const termEnd = new Date(t.end_date + 'T00:00:00')
-        while (cursor <= termEnd) {
-          const curIso = isoDate(cursor)
-          if (curIso > todayIso) break
-          const curDay = DAY_ORDER[(cursor.getDay() + 6) % 7]
-          if (days.includes(curDay)) {
-            if (curIso === todayIso && nowMinutes <= startMinutes(c.end_time)) { cursor.setDate(cursor.getDate() + 1); continue }
-            candidates.push({ teacher: first, classId: c.id, dateIso: curIso, class_name: c.class_name, start_time: c.start_time, end_time: c.end_time })
-          }
-          cursor.setDate(cursor.getDate() + 1)
-        }
-      }
-
-      if (candidates.length) {
-        const classIds = [...new Set(candidates.map(c => c.classId))]
-        const { data: attRows } = await supabase
-          .from(T_ATTENDANCE)
-          .select('class_id, session_date')
-          .in('class_id', classIds)
-          .gte('session_date', t.start_date)
-          .lte('session_date', todayIso)
-        const saved = new Set((attRows || []).map(r => `${r.class_id}|${r.session_date}`))
-        setSessions(candidates.filter(c => !saved.has(`${c.classId}|${c.dateIso}`))
-          .sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.class_name.localeCompare(b.class_name)))
-      }
+      // The term's real lessons — a lesson moved to another day is expected on
+      // the day it ran, never on the class's usual weekday (lib/rollNudges).
+      const todayIso = isoDate(new Date())
+      const [{ data: classes }, { data: lessons }, { data: att }, { data: enrols }, { data: tutors }, { data: directors }] = await Promise.all([
+        supabase.from(T_CLASSES).select('id, class_name, teacher, end_time').eq('term_id', t.id),
+        supabase.from('lessons')
+          .select('id, class_id, lesson_date, start_time, end_time, status, is_makeup, lesson_type, main_teacher, scheduled_teacher_id, classes!inner(term_id)')
+          .eq('classes.term_id', t.id).gte('lesson_date', t.start_date).lte('lesson_date', todayIso),
+        supabase.from(T_ATTENDANCE).select('class_id, session_date').gte('session_date', t.start_date).lte('session_date', todayIso),
+        supabase.from('enrolments').select('class_id').in('status', ['active', 'trial']),
+        supabase.from('tutors').select('id, full_name'),
+        supabase.from('directors').select('id, full_name'),
+      ])
+      const directorIds = new Set((directors || []).map(d => d.id))
+      const unmarked = unmarkedLessons({
+        lessons: lessons || [], classes: classes || [],
+        marked: new Set((att || []).map(a => `${a.class_id}|${a.session_date}`)),
+        enrolled: new Set((enrols || []).map(e => e.class_id)),
+        staff: [...(tutors || []), ...(directors || [])], from: t.start_date,
+      })
+      // Directors' own lessons are left out, as before.
+      setSessions(unmarked
+        .filter(l => !(l.teacher.id && directorIds.has(l.teacher.id)) && !EXCLUDED.includes(firstName(l.teacher.name).toLowerCase()))
+        .map(l => ({ teacher: firstName(l.teacher.name) || 'Unassigned', classId: l.class_id, dateIso: l.lesson_date, class_name: l.class_name, start_time: l.start_time, end_time: l.end_time })))
       setLoading(false)
     })()
   }, [router])
