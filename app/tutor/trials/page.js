@@ -16,7 +16,7 @@ import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
 import LevelTestInvitationModal from '../../../components/trials/LevelTestInvitationModal'
 import PipelineFlow from '../../../components/trials/PipelineFlow'
-import { nextStep, ACTION_BUTTON } from '../../../lib/trialNextStep'
+import { nextStep, trialStage, ACTION_BUTTON } from '../../../lib/trialNextStep'
 import { earliestTrialStart, trialDatesFor } from '../../../lib/trialDates'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
@@ -901,38 +901,64 @@ function FamilyButtons({ sub, status, onInvitationEmail, onLevelTestInvitation, 
 
 // The buttons inside the card that a step points at.
 const hlFor = (step) => (!step?.key ? [] : step.key === 'first' ? ['invitation', 'level_test'] : [ACTION_BUTTON[step.key]].filter(Boolean))
-const NEXT_PILL = 'text-[11px] font-bold text-[#5C3900] bg-amber-300 hover:bg-amber-400 border border-amber-400 px-2.5 py-0.5 rounded-full shadow-sm transition'
-// The card's next step (lib/trialNextStep), on its top line: an amber pill that
-// does the thing, or a grey line saying what it's waiting for. `items` holds one
-// step per subject; `onAct(key, sub)` runs a step.
-function NextStepLine({ items, onAct }) {
-  const actions = items.filter(i => i.step?.key)
-  const waits = items.filter(i => i.step?.wait)
-  if (!actions.length && !waits.length) return null
+// Stage colours for the card's one pill (lib/trialNextStep trialStage).
+const STAGE_TONE = {
+  new:        'bg-amber-50 text-amber-800 border-amber-200',
+  lt_invited: 'bg-sky-50 text-sky-800 border-sky-200',
+  lt_booked:  'bg-teal-50 text-teal-800 border-teal-200',
+  lt_done:    'bg-teal-100 text-teal-900 border-teal-300',
+  invited:    'bg-blue-50 text-blue-800 border-blue-200',
+  trial_1:    'bg-violet-50 text-violet-800 border-violet-200',
+  trial_2:    'bg-indigo-50 text-indigo-800 border-indigo-200',
+  deciding:   'bg-emerald-50 text-emerald-800 border-emerald-200',
+  on_hold:    'bg-slate-100 text-slate-600 border-slate-300',
+  enrolled:   'bg-emerald-100 text-emerald-800 border-emerald-200',
+  declined:   'bg-gray-100 text-gray-500 border-gray-200',
+}
+const ACT = 'px-2.5 py-0.5 font-bold text-[#5C3900] bg-amber-300 hover:bg-amber-400 border-l border-amber-400 transition whitespace-nowrap'
+// The card's one pill: where the student is and, joined to it in amber, the
+// action needed (click it to do it). Nothing needed → a grey note instead.
+// `items` holds one stage per subject; `onAct(key, sub)` runs an action.
+function StagePills({ items, onAct }) {
+  if (!items.length) return null
   return (
-    <div className="mt-1.5 flex items-center gap-x-2 gap-y-1 flex-wrap">
-      {actions.length > 0 && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Next</span>}
-      {actions.map(({ step, prefix, sub }, i) => (
-        <span key={`a${i}`} className="inline-flex items-center gap-1.5">
-          {step.key === 'lt_results'
-            ? <Link href="/tutor/admin/monitoring/level-tests" className={NEXT_PILL} title="Mark the level test and email the report from Monitoring → Level tests">{prefix}{step.label} →</Link>
-            : <button onClick={() => onAct(step.key, sub)} className={NEXT_PILL}>{prefix}{step.label}</button>}
-          {step.key === 'first' && (
-            <>
-              <span className="text-[10px] text-[#2A2035]/45">or</span>
-              <button onClick={() => onAct('level_test', sub)} className={NEXT_PILL}>✉ Level test invitation</button>
-            </>
-          )}
+    <>
+      {items.map(({ stage, prefix, sub }, i) => (
+        <span key={i} className="inline-flex items-center gap-1.5">
+          <span className={`inline-flex items-stretch rounded-full border overflow-hidden text-[11px] font-semibold ${STAGE_TONE[stage.id] || STAGE_TONE.new}`}>
+            <span className="px-2.5 py-0.5 whitespace-nowrap">{prefix}{stage.label}</span>
+            {stage.action?.key === 'first' ? (
+              <>
+                <button onClick={() => onAct('level_test', sub)} className={ACT}>✉ Level test invitation</button>
+                <span className="px-1.5 py-0.5 bg-amber-200 text-[#7A4B00] text-[10px] font-semibold border-l border-amber-300 flex items-center">or</span>
+                <button onClick={() => onAct('invitation', sub)} className={ACT}>✉ Trial invitation</button>
+              </>
+            ) : stage.action?.key === 'lt_results' ? (
+              <Link href="/tutor/admin/monitoring/level-tests" className={ACT} title="Mark the level test and send the results (with the trial invitation) from Monitoring → Level tests">Level test results →</Link>
+            ) : stage.action ? (
+              <button onClick={() => onAct(stage.action.key, sub)} className={ACT}>{stage.action.label}</button>
+            ) : null}
+          </span>
+          {stage.note && <span className="text-[11px] italic text-[#2A2035]/45">{stage.note}</span>}
         </span>
       ))}
-      {waits.map(({ step, prefix }, i) => (
-        <span key={`w${i}`} className="text-[11px] italic text-[#2A2035]/45">⏳ {prefix}{step.wait}</span>
-      ))}
+    </>
+  )
+}
+
+// What used to sit on the closed card — the stage dropdown, On hold and the
+// sent-email dates — now opens with the card.
+function StatusRow({ status, onStage, children }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap pb-2 border-b border-[#DEE7FF]">
+      <span className="text-[11px] font-semibold text-[#325099]/60 uppercase tracking-wider">Stage</span>
+      <StageSelect status={status} onChange={onStage} />
+      {children}
     </div>
   )
 }
 
-function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onToggle, children, next = null }) {
+function CardHeader({ sub, stale, age, subjects, expanded, onToggle, next = null }) {
   return (
     <div className="px-4 py-3 flex items-start justify-between gap-2">
       <div className="flex-1 min-w-0">
@@ -942,23 +968,16 @@ function CardHeader({ sub, status, stale, age, subjects, onStage, expanded, onTo
             Year {sub.student_year ? String(sub.student_year).replace(/^year\s*/i, '') : '?'}
           </span>
           {subjects}
-          {stale && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Stale {age}d</span>}
-          {children}
+          {next}
         </div>
         <p className="text-[11px] text-[#325099]/50 mt-0.5">
           {sub.parent_name && <span className="mr-2">{sub.parent_name}</span>}
           {sub.parent_email && <a href={'mailto:' + sub.parent_email} className="mr-2 hover:underline text-blue-600">{sub.parent_email}</a>}
           {sub.parent_phone && <a href={'tel:' + sub.parent_phone} className="hover:underline">{sub.parent_phone}</a>}
         </p>
-        {next}
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {sub.how_heard && (
-          <span className={`hidden sm:inline text-[10px] font-semibold border px-2 py-0.5 rounded-full ${HOW_HEARD_COLORS[sub.how_heard] ?? HOW_HEARD_UNKNOWN_COLOR}`} title="How they heard about CUBE">
-            {sub.how_heard}
-          </span>
-        )}
-        <StageSelect status={status} onChange={onStage} />
+        {stale && <span className="text-[10px] font-semibold text-amber-600" title="No action for over a week">{age}d</span>}
         <button onClick={onToggle} className="text-[#325099]/40 hover:text-[#325099] text-sm">
           {expanded ? '▲' : '▼'}
         </button>
@@ -973,7 +992,9 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
   const age   = daysSince(sub.submitted_at)
   const stale = ['new', 'contacted'].includes(sub.status) && age > 7
   const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
-  const step = nextStep(sub, isoDate(new Date()))
+  const today = isoDate(new Date())
+  const step = nextStep(sub, today)
+  const stage = trialStage(sub, today)
   const hl = hlFor(step)
   const act = (key) => {
     if (key === 'first' || key === 'invitation') onInvitationEmail()
@@ -986,20 +1007,20 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
   return (
     <div className={`bg-white border rounded-xl overflow-hidden transition ${stale ? 'border-amber-300 shadow-amber-100 shadow-sm' : 'border-[#DEE7FF]'}`}>
       <CardHeader
-        sub={sub} status={sub.status} stale={stale} age={age}
+        sub={sub} stale={stale} age={age}
         subjects={subjects !== '—' && <span className="text-[11px] text-[#325099]/60">{subjects}</span>}
-        onStage={next => (next === 'on_hold' ? setHolding(true) : setStage([sub], next, onUpdate))}
         expanded={expanded} onToggle={() => setExpanded(e => !e)}
-        next={<NextStepLine items={[{ step, prefix: '', sub }]} onAct={act} />}
-      >
-        {sub.status === 'on_hold' && <HoldBadge sub={sub} onClick={() => setHolding(true)} />}
-        <FamilyBadges sub={sub} />
-        <SubjectBadges sub={sub} />
-        <ProgressBadge progress={progress} />
-      </CardHeader>
+        next={<StagePills items={stage ? [{ stage, prefix: '', sub }] : []} onAct={act} />}
+      />
 
       {expanded && (
         <div className="border-t border-[#DEE7FF] px-4 py-3 space-y-3 bg-[#F8FAFF]">
+          <StatusRow status={sub.status} onStage={next => (next === 'on_hold' ? setHolding(true) : setStage([sub], next, onUpdate))}>
+            {sub.status === 'on_hold' && <HoldBadge sub={sub} onClick={() => setHolding(true)} />}
+            <FamilyBadges sub={sub} />
+            <SubjectBadges sub={sub} />
+            <ProgressBadge progress={progress} />
+          </StatusRow>
           <StudentDetails sub={sub} subs={[sub]} status={sub.status} students={students} onUpdate={onUpdate} />
           <div className="pt-1 border-t border-[#DEE7FF]">
             <SubjectActions
@@ -1065,17 +1086,14 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
     _levelTest: s._levelTest?.booked ? s._levelTest : (family._levelTest || s._levelTest),
   })
   const stepOf = Object.fromEntries(subs.map(s => [s.id, nextStep(withFamily(s), today)]))
-  const seen = new Set()
-  const items = subs.flatMap(s => {
-    const step = stepOf[s.id]
-    if (!step) return []
-    const familyLevel = FAMILY_KEYS.includes(step.key) || /level test/i.test(step.wait || '')
-    const sig = familyLevel ? (step.key || step.wait) : `${s.id}`
-    if (seen.has(sig)) return []
-    seen.add(sig)
-    return [{ step, sub: s, prefix: familyLevel ? '' : `${subjectLabel(s)}: ` }]
-  })
-  const familyHl = [...new Set(items.filter(i => FAMILY_KEYS.includes(i.step.key)).flatMap(i => hlFor(i.step)))]
+  // One pill per subject — or one for the student while the subjects are at
+  // the same stage (the first emails, a shared level test).
+  const stages = subs.map(s => ({ sub: s, stage: trialStage(withFamily(s), today) })).filter(x => x.stage)
+  const sameStage = stages.every(x => x.stage.id === stages[0]?.stage.id && x.stage.action?.key === stages[0]?.stage.action?.key)
+  const items = sameStage && stages.length && !['trial_1', 'trial_2', 'deciding'].includes(stages[0].stage.id)
+    ? [{ ...stages[0], prefix: '' }]
+    : stages.map(x => ({ ...x, prefix: `${subjectLabel(x.sub)}: ` }))
+  const familyHl = [...new Set(subs.flatMap(s => (FAMILY_KEYS.includes(stepOf[s.id]?.key) ? hlFor(stepOf[s.id]) : [])))]
   const openSub = subs.find(s => !['enrolled', 'declined'].includes(s.status)) || first
   const act = (key, s) => {
     if (key === 'first' || key === 'invitation') onInvitationEmail(openSub)
@@ -1088,7 +1106,7 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
   return (
     <div className={`bg-white border rounded-xl overflow-hidden transition ${stale ? 'border-amber-300 shadow-amber-100 shadow-sm' : 'border-[#DEE7FF]'}`}>
       <CardHeader
-        sub={family} status={status} stale={stale} age={age}
+        sub={family} stale={stale} age={age}
         subjects={subs.map(s => {
           const st = STAGE_MAP[s.status] || STAGE_MAP.new
           return (
@@ -1100,17 +1118,17 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
             </button>
           )
         })}
-        onStage={next => (next === 'on_hold' ? setHolding(true) : setStage(subs, next, onUpdate))}
         expanded={expanded} onToggle={() => setExpanded(e => !e)}
-        next={<NextStepLine items={items} onAct={act} />}
-      >
-        {status === 'on_hold' && <HoldBadge sub={subs.find(s => s.status === 'on_hold')} onClick={() => setHolding(true)} />}
-        <FamilyBadges sub={family} />
-        <ProgressBadge progress={progress} />
-      </CardHeader>
+        next={<StagePills items={items} onAct={act} />}
+      />
 
       {expanded && (
         <div className="border-t border-[#DEE7FF] px-4 py-3 space-y-3 bg-[#F8FAFF]">
+          <StatusRow status={status} onStage={next => (next === 'on_hold' ? setHolding(true) : setStage(subs, next, onUpdate))}>
+            {status === 'on_hold' && <HoldBadge sub={subs.find(s => s.status === 'on_hold')} onClick={() => setHolding(true)} />}
+            <FamilyBadges sub={family} />
+            <ProgressBadge progress={progress} />
+          </StatusRow>
           <StudentDetails sub={family} subs={subs} status={status} students={students} onUpdate={onUpdate} grouped />
           <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-[#DEE7FF]">
             <FamilyButtons sub={family} status={status} hl={familyHl}

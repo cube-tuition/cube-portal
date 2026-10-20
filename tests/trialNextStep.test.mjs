@@ -40,3 +40,21 @@ test('a booked trial waits for its lessons, then asks for each email', () => {
 test('nothing for decided or paused trials', () => {
   for (const status of ['enrolled', 'declined', 'on_hold']) assert.equal(step({ status }), null)
 })
+
+test('the card names one stage, with the action it needs', async () => {
+  const { trialStage } = await import('../lib/trialNextStep.js')
+  const st = (over) => trialStage({ status: 'new', trial_class_id: null, ...over }, today)
+  const lt = { status: 'contacted', level_test_invitation_sent_at: 'x' }
+  assert.deepEqual([st({}).label, st({}).action.key], ['New', 'first'])
+  assert.deepEqual([st(lt).label, st(lt).action], ['Level test invited', null])
+  assert.equal(st({ ...lt, _levelTest: { note: 'Sundays' } }).action.key, 'level_test')
+  assert.equal(st({ ...lt, _levelTest: { booked: { date: '2026-10-23' } } }).label, 'Level test booked')
+  assert.deepEqual([st({ ...lt, _levelTest: { booked: { date: '2026-10-18' } } }).label, st({ ...lt, _levelTest: { booked: { date: '2026-10-18' } } }).action.key], ['Level test completed', 'lt_results'])
+  assert.deepEqual([st({ status: 'contacted', invitation_sent_at: 'x' }).label, st({ status: 'contacted', invitation_sent_at: 'x' }).action], ['Trial invitation sent', null])
+  const booked = { status: 'trial_scheduled', trial_class_id: 7, _trialDates: ['2026-10-24', '2026-10-31'] }
+  assert.match(st(booked).note, /trial lesson 1 · Sat 24 Oct/)
+  assert.deepEqual([st({ ...booked, status: 'trial_1_completed' }).label, st({ ...booked, status: 'trial_1_completed' }).action.label], ['Trial lesson 1/2 completed', '✉ Send feedback'])
+  assert.equal(st({ ...booked, status: 'trial_completed' }).action.key, 'outcome')
+  assert.deepEqual([st({ ...booked, status: 'trial_completed', outcome_sent_at: 'x' }).label, st({ ...booked, status: 'trial_completed', outcome_sent_at: 'x' }).action.key], ['Awaiting decision', 'decide'])
+  assert.equal(st({ status: 'on_hold', hold_until: '2026-11-16' }).note, 'check back Mon 16 Nov')
+})
