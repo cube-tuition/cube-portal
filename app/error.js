@@ -12,10 +12,12 @@ import { isStaleBuildError, reloadForNewBuild } from '../lib/staleBuild'
  */
 export default function Error({ error, reset }) {
   // A deploy went live while the page was open (lib/staleBuild): load the new
-  // version instead of calling it a crash. Anything else is reported.
+  // version instead of calling it a crash. Stale-build errors are never
+  // reported — they are self-healing, and logging them filled the monitoring
+  // page with "Failed to load chunk" rows that read like real breakage.
   const stale = isStaleBuildError(error)
   useEffect(() => {
-    if (stale && reloadForNewBuild()) return
+    if (stale) { reloadForNewBuild(); return }
     reportClientError(error)
   }, [error, stale])
 

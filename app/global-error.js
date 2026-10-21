@@ -9,9 +9,10 @@ import { isStaleBuildError, reloadForNewBuild } from '../lib/staleBuild'
  * is inline for the same reason. Ordinary page crashes stop at app/error.js.
  */
 export default function GlobalError({ error, reset }) {
-  // A deploy went live while the page was open (lib/staleBuild): reload once.
+  // A deploy went live while the page was open (lib/staleBuild): reload, and
+  // never report it — stale-build errors are self-healing, not crashes.
   useEffect(() => {
-    if (isStaleBuildError(error) && reloadForNewBuild()) return
+    if (isStaleBuildError(error)) { reloadForNewBuild(); return }
     reportClientError(error, { global: true })
   }, [error])
 
