@@ -30,6 +30,8 @@ const AREAS = [
     desc: 'The portal\u2019s own health: this morning\u2019s check, every scheduled job\u2019s recent runs, and the crashes people hit this week.' },
   { label: 'Trials',     href: '/tutor/trials', icon: '🧪',
     desc: 'Trial enquiries and trial students, from first contact through to enrolled or declined.' },
+  { label: 'Website',    href: '/tutor/admin/monitoring/website', icon: '🌐',
+    desc: 'The public site: uptime and speed of its key pages, the timetable and course data it renders, and whether the enquiry form is still delivering.' },
 ]
 
 export default function MonitoringHub() {

@@ -33,9 +33,12 @@ const CHANNEL = { account: 'to them', personal: 'to their own email', guardian: 
 // rather than by reading two date columns.
 function statusOf(r) {
   if (!r.hasLogin) return { key: 'no-login', label: 'No login', fg: '#B23A3A', bg: '#FEF2F2', bd: '#FECACA' }
+  // Signing in is the only real proof the login landed — a student who has
+  // used the portal is done, even if no send was ever recorded (login handed
+  // over in person, set up by a director, etc.).
+  if (r.lastSignInAt) return { key: 'in-use', label: 'Signed in', fg: '#047857', bg: '#ECFDF5', bd: '#D1FAE5' }
   if (!r.sentAt)   return { key: 'not-sent', label: 'Not sent', fg: '#B45309', bg: '#FFF7ED', bd: '#FDE2B8' }
-  if (!r.lastSignInAt) return { key: 'sent', label: 'Sent · not used', fg: '#5B21B6', bg: '#F5F3FF', bd: '#DDD6FE' }
-  return { key: 'in-use', label: 'Signed in', fg: '#047857', bg: '#ECFDF5', bd: '#D1FAE5' }
+  return { key: 'sent', label: 'Sent · not used', fg: '#5B21B6', bg: '#F5F3FF', bd: '#DDD6FE' }
 }
 
 export default function LoginsPanel() {
@@ -81,7 +84,9 @@ export default function LoginsPanel() {
     return {
       total: list.length,
       sent: list.filter(r => r.sentAt).length,
-      notSent: list.filter(r => !r.sentAt).length,
+      // "not sent" is a to-do count: a student who has already signed in
+      // needs nothing sent, recorded delivery or not.
+      notSent: list.filter(r => !r.sentAt && !r.lastSignInAt).length,
       noLogin: by('no-login'),
       neverSent: by('not-sent'),
       neverSignedIn: list.filter(r => r.hasLogin && !r.lastSignInAt).length,
@@ -93,9 +98,9 @@ export default function LoginsPanel() {
   const shown = useMemo(() => {
     const list = (rows || []).filter((r) => {
       if (filter === 'all') return true
-      if (filter === 'not-sent') return !r.sentAt
+      if (filter === 'not-sent') return !r.sentAt && !r.lastSignInAt
       if (filter === 'sent') return !!r.sentAt
-      return !r.hasLogin || !r.sentAt || !r.lastSignInAt   // 'todo'
+      return !r.hasLogin || !r.lastSignInAt   // 'todo' — not signed in yet
     })
     // Anyone still waiting comes first — that is the list staff are working from.
     return [...list].sort((a, b) =>
