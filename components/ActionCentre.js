@@ -5,6 +5,7 @@ import { getAuthProfile } from '../lib/getProfile'
 import { runActionChecks } from '../lib/actionCentre'
 import { markCadenceDone } from '../lib/emailCadence'
 import { supabase } from '../lib/supabase'
+import ClassPrepCard from './ClassPrepCard'
 
 /*
  * ActionCentre — "what needs my attention" boxes for directors, shown at the
@@ -217,6 +218,8 @@ export default function ActionCentre({ authorized }) {
           />
         ))}
       </div>
+      {/* Materials for the next 7 days' lessons, ticked off as they're prepared */}
+      <ClassPrepCard />
     </div>
   )
 }

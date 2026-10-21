@@ -267,6 +267,19 @@ describe('trial class pickers (the token in a family’s email)', () => {
   })
 })
 
+describe('class prep ticks', () => {
+  run('directors only — tutors and students neither see nor tick them', async ({ q, signIn, rejects }) => {
+    await q(`insert into lesson_prep (lesson_id, prepared_by_name) select id, 'Ryan' from lessons limit 1`)
+    for (const who of [[MONICA, 'tutor'], [KIM, 'student']]) {
+      await signIn(...who)
+      assert.equal(await n(q, `select count(*)::int n from lesson_prep`), 0, who[1])
+      await rejects(`insert into lesson_prep (lesson_id) select id from lessons limit 1`, [], /row-level security|duplicate/)
+    }
+    await signIn(RYAN, 'admin')
+    assert.equal(await n(q, `select count(*)::int n from lesson_prep`), 1)
+  })
+})
+
 describe('a director', () => {
   run('reads and writes all of it', async ({ q, signIn }) => {
     await signIn(RYAN, 'admin')

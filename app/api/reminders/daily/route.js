@@ -8,6 +8,7 @@ import { syncQueuedInvoices } from '../../../../lib/invoiceSync'
 import { recordJob, checkSystemHealth, healthPush } from '../../../../lib/systemHealth'
 import { loadStaleTrials, trialNudgePush, loadHeldTrialsDue, heldTrialPush } from '../../../../lib/trialPipeline'
 import { loadUnmarkedByTutor, rollNudgeEmail, rollNudgePush } from '../../../../lib/rollNudges'
+import { loadPrep, prepNudges, addDays as addPrepDays } from '../../../../lib/classPrep'
 import { Resend } from 'resend'
 
 /*
@@ -211,6 +212,22 @@ export async function GET(request) {
     }
     return { tutors: groups.length, lessons: groups.reduce((n, g) => n + g.lessons.length, 0), emailed }
   })
+  // Class prep: each materials owner hears about tomorrow's lessons that
+  // aren't ticked off as prepared yet (lib/classPrep, the Action Centre card).
+  const prepNudged = await step('class prep nudges', async () => {
+    const tomorrow = addPrepDays(today, 1)
+    const rows = await loadPrep(admin, tomorrow, tomorrow)
+    const nudges = prepNudges(rows, tomorrow)
+    if (!nudges.length) return { lessons: 0 }
+    const { data: dirs } = await admin.from('directors').select('id, full_name')
+    const idOf = (owner) => (dirs || []).find(d => String(d.full_name || '').trim().split(/\s+/)[0].toLowerCase() === owner.toLowerCase())?.id
+    for (const n of nudges) {
+      const id = idOf(n.owner)
+      if (!id) { errors.push(`class prep: no director called ${n.owner}`); continue }
+      const r = await sendPushToUsers([id], n.push); sent += r?.sent || 0
+    }
+    return { lessons: rows.filter(r => !r.prepared).length, owners: nudges.map(n => n.owner) }
+  })
   // Riding on this cron (the plan allows two): draft invoices catch up with
   // yesterday's enrolment changes even on a day nobody opens the invoices page.
   const invoiceSync = await step('draft invoice sync', () => syncQueuedInvoices(admin))
@@ -238,7 +255,7 @@ export async function GET(request) {
     if (error) throw error
     return data
   })
-  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, rollNudges, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved, classChannels, studentStatuses }
+  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, rollNudges, prepNudged, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved, classChannels, studentStatuses }
   await recordJob(admin, 'daily', { startedAt, ok: !errors.length, detail, error: errors.join(' · ') || null })
 
   // The morning system check (lib/systemHealth): jobs, the invoice queue and
