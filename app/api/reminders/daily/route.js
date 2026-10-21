@@ -59,10 +59,26 @@ function remindersFor(ctx, today, { ignoreDone = false } = {}) {
         const total = bank.reduce((a, t) => a + amount[t.id], 0)
         if (total > 0) pushes.push({ title: 'Bank payroll due tomorrow', body: `${wk}: ${money(total)} across ${bank.length} tutor${bank.length === 1 ? '' : 's'}. Send the transfers on ${fmtDay(bankMon)}.`, url: '/tutor/payroll', tag: `payroll-bank-${ps}` })
       }
-      const dueTomorrow = ctx.staff.filter(t => (t.pay_method || '').toLowerCase() === 'cash' && t.cash_pay_weekday && addDays(cashWeekMon, t.cash_pay_weekday - 1) === tomorrow
-        && (amount[t.id] || 0) > 0 && !payrollDone.includes(`cash:${t.id}:${ps}`))
+      // A cash pay day fires when there is pay logged OR a lesson of theirs in
+      // the period has gone unmarked (no shift on its date) — an unmarked roll
+      // must not make a pay day go by unnoticed.
+      const unmarkedFor = (t) => {
+        const names = [t.full_name, t.full_name.split(' ')[0]].map(n => (n || '').toLowerCase())
+        const shiftDays = new Set(ctx.shifts.filter(x => x.tutor_id === t.id).map(x => x.work_date))
+        return ctx.lessons.filter(l => l.lesson_date >= ps && l.lesson_date <= pe && l.lesson_date <= today && l.status !== 'cancelled'
+          && names.includes((l.main_teacher || '').toLowerCase()) && !shiftDays.has(l.lesson_date)).length
+      }
+      const dueTomorrow = ctx.staff
+        .filter(t => (t.pay_method || '').toLowerCase() === 'cash' && t.cash_pay_weekday && addDays(cashWeekMon, t.cash_pay_weekday - 1) === tomorrow && !payrollDone.includes(`cash:${t.id}:${ps}`))
+        .map(t => ({ t, pay: amount[t.id] || 0, unmarked: unmarkedFor(t) }))
+        .filter(x => x.pay > 0 || x.unmarked > 0)
       if (dueTomorrow.length) {
-        pushes.push({ title: 'Cash payroll tomorrow', body: `${wk}: ${dueTomorrow.map(t => `${t.full_name.split(' ')[0]} ${money(amount[t.id])}`).join(', ')}.`, url: '/tutor/payroll', tag: `payroll-cash-${ps}-${tomorrow}` })
+        const line = (x) => {
+          const first = x.t.full_name.split(' ')[0]
+          const miss = x.unmarked ? `${x.unmarked} lesson${x.unmarked === 1 ? '' : 's'} not marked` : ''
+          return x.pay > 0 ? `${first} ${money(x.pay)}${miss ? ` (+ ${miss})` : ''}` : `${first} — ${miss}, pay not calculated`
+        }
+        pushes.push({ title: 'Cash payroll tomorrow', body: `${wk}: ${dueTomorrow.map(line).join('; ')}.`, url: '/tutor/payroll', tag: `payroll-cash-${ps}-${tomorrow}` })
       }
     }
   }
@@ -88,15 +104,18 @@ async function loadContext(admin, from, to) {
     admin.from('portal_settings').select('value').eq('key', 'payroll_alerts_done').maybeSingle(),
     admin.from('portal_settings').select('value').eq('key', 'compliance_done').maybeSingle(),
   ])
-  // Shifts across the whole window the reminders may look at (a term either side).
-  const { data: shifts } = await admin.from('pay_run_shifts').select('tutor_id, amount, work_date').gte('work_date', addDays(from, -120)).lte('work_date', addDays(to, 120))
+  // Shifts and lessons across the whole window the reminders may look at (a term either side).
+  const [{ data: shifts }, { data: lessons }] = await Promise.all([
+    admin.from('pay_run_shifts').select('tutor_id, amount, work_date').gte('work_date', addDays(from, -120)).lte('work_date', addDays(to, 120)),
+    admin.from('lessons').select('lesson_date, status, main_teacher').gte('lesson_date', addDays(from, -120)).lte('lesson_date', addDays(to, 120)),
+  ])
   let payrollDone = [], complianceDone = {}
   try { payrollDone = JSON.parse(doneRow?.value || '[]') } catch { /* none marked */ }
   try { complianceDone = JSON.parse(compRow?.value || '{}') } catch { /* none marked */ }
   return {
     terms: normaliseTerms(termRows || []),
     staff: [...(directors || []), ...(tutors || []).filter(t => !t.system)],
-    shifts: shifts || [], payrollDone, complianceDone,
+    shifts: shifts || [], lessons: lessons || [], payrollDone, complianceDone,
   }
 }
 
