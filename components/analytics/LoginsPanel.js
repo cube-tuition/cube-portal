@@ -209,7 +209,11 @@ export default function LoginsPanel() {
                             r.sentAt
                               ? 'text-[#325099] bg-white border border-[#DEE7FF] hover:border-[#325099] hover:bg-[#F0F4FF]'
                               : 'text-white bg-[#325099] border border-[#325099] hover:bg-[#062E63]'}`}>
-                          {busy === r.id ? 'Sending…' : r.sentAt ? 'Send again' : 'Send login'}
+                          {busy === r.id ? 'Sending…'
+                            // A student who has signed in (or was sent details
+                            // before) already has a working login — any further
+                            // send is a re-send, whatever the records say.
+                            : (r.sentAt || r.lastSignInAt) ? 'Send again' : 'Send login'}
                         </button>
                       )}
                     </td>
