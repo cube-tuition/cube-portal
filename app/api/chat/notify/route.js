@@ -6,11 +6,12 @@ import { notifyChatMessage } from '../../../../lib/chatNotify'
  * POST /api/chat/notify { messageId }
  * After a message is sent: push everyone else in the conversation — the
  * other person of a DM, the teacher and other directors of a CUBE thread,
- * every member of a channel. Staff-only; the message must be the caller's.
+ * every member of a channel; in student messaging, the students of the
+ * class and the directors. Any signed-in sender; the message must be theirs.
  */
 export async function POST(request) {
   try {
-    const auth = await requireApiRole(request, ['admin', 'director', 'tutor'])
+    const auth = await requireApiRole(request)
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
     const { messageId } = await request.json()
     if (!messageId) return Response.json({ error: 'Missing messageId' }, { status: 400 })

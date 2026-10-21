@@ -280,3 +280,159 @@ describe('a director', () => {
     assert.equal(await n(q, `select count(*)::int n from enrolments where price = 700`), 2)
   })
 })
+
+/*
+ * Student messaging (migrations/20261021_chat_students_live.sql): a student
+ * sees only their own student channels, is named from their record, is
+ * bounded in what they send, and can never reach the staff chat.
+ */
+describe('student messaging', () => {
+  const SUPA_IMG = 'https://abcdefghijkl.supabase.co/storage/v1/object/public/chat-uploads/'
+  // A director opens both class channels; the students are in Years 8 and 9.
+  async function chatSeed({ q, signIn, asOwner, maths, english }) {
+    await q(`update students set year = '8' where id = $1`, [KIM])
+    await q(`update students set year = '9' where id = $1`, [ANA])
+    await signIn(RYAN, 'admin')
+    const [{ id: mathsChan }] = await q(`select chat_class_channel($1) as id`, [maths])
+    const [{ id: englishChan }] = await q(`select chat_class_channel($1) as id`, [english])
+    const [{ id: staffChan }] = await q(`select chat_create_channel('staff-room') as id`)
+    await asOwner()
+    return { mathsChan, englishChan, staffChan }
+  }
+
+  run('a student sees only the student channels they are in, with first names and CUBE', async (ctx) => {
+    const { q, signIn } = ctx
+    const { mathsChan } = await chatSeed(ctx)
+    await signIn(KIM)
+    const chans = await q(`select id, audience from chat_channels`)
+    assert.deepEqual(chans.map(c => c.id), [mathsChan])
+    const members = await q(`select distinct channel_id from chat_members`)
+    assert.deepEqual(members.map(m => m.channel_id), [mathsChan])
+    const names = await q(`select user_id, display_name, role from chat_member_names() order by role`)
+    assert.deepEqual(names.map(r => [r.role, r.display_name]).sort(), [['director', 'CUBE'], ['student', 'Kim'], ['tutor', 'Monica']])
+    await signIn(ANA)
+    assert.equal(await n(q, `select count(*)::int n from chat_channels`), 1)
+    assert.equal(await n(q, `select count(*)::int n from chat_channels where id = $1`, [mathsChan]), 0)
+    // Staff keep full names.
+    await signIn(RYAN, 'admin')
+    assert.ok((await q(`select display_name from chat_member_names()`)).some(r => r.display_name === 'Kim Lee'))
+  })
+
+  run('a student opens their own thread with CUBE, nobody else’s', async (ctx) => {
+    const { q, signIn, rejects } = ctx
+    await chatSeed(ctx)
+    await signIn(KIM)
+    const [{ id }] = await q(`select chat_open_my_thread() as id`)
+    const [{ id: again }] = await q(`select chat_open_my_thread() as id`)
+    assert.equal(again, id)
+    const members = await q(`select user_id from chat_members where channel_id = $1 order by user_id`, [id])
+    assert.deepEqual(members.map(m => m.user_id).sort(), [KIM, RYAN].sort())
+    await rejects(`select chat_open_student_dm($1)`, [ANA], /directors only/)
+    // Their thread is always open to them.
+    await q(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', 'Hi, a question about homework')`, [id, KIM])
+    assert.equal(await n(q, `select count(*)::int n from chat_messages where channel_id = $1`, [id]), 1)
+  })
+
+  run('a primary student has no messaging', async (ctx) => {
+    const { q, signIn, rejects } = ctx
+    await chatSeed(ctx)
+    await q(`update students set year = '5' where id = $1`, [KIM])
+    await signIn(KIM)
+    await rejects(`select chat_open_my_thread()`, [], /Years 7–12/)
+  })
+
+  run('a class channel is announcements-only until a director lets students reply', async (ctx) => {
+    const { q, signIn, rejects, asOwner } = ctx
+    const { mathsChan } = await chatSeed(ctx)
+    await signIn(KIM)
+    await rejects(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', 'hello')`, [mathsChan, KIM], /row-level security/)
+    await signIn(RYAN, 'admin')
+    await q(`select chat_set_student_replies($1, true)`, [mathsChan])
+    await signIn(KIM)
+    // The name on the message is the student's record, whatever the client sent; never CUBE.
+    await q(`insert into chat_messages (channel_id, sender_id, sender_name, body, as_cube) values ($1, $2, 'CUBE', 'hello', true)`, [mathsChan, KIM])
+    await asOwner()
+    const [m] = await q(`select sender_name, as_cube from chat_messages where channel_id = $1`, [mathsChan])
+    assert.deepEqual([m.sender_name, m.as_cube], ['Kim Lee', false])
+  })
+
+  run('what a student sends is bounded: length, rate, outside attachments', async (ctx) => {
+    const { q, signIn, rejects } = ctx
+    await chatSeed(ctx)
+    await signIn(KIM)
+    const [{ id }] = await q(`select chat_open_my_thread() as id`)
+    await rejects(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', repeat('x', 4001))`, [id, KIM], /4000 characters/)
+    await rejects(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', '[[img:https://evil.example/x.png]]')`, [id, KIM], /uploaded through the chat/)
+    await q(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', $3)`, [id, KIM, `[[img:${SUPA_IMG}${id}/photo.jpg]]`])
+    for (let i = 0; i < 19; i++) await q(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', 'm')`, [id, KIM])
+    await rejects(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', 'one too many')`, [id, KIM], /Too many messages/)
+  })
+
+  run('a student cannot leave a class channel, see the staff chat, or report in it', async (ctx) => {
+    const { q, signIn, rejects, asOwner } = ctx
+    const { mathsChan, staffChan } = await chatSeed(ctx)
+    await signIn(RYAN, 'admin')
+    await q(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Ryan', 'staff only')`, [staffChan, RYAN])
+    await asOwner()
+    const [{ id: staffMsg }] = await q(`select id from chat_messages where channel_id = $1`, [staffChan])
+    await signIn(KIM)
+    await q(`delete from chat_members where user_id = $1`, [KIM])
+    assert.equal(await n(q, `select count(*)::int n from chat_channels where id = $1`, [mathsChan]), 1, 'still a member')
+    assert.equal(await n(q, `select count(*)::int n from chat_channels where id = $1`, [staffChan]), 0)
+    assert.equal(await n(q, `select count(*)::int n from chat_messages where id = $1`, [staffMsg]), 0)
+    await rejects(`select chat_report_message($1, 'x')`, [staffMsg], /own conversations/)
+    await rejects(`select chat_create_channel('mine')`, [], /staff only/)
+    await rejects(`select chat_class_channel(1)`, [], /directors only/)
+  })
+
+  run('a director takes a message down and its text is kept, for directors only', async (ctx) => {
+    const { q, signIn, asOwner, rejects } = ctx
+    await chatSeed(ctx)
+    await signIn(KIM)
+    const [{ id }] = await q(`select chat_open_my_thread() as id`)
+    await q(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Kim', 'something unkind')`, [id, KIM])
+    await asOwner()
+    const [{ id: msg }] = await q(`select id from chat_messages where channel_id = $1`, [id])
+    await signIn(KIM)
+    await rejects(`select chat_hide_message($1)`, [msg], /directors only/)
+    await signIn(RYAN, 'admin')
+    await q(`select chat_hide_message($1)`, [msg])
+    assert.equal(await n(q, `select count(*)::int n from chat_messages where id = $1 and deleted_at is not null`, [msg]), 1)
+    const hist = await q(`select body, action from chat_message_history where message_id = $1`, [msg])
+    assert.deepEqual(hist, [{ body: 'something unkind', action: 'deleted' }])
+    await signIn(KIM)
+    assert.equal(await n(q, `select count(*)::int n from chat_message_history`), 0)
+  })
+
+  run('a class channel is hidden from its students until a director opens it (soft launch)', async (ctx) => {
+    const { q, signIn, rejects, asOwner } = ctx
+    const { mathsChan } = await chatSeed(ctx)
+    await q(`update chat_channels set student_visible = false where id = $1`, [mathsChan])
+    await signIn(RYAN, 'admin')
+    await q(`insert into chat_messages (channel_id, sender_id, sender_name, body) values ($1, $2, 'Ryan', 'welcome')`, [mathsChan, RYAN])
+    await signIn(KIM)
+    assert.equal(await n(q, `select count(*)::int n from chat_channels`), 0)
+    assert.equal(await n(q, `select count(*)::int n from chat_messages`), 0)
+    assert.equal(await n(q, `select count(*)::int n from chat_members`), 0)
+    assert.equal(await n(q, `select count(*)::int n from chat_unread_counts()`), 0)
+    await rejects(`select chat_set_student_visible($1, true)`, [mathsChan], /director/)
+    // The teacher still sees it.
+    await signIn(MONICA, 'tutor')
+    assert.equal(await n(q, `select count(*)::int n from chat_channels where id = $1`, [mathsChan]), 1)
+    await signIn(RYAN, 'admin')
+    await q(`select chat_set_student_visible($1, true)`, [mathsChan])
+    await signIn(KIM)
+    assert.equal(await n(q, `select count(*)::int n from chat_channels where id = $1`, [mathsChan]), 1)
+    assert.equal(await n(q, `select count(*)::int n from chat_messages`), 1)
+    assert.deepEqual(await q(`select n::int from chat_unread_counts()`), [{ n: 1 }])
+    await asOwner()
+  })
+
+  run('the class teacher is in the class channel; a student’s message is visible to them', async (ctx) => {
+    const { q, signIn } = ctx
+    const { mathsChan, englishChan } = await chatSeed(ctx)
+    await signIn(MONICA, 'tutor')
+    const chans = (await q(`select id from chat_channels where audience = 'students' order by id`)).map(c => c.id).sort()
+    assert.deepEqual(chans, [mathsChan, englishChan].sort())
+  })
+})

@@ -20,6 +20,8 @@ const LINKS = [
   // Seniors only — trials/HSC preparation. Filtered out for other years below.
   { label: 'Past Papers', href: '/pastpapers', icon: '📝', seniorOnly: true },
   { label: 'Drop-in Help', href: '/dropin', icon: '🙋', primary: true },
+  // High school only — the chat with CUBE and the class channels (Years 7–12).
+  { label: 'Messages', href: '/chat', icon: '💬', highSchoolOnly: true },
   { label: 'Past Terms', href: '/archive', icon: '🗂️' },
 ]
 const YEAR_KEY = 'cube:student-year'
@@ -53,7 +55,8 @@ export default function PortalNav({ studentName }) {
       } catch { /* nav link stays hidden — the page itself gates too */ }
     })()
   }, [year])
-  const links = LINKS.filter(l => !l.seniorOnly || year === '11' || year === '12')
+  const highSchool = ['7', '8', '9', '10', '11', '12'].includes(year)
+  const links = LINKS.filter(l => (!l.seniorOnly || year === '11' || year === '12') && (!l.highSchoolOnly || highSchool))
   const isActive = (href) => (href === '/dashboard' ? pathname === '/dashboard' : pathname?.startsWith(href))
 
   const handleLogout = async () => {

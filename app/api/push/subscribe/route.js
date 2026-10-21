@@ -9,7 +9,7 @@ import { requireApiRole } from '../../../../lib/apiAuth'
  * Directors only, matching the app itself.
  */
 export const dynamic = 'force-dynamic'
-const ROLES = ['admin', 'director']   // the directors' accounts; tutors are not offered the app
+const ROLES = ['admin', 'director', 'tutor', 'student']   // directors' phones, and anyone using the chat
 
 export async function GET(req) {
   const auth = await requireApiRole(req, ROLES)

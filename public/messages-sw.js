@@ -25,7 +25,9 @@ self.addEventListener('notificationclick', (event) => {
   const url = (event.notification.data && event.notification.data.url) || '/messages'
   event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
     for (const c of list) {
-      if (new URL(c.url).pathname.startsWith('/messages') && 'focus' in c) { c.navigate(url); return c.focus() }
+      const p = new URL(c.url).pathname, target = new URL(url, c.url).pathname
+      const same = (a, b) => ['/messages', '/chat', '/tutor/chat'].some(root => a.startsWith(root) && b.startsWith(root))
+      if (same(p, target) && 'focus' in c) { c.navigate(url); return c.focus() }
     }
     return self.clients.openWindow(url)
   }))

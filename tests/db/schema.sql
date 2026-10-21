@@ -1,4 +1,5 @@
 create sequence cash_log_id_seq;
+create sequence chat_message_history_id_seq;
 create sequence classes_id_seq;
 create sequence courses_id_seq;
 create sequence fixed_costs_id_seq;
@@ -482,17 +483,6 @@ create table public.job_runs (
   constraint job_runs_pkey PRIMARY KEY (id)
 );
 
-create table public.qbank_subjects (
-  id uuid default gen_random_uuid() not null,
-  year_level integer not null,
-  name text not null,
-  code text,
-  sort_order integer default 0 not null,
-  active boolean default true not null,
-  created_at timestamp with time zone default now() not null,
-  constraint qbank_subjects_pkey PRIMARY KEY (id)
-);
-
 create table public.trial_submissions (
   id integer default nextval('trial_submissions_id_seq'::regclass) not null,
   submitted_at timestamp with time zone default now() not null,
@@ -535,6 +525,17 @@ create table public.trial_submissions (
   hold_notified_at timestamp with time zone,
   constraint trial_submissions_pkey PRIMARY KEY (id),
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_1_completed'::text, 'trial_completed'::text, 'on_hold'::text, 'enrolled'::text, 'declined'::text])))
+);
+
+create table public.qbank_subjects (
+  id uuid default gen_random_uuid() not null,
+  year_level integer not null,
+  name text not null,
+  code text,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint qbank_subjects_pkey PRIMARY KEY (id)
 );
 
 create table public.qbank_topics (
@@ -646,6 +647,106 @@ create table public.trial_invites (
   constraint trial_invites_source_check CHECK ((source = ANY (ARRAY['invitation'::text, 'level_test'::text])))
 );
 
+create table public.chat_channels (
+  id uuid default gen_random_uuid() not null,
+  kind text not null,
+  name text default ''::text not null,
+  dm_key text,
+  created_by uuid,
+  created_at timestamp with time zone default now() not null,
+  is_default boolean default false not null,
+  directors_only boolean default false not null,
+  quiet boolean default false not null,
+  audience text default 'staff'::text not null,
+  class_id integer,
+  student_replies boolean default false not null,
+  archived_at timestamp with time zone,
+  student_visible boolean default true not null,
+  constraint chat_channels_dm_key_key UNIQUE (dm_key),
+  constraint chat_channels_pkey PRIMARY KEY (id),
+  constraint chat_channels_audience_check CHECK ((audience = ANY (ARRAY['staff'::text, 'students'::text]))),
+  constraint chat_channels_kind_check CHECK ((kind = ANY (ARRAY['channel'::text, 'dm'::text, 'cube_dm'::text])))
+);
+
+create table public.chat_members (
+  channel_id uuid not null,
+  user_id uuid not null,
+  joined_at timestamp with time zone default now() not null,
+  muted boolean default false not null,
+  constraint chat_members_pkey PRIMARY KEY (channel_id, user_id)
+);
+
+create table public.chat_messages (
+  id uuid default gen_random_uuid() not null,
+  channel_id uuid not null,
+  sender_id uuid not null,
+  sender_name text default ''::text not null,
+  body text not null,
+  created_at timestamp with time zone default now() not null,
+  edited_at timestamp with time zone,
+  deleted_at timestamp with time zone,
+  as_cube boolean default false not null,
+  constraint chat_messages_pkey PRIMARY KEY (id)
+);
+
+create table public.chat_reads (
+  channel_id uuid not null,
+  user_id uuid not null,
+  last_read_at timestamp with time zone default now() not null,
+  constraint chat_reads_pkey PRIMARY KEY (channel_id, user_id)
+);
+
+create table public.chat_reactions (
+  message_id uuid not null,
+  user_id uuid not null,
+  emoji text not null,
+  created_at timestamp with time zone default now() not null,
+  constraint chat_reactions_pkey PRIMARY KEY (message_id, user_id, emoji),
+  constraint chat_reactions_emoji_check CHECK (((length(emoji) >= 1) AND (length(emoji) <= 16)))
+);
+
+create table public.chat_scheduled_messages (
+  id uuid default gen_random_uuid() not null,
+  channel_id uuid not null,
+  sender_id uuid default auth.uid() not null,
+  sender_name text default ''::text not null,
+  body text not null,
+  as_cube boolean default false not null,
+  send_at timestamp with time zone not null,
+  created_at timestamp with time zone default now() not null,
+  sent_at timestamp with time zone,
+  sent_message_id uuid,
+  error text,
+  constraint chat_scheduled_messages_pkey PRIMARY KEY (id),
+  constraint chat_scheduled_messages_body_check CHECK ((length(btrim(body)) > 0))
+);
+
+create table public.chat_reports (
+  id uuid default gen_random_uuid() not null,
+  message_id uuid not null,
+  channel_id uuid not null,
+  reported_by uuid not null,
+  reason text,
+  body_snapshot text,
+  created_at timestamp with time zone default now() not null,
+  resolved_at timestamp with time zone,
+  resolved_by uuid,
+  constraint chat_reports_message_id_reported_by_key UNIQUE (message_id, reported_by),
+  constraint chat_reports_pkey PRIMARY KEY (id)
+);
+
+create table public.chat_message_history (
+  id bigint default nextval('chat_message_history_id_seq'::regclass) not null,
+  message_id uuid not null,
+  channel_id uuid not null,
+  body text not null,
+  action text not null,
+  changed_by uuid,
+  changed_at timestamp with time zone default now() not null,
+  constraint chat_message_history_pkey PRIMARY KEY (id),
+  constraint chat_message_history_action_check CHECK ((action = ANY (ARRAY['edited'::text, 'deleted'::text])))
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -654,6 +755,15 @@ alter table public.cash_log add constraint cash_log_invoice_id_fkey FOREIGN KEY 
 alter table public.cash_log add constraint cash_log_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id) ON DELETE SET NULL;
 alter table public.cash_pay_status add constraint cash_pay_status_cash_log_id_fkey FOREIGN KEY (cash_log_id) REFERENCES cash_log(id) ON DELETE SET NULL;
 alter table public.cash_pay_status add constraint cash_pay_status_pay_run_id_fkey FOREIGN KEY (pay_run_id) REFERENCES pay_runs(id) ON DELETE CASCADE;
+alter table public.chat_members add constraint chat_members_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE;
+alter table public.chat_message_history add constraint chat_message_history_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE;
+alter table public.chat_messages add constraint chat_messages_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE;
+alter table public.chat_reactions add constraint chat_reactions_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE;
+alter table public.chat_reads add constraint chat_reads_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE;
+alter table public.chat_reports add constraint chat_reports_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE;
+alter table public.chat_reports add constraint chat_reports_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE;
+alter table public.chat_scheduled_messages add constraint chat_scheduled_messages_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE;
+alter table public.chat_scheduled_messages add constraint chat_scheduled_messages_sent_message_id_fkey FOREIGN KEY (sent_message_id) REFERENCES chat_messages(id) ON DELETE SET NULL;
 alter table public.classes add constraint classes_course_id_fkey FOREIGN KEY (course_id) REFERENCES courses(id);
 alter table public.classes add constraint classes_source_class_id_fkey FOREIGN KEY (source_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.classes add constraint classes_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id);
@@ -2418,6 +2528,434 @@ end;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.chat_staff_ids()
+ RETURNS SETOF uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select id from public.tutors where coalesce(active, true) and not system
+  union select id from public.directors
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_is_member(p_channel uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1 from public.chat_members m join public.chat_channels c on c.id = m.channel_id
+    where m.channel_id = p_channel and m.user_id = auth.uid()
+      and (c.audience <> 'students' or c.student_visible
+           or exists (select 1 from public.chat_staff_ids() s where s = auth.uid())))
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_channel_open(p_channel uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (select 1 from public.chat_channels c where c.id = p_channel and c.kind = 'channel' and c.audience = 'staff')
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_is_director()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (select 1 from public.directors d where d.id = auth.uid())
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.is_high_school_student(p_student uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  select coalesce((select s.year ~ '^\d{1,2}$' and s.year::int between 7 and 12
+                     from public.students s where s.id = p_student), false)
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_can_post(p_channel uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select public.chat_is_member(p_channel) and not exists (
+    select 1 from public.chat_channels c
+    where c.id = p_channel and (
+      c.archived_at is not null
+      or (c.directors_only and not exists (select 1 from public.directors d where d.id = auth.uid()))
+      or (c.audience = 'students' and c.kind = 'channel' and not c.student_replies
+          and not exists (select 1 from public.chat_staff_ids() s where s = auth.uid()))))
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_can_manage(p_channel uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1 from public.chat_channels c
+    where c.id = p_channel and c.kind = 'channel'
+      and (c.created_by = auth.uid() or exists (select 1 from public.directors d where d.id = auth.uid())))
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_today()
+ RETURNS date
+ LANGUAGE sql
+ STABLE
+AS $function$ select (now() at time zone 'Australia/Sydney')::date $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_current_term()
+ RETURNS uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  with teaching as (select id, start_date, end_date from public.terms where coalesce(term_number, 0) <= 10)
+  select coalesce(
+    (select id from teaching where public.chat_today() between start_date and end_date order by start_date desc limit 1),
+    (select id from teaching where start_date > public.chat_today() order by start_date limit 1))
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_open_student_dm(p_student uuid)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_key text; v_id uuid;
+begin
+  if not public.is_admin(auth.uid()) then raise exception 'directors only'; end if;
+  if not exists (select 1 from public.students s where s.id = p_student) then raise exception 'not a student'; end if;
+  if not public.is_high_school_student(p_student) then
+    raise exception 'Student messaging is for high school students (Years 7–12) only';
+  end if;
+  v_key := 'student:' || p_student::text;
+  select id into v_id from public.chat_channels where dm_key = v_key;
+  if v_id is null then
+    insert into public.chat_channels (kind, name, dm_key, created_by, audience) values ('dm', '', v_key, auth.uid(), 'students') returning id into v_id;
+    insert into public.chat_members (channel_id, user_id) values (v_id, p_student);
+  end if;
+  insert into public.chat_members (channel_id, user_id) select v_id, d.id from public.directors d on conflict do nothing;
+  return v_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_open_my_thread()
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_key text; v_id uuid;
+begin
+  if auth.uid() is null or not exists (select 1 from public.students s where s.id = auth.uid() and s.status in ('active', 'trial')) then
+    raise exception 'Students only';
+  end if;
+  if not public.is_high_school_student(auth.uid()) then
+    raise exception 'Messaging is for high school students (Years 7–12)';
+  end if;
+  v_key := 'student:' || auth.uid()::text;
+  select id into v_id from public.chat_channels where dm_key = v_key;
+  if v_id is null then
+    insert into public.chat_channels (kind, name, dm_key, created_by, audience)
+      values ('dm', '', v_key, auth.uid(), 'students') returning id into v_id;
+    insert into public.chat_members (channel_id, user_id) values (v_id, auth.uid());
+  end if;
+  insert into public.chat_members (channel_id, user_id) select v_id, d.id from public.directors d on conflict do nothing;
+  return v_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_class_members_sync(p_channel uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_class integer; v_teacher uuid;
+begin
+  select class_id into v_class from public.chat_channels where id = p_channel and audience = 'students';
+  if v_class is null then return; end if;
+  select public.resolve_tutor_by_first_name(c.teacher) into v_teacher from public.classes c where c.id = v_class;
+  insert into public.chat_members (channel_id, user_id)
+    select p_channel, e.student_id from public.enrolments e
+    where e.class_id = v_class and e.status in ('active', 'trial') and e.ended_at is null
+      and e.student_id is not null and public.is_high_school_student(e.student_id)
+  on conflict do nothing;
+  delete from public.chat_members m
+    where m.channel_id = p_channel
+      and not exists (select 1 from public.chat_staff_ids() s where s = m.user_id)
+      and not exists (select 1 from public.enrolments e
+        where e.class_id = v_class and e.student_id = m.user_id and e.status in ('active', 'trial')
+          and e.ended_at is null and public.is_high_school_student(e.student_id));
+  if v_teacher is not null then
+    insert into public.chat_members (channel_id, user_id) values (p_channel, v_teacher) on conflict do nothing;
+  end if;
+  insert into public.chat_members (channel_id, user_id) select p_channel, d.id from public.directors d on conflict do nothing;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_class_channel(p_class integer)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_id uuid; v_name text; v_year integer;
+begin
+  if not public.is_admin(auth.uid()) then raise exception 'directors only'; end if;
+  select c.class_name, public.course_year(co.course_code, c.class_name) into v_name, v_year
+    from public.classes c left join public.courses co on co.id = c.course_id where c.id = p_class;
+  if v_name is null then raise exception 'no such class'; end if;
+  if v_year is null or v_year < 7 then
+    raise exception 'Class channels are for high school classes (Years 7–12) only';
+  end if;
+  select id into v_id from public.chat_channels where class_id = p_class;
+  if v_id is null then
+    insert into public.chat_channels (kind, name, created_by, audience, class_id)
+      values ('channel', v_name, auth.uid(), 'students', p_class) returning id into v_id;
+  end if;
+  update public.chat_channels set archived_at = null where id = v_id and archived_at is not null;
+  perform public.chat_class_members_sync(v_id);
+  return v_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_member_names()
+ RETURNS TABLE(user_id uuid, display_name text, role text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  with me as (select exists (select 1 from public.chat_staff_ids() s where s = auth.uid()) as staff),
+  mine as (
+    select distinct m2.user_id
+    from public.chat_members m
+    join public.chat_channels c on c.id = m.channel_id
+    join public.chat_members m2 on m2.channel_id = m.channel_id
+    where m.user_id = auth.uid()
+      and (c.audience <> 'students' or c.student_visible or (select staff from me))
+  )
+  select d.id, case when (select staff from me) then d.full_name else 'CUBE' end, 'director'
+    from public.directors d join mine on mine.user_id = d.id
+  union all
+  select t.id, case when (select staff from me) then t.full_name else split_part(t.full_name, ' ', 1) end, 'tutor'
+    from public.tutors t join mine on mine.user_id = t.id
+  union all
+  select s.id, case when (select staff from me) then s.full_name else split_part(s.full_name, ' ', 1) end, 'student'
+    from public.students s join mine on mine.user_id = s.id
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_students_persona()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_audience text; v_class integer; v_teacher uuid; v_sender uuid; v_name text; v_m text[];
+begin
+  v_sender := coalesce(new.sender_id, auth.uid());
+  if v_sender is null then return new; end if;
+  select audience, class_id into v_audience, v_class from public.chat_channels where id = new.channel_id;
+
+  if not exists (select 1 from public.chat_staff_ids() s where s = v_sender) then
+    select full_name into v_name from public.students where id = v_sender;
+    new.sender_name := coalesce(nullif(trim(v_name), ''), 'Student');
+    new.as_cube := false;
+    if length(new.body) > 4000 then
+      raise exception 'Messages are limited to 4000 characters';
+    end if;
+    if tg_table_name = 'chat_messages' and (
+      select count(*) from public.chat_messages m
+      where m.sender_id = v_sender and m.created_at > now() - interval '1 minute') >= 20 then
+      raise exception 'Too many messages in a minute — wait a moment';
+    end if;
+    for v_m in select regexp_matches(new.body, '\[\[(?:img|file):([^\]|]+)', 'g') loop
+      if v_m[1] !~ '^https://[a-z0-9]+\.supabase\.co/storage/v1/object/public/(chat-uploads|qbank-images)/' then
+        raise exception 'Attachments must be uploaded through the chat';
+      end if;
+    end loop;
+    return new;
+  end if;
+
+  if not exists (select 1 from public.directors d where d.id = v_sender) then return new; end if;
+  if v_audience is distinct from 'students' then return new; end if;
+  if v_class is not null then
+    select public.resolve_tutor_by_first_name(c.teacher) into v_teacher from public.classes c where c.id = v_class;
+    if v_teacher = v_sender then
+      new.as_cube := false;
+      return new;
+    end if;
+  end if;
+  new.as_cube := true;
+  new.sender_name := 'CUBE';
+  return new;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_messages_keep_record()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  new.channel_id := old.channel_id; new.sender_id := old.sender_id;
+  new.created_at := old.created_at; new.as_cube := old.as_cube; new.sender_name := old.sender_name;
+  if old.deleted_at is not null then new.deleted_at := old.deleted_at; new.body := old.body; return new; end if;
+  if new.body is distinct from old.body and coalesce(old.body, '') <> ''
+     and exists (select 1 from public.chat_channels c where c.id = old.channel_id and c.audience = 'students') then
+    insert into public.chat_message_history (message_id, channel_id, body, action, changed_by)
+      values (old.id, old.channel_id, old.body, case when new.deleted_at is not null then 'deleted' else 'edited' end, auth.uid());
+  end if;
+  return new;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_report_message(p_message uuid, p_reason text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_channel uuid; v_body text; v_audience text; v_id uuid;
+begin
+  select m.channel_id, m.body, c.audience into v_channel, v_body, v_audience
+    from public.chat_messages m join public.chat_channels c on c.id = m.channel_id where m.id = p_message;
+  if v_channel is null or not public.chat_is_member(v_channel) then raise exception 'You can only report messages in your own conversations'; end if;
+  if v_audience <> 'students' then raise exception 'Reporting is for student conversations'; end if;
+  insert into public.chat_reports (message_id, channel_id, reported_by, reason, body_snapshot)
+    values (p_message, v_channel, auth.uid(), nullif(left(trim(coalesce(p_reason, '')), 500), ''), v_body)
+  on conflict (message_id, reported_by) do update set reason = excluded.reason, resolved_at = null, resolved_by = null, created_at = now()
+  returning id into v_id;
+  return v_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_resolve_report(p_report uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not exists (select 1 from public.directors d where d.id = auth.uid()) then raise exception 'directors only'; end if;
+  update public.chat_reports set resolved_at = now(), resolved_by = auth.uid() where id = p_report and resolved_at is null;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_set_student_replies(p_channel uuid, p_on boolean)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not exists (select 1 from public.directors d where d.id = auth.uid()) then raise exception 'Only a director can change who may reply'; end if;
+  update public.chat_channels set student_replies = p_on where id = p_channel and audience = 'students' and kind = 'channel';
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_hide_message(p_message uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not exists (select 1 from public.directors d where d.id = auth.uid()) then raise exception 'directors only'; end if;
+  update public.chat_messages m set deleted_at = now(), body = ''
+    from public.chat_channels c
+   where m.id = p_message and c.id = m.channel_id and c.audience = 'students' and m.deleted_at is null;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_unread_counts()
+ RETURNS TABLE(channel_id uuid, n bigint)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select m.channel_id, count(msg.id)
+  from public.chat_members m
+  join public.chat_channels c on c.id = m.channel_id
+  left join public.chat_reads r on r.channel_id = m.channel_id and r.user_id = auth.uid()
+  left join public.chat_messages msg on msg.channel_id = m.channel_id
+    and msg.sender_id <> auth.uid() and msg.deleted_at is null
+    and msg.created_at > coalesce(r.last_read_at, 'epoch'::timestamptz)
+  where m.user_id = auth.uid()
+    and (c.audience <> 'students' or c.student_visible or exists (select 1 from public.chat_staff_ids() s where s = auth.uid()))
+  group by m.channel_id
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_create_channel(p_name text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_id uuid;
+begin
+  if not public.is_staff() then raise exception 'staff only'; end if;
+  insert into public.chat_channels (kind, name, created_by) values ('channel', trim(p_name), auth.uid()) returning id into v_id;
+  insert into public.chat_members (channel_id, user_id)
+    select v_id, x.id from (select auth.uid() as id union select id from public.directors) x on conflict do nothing;
+  return v_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_open_dm(p_other uuid)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_key text; v_id uuid;
+begin
+  if not public.is_staff() then raise exception 'staff only'; end if;
+  if p_other = auth.uid() then raise exception 'that is you'; end if;
+  if not exists (select 1 from public.chat_staff_ids() s where s = p_other) then raise exception 'not a staff member'; end if;
+  v_key := least(auth.uid()::text, p_other::text) || ':' || greatest(auth.uid()::text, p_other::text);
+  select id into v_id from public.chat_channels where dm_key = v_key;
+  if v_id is null then
+    insert into public.chat_channels (kind, name, dm_key, created_by) values ('dm', '', v_key, auth.uid()) returning id into v_id;
+    insert into public.chat_members (channel_id, user_id) values (v_id, auth.uid()), (v_id, p_other);
+  end if;
+  return v_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.chat_set_student_visible(p_channel uuid, p_on boolean)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not exists (select 1 from public.directors d where d.id = auth.uid()) then raise exception 'Only a director can open a channel to students'; end if;
+  update public.chat_channels set student_visible = p_on where id = p_channel and audience = 'students' and kind = 'channel';
+end $function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -2474,8 +3012,8 @@ alter table public.qbank_question_images enable row level security;
 alter table public.online_resources enable row level security;
 alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
-alter table public.qbank_subjects enable row level security;
 alter table public.trial_submissions enable row level security;
+alter table public.qbank_subjects enable row level security;
 alter table public.qbank_topics enable row level security;
 alter table public.practice_ratings enable row level security;
 alter table public.qbank_skills enable row level security;
@@ -2485,6 +3023,14 @@ alter table public.qbank_subject_links enable row level security;
 alter table public.level_test_invites enable row level security;
 alter table public.auto_reminders enable row level security;
 alter table public.trial_invites enable row level security;
+alter table public.chat_channels enable row level security;
+alter table public.chat_members enable row level security;
+alter table public.chat_messages enable row level security;
+alter table public.chat_reads enable row level security;
+alter table public.chat_reactions enable row level security;
+alter table public.chat_scheduled_messages enable row level security;
+alter table public.chat_reports enable row level security;
+alter table public.chat_message_history enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -2494,6 +3040,34 @@ create policy authenticated_full_access on public.attendance as PERMISSIVE for A
 create policy auto_reminders_admin_read on public.auto_reminders as PERMISSIVE for SELECT to public using (is_admin(auth.uid()));
 create policy cash_log_admin_all on public.cash_log as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy cash_pay_status_admin_all on public.cash_pay_status as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
+create policy chat_channels_read on public.chat_channels as PERMISSIVE for SELECT to authenticated using ((((audience = 'staff'::text) AND is_staff() AND ((kind = 'channel'::text) OR chat_is_member(id))) OR ((audience = 'students'::text) AND is_admin(auth.uid())) OR ((audience = 'students'::text) AND chat_is_member(id))));
+create policy chat_members_join on public.chat_members as PERMISSIVE for INSERT to authenticated with check ((is_staff() AND (user_id = auth.uid()) AND chat_channel_open(channel_id)));
+create policy chat_members_leave on public.chat_members as PERMISSIVE for DELETE to authenticated using (((user_id = auth.uid()) AND (NOT (EXISTS ( SELECT 1
+   FROM chat_channels c
+  WHERE ((c.id = chat_members.channel_id) AND (c.is_default OR (c.audience = 'students'::text))))))));
+create policy chat_members_mute on public.chat_members as PERMISSIVE for UPDATE to authenticated using ((user_id = auth.uid())) with check ((user_id = auth.uid()));
+create policy chat_members_read on public.chat_members as PERMISSIVE for SELECT to authenticated using ((chat_is_member(channel_id) OR (is_staff() AND chat_channel_open(channel_id))));
+create policy chat_message_history_directors on public.chat_message_history as PERMISSIVE for SELECT to authenticated using (is_admin(auth.uid()));
+create policy chat_messages_own on public.chat_messages as PERMISSIVE for UPDATE to authenticated using ((sender_id = auth.uid())) with check ((sender_id = auth.uid()));
+create policy chat_messages_read on public.chat_messages as PERMISSIVE for SELECT to authenticated using (chat_is_member(channel_id));
+create policy chat_messages_send on public.chat_messages as PERMISSIVE for INSERT to authenticated with check (((sender_id = auth.uid()) AND chat_can_post(channel_id) AND ((NOT as_cube) OR (EXISTS ( SELECT 1
+   FROM directors d
+  WHERE (d.id = auth.uid()))))));
+create policy chat_reactions_own on public.chat_reactions as PERMISSIVE for ALL to authenticated using ((user_id = auth.uid())) with check (((user_id = auth.uid()) AND (EXISTS ( SELECT 1
+   FROM chat_messages m
+  WHERE ((m.id = chat_reactions.message_id) AND chat_is_member(m.channel_id))))));
+create policy chat_reactions_read on public.chat_reactions as PERMISSIVE for SELECT to authenticated using ((EXISTS ( SELECT 1
+   FROM chat_messages m
+  WHERE ((m.id = chat_reactions.message_id) AND chat_is_member(m.channel_id)))));
+create policy chat_reads_own on public.chat_reads as PERMISSIVE for ALL to authenticated using ((user_id = auth.uid())) with check ((user_id = auth.uid()));
+create policy chat_reads_read on public.chat_reads as PERMISSIVE for SELECT to authenticated using (chat_is_member(channel_id));
+create policy chat_reports_read on public.chat_reports as PERMISSIVE for SELECT to authenticated using ((is_admin(auth.uid()) OR (reported_by = auth.uid())));
+create policy chat_scheduled_delete on public.chat_scheduled_messages as PERMISSIVE for DELETE to authenticated using ((((sender_id = auth.uid()) OR (as_cube AND chat_is_director())) AND (sent_message_id IS NULL)));
+create policy chat_scheduled_insert on public.chat_scheduled_messages as PERMISSIVE for INSERT to authenticated with check (((sender_id = auth.uid()) AND (send_at > now()) AND (sent_at IS NULL) AND chat_can_post(channel_id) AND ((NOT as_cube) OR (EXISTS ( SELECT 1
+   FROM directors d
+  WHERE (d.id = auth.uid()))))));
+create policy chat_scheduled_read on public.chat_scheduled_messages as PERMISSIVE for SELECT to authenticated using (((sender_id = auth.uid()) OR (as_cube AND chat_is_director() AND chat_is_member(channel_id))));
+create policy chat_scheduled_update on public.chat_scheduled_messages as PERMISSIVE for UPDATE to authenticated using ((((sender_id = auth.uid()) OR (as_cube AND chat_is_director())) AND (sent_at IS NULL))) with check ((((sender_id = auth.uid()) OR (as_cube AND chat_is_director())) AND (sent_at IS NULL) AND chat_can_post(channel_id) AND ((NOT as_cube) OR chat_is_director())));
 create policy "Admin write classes" on public.classes as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy "Students can view classes" on public.classes as PERMISSIVE for SELECT to public using (true);
 create policy authenticated_full_access on public.classes as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
@@ -2576,3 +3150,6 @@ CREATE TRIGGER trial_submissions_activity BEFORE INSERT OR UPDATE ON public.tria
 CREATE TRIGGER lesson_cancelled_drops_shift AFTER UPDATE OF status ON public.lessons FOR EACH ROW EXECUTE FUNCTION lesson_cancelled_drops_shift();
 CREATE TRIGGER students_status_derived BEFORE INSERT OR UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION students_status_derived();
 CREATE TRIGGER enrolments_refresh_student_status AFTER INSERT OR DELETE OR UPDATE ON public.enrolments FOR EACH ROW EXECUTE FUNCTION enrolment_refreshes_student_status();
+CREATE TRIGGER chat_messages_students_persona BEFORE INSERT ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION chat_students_persona();
+CREATE TRIGGER chat_scheduled_students_persona BEFORE INSERT ON public.chat_scheduled_messages FOR EACH ROW EXECUTE FUNCTION chat_students_persona();
+CREATE TRIGGER chat_messages_keep_record BEFORE UPDATE ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION chat_messages_keep_record();
