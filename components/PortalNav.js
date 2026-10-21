@@ -20,8 +20,6 @@ const LINKS = [
   // Seniors only — trials/HSC preparation. Filtered out for other years below.
   { label: 'Past Papers', href: '/pastpapers', icon: '📝', seniorOnly: true },
   { label: 'Drop-in Help', href: '/dropin', icon: '🙋', primary: true },
-  // High school only — the chat with CUBE and the class channels (Years 7–12).
-  { label: 'Messages', href: '/chat', icon: '💬', highSchoolOnly: true },
   { label: 'Past Terms', href: '/archive', icon: '🗂️' },
 ]
 const YEAR_KEY = 'cube:student-year'
@@ -56,7 +54,25 @@ export default function PortalNav({ studentName }) {
     })()
   }, [year])
   const highSchool = ['7', '8', '9', '10', '11', '12'].includes(year)
-  const links = LINKS.filter(l => (!l.seniorOnly || year === '11' || year === '12') && (!l.highSchoolOnly || highSchool))
+  const links = LINKS.filter(l => (!l.seniorOnly || year === '11' || year === '12'))
+  // Messages (Years 7–12): the same icon directors have, beside the menu at
+  // every width, with the unread count — polled, and refreshed on focus.
+  const [chatUnread, setChatUnread] = useState(0)
+  useEffect(() => {
+    if (!highSchool) return
+    let alive = true
+    const tick = async () => {
+      try {
+        const { data } = await supabase.rpc('chat_unread_counts')
+        if (alive) setChatUnread((data || []).reduce((n, r) => n + (Number(r.n) || 0), 0))
+      } catch { /* badge is best-effort */ }
+    }
+    tick()
+    const onWake = () => { if (document.visibilityState === 'visible') tick() }
+    const t = setInterval(tick, 45000)
+    document.addEventListener('visibilitychange', onWake); window.addEventListener('focus', onWake)
+    return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', onWake); window.removeEventListener('focus', onWake) }
+  }, [highSchool, pathname])
   const isActive = (href) => (href === '/dashboard' ? pathname === '/dashboard' : pathname?.startsWith(href))
 
   const handleLogout = async () => {
@@ -107,8 +123,19 @@ export default function PortalNav({ studentName }) {
           })}
         </div>
 
-        {/* Right side: student chip + logout */}
+        {/* Right side: messages, student chip, logout */}
         <div className="flex items-center gap-2">
+          {highSchool && (
+            <Link href="/chat" title="Messages" aria-label="Messages"
+              className={`relative flex items-center justify-center w-9 h-9 rounded-xl transition ${isActive('/chat') ? 'bg-[#DEE7FF] text-[#062E63]' : 'text-[#062E63] hover:bg-[#F8FAFF]'}`}>
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+                strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4.5 3h11A2.5 2.5 0 0 1 18 5.5v6a2.5 2.5 0 0 1-2.5 2.5H9l-4 3v-3h-.5A2.5 2.5 0 0 1 2 11.5v-6A2.5 2.5 0 0 1 4.5 3Z" />
+                <path d="M6 7h8M6 10h5" />
+              </svg>
+              {chatUnread > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-[#B23A3A] text-white text-[10px] font-bold flex items-center justify-center">{chatUnread > 99 ? '99+' : chatUnread}</span>}
+            </Link>
+          )}
           {studentName && (
             <span className="hidden sm:inline-flex items-center gap-2 text-xs font-semibold text-[#062E63] bg-[#F8FAFF] border border-[#DEE7FF] px-3 py-1.5 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />

@@ -66,7 +66,6 @@ function StudentChatInner() {
             <div className="shrink-0 bg-[#FFF7E6] border-b border-[#FDE68A] px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
               <p className="text-[13px] text-[#92400E] flex-1 min-w-[16rem]">
                 <span className="font-semibold">A quick word.</span> Messages here go to the CUBE directors and your teacher, and are kept on record.
-                Class channels are for announcements and questions about the class. Keep it respectful — this isn’t a group chat.
               </p>
               <button onClick={dismissNotice} className="text-[12px] font-bold rounded-full px-3 py-1 bg-[#92400E] text-white">Got it</button>
             </div>
