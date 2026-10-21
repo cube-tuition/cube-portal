@@ -25,8 +25,8 @@ const DISMISS_KEY = 'action_centre_dismissed'
 const itemKey = (item) => `${item.section ?? 'Operations'}|${item.label}|${item.count}`
 
 const SECTIONS = [
-  { id: 'Todo:Ryan',  icon: '☑️', title: 'Ryan’s to-do', clearText: 'Nothing on Ryan’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
-  { id: 'Todo:Aiden', icon: '☑️', title: 'Aiden’s to-do', clearText: 'Nothing on Aiden’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
+  { id: 'Todo:Ryan',  icon: '📋', title: 'Ryan’s to-do', clearText: 'Nothing on Ryan’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
+  { id: 'Todo:Aiden', icon: '📋', title: 'Aiden’s to-do', clearText: 'Nothing on Aiden’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
   { id: 'Operations', icon: '⚙️', title: 'Operations' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
   { id: 'System',     icon: '🩺', title: 'System', clearText: 'All clear at this morning\u2019s check — jobs, invoice queue and crashes.' },
