@@ -2191,37 +2191,6 @@ end;
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION public.trial_submission_activity()
- RETURNS trigger
- LANGUAGE plpgsql
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-begin
-  if tg_op = 'INSERT' then
-    new.last_activity_at := coalesce(new.last_activity_at, new.submitted_at, now());
-    return new;
-  end if;
-  if new.status               is distinct from old.status
-     or new.admin_notes        is distinct from old.admin_notes
-     or new.notes              is distinct from old.notes
-     or new.trial_date         is distinct from old.trial_date
-     or new.trial_class_id     is distinct from old.trial_class_id
-     or new.converted_student_id is distinct from old.converted_student_id
-     or new.enrolment_id       is distinct from old.enrolment_id
-     or new.contacted_at       is distinct from old.contacted_at
-     or new.invitation_sent_at is distinct from old.invitation_sent_at
-     or new.level_test_invitation_sent_at is distinct from old.level_test_invitation_sent_at
-     or new.reminder_sent_at   is distinct from old.reminder_sent_at
-     or new.lesson1_feedback_sent_at is distinct from old.lesson1_feedback_sent_at
-     or new.outcome_sent_at    is distinct from old.outcome_sent_at then
-    new.last_activity_at := now();
-    new.stale_notified_at := null;
-  end if;
-  return new;
-end;
-$function$
-;
-
 CREATE OR REPLACE FUNCTION public.qbank_subject_key(p_course_code text, p_class_name text)
  RETURNS TABLE(year_level integer, subject_name text)
  LANGUAGE sql
@@ -2273,6 +2242,37 @@ AS $function$
     from by_code where subject_name is null
   ) k
   where year_level is not null and subject_name is not null
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.trial_submission_activity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+begin
+  if tg_op = 'INSERT' then
+    new.last_activity_at := coalesce(new.last_activity_at, new.submitted_at, now());
+    return new;
+  end if;
+  if new.status               is distinct from old.status
+     or new.admin_notes        is distinct from old.admin_notes
+     or new.notes              is distinct from old.notes
+     or new.trial_date         is distinct from old.trial_date
+     or new.trial_class_id     is distinct from old.trial_class_id
+     or new.converted_student_id is distinct from old.converted_student_id
+     or new.enrolment_id       is distinct from old.enrolment_id
+     or new.contacted_at       is distinct from old.contacted_at
+     or new.invitation_sent_at is distinct from old.invitation_sent_at
+     or new.level_test_invitation_sent_at is distinct from old.level_test_invitation_sent_at
+     or new.reminder_sent_at   is distinct from old.reminder_sent_at
+     or new.lesson1_feedback_sent_at is distinct from old.lesson1_feedback_sent_at
+     or new.outcome_sent_at    is distinct from old.outcome_sent_at then
+    new.last_activity_at := now();
+    new.stale_notified_at := null;
+  end if;
+  return new;
+end;
 $function$
 ;
 
@@ -2343,6 +2343,79 @@ begin
   end if;
   return new;
 end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.derived_student_status(p_student uuid, p_today date DEFAULT ((now() AT TIME ZONE 'Australia/Sydney'::text))::date)
+ RETURNS text
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  with anchor as (
+    select max(start_date) as a from terms where term_number <= 10 and start_date <= p_today
+  ),
+  live as (
+    select e.status
+      from enrolments e
+      left join classes c on c.id = e.class_id
+      left join terms t on t.id = c.term_id
+      cross join anchor
+     where e.student_id = p_student
+       and (e.status <> 'disenrol' or e.ended_at >= p_today)
+       and ((t.id is not null and t.end_date >= coalesce(anchor.a, '-infinity'::date))
+            or (e.class_id is null and e.status in ('trial', 'trial complete')))
+  )
+  select case
+    when exists (select 1 from live where status in ('active', 'disenrol')) then 'active'
+    when exists (select 1 from live where status in ('trial', 'trial complete')) then 'trial'
+    when exists (select 1 from enrolments where student_id = p_student) then 'inactive'
+    else 'pending'
+  end
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.students_status_derived()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  new.status := derived_student_status(new.id);
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.enrolment_refreshes_student_status()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  update students s set status = derived_student_status(s.id)
+   where s.id in (case when tg_op <> 'INSERT' then old.student_id end,
+                  case when tg_op <> 'DELETE' then new.student_id end)
+     and s.status is distinct from derived_student_status(s.id);
+  return null;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.refresh_student_statuses()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare n integer;
+begin
+  update students s set status = derived_student_status(s.id)
+   where s.status is distinct from derived_student_status(s.id);
+  get diagnostics n = row_count;
+  return n;
+end;
+$function$
 ;
 
 create view public.pay_run_shifts as
@@ -2501,3 +2574,5 @@ CREATE TRIGGER courses_year_consistent BEFORE INSERT OR UPDATE OF course_name, c
 CREATE TRIGGER enrolments_queue_invoice_sync AFTER INSERT OR DELETE OR UPDATE OF status, price, class_id, student_id ON public.enrolments FOR EACH ROW EXECUTE FUNCTION queue_invoice_sync();
 CREATE TRIGGER trial_submissions_activity BEFORE INSERT OR UPDATE ON public.trial_submissions FOR EACH ROW EXECUTE FUNCTION trial_submission_activity();
 CREATE TRIGGER lesson_cancelled_drops_shift AFTER UPDATE OF status ON public.lessons FOR EACH ROW EXECUTE FUNCTION lesson_cancelled_drops_shift();
+CREATE TRIGGER students_status_derived BEFORE INSERT OR UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION students_status_derived();
+CREATE TRIGGER enrolments_refresh_student_status AFTER INSERT OR DELETE OR UPDATE ON public.enrolments FOR EACH ROW EXECUTE FUNCTION enrolment_refreshes_student_status();

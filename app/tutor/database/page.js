@@ -105,7 +105,9 @@ const STUDENT_LOGIN_COL = 'portal_login'
 // course_name on `courses`, class_name on `classes`), so the read-only rule is
 // scoped per table rather than matched by column name globally.
 const READONLY_JOIN_COLS = {
-  students:   [STUDENT_LOGIN_COL],
+  // status follows the student's enrolments (worked out by the database) —
+  // shown, never hand-edited.
+  students:   [STUDENT_LOGIN_COL, 'status'],
   tutors:     [STUDENT_LOGIN_COL],
   enrolments: ['class_name'],
   classes:    ['term_name', 'course_name'],
@@ -4881,30 +4883,17 @@ export default function DatabasePage() {
                                 {selected.year && <span className="text-[10px] text-[#2A2035]/50 ml-1">· Year {selected.year}</span>}
                                 <span className="ml-auto text-[10px] font-semibold text-[#325099]/60 tracking-wide shrink-0">linked student</span>
                               </div>
-                              {/* Status selector */}
-                              <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white border border-[#DEE7FF]">
-                                <span className="text-[11px] font-semibold text-[#2A2035]/60">Enrolment status</span>
-                                <select
-                                  value={selected.status || 'active'}
-                                  onChange={async (e) => {
-                                    const newStatus = e.target.value
-                                    const { error } = await supabase.from(T_STUDENTS).update({ status: newStatus }).eq('id', selected.id)
-                                    if (error) { alert(`Failed to update status: ${error.message}`); return }
-                                    setStudentCardsData(prev => prev.map(s => s.id === selected.id ? { ...s, status: newStatus } : s))
-                                  }}
-                                  className="text-[11px] font-bold rounded-lg px-2.5 py-1 border focus:outline-none focus:ring-2 focus:ring-[#325099]/20 cursor-pointer transition"
+                              {/* Status — worked out from the enrolments, not set here */}
+                              <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white border border-[#DEE7FF]"
+                                title="Worked out from this student's enrolments: active = in a class this term or later · trial = only trial enrolments · inactive = enrolled before, nothing current (left or paused) · pending = never enrolled. Change it by enrolling, disenrolling or moving the student.">
+                                <span className="text-[11px] font-semibold text-[#2A2035]/60">Status <span className="font-normal text-[#2A2035]/40">· follows enrolments</span></span>
+                                <span className="text-[11px] font-bold rounded-lg px-2.5 py-1 border capitalize"
                                   style={
                                     (selected.status || 'active') === 'active' ? { background:'#D1FAE5', color:'#065F46', borderColor:'#6EE7B7' } :
                                     selected.status === 'pending'               ? { background:'#DBEAFE', color:'#1E40AF', borderColor:'#93C5FD' } :
                                     selected.status === 'trial'                 ? { background:'#FEF3C7', color:'#92400E', borderColor:'#FDE68A' } :
                                     { background:'#FFE4E6', color:'#9F1239', borderColor:'#FDA4AF' }
-                                  }
-                                >
-                                  <option value="active">Active</option>
-                                  <option value="pending">Pending</option>
-                                  <option value="trial">Trial</option>
-                                  <option value="inactive">Inactive</option>
-                                </select>
+                                  }>{selected.status || 'active'}</span>
                               </div>
                               {/* Guardian card */}
                               {!selectedParent ? (

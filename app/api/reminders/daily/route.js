@@ -230,7 +230,15 @@ export async function GET(request) {
     if (error) throw error
     return data
   })
-  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, rollNudges, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved, classChannels }
+  // Student statuses follow their enrolments (migrations/20261021_student_
+  // status_automatic.sql). Enrolment changes update them as they happen; this
+  // catches the ones the calendar makes — a new term starting.
+  const studentStatuses = await step('student statuses', async () => {
+    const { data, error } = await admin.rpc('refresh_student_statuses')
+    if (error) throw error
+    return data
+  })
+  const detail = { today, reminders: pushes.map(p => p.title), sent, trialNudges, heldDue, rollNudges, invoicesUpdated: invoiceSync?.updated?.length ?? null, shiftsApproved, classChannels, studentStatuses }
   await recordJob(admin, 'daily', { startedAt, ok: !errors.length, detail, error: errors.join(' · ') || null })
 
   // The morning system check (lib/systemHealth): jobs, the invoice queue and
