@@ -89,6 +89,60 @@ export default function WebsiteMonitoringPage() {
 
         {data && (
           <div className="space-y-5">
+            {/* Traffic — the site's own pageview beacon, aggregated per day */}
+            {data.traffic && (
+              <div className="bg-white rounded-2xl border border-[#F0F4FF] p-4 md:p-5">
+                <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+                  <p className="text-xs font-bold tracking-wider uppercase text-[#325099]/60">Traffic — last 30 days</p>
+                  {!data.traffic.tracking && (
+                    <p className="text-xs text-[#B45309] font-semibold">No visits recorded yet — tracking starts once the site ships its beacon.</p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  <div className="rounded-xl border border-[#F0F4FF] p-3">
+                    <p className="text-xl font-bold text-[#062E63]">{data.traffic.today.views}</p>
+                    <p className="text-xs text-[#2A2035]/55">views today</p>
+                  </div>
+                  <div className="rounded-xl border border-[#F0F4FF] p-3">
+                    <p className="text-xl font-bold text-[#062E63]">{data.traffic.today.uniques}</p>
+                    <p className="text-xs text-[#2A2035]/55">visitors today</p>
+                  </div>
+                  <div className="rounded-xl border border-[#F0F4FF] p-3">
+                    <p className="text-xl font-bold text-[#062E63]">{data.traffic.week.views}</p>
+                    <p className="text-xs text-[#2A2035]/55">views · 7 days</p>
+                  </div>
+                  <div className="rounded-xl border border-[#F0F4FF] p-3">
+                    <p className="text-xl font-bold text-[#062E63]">{data.traffic.week.uniques}</p>
+                    <p className="text-xs text-[#2A2035]/55">visitors · 7 days</p>
+                  </div>
+                </div>
+                {/* 30 daily bars, oldest → newest */}
+                {(() => {
+                  const dayMax = Math.max(...data.traffic.daily.map(d => d.views), 1)
+                  return (
+                    <div className="flex items-end gap-[3px] h-20 mb-1">
+                      {data.traffic.daily.map((d) => (
+                        <div key={d.day} className="flex-1 rounded-t-sm bg-[#BACBFF] hover:bg-[#325099] transition-colors"
+                          title={`${new Date(d.day + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })} · ${d.views} views · ${d.uniques} visitors`}
+                          style={{ height: `${Math.max((d.views / dayMax) * 72, d.views ? 5 : 2)}px` }} />
+                      ))}
+                    </div>
+                  )
+                })()}
+                <p className="text-[10px] text-[#2A2035]/40 mb-3">views per day · hover a bar for the date · newest on the right</p>
+                {data.traffic.topPages.length > 0 && (
+                  <div className="divide-y divide-[#F4F7FF]">
+                    {data.traffic.topPages.map((p) => (
+                      <div key={p.path} className="py-1.5 flex items-baseline gap-3 text-xs">
+                        <code className="text-[#062E63] font-semibold">{p.path}</code>
+                        <span className="ml-auto text-[#2A2035]/50 tabular-nums">{p.views} views</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Uptime of the key pages */}
             <div className="grid sm:grid-cols-3 gap-3">
               {data.pages.map((p) => (
