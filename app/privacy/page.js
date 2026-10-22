@@ -67,7 +67,7 @@ export default function PrivacyPage() {
         <Section title="Who handles it for us">
           <p>Our service providers process data only to provide their service to CUBE:</p>
           <ul className="list-disc pl-5 space-y-1.5 mt-2">
-            <li><strong>Supabase</strong> — the portal's database and file storage.</li>
+            <li><strong>Supabase</strong> — the portal’s database and file storage.</li>
             <li><strong>Vercel</strong> — hosting for the portal.</li>
             <li><strong>Twilio</strong> — text messages and calls on the CUBE office number.</li>
             <li><strong>Resend</strong> — emails sent by the portal (reports, invoices, logins).</li>
@@ -97,7 +97,7 @@ export default function PrivacyPage() {
         <Section title="Your choices and rights">
           <ul className="list-disc pl-5 space-y-1.5">
             <li>You can ask to see or correct the personal information we hold about you or your child.</li>
-            <li>Notifications are optional; turn them off in your phone's settings at any time.</li>
+            <li>Notifications are optional; turn them off in your phone’s settings at any time.</li>
             <li>You can ask us to close an account. We will close it and remove the data we are not required to keep.</li>
           </ul>
           <p className="mt-2">
@@ -111,7 +111,7 @@ export default function PrivacyPage() {
         <Section title="Children">
           <p>
             Many of our students are under 18. Their accounts are set up with a parent or
-            guardian's knowledge as part of enrolment, and parents can ask about their child's
+            guardian’s knowledge as part of enrolment, and parents can ask about their child’s
             information at any time using the contact above.
           </p>
         </Section>
