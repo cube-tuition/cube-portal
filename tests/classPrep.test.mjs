@@ -23,7 +23,8 @@ const rows = buildPrepRows({
   assignments: [{ class_id: 1, term_number: 4, week: 2, booklet_id: 'b1' }, { class_id: 2, term_number: 4, week: 2, booklet_id: 'b2' }],
   booklets: [{ id: 'b1', file_paths: ['x.pdf'] }, { id: 'b2', file_paths: [] }],
   students: { 3: ['Monica Lee'] },
-  preps: [{ lesson_id: 11, prepared_by_name: 'Aiden', prepared_at: 'x' }],
+  preps: [{ lesson_id: 11, prepared_by_name: 'Aiden', prepared_at: 'x', printed_by_name: 'Aiden', printed_at: 'y' },
+          { lesson_id: 10, printed_by_name: 'Ryan', printed_at: 'z' }],
 })
 
 test('one row per real lesson: no cancelled, makeup or level test lessons', () => {
@@ -38,6 +39,7 @@ test('a 1:1 is named by its student; prepared lessons carry who ticked them', ()
   assert.equal(rows[2].label, 'Y6 Maths 1:1 · Monica')
   assert.equal(rows[1].prepared.by, 'Aiden')
   assert.equal(rows[0].prepared, null)
+  assert.equal(rows[0].printed.by, 'Ryan', 'printed without being ticked prepared')
 })
 
 test('grouped by materials owner, unassigned kept separately', () => {
@@ -52,8 +54,9 @@ test('the window rolls: today to six days ahead', () => {
 
 test('the nudge: tomorrow’s unticked lessons to their owner; unassigned to both', () => {
   const n = Object.fromEntries(prepNudges(rows, '2026-10-23').map(x => [x.owner, x.push]))
-  assert.deepEqual(Object.keys(n), ['Ryan'])            // Aiden's Y10 English is ticked
-  assert.match(n.Ryan.body, /Y9 Maths · 4:30pm/)
+  assert.deepEqual(Object.keys(n), ['Ryan'])            // Aiden's Y10 English is prepared and printed
+  assert.match(n.Ryan.body, /Y9 Maths · 4:30pm — not prepared/)
+  assert.doesNotMatch(n.Ryan.body, /not printed/)
   const sat = prepNudges(rows, '2026-10-24').map(x => x.owner).sort()
   assert.deepEqual(sat, ['Aiden', 'Ryan'])              // the unassigned 1:1 goes to both
 })

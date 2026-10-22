@@ -751,7 +751,9 @@ create table public.lesson_prep (
   lesson_id integer not null,
   prepared_by uuid,
   prepared_by_name text,
-  prepared_at timestamp with time zone default now() not null,
+  prepared_at timestamp with time zone,
+  printed_at timestamp with time zone,
+  printed_by_name text,
   constraint lesson_prep_pkey PRIMARY KEY (lesson_id)
 );
 
