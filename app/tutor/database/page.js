@@ -5616,6 +5616,12 @@ export default function DatabasePage() {
                                             {studentLogins[rowId].email}
                                           </span>
                                         )}
+                                        {studentLogins[rowId].paused && (
+                                          <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-[#FFE4E6] text-[#9F1239] border border-[#FDA4AF]"
+                                            title="Locked while the student is inactive — reopens by itself when they're enrolled in a class again">
+                                            Paused
+                                          </span>
+                                        )}
                                         <button
                                           onClick={e => { e.stopPropagation(); openReset(rowId, selectedTable === T_TUTORS ? 'tutor' : 'student') }}
                                           disabled={resetBusy === rowId}

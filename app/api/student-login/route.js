@@ -79,6 +79,8 @@ export async function GET(req) {
           email: u.email || null,
           placeholder: isPlaceholder(u.email),
           last_sign_in_at: u.last_sign_in_at || null,
+          // Suspended because the student is inactive (sync_student_login).
+          paused: !!u.banned_until && new Date(u.banned_until) > new Date(),
         }
       }
       if (users.length < 1000) break
@@ -164,6 +166,10 @@ export async function POST(req) {
     if (usedPlaceholder && own !== email) {
       await sb.from('students').update({ email }).eq('id', student.id)
     }
+
+    // An inactive student's new login starts suspended, like every other
+    // (migrations/20261022_inactive_students_locked_out.sql).
+    await sb.rpc('sync_student_login', { p_student: student.id })
 
     return Response.json({
       success: true,

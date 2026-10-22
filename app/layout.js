@@ -4,6 +4,7 @@ import NoNumberScroll from "../components/NoNumberScroll";
 import NativePushRegistrar from "../components/NativePushRegistrar";
 import NativeLinkGuard from "../components/NativeLinkGuard";
 import NativePullRefresh from "../components/NativePullRefresh";
+import StudentAccessGuard from "../components/StudentAccessGuard";
 import { APP_FLAG_SCRIPT } from "../lib/nativeApp";
 
 const outfit = Outfit({
@@ -43,6 +44,7 @@ export default function RootLayout({ children }) {
         <NativePushRegistrar />
         <NativeLinkGuard />
         <NativePullRefresh />
+        <StudentAccessGuard />
         {children}
       </body>
     </html>

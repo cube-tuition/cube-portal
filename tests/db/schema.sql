@@ -538,16 +538,6 @@ create table public.trial_submissions (
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_1_completed'::text, 'trial_completed'::text, 'on_hold'::text, 'enrolled'::text, 'declined'::text])))
 );
 
-create table public.practice_ratings (
-  id bigint generated always as identity not null,
-  student_id uuid not null,
-  question_id uuid not null,
-  rating text not null,
-  rated_at timestamp with time zone default now() not null,
-  constraint practice_ratings_pkey PRIMARY KEY (id),
-  constraint practice_ratings_rating_check CHECK ((rating = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text, 'very_hard'::text])))
-);
-
 create table public.qbank_topics (
   id uuid default gen_random_uuid() not null,
   subject_id uuid not null,
@@ -556,6 +546,16 @@ create table public.qbank_topics (
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
   constraint qbank_topics_pkey PRIMARY KEY (id)
+);
+
+create table public.practice_ratings (
+  id bigint generated always as identity not null,
+  student_id uuid not null,
+  question_id uuid not null,
+  rating text not null,
+  rated_at timestamp with time zone default now() not null,
+  constraint practice_ratings_pkey PRIMARY KEY (id),
+  constraint practice_ratings_rating_check CHECK ((rating = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text, 'very_hard'::text])))
 );
 
 create table public.qbank_skills (
@@ -2967,6 +2967,47 @@ begin
 end $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.sync_student_login(p_student uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'auth'
+AS $function$
+declare
+  v_status text;
+begin
+  select status into v_status from public.students where id = p_student;
+  if v_status in ('active', 'trial') then
+    update auth.users set banned_until = null
+     where id = p_student and banned_until is not null
+       and coalesce(raw_app_meta_data ->> 'role', 'student') = 'student';
+  else
+    update auth.users set banned_until = '2999-01-01'::timestamptz
+     where id = p_student and (banned_until is null or banned_until < '2999-01-01'::timestamptz)
+       and coalesce(raw_app_meta_data ->> 'role', 'student') = 'student';
+    if found then
+      delete from auth.sessions where user_id = p_student;
+    end if;
+  end if;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.student_status_syncs_login()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if tg_op = 'INSERT' or old.status is distinct from new.status then
+    perform sync_student_login(new.id);
+  end if;
+  return null;
+end;
+$function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -3025,8 +3066,8 @@ alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
 alter table public.qbank_subjects enable row level security;
 alter table public.trial_submissions enable row level security;
-alter table public.practice_ratings enable row level security;
 alter table public.qbank_topics enable row level security;
+alter table public.practice_ratings enable row level security;
 alter table public.qbank_skills enable row level security;
 alter table public.qbank_subtopics enable row level security;
 alter table public.qbank_question_subtopics enable row level security;
@@ -3166,3 +3207,4 @@ CREATE TRIGGER enrolments_refresh_student_status AFTER INSERT OR DELETE OR UPDAT
 CREATE TRIGGER chat_messages_students_persona BEFORE INSERT ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION chat_students_persona();
 CREATE TRIGGER chat_scheduled_students_persona BEFORE INSERT ON public.chat_scheduled_messages FOR EACH ROW EXECUTE FUNCTION chat_students_persona();
 CREATE TRIGGER chat_messages_keep_record BEFORE UPDATE ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION chat_messages_keep_record();
+CREATE TRIGGER students_sync_login AFTER INSERT OR UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION student_status_syncs_login();

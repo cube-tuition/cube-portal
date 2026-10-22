@@ -26,6 +26,10 @@ const AUTH_STUB = `
     $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
   create function auth.role() returns text language sql stable as
     $$ select nullif(auth.jwt() ->> 'role', '') $$;
+  -- Sign-in accounts and their sessions, for the student lock-out
+  -- (migrations/20261022_inactive_students_locked_out.sql).
+  create table auth.users (id uuid primary key, raw_app_meta_data jsonb default '{}'::jsonb, banned_until timestamptz);
+  create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid not null);
 `
 
 // Supabase's default grants: the API roles may touch every table and call

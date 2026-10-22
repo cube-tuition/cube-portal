@@ -5,6 +5,12 @@ import { supabase } from '../lib/supabase'
 import { recordPortalActivity } from '../lib/activity'
 import { useRouter } from 'next/navigation'
 
+// An inactive student's login is suspended (migrations/20261022_inactive_
+// students_locked_out.sql): said plainly, whether they were just signed out
+// (?paused=1, from StudentAccessGuard) or try to sign in again.
+const PAUSED_MSG = 'Your CUBE portal access is paused while you’re not enrolled in a class. Contact CUBE if you think this is a mistake.'
+const isPausedError = (e) => e?.code === 'user_banned' || /banned/i.test(e?.message || '')
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -22,7 +28,11 @@ export default function LoginPage() {
     supabase.auth.getSession().then(({ data }) => {
       if (dead) return
       const user = data?.session?.user
-      if (!user) { setChecking(false); return }
+      if (!user) {
+        if (new URLSearchParams(window.location.search).get('paused')) setError(PAUSED_MSG)
+        setChecking(false)
+        return
+      }
       const role = user.app_metadata?.role ?? 'student'
       router.replace((role === 'tutor' || role === 'admin' || role === 'director') ? '/tutor' : '/dashboard')
     }).catch(() => { if (!dead) setChecking(false) })
@@ -77,7 +87,7 @@ export default function LoginPage() {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
-        setError(error.message || "That didn't work — check your email and password and try again.")
+        setError(isPausedError(error) ? PAUSED_MSG : (error.message || "That didn't work — check your email and password and try again."))
       } else if (!data?.user) {
         setError("Signed in but no user came back from Supabase — check that the account exists.")
       } else {

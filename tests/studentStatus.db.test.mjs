@@ -115,3 +115,35 @@ run('the morning refresh fixes any student left out of step, and says how many',
   assert.equal(await statusOf(q, HANNAH), 'active')
   assert.equal((await q('select refresh_student_statuses() n'))[0].n, 0)
 })
+
+// ── Inactive students are locked out (migrations/20261022_inactive_students_locked_out.sql)
+const login = async (q, id) => (await q(`select banned_until, (select count(*)::int from auth.sessions s where s.user_id = $1) sessions from auth.users where id = $1`, [id]))[0]
+const locked = async (q, id) => { const l = await login(q, id); return !!l.banned_until && new Date(l.banned_until) > new Date() }
+
+run('pausing a student suspends their login and ends their sessions; re-enrolling reopens it', async ({ q, now }) => {
+  await q(`insert into auth.users (id) values ($1)`, [HANNAH])
+  await addStudent(q, HANNAH)
+  assert.equal(await locked(q, HANNAH), true, 'no class yet (pending) → locked')
+  const [{ id }] = await enrol(q, HANNAH, now)
+  assert.equal(await locked(q, HANNAH), false, 'enrolled → open')
+  await q(`insert into auth.sessions (user_id) values ($1), ($1)`, [HANNAH])
+  await q(`update enrolments set status = 'disenrol', ended_at = current_date - 1, end_reason = 'Paused' where id = $1`, [id])
+  assert.equal(await locked(q, HANNAH), true, 'paused → locked')
+  assert.equal((await login(q, HANNAH)).sessions, 0, 'signed out everywhere')
+  await q(`update enrolments set status = 'active', ended_at = null where id = $1`, [id])
+  assert.equal(await locked(q, HANNAH), false, 'back in a class → open again')
+})
+
+run('a trial student can sign in', async ({ q, now }) => {
+  await q(`insert into auth.users (id) values ($1)`, [LEO])
+  await addStudent(q, LEO)
+  await enrol(q, LEO, now, 'trial')
+  assert.equal(await statusOf(q, LEO), 'trial')
+  assert.equal(await locked(q, LEO), false)
+})
+
+run('a staff account is never suspended, whatever a students row says', async ({ q }) => {
+  await q(`insert into auth.users (id, raw_app_meta_data) values ($1, '{"role":"tutor"}')`, [LEO])
+  await addStudent(q, LEO)                              // pending: would lock a student
+  assert.equal(await locked(q, LEO), false)
+})
