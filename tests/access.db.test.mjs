@@ -448,4 +448,30 @@ describe('student messaging', () => {
     const chans = (await q(`select id from chat_channels where audience = 'students' order by id`)).map(c => c.id).sort()
     assert.deepEqual(chans, [mathsChan, englishChan].sort())
   })
+
+  run('a member cannot move their membership into another channel (only mute is theirs to change)', async (ctx) => {
+    const { q, signIn, rejects } = ctx
+    const { mathsChan, staffChan } = await chatSeed(ctx)
+    await signIn(KIM)
+    await rejects(`update chat_members set channel_id = $1 where channel_id = $2 and user_id = $3`, [staffChan, mathsChan, KIM], /cannot be moved/)
+    await q(`update chat_members set muted = true where channel_id = $1 and user_id = $2`, [mathsChan, KIM])
+    assert.equal(await n(q, `select count(*)::int n from chat_members where channel_id = $1 and muted`, [mathsChan]), 1)
+    assert.equal(await n(q, `select count(*)::int n from chat_channels where id = $1`, [staffChan]), 0)
+  })
+
+  run('stars are private: each person sees and changes only their own', async (ctx) => {
+    const { q, signIn, rejects } = ctx
+    const { mathsChan } = await chatSeed(ctx)
+    await signIn(KIM)
+    await q(`insert into chat_stars (channel_id) values ($1)`, [mathsChan])
+    assert.equal(await n(q, `select count(*)::int n from chat_stars`), 1)
+    await rejects(`insert into chat_stars (user_id, channel_id) values ($1, $2)`, [ANA, mathsChan], /row-level security/)
+    await signIn(RYAN, 'admin')
+    assert.equal(await n(q, `select count(*)::int n from chat_stars`), 0, 'a director cannot see a student’s stars')
+    await q(`delete from chat_stars`)
+    await signIn(KIM)
+    assert.equal(await n(q, `select count(*)::int n from chat_stars`), 1, 'nor remove them')
+    await q(`delete from chat_stars where channel_id = $1`, [mathsChan])
+    assert.equal(await n(q, `select count(*)::int n from chat_stars`), 0)
+  })
 })

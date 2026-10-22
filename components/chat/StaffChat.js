@@ -6,7 +6,7 @@ import { fetchAllTerms, getCurrentTerm, getRegularEnrolmentTerm, weekOfTerm, for
 import {
   loadStaffDirectory, loadStudentDirectory, loadChannels, loadMessages, sendMessage, editMessage, deleteMessage, openStudentDm, openClassChannel,
   markRead, loadUnread, createChannel, openDm, openCubeDm, joinChannel, leaveChannel, setMuted, renameChannel, deleteChannel, addMember, removeMember, renderBody,
-  loadPins, savePins, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
+  loadStars, setStarred, uploadChatImage, imageMarker, uploadChatFile, fileMarker,
   scheduleMessage, loadAllScheduled, updateScheduled, cancelScheduled,
   loadReactions, toggleReaction, QUICK_EMOJI, searchMessages, bodyPreview, setDirectorsOnly, setQuiet,
   setStudentReplies, setStudentVisible, reportMessage, loadReports, resolveReport, loadHistory, openMyThread, loadMemberNames, hideMessage,
@@ -128,7 +128,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
   const [deleting, setDeleting] = useState(null)  // { channel, step: 1|2, typed } while confirming a delete
   const [menuOpen, setMenuOpen] = useState(false)  // the ⋯ menu in the conversation header
   const [membersOpen, setMembersOpen] = useState(false)
-  const [pins, setPins] = useState([])            // channel ids, in pin order
+  const [stars, setStars] = useState([])          // my starred chats' ids, oldest star first
   const [uploading, setUploading] = useState(false)
   const [shortcuts, setShortcuts] = useState([])   // directors' canned messages [{ id, title, body }]
   const [shortcutPick, setShortcutPick] = useState(false)   // composer picker open
@@ -220,15 +220,15 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         // Names come from chat_member_names (first names; directors as CUBE);
         // nothing else a student can't read is loaded. Opens their CUBE thread
         // first, else their first class channel.
-        const [cs, names] = await Promise.all([refreshChannels(me.id), loadMemberNames().catch(() => [])])
-        setStaff(names)
+        const [cs, names, starred] = await Promise.all([refreshChannels(me.id), loadMemberNames().catch(() => []), loadStars().catch(() => [])])
+        setStaff(names); setStars(starred)
         if (!activeRef.current) {
           const home = cs.find(c => c.kind === 'dm') || cs.find(c => c.kind === 'channel' && !c.archived_at)
           if (home) { activeRef.current = home.id; setActive(home.id) }
         }
         return
       }
-      const [dir, cs, pinned] = await Promise.all([loadStaffDirectory(), refreshChannels(me.id), loadPins(me.id)])
+      const [dir, cs, starred] = await Promise.all([loadStaffDirectory(), refreshChannels(me.id), loadStars().catch(() => [])])
       if (forStudents) {
         // Students mode: the people are the students (plus staff, so director
         // names resolve inside class channels), and "+ Class" lists this term.
@@ -253,7 +253,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
           setStaff(dir)
         }
       }
-      setPins(pinned)
+      setStars(starred)
       if (isAdmin) {
         // Each audience has its own list (lib/chat): staff chat's shortcuts
         // never show in student messaging, and vice versa.
@@ -662,10 +662,11 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   // Rename / delete: the channel's creator or a director (the server checks too).
   const canManage = (c) => c && c.kind === 'channel' && (c.created_by === me.id || me.isAdmin)
-  const togglePin = async (id) => {
-    const next = pins.includes(id) ? pins.filter(x => x !== id) : [...pins, id]
-    setPins(next)
-    try { await savePins(me.id, next) } catch (e) { setErr(e.message) }
+  // Star / unstar a chat for me only (lib/chat setStarred).
+  const toggleStar = async (id) => {
+    const on = !stars.includes(id)
+    setStars(s => (on ? [...s, id] : s.filter(x => x !== id)))
+    try { await setStarred(id, on) } catch (e) { setErr(e.message); setStars(s => (on ? s.filter(x => x !== id) : [...s, id])) }
   }
   const addTo = async (c, uid) => { try { await addMember(c.id, uid); await refreshChannels(me.id) } catch (e) { setErr(e.message) } }
   const removeFrom = async (c, uid) => { try { await removeMember(c.id, uid); await refreshChannels(me.id) } catch (e) { setErr(e.message) } }
@@ -686,12 +687,13 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
 
   if (!me) return null
 
-  const pinnedSet = new Set(pins)
-  const pinned = pins.map(id => channels.find(c => c.id === id)).filter(c => c && c.mine && c.kind === 'channel' && inProfile(c))
-  const open = channels.filter(c => c.kind === 'channel' && !pinnedSet.has(c.id) && !c.archived_at && (forStudents || !c.class_id))
+  // Starred chats lead the list (any kind) and leave their usual section.
+  const starredSet = new Set(stars)
+  const starred = stars.map(id => channels.find(c => c.id === id)).filter(c => c && inProfile(c))
+  const open = channels.filter(c => c.kind === 'channel' && !starredSet.has(c.id) && !c.archived_at && (forStudents || !c.class_id))
   // Class channels whose class has ended — kept for the record, read-only.
-  const archived = forStudents ? channels.filter(c => c.kind === 'channel' && c.archived_at) : []
-  const myClasses = forStudents ? [] : channels.filter(c => c.class_id && !c.archived_at && !pinnedSet.has(c.id))
+  const archived = forStudents ? channels.filter(c => c.kind === 'channel' && c.archived_at && !starredSet.has(c.id)) : []
+  const myClasses = forStudents ? [] : channels.filter(c => c.class_id && !c.archived_at && !starredSet.has(c.id))
   // Class channels by year, then timetable order (the directors' Students tab
   // and a teacher's "My classes" alike).
   const classOf = (c) => classById[c.class_id] || { class_name: c.name }
@@ -717,7 +719,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
       {g.items.map(c => <Row key={c.id} c={c} />)}
     </div>
   ))
-  const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && inProfile(c)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
+  const dms = channels.filter(c => (c.kind === 'dm' || c.kind === 'cube_dm') && inProfile(c) && !starredSet.has(c.id)).sort((a, b) => (unread[b.id] || 0) - (unread[a.id] || 0) || channelLabel(a).localeCompare(channelLabel(b)))
   const Row = ({ c }) => (
     <div className={`group flex items-center pr-2 ${active === c.id ? 'bg-[#DEE7FF]' : 'hover:bg-[#F8FAFF]'}`}>
       <button onClick={() => selectChannel(c.id)} className={`flex-1 min-w-0 text-left pl-4 py-2.5 md:py-1.5 flex items-center gap-2 text-sm ${active === c.id ? 'text-[#062E63] font-semibold' : 'text-[#2A2035]/80'}`}>
@@ -746,10 +748,9 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
         {(c.muted || c.quiet) && <span className="text-[10px] opacity-50" title={c.quiet ? 'Quiet channel — only @mentions notify anyone' : 'Muted — only @mentions notify you'}>🔕</span>}
         {unread[c.id] > 0 && <span className="text-[10px] font-bold bg-[#B23A3A] text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">{unread[c.id]}</span>}
       </button>
-      {c.mine && c.kind === 'channel' && !isStudent && (
-        <button onClick={() => togglePin(c.id)} title={pinnedSet.has(c.id) ? 'Unpin' : 'Pin'}
-          className={`text-[11px] px-2 py-2 md:px-1 md:py-0 ${pinnedSet.has(c.id) ? 'opacity-70' : 'opacity-40 md:opacity-0 md:group-hover:opacity-60'} hover:!opacity-100`}>📌</button>
-      )}
+      <button onClick={() => toggleStar(c.id)} title={starredSet.has(c.id) ? 'Unstar' : 'Star — keeps it at the top of your list (only you see your stars)'}
+        aria-label={starredSet.has(c.id) ? 'Unstar' : 'Star'}
+        className={`text-[13px] leading-none px-2 py-2 md:px-1 md:py-0 cursor-pointer ${starredSet.has(c.id) ? 'text-[#E0A800]' : 'text-[#2A2035]/30 md:opacity-0 md:group-hover:opacity-100 hover:text-[#E0A800]'}`}>{starredSet.has(c.id) ? '★' : '☆'}</button>
     </div>
   )
   const others = staff.filter(s => s.id !== me.id)
@@ -802,13 +803,13 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
             )}
           </div>
         )}
-        {pinned.length > 0 && (
+        {starred.length > 0 && (
           <>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 py-1">📌 Pinned</p>
-            {pinned.map(c => <Row key={c.id} c={c} />)}
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 px-3 py-1">⭐ Starred</p>
+            {starred.map(c => <Row key={c.id} c={c} />)}
           </>
         )}
-        <div className={`px-3 flex items-center justify-between ${pinned.length ? 'pt-3' : ''}`}>
+        <div className={`px-3 flex items-center justify-between ${starred.length ? 'pt-3' : ''}`}>
           <p className="text-[10px] font-bold uppercase tracking-wider text-[#325099]/60 py-1">{forStudents ? 'Class channels' : 'Channels'}</p>
           {isStudent ? null : forStudents ? (
             <button onClick={e => setClassPop(e.currentTarget.getBoundingClientRect())}
@@ -1042,7 +1043,7 @@ export default function StaffChat({ me, initialChannel = '', className = 'h-[cal
                         <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
                         <div className="absolute right-0 top-full mt-1 z-40 w-56 bg-white border border-[#DEE7FF] rounded-2xl shadow-xl py-1.5 text-sm">
                           {[
-                            ...(current.kind === 'channel' && !isStudent ? [{ label: pins.includes(current.id) ? '📌 Unpin' : '📌 Pin to top', run: () => togglePin(current.id) }] : []),
+                            { label: stars.includes(current.id) ? '☆ Unstar' : '⭐ Star (just for you)', run: () => toggleStar(current.id) },
                             { label: current.muted ? '🔔 Unmute notifications' : '🔕 Mute notifications', run: () => toggleMute(current) },
                             ...(current.kind === 'channel' ? [{ label: `👥 Members · ${current.members.length}`, run: () => setMembersOpen(o => !o) }] : []),
                             ...(current.kind === 'channel' && current.audience === 'students' && me.isAdmin && !current.archived_at ? [{ label: current.student_visible ? '🙈 Hide from students' : '👀 Open to students', run: () => toggleVisible(current) }] : []),

@@ -483,17 +483,6 @@ create table public.job_runs (
   constraint job_runs_pkey PRIMARY KEY (id)
 );
 
-create table public.qbank_subjects (
-  id uuid default gen_random_uuid() not null,
-  year_level integer not null,
-  name text not null,
-  code text,
-  sort_order integer default 0 not null,
-  active boolean default true not null,
-  created_at timestamp with time zone default now() not null,
-  constraint qbank_subjects_pkey PRIMARY KEY (id)
-);
-
 create table public.trial_submissions (
   id integer default nextval('trial_submissions_id_seq'::regclass) not null,
   submitted_at timestamp with time zone default now() not null,
@@ -538,14 +527,15 @@ create table public.trial_submissions (
   constraint trial_submissions_status_check CHECK ((status = ANY (ARRAY['new'::text, 'contacted'::text, 'trial_scheduled'::text, 'trial_1_completed'::text, 'trial_completed'::text, 'on_hold'::text, 'enrolled'::text, 'declined'::text])))
 );
 
-create table public.qbank_topics (
+create table public.qbank_subjects (
   id uuid default gen_random_uuid() not null,
-  subject_id uuid not null,
+  year_level integer not null,
   name text not null,
+  code text,
   sort_order integer default 0 not null,
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
-  constraint qbank_topics_pkey PRIMARY KEY (id)
+  constraint qbank_subjects_pkey PRIMARY KEY (id)
 );
 
 create table public.practice_ratings (
@@ -556,6 +546,16 @@ create table public.practice_ratings (
   rated_at timestamp with time zone default now() not null,
   constraint practice_ratings_pkey PRIMARY KEY (id),
   constraint practice_ratings_rating_check CHECK ((rating = ANY (ARRAY['easy'::text, 'medium'::text, 'hard'::text, 'very_hard'::text])))
+);
+
+create table public.qbank_topics (
+  id uuid default gen_random_uuid() not null,
+  subject_id uuid not null,
+  name text not null,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint qbank_topics_pkey PRIMARY KEY (id)
 );
 
 create table public.qbank_skills (
@@ -757,6 +757,13 @@ create table public.lesson_prep (
   constraint lesson_prep_pkey PRIMARY KEY (lesson_id)
 );
 
+create table public.chat_stars (
+  user_id uuid default auth.uid() not null,
+  channel_id uuid not null,
+  starred_at timestamp with time zone default now() not null,
+  constraint chat_stars_pkey PRIMARY KEY (user_id, channel_id)
+);
+
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
 alter table public.attendance add constraint attendance_makeup_class_id_fkey FOREIGN KEY (makeup_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.attendance add constraint attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE;
@@ -774,6 +781,7 @@ alter table public.chat_reports add constraint chat_reports_channel_id_fkey FORE
 alter table public.chat_reports add constraint chat_reports_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE;
 alter table public.chat_scheduled_messages add constraint chat_scheduled_messages_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE;
 alter table public.chat_scheduled_messages add constraint chat_scheduled_messages_sent_message_id_fkey FOREIGN KEY (sent_message_id) REFERENCES chat_messages(id) ON DELETE SET NULL;
+alter table public.chat_stars add constraint chat_stars_channel_id_fkey FOREIGN KEY (channel_id) REFERENCES chat_channels(id) ON DELETE CASCADE;
 alter table public.classes add constraint classes_course_id_fkey FOREIGN KEY (course_id) REFERENCES courses(id);
 alter table public.classes add constraint classes_source_class_id_fkey FOREIGN KEY (source_class_id) REFERENCES classes(id) ON DELETE SET NULL;
 alter table public.classes add constraint classes_term_id_fkey FOREIGN KEY (term_id) REFERENCES terms(id);
@@ -3008,6 +3016,20 @@ end;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.chat_members_fixed_keys()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  if new.channel_id is distinct from old.channel_id or new.user_id is distinct from old.user_id then
+    raise exception 'A membership cannot be moved to another channel or person — leave and join instead';
+  end if;
+  return new;
+end;
+$function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -3064,10 +3086,10 @@ alter table public.qbank_question_images enable row level security;
 alter table public.online_resources enable row level security;
 alter table public.stimulus_texts enable row level security;
 alter table public.job_runs enable row level security;
-alter table public.qbank_subjects enable row level security;
 alter table public.trial_submissions enable row level security;
-alter table public.qbank_topics enable row level security;
+alter table public.qbank_subjects enable row level security;
 alter table public.practice_ratings enable row level security;
+alter table public.qbank_topics enable row level security;
 alter table public.qbank_skills enable row level security;
 alter table public.qbank_subtopics enable row level security;
 alter table public.qbank_question_subtopics enable row level security;
@@ -3084,6 +3106,7 @@ alter table public.chat_scheduled_messages enable row level security;
 alter table public.chat_reports enable row level security;
 alter table public.chat_message_history enable row level security;
 alter table public.lesson_prep enable row level security;
+alter table public.chat_stars enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -3121,6 +3144,9 @@ create policy chat_scheduled_insert on public.chat_scheduled_messages as PERMISS
   WHERE (d.id = auth.uid()))))));
 create policy chat_scheduled_read on public.chat_scheduled_messages as PERMISSIVE for SELECT to authenticated using (((sender_id = auth.uid()) OR (as_cube AND chat_is_director() AND chat_is_member(channel_id))));
 create policy chat_scheduled_update on public.chat_scheduled_messages as PERMISSIVE for UPDATE to authenticated using ((((sender_id = auth.uid()) OR (as_cube AND chat_is_director())) AND (sent_at IS NULL))) with check ((((sender_id = auth.uid()) OR (as_cube AND chat_is_director())) AND (sent_at IS NULL) AND chat_can_post(channel_id) AND ((NOT as_cube) OR chat_is_director())));
+create policy chat_stars_own_add on public.chat_stars as PERMISSIVE for INSERT to authenticated with check ((user_id = auth.uid()));
+create policy chat_stars_own_read on public.chat_stars as PERMISSIVE for SELECT to authenticated using ((user_id = auth.uid()));
+create policy chat_stars_own_remove on public.chat_stars as PERMISSIVE for DELETE to authenticated using ((user_id = auth.uid()));
 create policy "Admin write classes" on public.classes as PERMISSIVE for ALL to authenticated using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy "Students can view classes" on public.classes as PERMISSIVE for SELECT to public using (true);
 create policy authenticated_full_access on public.classes as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
@@ -3208,3 +3234,4 @@ CREATE TRIGGER chat_messages_students_persona BEFORE INSERT ON public.chat_messa
 CREATE TRIGGER chat_scheduled_students_persona BEFORE INSERT ON public.chat_scheduled_messages FOR EACH ROW EXECUTE FUNCTION chat_students_persona();
 CREATE TRIGGER chat_messages_keep_record BEFORE UPDATE ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION chat_messages_keep_record();
 CREATE TRIGGER students_sync_login AFTER INSERT OR UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION student_status_syncs_login();
+CREATE TRIGGER chat_members_fixed_keys BEFORE UPDATE ON public.chat_members FOR EACH ROW EXECUTE FUNCTION chat_members_fixed_keys();
