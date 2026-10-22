@@ -89,6 +89,13 @@ export async function POST(request) {
       .eq('id', id).eq('status', 'new').select('id')
     if (!moved?.length) await sb.from('trial_submissions').update({ contacted_at: now }).eq('id', id).is('contacted_at', null)
     await sb.from('trial_submissions').update({ level_test_invitation_sent_at: now }).eq('id', id).is('level_test_invitation_sent_at', null)
+    // The invitation is to the child, so it contacts the family about all of
+    // their enquiries (Maths and English for one student) — not just this card.
+    if (sub.converted_student_id) {
+      await sb.from('trial_submissions')
+        .update({ status: 'contacted', contacted_at: now })
+        .eq('converted_student_id', sub.converted_student_id).eq('status', 'new').neq('id', id)
+    }
 
     return Response.json({ success: true, sentTo: parentEmail, stamped: !!moved?.length, sentAt: now })
   } catch (err) {

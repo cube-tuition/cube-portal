@@ -21,6 +21,23 @@ describe('new and contacted', () => {
     assert.deepEqual(ids(r), [[3, 'book the trial'], [1, 'contact the family']])
   })
 
+  test('a level test still to come → nothing due; once sat, due 2 days later as a level-test follow-up', () => {
+    const subs = [sub({ id: 1, status: 'contacted', converted_student_id: 'luke', last_activity_at: hoursAgo(80) })]
+    assert.deepEqual(staleTrials({ now, subs, levelTests: { luke: ['2026-10-16'] } }), [])
+    assert.deepEqual(staleTrials({ now, subs, levelTests: { luke: ['2026-10-14'] } }), [])           // sat yesterday: not 2 days yet
+    assert.deepEqual(ids(staleTrials({ now, subs, levelTests: { luke: ['2026-10-12'] } })),
+      [[1, 'follow up the level test — results and a trial']])
+  })
+
+  test('a child’s second enquiry is not “uncontacted” once the first has moved on', () => {
+    const r = staleTrials({ now, subs: [
+      sub({ id: 1, status: 'contacted', converted_student_id: 'luke', last_activity_at: hoursAgo(60) }),   // Maths
+      sub({ id: 2, status: 'new', converted_student_id: 'luke', last_activity_at: hoursAgo(70) }),         // English
+      sub({ id: 3, status: 'new', converted_student_id: 'mia', last_activity_at: hoursAgo(70) }),
+    ] })
+    assert.deepEqual(ids(r), [[3, 'contact the family'], [1, 'book the trial']])
+  })
+
   test('closed cases are never nudged', () => {
     const r = staleTrials({ now, subs: [sub({ status: 'enrolled' }), sub({ id: 2, status: 'declined' })] })
     assert.deepEqual(r, [])
