@@ -244,7 +244,7 @@ export default function LoginPage() {
       <footer className="border-t border-[#DEE7FF] bg-white">
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-5 text-center">
           <p className="text-[10px] tracking-[0.3em] uppercase text-[#325099]/70 font-semibold">
-            © CUBE Tuition · Chatswood
+            © CUBE Tuition · Chatswood · <Link href="/privacy" className="underline hover:text-[#325099]">Privacy</Link>
           </p>
         </div>
       </footer>
