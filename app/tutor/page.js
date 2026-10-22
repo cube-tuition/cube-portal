@@ -12,7 +12,6 @@ import { buildClassLabelMap } from '../../lib/classLabels'
 import { unmarkedLessons } from '../../lib/rollNudges'
 import { isCurrentMember } from '../../lib/enrolments'
 import ActionCentre from '../../components/ActionCentre'
-import CapacityBoard from '../../components/home/CapacityBoard'
 
 /*
  * Tutor portal — landing page
@@ -374,14 +373,6 @@ export default function TutorHome() {
         {/* Action Centre — directors only (gated here too, so the tutor page
             doesn't even mount it or run its checks) */}
         {isAdmin && <ActionCentre authorized />}
-
-        {/* Director insight widget — class capacity (the trial pipeline
-            lives on its own page, /tutor/trials) */}
-        {isAdmin && (
-          <div className="mb-6">
-            <CapacityBoard classes={classes} currentTermId={currentTerm?.id} classLabelMap={classLabelMap} />
-          </div>
-        )}
 
         {/* MAIN ROW — tutors only: today's classes + to-do.
             (Directors see today's classes in the banner and tasks in the Action Centre.) */}
