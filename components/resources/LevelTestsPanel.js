@@ -104,6 +104,34 @@ export default function LevelTestsPanel({ profile, scope = null }) {
     setDeletingId(null)
   }
 
+  // Duplicate a level test into a new draft: the same questions, cover and
+  // subject, titled "(copy)", with none of the original's bookings or results
+  // attached — open it to change the year or the questions.
+  const [duplicatingId, setDuplicatingId] = useState(null)
+  const duplicateTest = async (id) => {
+    setDuplicatingId(id)
+    try {
+      const { data: src, error: e1 } = await supabase.from(T_BOOKLET_BUILDS)
+        .select('title, year, subject, topic, blocks, doc_type, cover, syllabus_points, content, qbank_topic_ids, delivery')
+        .eq('id', id).single()
+      if (e1 || !src) throw e1 || new Error('not found')
+      const { error } = await supabase.from(T_BOOKLET_BUILDS).insert({
+        title: `${src.title || 'Level Test'} (copy)`, year: src.year, subject: src.subject, topic: src.topic || 'Level Test',
+        blocks: src.blocks || [], doc_type: 'level_test', cover: src.cover ?? null, syllabus_points: src.syllabus_points ?? [],
+        content: src.content ?? null, qbank_topic_ids: src.qbank_topic_ids ?? null, delivery: src.delivery ?? 'physical',
+        status: 'draft', booklet_id: null, created_by: profile?.id ?? null,
+      })
+      if (error) throw error
+      reload()
+    } catch (e) {
+      alert('Could not duplicate the level test: ' + (e.message || String(e)))
+    } finally {
+      setDuplicatingId(null)
+    }
+  }
+  // Cards read "8.M. Level Test" — when two share that, the title tells them apart.
+  const nameCount = visibleTests.reduce((m, t) => ({ ...m, [levelTestDisplayName(t)]: (m[levelTestDisplayName(t)] || 0) + 1 }), {})
+
   const fmtDate = (s) => s ? new Date(s).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
 
   return (
@@ -151,7 +179,7 @@ export default function LevelTestsPanel({ profile, scope = null }) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[#2A2035] truncate">{levelTestDisplayName(t)}</p>
                 <p className="text-[11px] text-[#2A2035]/50 truncate">
-                  {t.year ? `Year ${t.year} · ` : ''}{t.subject || 'Mathematics'}{t.updated_at ? ` · Updated ${fmtDate(t.updated_at)}` : ''}
+                  {nameCount[levelTestDisplayName(t)] > 1 && t.title ? `${t.title} · ` : ''}{t.year ? `Year ${t.year} · ` : ''}{t.subject || 'Mathematics'}{t.updated_at ? ` · Updated ${fmtDate(t.updated_at)}` : ''}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -159,6 +187,11 @@ export default function LevelTestsPanel({ profile, scope = null }) {
                   className="text-xs font-semibold bg-[#325099] text-white px-4 md:px-5 py-2.5 md:py-2 rounded-full hover:bg-[#062E63] transition">
                   Open ↗
                 </a>
+                <button onClick={() => duplicateTest(t.id)} disabled={duplicatingId === t.id}
+                  title="Copy this level test into a new draft"
+                  className="text-[11px] font-semibold px-3 py-1.5 max-md:py-2.5 rounded-full text-[#325099] hover:bg-[#EEF4FF] transition disabled:opacity-40">
+                  {duplicatingId === t.id ? 'Duplicating…' : 'Duplicate'}
+                </button>
                 <button onClick={() => deleteTest(t.id)}
                   className={`text-[11px] font-semibold px-3 py-1.5 max-md:py-2.5 rounded-full transition ${deletingId === t.id ? 'bg-[#FEE2E2] text-[#991B1B]' : 'text-[#991B1B]/60 hover:bg-[#FEE2E2]'}`}>
                   {deletingId === t.id ? 'Confirm?' : 'Delete'}

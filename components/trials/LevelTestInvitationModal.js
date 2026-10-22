@@ -68,7 +68,7 @@ export default function LevelTestInvitationModal({ sub, onClose, onSent }) {
     let alive = true
     ;(async () => {
       const [{ data: lts }, { data: inv }] = await Promise.all([
-        supabase.from('booklet_builds').select('id, title, year, subject').eq('doc_type', 'level_test').order('year').order('subject'),
+        supabase.from('booklet_builds').select('id, title, year, subject, updated_at').eq('doc_type', 'level_test').order('year').order('subject'),
         supabase.from('level_test_invites').select('*').eq('submission_id', sub.id).maybeSingle(),
       ])
       let lesson = null

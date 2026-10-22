@@ -62,6 +62,10 @@ test('the tests to sit are the year’s level tests in the enquiry subjects', ()
   assert.deepEqual(matchLevelTests(tests, 'Year 9', ['Maths Advanced']), ['m9'])
   assert.deepEqual(matchLevelTests(tests, '9', ['English', 'Maths']), ['m9', 'e9'])
   assert.deepEqual(matchLevelTests(tests, '11', ['Maths']), [])
+  // Duplicated: one test per subject — not the "(copy)", else the newest.
+  const dup = [...tests, { id: 'm9c', title: 'Year 9 Maths Level Test (copy)', year: 9, subject: 'maths', updated_at: '2099-01-01' },
+               { id: 'm9b', title: 'Year 9 Maths Level Test B', year: 9, subject: 'maths', updated_at: '2098-01-01' }]
+  assert.deepEqual(matchLevelTests(dup, '9', ['Maths']), ['m9b'])
 })
 
 const invite = { slots: [SAT, TUE] }
