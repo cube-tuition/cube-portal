@@ -366,16 +366,20 @@ export default function WeekBooklet({ cls, term, week, isAdmin, dateISO, staff, 
             <ExamPdfButtons examId={ab.exam_id} size="lg" />
           </div>
         ) : ab.delivery === 'online' ? (
-          /* Online workbook — there is no PDF to hand out. Staff open the class
-             view (their own copy plus a tab per student); a student opens their
-             own copy. Both in a new tab, so the lesson page stays put. */
+          /* Online workbook — there is no PDF to hand out. This component only
+             renders on staff pages, so the link is always the staff class view
+             (their own copy plus a tab per student), in a new tab so the lesson
+             page stays put. readOnly here means a week someone else is
+             covering: the class's own teacher may still read the workbook.
+             (It used to send them to the student route, which bounces staff
+             to the home page.) */
           <div className="px-5 md:px-6 py-4 flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-[#2A2035]/55">
-              {readOnly ? 'Type your answers straight into this workbook.'
+              {readOnly ? 'Another teacher is taking this session — open the workbook to read along.'
                         : 'Students type into this workbook — open it to model answers or read their work.'}
             </p>
             <a
-              href={`${readOnly ? '' : '/tutor'}/workbook/${ab.id}?class=${cls?.id}`}
+              href={`/tutor/workbook/${ab.id}?class=${cls?.id}`}
               target="_blank" rel="noopener noreferrer"
               className="px-4 py-2 rounded-xl bg-[#0E7A5F] text-white text-xs font-bold hover:bg-[#0B5F4A] transition whitespace-nowrap"
             >
