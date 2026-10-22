@@ -62,6 +62,6 @@ role to check; add to them when a table's rules change.
 
 Every cron records its outcome with `recordJob` (lib/systemHealth). The
 morning job runs the system check (jobs, invoice queue, client crashes),
-shows it on /tutor/admin/monitoring/system and the Action Centre, and pushes the
+shows it on /tutor/admin/monitoring/system, and pushes the
 directors when something is wrong. A new cron must record itself too — and be
 added to WATCHED_JOBS if it should run daily.
