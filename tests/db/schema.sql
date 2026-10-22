@@ -3030,6 +3030,24 @@ end;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.trial_enrolment_touches_submission()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  update trial_submissions ts
+     set last_activity_at = now(), stale_notified_at = null
+   where ts.converted_student_id = new.student_id
+     and ts.status in ('new', 'contacted', 'trial_scheduled', 'trial_1_completed', 'trial_completed')
+     and (ts.enrolment_id = new.id
+          or (ts.enrolment_id is null and ts.trial_class_id is not distinct from coalesce(old.class_id, new.class_id)));
+  return null;
+end;
+$function$
+;
+
 create view public.pay_run_shifts as
  SELECT s.id,
     s.tutor_id,
@@ -3235,3 +3253,4 @@ CREATE TRIGGER chat_scheduled_students_persona BEFORE INSERT ON public.chat_sche
 CREATE TRIGGER chat_messages_keep_record BEFORE UPDATE ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION chat_messages_keep_record();
 CREATE TRIGGER students_sync_login AFTER INSERT OR UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION student_status_syncs_login();
 CREATE TRIGGER chat_members_fixed_keys BEFORE UPDATE ON public.chat_members FOR EACH ROW EXECUTE FUNCTION chat_members_fixed_keys();
+CREATE TRIGGER enrolments_trial_activity AFTER UPDATE OF trial_start_date, class_id ON public.enrolments FOR EACH ROW WHEN (((old.trial_start_date IS DISTINCT FROM new.trial_start_date) OR (old.class_id IS DISTINCT FROM new.class_id))) EXECUTE FUNCTION trial_enrolment_touches_submission();
