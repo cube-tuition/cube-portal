@@ -199,17 +199,20 @@ export default function LevelTestLessonPage() {
   }
   useEffect(() => () => clearTimeout(familyTimer.current), [])
 
+  // Keyed on the lesson ids in the send (a string), not the siblings array —
+  // that array is rebuilt every render, which restarted this fetch each time
+  // and left the preview on "Checking…" for ever.
+  const previewLessonKey = sendChildren().map(c => c.lesson?.id).filter(Boolean).join(',')
   useEffect(() => {
-    if (!previewOpen) return
+    if (!previewOpen || !previewLessonKey) return
     let dead = false
     // Reset off the render tick (the React Compiler rule), then fetch.
     Promise.resolve().then(() => { if (!dead) setOfferPreview(null) })
-    const ids = sendChildren().map(c => c.lesson?.id).filter(Boolean)
-    authedFetch(`/api/send-level-test-report?lesson_ids=${ids.join(',')}`)
+    authedFetch(`/api/send-level-test-report?lesson_ids=${previewLessonKey}`)
       .then(r => r.json()).then(d => { if (!dead) setOfferPreview({ html: d?.html || '', sections: d?.sections || [] }) })
       .catch(() => { if (!dead) setOfferPreview({ html: '', sections: [], failed: true }) })
     return () => { dead = true }
-  }, [previewOpen, pickedSiblings])   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [previewOpen, previewLessonKey])
 
   const emailTestTitle = () => (tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`)
   const reportFilename = (st) => `${(st?.full_name || 'student').trim()} - Level Test Report.pdf`
