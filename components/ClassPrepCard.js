@@ -7,16 +7,17 @@ import { loadPrep, groupPrep, prepWindow, dayLabel, fmt12 } from '../lib/classPr
 
 /*
  * Class prep — the Action Centre's full-width card. Every lesson from today to
- * six days ahead, under its materials owner (Operations → Materials), with the
- * week's booklet status from the curriculum and two ticks (lesson_prep):
- * Prepared — the materials are ready — and Printed. A lesson drops off once its day has passed. lib/classPrep has
+ * six days ahead, under its materials owner (Operations → Materials). Prep is
+ * automatic — a booklet allocated to the class for that week on the curriculum
+ * page — and Print is the one tick (lesson_prep.printed_at). A lesson drops off once its day has passed. lib/classPrep has
  * the rules; the morning job nudges the owner about tomorrow's unticked ones.
  */
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney' }).format(new Date())
-const BOOKLET = {
-  ready:       { text: 'Booklet ✓', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200', tip: 'This week’s booklet is assigned and published' },
-  unpublished: { text: 'Not published', cls: 'text-amber-700 bg-amber-50 border-amber-200', tip: 'A booklet is assigned for this week but its PDFs aren’t published' },
-  none:        { text: 'No booklet', cls: 'text-[#2A2035]/45 bg-[#F8FAFF] border-[#E4EAFB]', tip: 'No booklet is assigned to this class for this week' },
+// Prep, read from the curriculum: the week's booklet allocated (and published).
+const PREP = {
+  ready:       { mark: '✓', cls: 'bg-emerald-100 text-emerald-700 border-emerald-300', tip: 'Prepared — this week’s booklet is allocated and published' },
+  unpublished: { mark: '✓', cls: 'bg-amber-50 text-amber-700 border-amber-300', tip: 'Prepared — a booklet is allocated, but its PDFs aren’t published yet' },
+  none:        { mark: '', cls: 'bg-white border-[#C7D5F8]', tip: 'Not prepared — no booklet allocated to this class for this week (Curriculum page)' },
 }
 
 export default function ClassPrepCard() {
@@ -38,18 +39,13 @@ export default function ClassPrepCard() {
     return () => clearTimeout(t)
   }, [load])
 
-  // field: 'prepared' | 'printed'. A row holds either tick; it goes when both are cleared.
-  const toggle = async (r, field) => {
+  // The one manual tick: printed. Unticking removes the row.
+  const togglePrinted = async (r) => {
     setSaving(r.lessonId)
-    const tick = r[field] ? null : { by: (me?.name || '').split(' ')[0], at: new Date().toISOString() }
-    const next = { ...r, [field]: tick }
-    setRows(list => list.map(x => (x.lessonId === r.lessonId ? next : x)))
-    const { error: e } = next.prepared || next.printed
-      ? await supabase.from('lesson_prep').upsert({
-          lesson_id: r.lessonId, prepared_by: me?.id || null,
-          prepared_at: next.prepared?.at || null, prepared_by_name: next.prepared?.by || null,
-          printed_at: next.printed?.at || null, printed_by_name: next.printed?.by || null,
-        })
+    const printed = r.printed ? null : { by: (me?.name || '').split(' ')[0], at: new Date().toISOString() }
+    setRows(list => list.map(x => (x.lessonId === r.lessonId ? { ...x, printed } : x)))
+    const { error: e } = printed
+      ? await supabase.from('lesson_prep').upsert({ lesson_id: r.lessonId, prepared_by: me?.id || null, printed_at: printed.at, printed_by_name: printed.by })
       : await supabase.from('lesson_prep').delete().eq('lesson_id', r.lessonId)
     if (e) { setError(`Could not save: ${e.message}`); load() }
     setSaving(null)
@@ -57,9 +53,9 @@ export default function ClassPrepCard() {
 
   const groups = useMemo(() => groupPrep(rows || []), [rows])
   const total = rows?.length || 0
-  const done = (rows || []).filter(r => r.prepared).length
+  const done = (rows || []).filter(r => r.allocated).length
   const printed = (rows || []).filter(r => r.printed).length
-  const ready = (r) => r.prepared && r.printed
+  const ready = (r) => r.allocated && r.printed
   const cols = ['Ryan', 'Aiden', ...(groups.Unassigned.length ? ['Unassigned'] : [])]
 
   return (
@@ -89,7 +85,7 @@ export default function ClassPrepCard() {
                 </p>
                 {list.length > 0 && (
                   <p className="px-4 pb-0.5 flex gap-2.5 text-[9px] font-bold uppercase tracking-wider text-[#2A2035]/35">
-                    <span className="w-4 text-center" title="Prepared">Prep</span><span className="w-4 text-center" title="Printed">Print</span>
+                    <span className="w-4 text-center" title="Prepared: a booklet is allocated for the week — automatic">Prep</span><span className="w-4 text-center" title="Printed — tick when the copies are printed">Print</span>
                   </p>
                 )}
                 <div className="max-h-80 overflow-y-auto pb-2">
@@ -99,20 +95,20 @@ export default function ClassPrepCard() {
                         <p className={`px-4 pt-2 pb-0.5 text-[10px] font-semibold ${r.date === day ? 'text-[#B23A3A]' : 'text-[#2A2035]/40'}`}>{dayLabel(r.date, day)}</p>
                       )}
                       <div className={`flex items-center gap-2.5 px-4 py-1.5 hover:bg-[#F8FAFF] ${ready(r) ? 'opacity-50' : ''}`}>
-                        <input type="checkbox" checked={!!r.prepared} disabled={saving === r.lessonId} onChange={() => toggle(r, 'prepared')}
-                          title={r.prepared ? `Prepared${r.prepared.by ? ` — ticked by ${r.prepared.by}` : ''}` : 'Prepared: tick when the materials are ready'}
-                          className="accent-[#15803D] w-4 h-4 shrink-0 cursor-pointer" />
-                        <input type="checkbox" checked={!!r.printed} disabled={saving === r.lessonId} onChange={() => toggle(r, 'printed')}
+                        <span title={PREP[r.booklet].tip} aria-label={PREP[r.booklet].tip}
+                          className={`w-4 h-4 shrink-0 rounded border text-[10px] font-bold leading-none flex items-center justify-center ${PREP[r.booklet].cls}`}>{PREP[r.booklet].mark}</span>
+                        <input type="checkbox" checked={!!r.printed} disabled={saving === r.lessonId} onChange={() => togglePrinted(r)}
                           title={r.printed ? `Printed${r.printed.by ? ` — ticked by ${r.printed.by}` : ''}` : 'Printed: tick when the copies are printed'}
                           className="accent-[#325099] w-4 h-4 shrink-0 cursor-pointer" />
                         <span className="flex-1 min-w-0">
                           <Link href={`/tutor/classes/${r.classId}/${r.date}`}
                             className={`block text-xs font-semibold text-[#2A2035] truncate hover:underline ${ready(r) ? 'line-through' : ''}`}>{r.label}</Link>
-                          <span className="block text-[10.5px] text-[#2A2035]/45">{fmt12(r.start)}</span>
+                          <span className="block text-[10.5px] text-[#2A2035]/45">
+                            {fmt12(r.start)}
+                            {r.booklet === 'none' && <span className="text-[#B23A3A]/70"> · no booklet allocated</span>}
+                            {r.booklet === 'unpublished' && <span className="text-amber-700"> · booklet not published</span>}
+                          </span>
                         </span>
-                        {r.booklet && (
-                          <span title={BOOKLET[r.booklet].tip} className={`shrink-0 text-[9.5px] font-semibold border rounded-full px-1.5 py-0.5 ${BOOKLET[r.booklet].cls}`}>{BOOKLET[r.booklet].text}</span>
-                        )}
                       </div>
                     </div>
                   ))}

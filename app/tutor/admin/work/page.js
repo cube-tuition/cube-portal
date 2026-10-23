@@ -22,7 +22,7 @@ const NOTIFICATION_TYPES = [
   { icon: '🏢', title: 'Company tax return',   when: 'A week before and the day before it’s due' },
   { icon: '🏛️', title: 'ASIC annual review',   when: 'A week before and the day before it’s due' },
   { icon: '🏫', title: 'Term start',           when: 'The day before each term starts' },
-  { icon: '📚', title: 'Class prep',           when: 'The morning before a lesson not yet ticked as prepared and printed — to its materials owner' },
+  { icon: '📚', title: 'Class prep',           when: 'The morning before a lesson with no booklet allocated or not yet printed — to its materials owner' },
   { icon: '📞', title: 'Trial follow-ups',     when: 'Each morning: trials nobody has acted on for 2+ days, and on-hold trials due a check-back' },
   { icon: '📅', title: 'Trial bookings',       when: 'A family picks or changes trial times on their invitation form, or says none suit' },
   { icon: '📝', title: 'Level test bookings',  when: 'A family books, moves or asks for other times on the level test form' },

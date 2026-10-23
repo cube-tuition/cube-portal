@@ -31,15 +31,16 @@ test('one row per real lesson: no cancelled, makeup or level test lessons', () =
   assert.deepEqual(rows.map(r => r.lessonId), [10, 11, 12])
 })
 
-test('the week’s booklet: published, assigned without PDFs, or not set', () => {
+test('prepared is automatic: a booklet allocated for the week (published or not)', () => {
   assert.deepEqual(rows.map(r => r.booklet), ['ready', 'unpublished', 'none'])
+  assert.deepEqual(rows.map(r => r.allocated), [true, true, false])
 })
 
-test('a 1:1 is named by its student; prepared lessons carry who ticked them', () => {
+test('a 1:1 is named by its student; printed lessons carry who ticked them', () => {
   assert.equal(rows[2].label, 'Y6 Maths 1:1 · Monica')
-  assert.equal(rows[1].prepared.by, 'Aiden')
-  assert.equal(rows[0].prepared, null)
-  assert.equal(rows[0].printed.by, 'Ryan', 'printed without being ticked prepared')
+  assert.equal(rows[1].printed.by, 'Aiden')
+  assert.equal(rows[0].printed.by, 'Ryan')
+  assert.equal(rows[2].printed, null)
 })
 
 test('grouped by materials owner, unassigned kept separately', () => {
@@ -52,11 +53,10 @@ test('the window rolls: today to six days ahead', () => {
   assert.equal(dayLabel('2026-10-25', '2026-10-24'), 'Tomorrow')
 })
 
-test('the nudge: tomorrow’s unticked lessons to their owner; unassigned to both', () => {
-  const n = Object.fromEntries(prepNudges(rows, '2026-10-23').map(x => [x.owner, x.push]))
-  assert.deepEqual(Object.keys(n), ['Ryan'])            // Aiden's Y10 English is prepared and printed
-  assert.match(n.Ryan.body, /Y9 Maths · 4:30pm — not prepared/)
-  assert.doesNotMatch(n.Ryan.body, /not printed/)
+test('the nudge: tomorrow’s lessons missing a booklet or printing; unassigned to both', () => {
+  assert.deepEqual(prepNudges(rows, '2026-10-23'), [])   // both have a booklet allocated and are printed
+  const n = Object.fromEntries(prepNudges(rows, '2026-10-24').map(x => [x.owner, x.push]))
+  assert.match(n.Ryan.body, /Y6 Maths 1:1 · Monica · 10:00am — no booklet allocated, not printed/)
   const sat = prepNudges(rows, '2026-10-24').map(x => x.owner).sort()
   assert.deepEqual(sat, ['Aiden', 'Ryan'])              // the unassigned 1:1 goes to both
 })
