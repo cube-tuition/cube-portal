@@ -132,6 +132,19 @@ describe('trial feedback emails', () => {
     assert.deepEqual(r, [])
   })
 
+  test('an earlier trial in another class (now enrolled) does not count for a new enquiry', () => {
+    // Kim trialled class 5 last term, two marked lessons, and enrolled. A new
+    // enquiry for class 7 has not had a lesson yet.
+    const trialLessons = { kim: { 5: ['2026-08-01', '2026-08-08'] } }
+    const r = staleTrials({ now, lessonsByClass, trialEnrolments: [{ ...trialEnrolments[0], trial_start_date: '2026-10-20' }], trialLessons,
+      subs: [sub({ ...base, trial_class_id: 7 })] })
+    assert.deepEqual(r, [])
+    // Once class 7 itself has a marked lesson, that one is owed.
+    const r2 = staleTrials({ now, lessonsByClass, trialEnrolments: [{ ...trialEnrolments[0], trial_start_date: '2026-10-13' }],
+      trialLessons: { kim: { 5: ['2026-08-01', '2026-08-08'], 7: ['2026-10-06'] } }, subs: [sub({ ...base, trial_class_id: 7 })] })
+    assert.deepEqual(ids(r2), [[1, 'send the lesson 1 feedback email']])
+  })
+
   test('lesson 2 marked → the outcome email is owed (and replaces an unsent lesson 1 email)', () => {
     const trialLessons = { kim: { 7: ['2026-10-06', '2026-10-13'] } }
     const later = new Date('2026-10-15T15:00:00Z')                   // 2 days after the 13th ended

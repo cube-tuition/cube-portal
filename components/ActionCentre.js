@@ -25,10 +25,13 @@ import ClassPrepCard from './ClassPrepCard'
 const DISMISS_KEY = 'action_centre_dismissed'
 const itemKey = (item) => `${item.section ?? 'Operations'}|${item.label}|${item.count}`
 
+// The Operations card (every check without a section: stale trials, the
+// invoice queue, unsaved sessions, …) was retired on 2026-10-23 — those checks
+// still run for the morning push and the System page, but the home page shows
+// only the to-do lists and the email cadence.
 const SECTIONS = [
   { id: 'Todo:Ryan',  icon: '📋', title: 'Ryan’s to-do', clearText: 'Nothing on Ryan’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
   { id: 'Todo:Aiden', icon: '📋', title: 'Aiden’s to-do', clearText: 'Nothing on Aiden’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
-  { id: 'Operations', icon: '⚙️', title: 'Operations' },
   { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
 ]
 
