@@ -12,8 +12,10 @@
  *   rows        : [{ topic, studentPct, classPct, studentAwarded, studentMax }]
  *   overall     : { awarded, max, pct }
  *   strengths   : string[]   topics scored >= 80%  → shown as "Best topics"
- *   weaknesses  : string[]   the two lowest-scoring topics, never a best topic
- *                            → shown as "Topics needing most improvement"
+ *   weaknesses  : string[]   up to two topics in the "Needs focus" band (< 60%),
+ *                            weakest first → "Topics needing most improvement".
+ *                            A "Solid" topic (60–79%) is never listed: a 3/4
+ *                            is one dropped mark, not a gap.
  */
 const band = (p) => {
   if (p == null) return { color: '#9CA3AF', bg: '#F3F4F6', label: '—' }
@@ -148,13 +150,15 @@ export function studentAnalysisRows(analysis, studentId) {
   }).filter((s) => s.max > 0)
   const scored = rows.filter((r) => r.studentPct != null)
   const strengths = scored.filter((r) => r.studentPct >= 80).map((r) => r.topic)
-  // Improvement list: the two lowest topics that are not also shown as a best
-  // topic. The view names a best topic even when none reaches 80% (the
-  // strongest stands in), so that one is left out too — unless it is the only
-  // topic, where "no major gaps" beside a low score would be the worse lie.
-  let candidates = scored.filter((r) => r.studentPct < 80)
+  // Improvement list: the two lowest topics in the "Needs focus" band — the
+  // same line the topic rows are coloured on, so a topic the table calls
+  // Solid (60–79%, e.g. 3/4) is never named as needing most improvement.
+  // When no topic reaches 80% the strongest stands in as a best topic, so it
+  // is left out here too — unless it is the only topic, where "no major gaps"
+  // beside a low score would be the worse lie.
+  let candidates = scored.filter((r) => r.studentPct < 60)
   if (!strengths.length && candidates.length > 1) {
-    const top = candidates.reduce((a, b) => (b.studentPct > a.studentPct ? b : a))
+    const top = scored.reduce((a, b) => (b.studentPct > a.studentPct ? b : a))
     candidates = candidates.filter((r) => r !== top)
   }
   return {
