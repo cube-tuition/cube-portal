@@ -62,6 +62,10 @@ test('the card names one stage, with the action it needs', async () => {
   assert.equal(st({ ...lt, _levelTest: { note: 'Sundays' } }).action.key, 'level_test')
   assert.equal(st({ ...lt, _levelTest: { booked: { date: '2026-10-23' } } }).label, 'Level test booked')
   assert.deepEqual([st({ ...lt, _levelTest: { booked: { date: '2026-10-18' } } }).label, st({ ...lt, _levelTest: { booked: { date: '2026-10-18' } } }).action.key], ['Level test completed', 'lt_results'])
+  // The pill turns over with the slot too: still booked at 5:15 on the day, completed at 5:45.
+  const onDay = { status: 'new', trial_class_id: null, ...lt, _levelTest: { booked: { date: today, start: '16:00', end: '17:30' } } }
+  assert.equal(trialStage(onDay, today, '17:15').id, 'lt_booked')
+  assert.deepEqual([trialStage(onDay, today, '17:45').id, trialStage(onDay, today, '17:45').action.key], ['lt_done', 'lt_results'])
   assert.deepEqual([st({ status: 'contacted', invitation_sent_at: 'x' }).label, st({ status: 'contacted', invitation_sent_at: 'x' }).action], ['Trial invitation sent', null])
   const booked = { status: 'trial_scheduled', trial_class_id: 7, _trialDates: ['2026-10-24', '2026-10-31'] }
   assert.match(st(booked).note, /trial lesson 1 · Sat 24 Oct/)
