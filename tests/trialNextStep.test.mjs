@@ -18,6 +18,11 @@ test('the level test path follows the family and the test', () => {
   const lt = { status: 'contacted', level_test_invitation_sent_at: '2026-10-18T00:00:00Z' }
   assert.match(wait(lt), /pick a level test time/)
   assert.match(wait({ ...lt, _levelTest: { booked: { date: '2026-10-23', start: '16:00' } } }), /Level test booked · Fri 23 Oct/)
+  // On the day, the step turns over when the slot ends (5:30), not at midnight.
+  const onDay = { status: 'contacted', trial_class_id: null, ...lt, _levelTest: { booked: { date: today, start: '16:00', end: '17:30' } } }
+  assert.match(nextStep(onDay, today, '17:15').wait, /Level test booked/)
+  assert.equal(nextStep(onDay, today, '17:45').key, 'lt_results')
+  assert.ok(nextStep(onDay, today).wait)   // no clock given: the date alone decides, as before
   assert.equal(key({ ...lt, _levelTest: { booked: { date: '2026-10-19' } } }), 'lt_results')
   assert.equal(key({ ...lt, _levelTest: { booked: { date: '2026-10-19' }, reportSent: true } }), 'invitation')
   assert.equal(key({ ...lt, _levelTest: { note: 'Sundays only' } }), 'level_test')

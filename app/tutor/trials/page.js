@@ -16,7 +16,7 @@ import TrialOutcomeModal from '../../../components/trials/TrialOutcomeModal'
 import TrialInvitationModal from '../../../components/trials/TrialInvitationModal'
 import LevelTestInvitationModal from '../../../components/trials/LevelTestInvitationModal'
 import PipelineFlow from '../../../components/trials/PipelineFlow'
-import { nextStep, trialStage, ACTION_BUTTON } from '../../../lib/trialNextStep'
+import { nextStep, trialStage, ACTION_BUTTON, sydneyClock } from '../../../lib/trialNextStep'
 import { earliestTrialStart, trialDatesFor } from '../../../lib/trialDates'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
@@ -986,8 +986,9 @@ function TrialCard({ sub, classes, students, onUpdate, onReload, onConvertDrop, 
   const stale = ['new', 'contacted'].includes(sub.status) && age > 7
   const subjects = Array.isArray(sub.subjects) ? sub.subjects.join(', ') : (sub.subjects || '—')
   const today = isoDate(new Date())
-  const step = nextStep(sub, today)
-  const stage = trialStage(sub, today)
+  const nowTime = sydneyClock().time
+  const step = nextStep(sub, today, nowTime)
+  const stage = trialStage(sub, today, nowTime)
   const hl = hlFor(step)
   const act = (key) => {
     if (key === 'first' || key === 'invitation') onInvitationEmail()
@@ -1078,10 +1079,11 @@ function TrialGroupCard({ subs, classes, students, onUpdate, onReload, onConvert
     level_test_invitation_sent_at: s.level_test_invitation_sent_at || family.level_test_invitation_sent_at,
     _levelTest: s._levelTest?.booked ? s._levelTest : (family._levelTest || s._levelTest),
   })
-  const stepOf = Object.fromEntries(subs.map(s => [s.id, nextStep(withFamily(s), today)]))
+  const nowTime = sydneyClock().time
+  const stepOf = Object.fromEntries(subs.map(s => [s.id, nextStep(withFamily(s), today, nowTime)]))
   // One pill per subject — or one for the student while the subjects are at
   // the same stage (the first emails, a shared level test).
-  const stages = subs.map(s => ({ sub: s, stage: trialStage(withFamily(s), today) })).filter(x => x.stage)
+  const stages = subs.map(s => ({ sub: s, stage: trialStage(withFamily(s), today, nowTime) })).filter(x => x.stage)
   const sameStage = stages.every(x => x.stage.id === stages[0]?.stage.id && x.stage.action?.key === stages[0]?.stage.action?.key)
   const items = sameStage && stages.length && !['trial_1', 'trial_2', 'deciding'].includes(stages[0].stage.id)
     ? [{ ...stages[0], prefix: '' }]
@@ -1391,7 +1393,7 @@ export default function TrialsPage() {
     for (const s of merged) {
       const i = inviteBySub[s.id]
       s._levelTest = i ? {
-        booked: i.lessons ? { date: i.lessons.lesson_date, start: String(i.lessons.start_time || '').slice(0, 5) } : null,
+        booked: i.lessons ? { date: i.lessons.lesson_date, start: String(i.lessons.start_time || '').slice(0, 5), end: String(i.lessons.end_time || '').slice(0, 5) } : null,
         note: i.responded_at && !i.lessons ? (i.parent_note || '') : '',
         reportSent: !!i.lessons?.report_emailed_at,
       } : null
