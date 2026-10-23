@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildPrepRows, groupPrep, prepNudges, prepWindow, dayLabel } from '../lib/classPrep.js'
+import { buildPrepRows, groupPrep, prepNudges, prepWindow, dayLabel, bookletDueNudges, lessonStartUtc } from '../lib/classPrep.js'
 
 const classes = [
   { id: 1, class_name: 'Y9 Maths', start_time: '16:30', materials_owner: 'Ryan', term_id: 't4' },
@@ -59,4 +59,27 @@ test('the nudge: tomorrow’s lessons missing a booklet or printing; unassigned 
   assert.match(n.Ryan.body, /Y6 Maths 1:1 · Monica · 10:00am — no booklet allocated, not printed/)
   const sat = prepNudges(rows, '2026-10-24').map(x => x.owner).sort()
   assert.deepEqual(sat, ['Aiden', 'Ryan'])              // the unassigned 1:1 goes to both
+})
+
+test('a lesson starts at its Sydney time: 4:30pm on 23 Oct 2026 (AEDT) is 05:30 UTC', () => {
+  assert.equal(lessonStartUtc('2026-10-23', '16:30').toISOString(), '2026-10-23T05:30:00.000Z')
+  assert.equal(lessonStartUtc('2026-06-10', '09:00').toISOString(), '2026-06-09T23:00:00.000Z')   // AEST
+})
+
+test('24 hours before a lesson, an unpublished or missing booklet nudges its owner once', () => {
+  // Rows: lesson 10 (Y9 Maths, Ryan, booklet ready), 11 (Y10 English, Aiden, allocated but unpublished), 12 (1:1, unassigned, none).
+  const at = (iso) => new Date(iso)
+  // 23 Oct 2026, 6pm Sydney lesson (11) = 07:00Z. 25 hours before → nothing; 23 hours before → due.
+  assert.deepEqual(bookletDueNudges(rows, { now: at('2026-10-22T06:00:00Z') }), [])
+  const due = bookletDueNudges(rows, { now: at('2026-10-22T08:00:00Z') })
+  assert.deepEqual(due.map(n => [n.key, n.owners]), [['booklet:11', ['Aiden']]])
+  assert.match(due[0].push.body, /allocated but its PDFs aren’t published/)
+  assert.equal(due[0].push.url, '/tutor/classes/2')
+  // Lesson 10's booklet is published: never nudged. Lesson 12 (24 Oct 10am = 23:00Z on the 23rd) is unassigned → both directors.
+  const later = bookletDueNudges(rows, { now: at('2026-10-23T00:00:00Z') })
+  assert.deepEqual(later.map(n => [n.key, n.owners]), [['booklet:11', ['Aiden']], ['booklet:12', ['Ryan', 'Aiden']]])
+  assert.match(later[1].push.body, /no booklet allocated/)
+  // Already claimed → not again; a lesson that has started → not at all.
+  assert.deepEqual(bookletDueNudges(rows, { now: at('2026-10-23T00:00:00Z'), sentKeys: new Set(['booklet:11', 'booklet:12']) }), [])
+  assert.deepEqual(bookletDueNudges(rows, { now: at('2026-10-24T12:00:00Z') }), [])
 })

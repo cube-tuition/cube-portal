@@ -627,7 +627,7 @@ create table public.auto_reminders (
   starts_at timestamp with time zone,
   sent_at timestamp with time zone default now() not null,
   constraint auto_reminders_pkey PRIMARY KEY (key),
-  constraint auto_reminders_kind_check CHECK ((kind = ANY (ARRAY['trial'::text, 'level_test'::text])))
+  constraint auto_reminders_kind_check CHECK ((kind = ANY (ARRAY['trial'::text, 'level_test'::text, 'booklet'::text])))
 );
 
 create table public.trial_invites (

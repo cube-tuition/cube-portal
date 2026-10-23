@@ -3,11 +3,17 @@ import { Resend } from 'resend'
 import { loadReminderItems, reminderSends, reminderEmailFor } from '../../../../lib/autoReminders'
 import { PORTAL_BCC } from '../../../../lib/emailConfig'
 import { recordJob } from '../../../../lib/systemHealth'
+import { loadPrep, bookletDueNudges, addDays } from '../../../../lib/classPrep'
+import { sendPushToUsers } from '../../../../lib/push'
 
 /*
  * GET /api/reminders/upcoming — emails families 24 hours before a booked level
  * test and before each trial lesson (lib/autoReminders) — a student's trial
  * lessons on the same day in one email.
+ *
+ * Also, 24 hours before each lesson: the class's materials owner is pushed if
+ * the week's booklet is still not published (lib/classPrep bookletDueNudges),
+ * claimed in auto_reminders the same way so it goes once per lesson.
  *
  * Called every 15 minutes by the database's pg_cron job "upcoming-reminders"
  * (migrations/20261019_auto_reminders.sql). Like the chat delivery route it
@@ -58,6 +64,34 @@ export async function GET() {
   } catch (e) {
     errors.push(e?.message || String(e))
   }
-  await recordJob(admin, 'upcoming_reminders', { startedAt, ok: !errors.length, detail: { sent }, error: errors.join(' · ') || null })
+
+  // ── Booklet not published, 24 hours before the lesson ────────────────────
+  let bookletNudges = 0
+  try {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney' }).format(new Date())
+    const rows = await loadPrep(admin, today, addDays(today, 1))
+    const candidates = rows.filter(r => r.booklet !== 'ready')
+    const { data: done } = candidates.length
+      ? await admin.from('auto_reminders').select('key').in('key', candidates.map(r => `booklet:${r.lessonId}`))
+      : { data: [] }
+    const nudges = bookletDueNudges(rows, { sentKeys: new Set((done || []).map(d => d.key)) })
+    if (nudges.length) {
+      const { data: dirs } = await admin.from('directors').select('id, full_name')
+      const idOf = (owner) => (dirs || []).find(d => String(d.full_name || '').trim().split(/\s+/)[0].toLowerCase() === owner.toLowerCase())?.id
+      for (const n of nudges) {
+        const ids = n.owners.map(idOf).filter(Boolean)
+        if (!ids.length) { errors.push(`booklet nudge: no director called ${n.owners.join('/')}`); continue }
+        // Claim first: a second caller's insert conflicts and skips.
+        const { error: claimErr } = await admin.from('auto_reminders').insert({ key: n.key, kind: 'booklet', starts_at: n.startsAt.toISOString() })
+        if (claimErr) continue
+        const res = await sendPushToUsers(ids, n.push).catch(e => ({ error: e }))
+        if (res?.error) { errors.push(`${n.key}: ${res.error.message || res.error}`); continue }
+        bookletNudges++
+      }
+    }
+  } catch (e) {
+    errors.push(`booklet nudges: ${e?.message || String(e)}`)
+  }
+  await recordJob(admin, 'upcoming_reminders', { startedAt, ok: !errors.length, detail: { sent, bookletNudges }, error: errors.join(' · ') || null })
   return Response.json({ sent, errors }, { status: errors.length ? 500 : 200 })
 }
