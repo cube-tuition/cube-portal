@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sydneyTime, isDue, trialItems, levelTestItems, dueReminders, reminderEmail } from '../lib/autoReminders.js'
+import { sydneyTime, isDue, trialItems, levelTestItems, dueReminders, reminderEmail, reminderSends, reminderEmailFor } from '../lib/autoReminders.js'
 
 test('Sydney wall-clock times, either side of daylight saving', () => {
   assert.equal(sydneyTime('2026-10-24', '13:00').toISOString(), '2026-10-24T02:00:00.000Z')   // AEDT +11
@@ -94,4 +94,43 @@ test('trial reminder emails name the lesson and, for the first, the second date'
   assert.match(reminderEmail(l1).html, /second trial lesson is on Saturday 31 October/)
   assert.equal(reminderEmail(l2).subject, 'Reminder: Akari’s second trial lesson on Saturday 31 October')
   assert.match(reminderEmail(l2).html, /in touch after the lesson/)
+})
+
+test('a student’s trial lessons on the same day go in one email, 24 hours before the first', () => {
+  const two = {
+    ...base,
+    enrolments: [...base.enrolments, { id: 'e2', student_id: 's1', class_id: 8, trial_start_date: '2026-10-24' }],
+    lessons: [...base.lessons,
+      { class_id: 8, lesson_date: '2026-10-24', start_time: '15:00', end_time: '16:30' },
+      { class_id: 8, lesson_date: '2026-10-31', start_time: '15:00', end_time: '16:30' }],
+    classes: [...base.classes, { id: 8, class_name: 'Y5 English' }],
+    subs: [...base.subs, { id: 52, enrolment_id: 'e2', converted_student_id: 's1', trial_class_id: 8, status: 'trial_scheduled', parent_email: 'Emiko@example.com' }],
+  }
+  const items = trialItems(two)
+  // 1pm Friday: only Maths (1pm Sat) is due, but English at 3pm comes with it
+  const sends = reminderSends(items, { now: sydneyTime('2026-10-23', '13:00') })
+  assert.deepEqual(sends.map(g => g.map(i => i.key)), [['trial:e1:2026-10-24', 'trial:e2:2026-10-24']])
+  // 3pm: both claimed — nothing more
+  const sentKeys = new Set(sends[0].map(i => i.key))
+  assert.deepEqual(reminderSends(items, { now: sydneyTime('2026-10-23', '15:00'), sentKeys }), [])
+
+  const { subject, html } = reminderEmailFor(sends[0])
+  assert.equal(subject, 'Reminder: Akari’s trial lessons on Saturday 24 October')
+  assert.match(html, /Akari has two trial lessons coming up/)
+  assert.match(html, /<strong>Y5 Maths<\/strong> · first trial lesson/)
+  assert.match(html, /<strong>Y5 English<\/strong> · first trial lesson/)
+  assert.match(html, /second trial lessons are on Saturday 31 October/)
+  // a single lesson is the usual email
+  assert.equal(reminderEmailFor([items[0]]).subject, reminderEmail(items[0]).subject)
+})
+
+test('one already reminded on its own is not sent again with the other', () => {
+  const items = trialItems({
+    ...base,
+    enrolments: [...base.enrolments, { id: 'e2', student_id: 's1', class_id: 8, trial_start_date: '2026-10-24' }],
+    lessons: [...base.lessons, { class_id: 8, lesson_date: '2026-10-24', start_time: '15:00', end_time: '16:30' }],
+    classes: [...base.classes, { id: 8, class_name: 'Y5 English' }],
+  })
+  const sends = reminderSends(items, { now: sydneyTime('2026-10-23', '15:00'), sentKeys: new Set(['trial:e1:2026-10-24']) })
+  assert.deepEqual(sends.map(g => g.map(i => i.key)), [['trial:e2:2026-10-24']])
 })
