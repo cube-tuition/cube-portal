@@ -51,6 +51,9 @@ export default function LevelTestLessonPage() {
   const [testComments, setTestComments] = useState({})  // one per linked test: { buildId: text } (lessons.report_comments)
   const [commentState, setCommentState] = useState('idle')  // idle | saving | saved
   const [previewOpen, setPreviewOpen] = useState(false)
+  // The trial-invitation section the send would add (server-side match of the
+  // family's open enquiries to classes), fetched when the preview opens.
+  const [offerPreview, setOfferPreview] = useState(null)   // { html, sections } | null while loading
   const commentTimer = useRef(null)
   const commentLatest = useRef({ overall: '', byTest: {} })   // what the debounced save writes
   const [template, setTemplate] = useState(DEFAULT_LEVEL_TEST_TEMPLATE)
@@ -195,6 +198,18 @@ export default function LevelTestLessonPage() {
     }, 800)
   }
   useEffect(() => () => clearTimeout(familyTimer.current), [])
+
+  useEffect(() => {
+    if (!previewOpen) return
+    let dead = false
+    // Reset off the render tick (the React Compiler rule), then fetch.
+    Promise.resolve().then(() => { if (!dead) setOfferPreview(null) })
+    const ids = sendChildren().map(c => c.lesson?.id).filter(Boolean)
+    authedFetch(`/api/send-level-test-report?lesson_ids=${ids.join(',')}`)
+      .then(r => r.json()).then(d => { if (!dead) setOfferPreview({ html: d?.html || '', sections: d?.sections || [] }) })
+      .catch(() => { if (!dead) setOfferPreview({ html: '', sections: [], failed: true }) })
+    return () => { dead = true }
+  }, [previewOpen, pickedSiblings])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const emailTestTitle = () => (tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`)
   const reportFilename = (st) => `${(st?.full_name || 'student').trim()} - Level Test Report.pdf`
@@ -452,7 +467,14 @@ export default function LevelTestLessonPage() {
                         the preview and the email cannot disagree. It escapes
                         before formatting, so the body cannot inject markup. */}
                     <div className="px-4 py-3.5 text-[13px] text-[#1a1a1a] leading-relaxed bg-white break-keep"
-                      dangerouslySetInnerHTML={{ __html: levelTestEmailHtml(pv.body) }} />
+                      dangerouslySetInnerHTML={{ __html: levelTestEmailHtml(pv.body) + (offerPreview?.html || '') }} />
+                    {/* Whether the trial invitation rides along is decided by the family's open enquiries. */}
+                    <div className="px-4 py-2 bg-[#F8FAFF] border-t border-[#EEF2FF] text-[11px] text-[#2A2035]/60">
+                      {offerPreview === null ? 'Checking for a trial invitation to include…'
+                        : offerPreview.failed ? 'Could not check for a trial invitation — it is still added when sending if the family has an open enquiry.'
+                        : offerPreview.html ? `Includes the trial invitation and class picker for: ${offerPreview.sections.join(' · ')}. Sending stamps those enquiries as invited.`
+                        : 'No trial invitation rides along: the family has no open enquiry waiting for a class (or no class matched).'}
+                    </div>
                   </div>
                 )
               })()}

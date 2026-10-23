@@ -43,6 +43,33 @@ async function trialOffer(db, lessonIds) {
 // Vercel's 4.5 MB request limit.
 const MAX_ATTACHMENTS = 6
 
+/*
+ * GET /api/send-level-test-report?lesson_ids=1,2
+ * The trial-invitation section the results email for these lessons would
+ * carry, rendered for the lesson page's preview (the button links to the
+ * class picker's preview page, nothing is created or sent). { html, sections }
+ * — html is '' when no invitation would ride along.
+ */
+export async function GET(req) {
+  try {
+    const auth = await requireApiRole(req, ['admin', 'director', 'tutor'])
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+    const ids = String(new URL(req.url).searchParams.get('lesson_ids') || '').split(',').map(Number).filter(Number.isInteger)
+    if (!ids.length) return NextResponse.json({ html: '', sections: [] })
+    const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+    const offer = await trialOffer(db, ids)
+    if (!offer) return NextResponse.json({ html: '', sections: [] })
+    const studentName = offer.subs[0]?.student_name || ''
+    return NextResponse.json({
+      html: trialOfferHtml({ link: trialPreviewLink(offer.sections), sections: offer.sections, studentName }),
+      sections: offer.sections.map(s => s.label),
+    })
+  } catch (e) {
+    console.error('[send-level-test-report GET]', e)
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
+}
+
 export async function POST(req) {
   try {
     const auth = await requireApiRole(req, ['admin', 'director', 'tutor'])
