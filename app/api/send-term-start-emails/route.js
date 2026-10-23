@@ -2,7 +2,8 @@ import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePdfBuffer } from '../../../lib/invoicePdf'
 import { requireApiRole } from '../../../lib/apiAuth'
-import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { applyEmailTestMode } from '../../../lib/emailConfig'
+import { startCampaign } from '../../../lib/emailLog'
 import { normaliseTerm } from '../../../lib/termDates'
 
 /*
@@ -215,6 +216,10 @@ export async function POST(request) {
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
     const results   = []
     const sentInvoiceIds = new Set()   // invoices attached to a successful real send
+    // Every send is recorded in sent_emails; the office gets one summary per
+    // run instead of a BCC of each family's email (lib/emailLog).
+    const campaign = startCampaign('term_start', { subject: fillTemplate(subjectTemplate, { termName: term_name, parentName: 'there' }), sentBy: auth.user.id, isTest: !!test })
+    let sampleHtml = ''
 
     for (const family of families) {
       const uniqueStudents = family.students.filter((s, i, a) =>
@@ -280,14 +285,16 @@ export async function POST(request) {
         }
       }
 
+      const html = toHtml(bodyText, { termName: term_name })
       const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from:        `CUBE Tuition <${fromEmail}>`,
         to:          [family.parent_email],
-        bcc:         [PORTAL_BCC],
         subject,
-        html:        toHtml(bodyText, { termName: term_name }),
+        html,
         attachments: attachments.length ? attachments : undefined,
       }, test))
+      if (!sendErr && !sampleHtml) sampleHtml = html
+      campaign.record({ subject, to_name: family.parent_name, to_email: family.parent_email, status: sendErr ? 'failed' : 'sent', error: sendErr?.message || null, resend_id: sendData?.id || null, meta: { students: studentNames, invoice: matchedInv?.invoice_number || null, invoiceAttached } })
 
       results.push({
         family:          family.parent_name,
@@ -309,6 +316,8 @@ export async function POST(request) {
       )
       await sbMark.from('invoices').update({ delivery_status: 'sent' }).in('id', [...sentInvoiceIds])
     }
+
+    await campaign.finish({ resend, fromEmail, sampleHtml })
 
     const successCount = results.filter(r => r.success).length
     const attachedCount = results.filter(r => r.invoiceAttached).length

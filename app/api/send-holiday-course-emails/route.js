@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import { buildHolidayCourseEmailHtml } from '../../../lib/holidayCourseEmail'
-import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { applyEmailTestMode } from '../../../lib/emailConfig'
+import { startCampaign } from '../../../lib/emailLog'
 import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
@@ -14,7 +15,8 @@ import { requireApiRole } from '../../../lib/apiAuth'
  * }
  *
  * Sends a holiday-course marketing email (one per family). Pure HTML, no
- * attachments. Staff-only — never an anonymous relay.
+ * attachments. Staff-only — never an anonymous relay. Every send is recorded
+ * in sent_emails and the office gets one summary per campaign (lib/emailLog).
  */
 export async function POST(request) {
   try {
@@ -45,21 +47,28 @@ export async function POST(request) {
     if (!families?.length) return Response.json({ error: 'Missing families' }, { status: 400 })
 
     const results = []
+    const campaign = startCampaign('holiday_course', { subject: fill(subject), sentBy: auth.user.id, isTest: !!test })
+    let sampleHtml = ''
     for (const family of families) {
       if (!family.parent_email) {
         results.push({ family: family.parent_name, email: null, success: false, error: 'No email address' })
+        campaign.record({ to_name: family.parent_name, status: 'failed', error: 'No email address' })
         continue
       }
       const vars = { parentName: family.parent_name, studentNames: family.student_names }
-      const { error: sendErr } = await resend.emails.send(applyEmailTestMode({
+      const familySubject = subject.replace(/\{\{parent_name\}\}/g, vars.parentName || 'there').replace(/\{\{student_names\}\}/g, vars.studentNames || 'your child')
+      const html = buildHolidayCourseEmailHtml(template, vars)
+      const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from: `CUBE Tuition <${fromEmail}>`,
         to:   [family.parent_email],
-        bcc:  [PORTAL_BCC],
-        subject: subject.replace(/\{\{parent_name\}\}/g, vars.parentName || 'there').replace(/\{\{student_names\}\}/g, vars.studentNames || 'your child'),
-        html: buildHolidayCourseEmailHtml(template, vars),
+        subject: familySubject,
+        html,
       }, test))
+      if (!sendErr && !sampleHtml) sampleHtml = html
       results.push({ family: family.parent_name, email: family.parent_email, success: !sendErr, error: sendErr?.message || null })
+      campaign.record({ subject: familySubject, to_name: family.parent_name, to_email: family.parent_email, status: sendErr ? 'failed' : 'sent', error: sendErr?.message || null, resend_id: sendData?.id || null, meta: { students: family.student_names || null } })
     }
+    await campaign.finish({ resend, fromEmail, sampleHtml })
 
     const successCount = results.filter(r => r.success).length
     return Response.json({ results, successCount, total: results.length })

@@ -1,7 +1,8 @@
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
 import { buildReviewEmailHtml, reviewEmailSubject, isValidReviewUrl, mergeReviewContent, REVIEW_LOG_KEY } from '../../../lib/reviewEmail'
-import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { applyEmailTestMode } from '../../../lib/emailConfig'
+import { startCampaign } from '../../../lib/emailLog'
 import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
@@ -15,7 +16,9 @@ import { requireApiRole } from '../../../lib/apiAuth'
  *
  * Asks each family for a Google review. Real (non-test) sends are recorded in
  * portal_settings[review_request_log] — { email: { asked } } — so the page can
- * show who has been asked and pre-select the families who have not.
+ * show who has been asked and pre-select the families who have not. Every
+ * send is also recorded in sent_emails and the office gets one summary per
+ * campaign (lib/emailLog).
  */
 
 export async function POST(request) {
@@ -36,24 +39,29 @@ export async function POST(request) {
     const subject   = reviewEmailSubject(content)
 
     const results = []
+    const campaign = startCampaign('review_request', { subject, sentBy: auth.user.id, isTest: !!test })
+    let sampleHtml = ''
     for (const family of families) {
       if (!family.parent_email) {
         results.push({ family: family.parent_name, email: null, success: false, error: 'No email address' })
+        campaign.record({ to_name: family.parent_name, status: 'failed', error: 'No email address' })
         continue
       }
       const html = buildReviewEmailHtml({
         parentName: family.parent_name,
         studentNames: family.student_names,
       }, content)
-      const { error: sendErr } = await resend.emails.send(applyEmailTestMode({
+      const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from: `CUBE Tuition <${fromEmail}>`,
         to: [family.parent_email],
-        bcc: [PORTAL_BCC],
         subject,
         html,
       }, test))
+      if (!sendErr && !sampleHtml) sampleHtml = html
       results.push({ family: family.parent_name, email: family.parent_email, success: !sendErr, error: sendErr?.message || null })
+      campaign.record({ to_name: family.parent_name, to_email: family.parent_email, status: sendErr ? 'failed' : 'sent', error: sendErr?.message || null, resend_id: sendData?.id || null, meta: { students: family.student_names || null } })
     }
+    await campaign.finish({ resend, fromEmail, sampleHtml })
 
     // Record real sends (read-merge-write, so two directors can't erase each other's log).
     let log = null

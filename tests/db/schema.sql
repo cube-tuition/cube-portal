@@ -6,6 +6,7 @@ create sequence fixed_costs_id_seq;
 create sequence guardians_id_seq;
 create sequence invoices_id_seq;
 create sequence lessons_id_seq;
+create sequence sent_emails_id_seq;
 create sequence student_classes_id_seq;
 create sequence student_credits_id_seq;
 create sequence trial_submissions_id_seq;
@@ -762,6 +763,24 @@ create table public.chat_stars (
   channel_id uuid not null,
   starred_at timestamp with time zone default now() not null,
   constraint chat_stars_pkey PRIMARY KEY (user_id, channel_id)
+);
+
+create table public.sent_emails (
+  id bigint default nextval('sent_emails_id_seq'::regclass) not null,
+  sent_at timestamp with time zone default now() not null,
+  campaign_id uuid not null,
+  campaign text not null,
+  subject text not null,
+  to_email text,
+  to_name text,
+  status text not null,
+  error text,
+  resend_id text,
+  is_test boolean default false not null,
+  sent_by uuid,
+  meta jsonb default '{}'::jsonb not null,
+  constraint sent_emails_pkey PRIMARY KEY (id),
+  constraint sent_emails_status_check CHECK ((status = ANY (ARRAY['sent'::text, 'failed'::text])))
 );
 
 alter table public.attendance add constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE;
@@ -3201,6 +3220,7 @@ alter table public.chat_reports enable row level security;
 alter table public.chat_message_history enable row level security;
 alter table public.lesson_prep enable row level security;
 alter table public.chat_stars enable row level security;
+alter table public.sent_emails enable row level security;
 create policy "Admin delete attendance" on public.attendance as PERMISSIVE for DELETE to authenticated using (is_admin(auth.uid()));
 create policy "Staff insert attendance" on public.attendance as PERMISSIVE for INSERT to public with check (is_staff());
 create policy "Staff read all attendance" on public.attendance as PERMISSIVE for SELECT to public using (is_staff());
@@ -3295,6 +3315,7 @@ create policy read_authenticated on public.qbank_subtopics as PERMISSIVE for SEL
 create policy staff_all on public.qbank_subtopics as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
 create policy read_authenticated on public.qbank_topics as PERMISSIVE for SELECT to authenticated using (true);
 create policy staff_all on public.qbank_topics as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());
+create policy sent_emails_directors_read on public.sent_emails as PERMISSIVE for SELECT to authenticated using (is_admin(auth.uid()));
 create policy shifts_admin_all on public.shifts as PERMISSIVE for ALL to public using (is_admin(auth.uid())) with check (is_admin(auth.uid()));
 create policy shifts_tutor_select on public.shifts as PERMISSIVE for SELECT to public using ((tutor_id = auth.uid()));
 create policy staff_all on public.stimulus_texts as PERMISSIVE for ALL to authenticated using (is_staff()) with check (is_staff());

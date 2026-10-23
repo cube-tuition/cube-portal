@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import { buildDiscountEmailHtml, mergeDiscountContent } from '../../../lib/discountEmail'
-import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
+import { applyEmailTestMode } from '../../../lib/emailConfig'
+import { startCampaign } from '../../../lib/emailLog'
 import { requireApiRole } from '../../../lib/apiAuth'
 
 /*
@@ -14,7 +15,8 @@ import { requireApiRole } from '../../../lib/apiAuth'
  *
  * Sends the CUBE discount-program marketing email (referral-led, with
  * multi-course + sibling discounts). Content mirrors docs/CUBE Discount
- * Programs PDF. Pure-HTML email, no attachments.
+ * Programs PDF. Pure-HTML email, no attachments. Every send is recorded in
+ * sent_emails and the office gets one summary per campaign (lib/emailLog).
  */
 
 export async function POST(request) {
@@ -52,25 +54,31 @@ export async function POST(request) {
     }
 
     const results = []
+    const campaign = startCampaign('discount_program', { subject, sentBy: auth.user.id, isTest: !!test })
+    let sampleHtml = ''
     for (const family of families) {
       if (!family.parent_email) {
         results.push({ family: family.parent_name, email: null, success: false, error: 'No email address' })
+        campaign.record({ to_name: family.parent_name, status: 'failed', error: 'No email address' })
         continue
       }
-      const { error: sendErr } = await resend.emails.send(applyEmailTestMode({
+      const html = buildDiscountEmailHtml(family.parent_name, overrides)
+      const { data: sendData, error: sendErr } = await resend.emails.send(applyEmailTestMode({
         from: `CUBE Tuition <${fromEmail}>`,
         to: [family.parent_email],
-        bcc: [PORTAL_BCC],
         subject,
-        html: buildDiscountEmailHtml(family.parent_name, overrides),
+        html,
       }, test))
+      if (!sendErr && !sampleHtml) sampleHtml = html
       results.push({
         family:  family.parent_name,
         email:   family.parent_email,
         success: !sendErr,
         error:   sendErr?.message || null,
       })
+      campaign.record({ to_name: family.parent_name, to_email: family.parent_email, status: sendErr ? 'failed' : 'sent', error: sendErr?.message || null, resend_id: sendData?.id || null })
     }
+    await campaign.finish({ resend, fromEmail, sampleHtml })
 
     const successCount = results.filter(r => r.success).length
     return Response.json({ results, successCount, total: results.length })

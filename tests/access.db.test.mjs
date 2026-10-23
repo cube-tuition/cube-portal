@@ -294,6 +294,20 @@ describe('a director', () => {
   })
 })
 
+describe('the sent-email log', () => {
+  run('directors read it; tutors and students see nothing; nobody but the server writes', async ({ q, signIn, rejects, asOwner }) => {
+    await q(`insert into sent_emails (campaign_id, campaign, subject, to_email, to_name, status) values (gen_random_uuid(), 'course_offer', 'Maths for Year 9', 'lee@example.com', 'Mrs Lee', 'sent')`)
+    await signIn(RYAN, 'admin')
+    assert.equal(await n(q, `select count(*)::int n from sent_emails`), 1)
+    await rejects(`insert into sent_emails (campaign_id, campaign, subject, status) values (gen_random_uuid(), 'x', 'x', 'sent')`, [], /row-level security/)
+    await signIn(MONICA, 'tutor')
+    assert.equal(await n(q, `select count(*)::int n from sent_emails`), 0)
+    await signIn(KIM)
+    assert.equal(await n(q, `select count(*)::int n from sent_emails`), 0)
+    await asOwner()
+  })
+})
+
 /*
  * Student messaging (migrations/20261021_chat_students_live.sql): a student
  * sees only their own student channels, is named from their record, is

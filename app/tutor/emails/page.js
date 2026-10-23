@@ -152,6 +152,16 @@ export default function EmailsHub() {
           )}
         </div>
 
+        <Link href="/tutor/emails/sent" className="block bg-white border border-[#DEE7FF] rounded-2xl px-5 py-4 mb-6 md:mb-8 hover:border-[#325099]/40 hover:shadow-md transition">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-[#062E63]">📬 Sent emails</p>
+              <p className="text-xs text-[#325099]/60 mt-0.5">Who received each bulk email, with a search by family. The office inbox now gets one summary per campaign rather than a copy per family.</p>
+            </div>
+            <span className="text-xs font-semibold text-[#325099] shrink-0">Open →</span>
+          </div>
+        </Link>
+
         <div className="grid gap-4 sm:grid-cols-2">
           {CAMPAIGNS.map(c => (
             <Link
