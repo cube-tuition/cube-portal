@@ -23,6 +23,8 @@ import { normaliseSections } from '../../../lib/trialInvite'
  *   formSections?: [{ submission_id, label, options }],  // what the family's
  *                  class picker offers (lib/trialInvite); a real send saves it
  *                  and the email links to /trial/<token>, a test links to a preview
+ *   levelTest?:    number,      // level test reports attached — the email says so
+ *   attachments?:  [{ pdf_base64, pdf_filename }],   // those reports (built in the browser)
  * }
  *
  * The first email of a trial: welcome + a proposed trial class. One family per
@@ -35,13 +37,16 @@ export async function POST(request) {
     const auth = await requireApiRole(request, ['admin', 'director'])
     if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
-    const { submissionId, submissionIds, sections, parentEmail, parentName, studentName, proposal, alternatives, content, test, formSections } = await request.json()
+    const { submissionId, submissionIds, sections, parentEmail, parentName, studentName, proposal, alternatives, content, test, formSections, levelTest, attachments } = await request.json()
+    // A report PDF is ~450 KB as base64; a few stay inside Vercel's 4.5 MB request limit.
+    const files = (Array.isArray(attachments) ? attachments : []).filter(f => f?.pdf_base64).slice(0, 6)
+    const reports = files.length ? Number(levelTest) || files.length : 0
     if (!parentEmail) return Response.json({ error: 'Missing parentEmail' }, { status: 400 })
     const ids = [...new Set([...(Array.isArray(submissionIds) ? submissionIds : []), ...(submissionId != null ? [submissionId] : [])].map(Number).filter(Number.isFinite))]
     const multi = Array.isArray(sections) && sections.length > 1
 
     const vars = { parentName, studentName }
-    const c = mergeTrialInvitationContent(content, multi)
+    const c = mergeTrialInvitationContent(content, multi, { levelTest: reports })
     const subject = fillTrialVars(c.subject, vars)
 
     // The family's class picker: saved on a real send (the link is the key),
@@ -65,7 +70,8 @@ export async function POST(request) {
       to:   [parentEmail],
       bcc:  [PORTAL_BCC],
       subject,
-      html: buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null, formLink),
+      html: buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null, formLink, { levelTest: reports }),
+      ...(files.length ? { attachments: files.map((f, i) => ({ filename: f.pdf_filename || `level-test-report-${i + 1}.pdf`, content: f.pdf_base64 })) } : {}),
     }, test))
     if (error) return Response.json({ error: error.message }, { status: 500 })
 

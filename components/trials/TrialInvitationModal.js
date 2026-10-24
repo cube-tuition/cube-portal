@@ -5,6 +5,8 @@ import { authedFetch } from '../../lib/authedFetch'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
 import EmailWording from './EmailWording'
 import EmailPreviewFrame from '../EmailPreviewFrame'
+import { loadLevelTestLesson, levelTestReportArgs, markedCountOf } from '../../lib/levelTest'
+import { getAuthProfile } from '../../lib/getProfile'
 import {
   buildTrialInvitationEmailHtml, classTimeLabel, mergeTrialInvitationContent, joinNames,
   fillTrialVars, firstWeekdayOnOrAfter, fmtLessonDate, matchTrialClasses,
@@ -22,12 +24,18 @@ import {
  * or two children) gets ONE email: `related` is the family's other open
  * requests (same parent email). Each included request has its own suggested
  * class and alternatives and becomes its own section; sending marks them all.
+ *
+ * A student who has sat a marked level test gets its report attached (the
+ * same PDF the level test page emails) and a line saying so; the classes are
+ * then suggested "based on the level test" — the same offer block the level
+ * test results email carries (lib/trialInvitationEmail trialClassesBlockHtml).
  */
 
 const FIELDS = [
   { key: 'subject',          label: 'Subject line', rows: 1 },
   { key: 'greeting',         label: 'Greeting',     rows: 1 },
   { key: 'intro',            label: 'Welcome / thank you', rows: 4 },
+  { key: 'levelTestLine',    label: 'Level test line', rows: 2, levelTestOnly: true },
   { key: 'proposalHeading',  label: 'Proposal heading', rows: 1 },
   { key: 'proposalBody',     label: 'Proposal lead-in', rows: 3 },
   { key: 'alternativesNote', label: 'Alternatives lead-in', rows: 2 },
@@ -55,6 +63,9 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const [sending, setSending]   = useState(false)
   const [result,  setResult]    = useState(null)
   const [error,   setError]     = useState(null)
+  // Marked level tests for these requests: [{ lessonId, subIds, name, emailedAt, data }]
+  const [reports, setReports]   = useState([])
+  const [attachReport, setAttachReport] = useState(true)
 
   const subjectOf = (s) => (Array.isArray(s.subjects) ? s.subjects.join(', ') : s.subjects) || ''
   const firstSubjectOf = (s) => (Array.isArray(s.subjects) ? s.subjects[0] : s.subjects) || ''
@@ -64,7 +75,10 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const multi       = subs.length > 1
   const studentName = joinNames(subs.map(s => s.student_name)) || sub.student_name || ''
   const oneChild    = new Set(subs.map(s => (s.student_name || '').trim().toLowerCase())).size <= 1
-  const content     = useMemo(() => mergeTrialInvitationContent(edits, multi), [edits, multi])
+  const sentReports = reports.filter(r => r.subIds.some(id => included.has(id)))
+  const levelTest   = attachReport ? sentReports.length : 0     // reports attached (0 = none)
+  const content     = useMemo(() => mergeTrialInvitationContent(edits, multi, { levelTest }), [edits, multi, levelTest])
+  const fields      = FIELDS.filter(f => !f.levelTestOnly || levelTest)
   // Each section's heading in the email: the subject (no year — the classes
   // offered can be another year's), with the child's name for siblings.
   const labelOf = useCallback((s) => (oneChild
@@ -120,6 +134,37 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
     return () => { active = false }
   }, [candKey, classes, term])   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Each request's level test, if it was marked: the lesson its level test
+  // invitation booked, else the student's latest level test lesson.
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const studentIds = [...new Set(candidates.map(s => s.converted_student_id).filter(Boolean))]
+      const [{ data: inv }, { data: own }] = await Promise.all([
+        supabase.from('level_test_invites').select('submission_id, lesson_id').in('submission_id', candidates.map(s => s.id)).not('lesson_id', 'is', null),
+        studentIds.length
+          ? supabase.from('lessons').select('id, makeup_student_id, lesson_date').eq('lesson_type', 'level_test').in('makeup_student_id', studentIds).order('lesson_date', { ascending: false })
+          : Promise.resolve({ data: [] }),
+      ])
+      const subIdsOf = {}   // lesson id → the requests it belongs to
+      for (const i of inv || []) (subIdsOf[i.lesson_id] ||= new Set()).add(i.submission_id)
+      for (const s of candidates) {
+        const latest = (own || []).find(l => l.makeup_student_id === s.converted_student_id)
+        if (latest && !Object.values(subIdsOf).some(set => set.has(s.id))) (subIdsOf[latest.id] ||= new Set()).add(s.id)
+      }
+      const found = []
+      for (const [lessonId, set] of Object.entries(subIdsOf)) {
+        const data = await loadLevelTestLesson(Number(lessonId)).catch(() => null)
+        if (!data || !markedCountOf(data.tests, data.marks)) continue
+        // One request per subject — the same child's lesson once.
+        if (found.some(r => r.lessonId === data.lesson.id)) continue
+        found.push({ lessonId: data.lesson.id, subIds: [...set], name: data.student?.full_name || '', emailedAt: data.lesson.report_emailed_at, data })
+      }
+      if (alive) setReports(found)
+    })().catch(() => { if (alive) setReports([]) })
+    return () => { alive = false }
+  }, [candKey])   // eslint-disable-line react-hooks/exhaustive-deps
+
   // `dateISO` overrides the class's next lesson — the suggested first trial
   // lesson can be set by hand (a family away that week, a date agreed by phone).
   const slotOf = useCallback((c, dateISO) => c && ({
@@ -164,8 +209,8 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const { proposal, alternatives } = sections[0] || { proposal: null, alternatives: [] }
   const vars = useMemo(() => ({ parentName, studentName }), [parentName, studentName])
   const html = useMemo(
-    () => buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null, hasForm ? '#' : ''),
-    [vars, proposal, alternatives, content, multi, sections, hasForm],
+    () => buildTrialInvitationEmailHtml(vars, proposal || null, alternatives || [], content, multi ? sections : null, hasForm ? '#' : '', { levelTest }),
+    [vars, proposal, alternatives, content, multi, sections, hasForm, levelTest],
   )
   const setDate = (sid, cid, iso) => setChoice(m => {
     const cur = m[sid] || { proposalId: null, altIds: new Set() }
@@ -184,12 +229,23 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const send = useCallback(async (test) => {
     setSending(true); setError(null); setResult(null)
     try {
+      // The level test reports, built the same way the level test page builds them.
+      const attachments = []
+      if (levelTest) {
+        const { exportLevelTestReport } = await import('../../lib/levelTestReport')
+        const { profile } = await getAuthProfile()
+        for (const r of sentReports) {
+          const { base64 } = await exportLevelTestReport(levelTestReportArgs({ ...r.data, teacherName: profile?.full_name }), { base64: true })
+          attachments.push({ pdf_base64: base64, pdf_filename: `${(r.name || 'student').trim()} - Level Test Report.pdf` })
+        }
+      }
       const res = await authedFetch('/api/send-trial-invitation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           submissionIds: subs.map(s => s.id), parentEmail, parentName, studentName,
           proposal, alternatives, sections: multi ? sections : null, content, test, formSections,
+          levelTest, attachments,
         }),
       })
       const json = await res.json()
@@ -201,7 +257,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
     } finally {
       setSending(false)
     }
-  }, [subs, parentEmail, parentName, studentName, proposal, alternatives, multi, sections, content, onSent, formSections])
+  }, [subs, parentEmail, parentName, studentName, proposal, alternatives, multi, sections, content, onSent, formSections, levelTest, sentReports])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
@@ -315,8 +371,23 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
               )
             })}
 
+            {sentReports.length > 0 && (
+              <div className="rounded-xl border border-[#DEE7FF] bg-[#F8FAFF] px-3 py-2.5">
+                <p className="text-[11px] font-bold tracking-widest uppercase text-[#325099] mb-1">Level test</p>
+                <label className="flex items-start gap-2 text-xs text-[#2A2035] cursor-pointer">
+                  <input type="checkbox" className="accent-[#325099] mt-0.5" checked={attachReport} onChange={e => setAttachReport(e.target.checked)} />
+                  <span>
+                    Attach the level test report{sentReports.length > 1 ? 's' : ''} and mention {sentReports.length > 1 ? 'them' : 'it'}
+                    <span className="block text-[11px] text-[#2A2035]/55">
+                      {sentReports.map(r => `${r.name || 'Student'}${r.emailedAt ? ` · already emailed with the results ${new Date(r.emailedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}` : ''}`).join(' · ')}
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
+
             <EmailWording
-              fields={FIELDS}
+              fields={fields}
               values={content}
               onChange={(k, v) => setEdits(c => ({ ...c, [k]: v }))}
               onReset={() => setEdits({})}
@@ -347,6 +418,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
                 {multi
                   ? `${subs.length} trials in one email: ${sections.map(x => x.proposal?.className || `${x.label} (no class yet)`).join(', ')}.`
                   : proposal ? `Proposing ${proposal.className}${alternatives.length ? ` + ${alternatives.length} alternative${alternatives.length === 1 ? '' : 's'}` : ''}.` : 'No class proposal — welcome and note only.'}
+                {levelTest ? ` Level test report${levelTest > 1 ? 's' : ''} attached.` : ''}
                 {' '}Sending marks {multi ? 'each card' : 'the card'} Contacted.
               </span>
             )}

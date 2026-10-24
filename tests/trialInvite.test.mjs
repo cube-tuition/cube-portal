@@ -34,11 +34,13 @@ test('a family can only pick what was offered and is still open', () => {
   assert.match(planTrialPicks({ invite: null, picks: {} }).error, /not valid/)
 })
 
-test('the level test results email offers the classes with a button', () => {
+test('the level test results email offers the classes the way the trial invitation does, with its button', () => {
   const sections = normaliseSections(offered)
   assert.equal(trialOfferHtml({ link: '', sections }), '')
   const html = trialOfferHtml({ link: 'https://x/trial/abc', sections, studentName: 'Luke Hong' })
-  assert.match(html, /Luke’s free trial/)
+  assert.match(html, /Suggested trial class/)
+  assert.match(html, /Based on Luke’s level test/)
+  assert.match(html, /Suggested first lesson: <strong>Saturday 24 October<\/strong>/, 'the first option is suggested, with its first lesson')
   assert.match(html, /Y9 Maths/)
   assert.match(html, /href="https:\/\/x\/trial\/abc"[^>]*>Choose a trial class/)
 })
@@ -58,7 +60,7 @@ test('an "other" option staff typed in: a name, with a date and time only if giv
   assert.equal(planTrialPicks({ invite, picks: { 7: plain.id }, today: '2027-01-01' }).chosen[0].option.label, 'Y7 English 1:1')
   assert.match(planTrialPicks({ invite, picks: { 7: dated.id }, today: '2026-11-01' }).error, /no longer available/)
   // the emails show the name without an empty date line
-  assert.match(trialOfferHtml({ link: 'https://x/t', sections: [sec] }), /<strong>Y7 English 1:1<\/strong><\/p>/)
+  assert.match(trialOfferHtml({ link: 'https://x/t', sections: [sec] }), />Y7 English 1:1<\/p>\s*<\/div>/)
   const booked = buildTrialBookedEmailHtml({ parentName: 'Jo', studentName: 'Sam', chosen: [{ section: sec, option: plain }] })
   assert.match(booked, /Y7 English 1:1/)
   assert.match(booked, /in touch shortly to confirm the details/)
@@ -69,13 +71,13 @@ test('other options typed on the results email become offered options; unnamed o
   assert.deepEqual(opts, [{ kind: 'slot', label: 'Y7 Maths 1:1', date: '2026-11-01', start: '10:00', end: '11:00', note: '' }])
   assert.deepEqual(otherOptions(undefined), [])
   const sections = normaliseSections([{ submission_id: 10, label: 'Maths · Year 7', options: opts }])
-  assert.match(trialOfferHtml({ link: 'https://x/t', sections }), /Y7 Maths 1:1<\/strong> — Sunday 1 November · 10:00am – 11:00am/)
+  assert.match(trialOfferHtml({ link: 'https://x/t', sections }), />Y7 Maths 1:1<\/p>\s*<p[^>]*>Sunday 1 November · 10:00am – 11:00am<\/p>/)
 })
 
 test('an other option’s note shows after it in the emails and on the form', () => {
   const [sec] = normaliseSections([{ submission_id: 9, label: 'English', options: otherOptions([{ label: 'Y7 English 1:1', note: ' times can be discussed ' }]) }])
   assert.equal(optionDetail(sec.options[0]), 'times can be discussed')
-  assert.match(trialOfferHtml({ link: 'https://x/t', sections: [sec] }), /Y7 English 1:1<\/strong> — times can be discussed/)
+  assert.match(trialOfferHtml({ link: 'https://x/t', sections: [sec] }), />Y7 English 1:1<\/p>\s*<p[^>]*>times can be discussed<\/p>/)
 })
 
 test('"none of these suit" is per subject: book English, tell us about Maths', () => {
@@ -100,4 +102,16 @@ test('"none of these suit" is per subject: book English, tell us about Maths', (
     chosen: [{ section: sections[0], option: sections[0].options[0] }], noted: [{ section: sections[1], note: 'x' }] })
   assert.match(html, /Y7 English/)
   assert.match(html, /For Maths, thanks for letting us know what suits — we’ll be in touch with a time/)
+})
+
+test('the pipeline invitation mentions an attached level test report and suggests from the test', async () => {
+  const { buildTrialInvitationEmailHtml } = await import('../lib/trialInvitationEmail.js')
+  const proposal = { className: 'Y7 English', day: 'Saturday', time: '1:00pm – 2:30pm', date: 'Sat 31 Oct' }
+  const plain = buildTrialInvitationEmailHtml({ studentName: 'Luke' }, proposal, [], {}, null, '#')
+  assert.doesNotMatch(plain, /level test/)
+  const one = buildTrialInvitationEmailHtml({ studentName: 'Luke' }, proposal, [], {}, null, '#', { levelTest: 1 })
+  assert.match(one, /Thank you for bringing Luke to the level test — the report is attached/)
+  assert.match(one, /Based on Luke’s level test/)
+  const two = buildTrialInvitationEmailHtml({ studentName: 'Luke and Mia' }, proposal, [], {}, null, '#', { levelTest: 2 })
+  assert.match(two, /the reports are attached/)
 })
