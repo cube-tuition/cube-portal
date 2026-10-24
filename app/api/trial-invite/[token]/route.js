@@ -1,6 +1,6 @@
 import { Resend } from 'resend'
 import { serviceClient, sydneyToday, trialInviteByToken, trialInviteLink, bookTrialClass } from '../../../../lib/trialInviteServer'
-import { openOptions, planTrialPicks, buildTrialBookedEmailHtml, optionTitle, optionDetail } from '../../../../lib/trialInvite'
+import { isOpen, openOptions, planTrialPicks, buildTrialBookedEmailHtml, optionTitle, optionDetail } from '../../../../lib/trialInvite'
 import { PORTAL_BCC } from '../../../../lib/emailConfig'
 import { sendPushToAll } from '../../../../lib/push'
 
@@ -12,8 +12,8 @@ import { sendPushToAll } from '../../../../lib/push'
  *          and whether it can still change.
  *   POST { picks: { <submission_id>: <option_id> } } → book them. A class
  *          books the trial (its enrolment gets the class and first lesson, the
- *          card moves to Trial scheduled); a 1:1 time is recorded for staff to
- *          set up. The family gets a confirmation; the directors get a push.
+ *          card moves to Trial scheduled); an "other" option staff typed in is
+ *          recorded for them to set up. The family gets a confirmation; the directors get a push.
  *        { none: true, note } → none of them suit; record what does.
  */
 export const dynamic = 'force-dynamic'
@@ -22,7 +22,7 @@ const SUB_COLS = 'id, status, student_name, student_year, school, parent_name, p
 const firstName = (s) => String(s || '').trim().split(/\s+/)[0] || ''
 // A subject can change its pick until its trial has started.
 const changeable = (sub, pickedOption, today) =>
-  ['new', 'contacted', 'trial_scheduled', 'on_hold'].includes(sub?.status) && (!pickedOption || pickedOption.date >= today)
+  ['new', 'contacted', 'trial_scheduled', 'on_hold'].includes(sub?.status) && (!pickedOption || isOpen(pickedOption, today))
 
 async function load(sb, token) {
   const invite = await trialInviteByToken(sb, token)
@@ -101,7 +101,7 @@ export async function POST(request, { params }) {
   const summary = chosen.map(({ section, option }) => `${optionTitle(option)} (${optionDetail(option)})`).join('; ')
   await sendPushToAll({
     title: `Trial ${moved ? 'changed' : 'booked'} — ${who}`,
-    body: chosen.some(c => c.option.kind === 'slot') ? `${summary}. Set up the 1:1 on the Trials page.` : summary,
+    body: chosen.some(c => c.option.kind === 'slot') ? `${summary}. Set it up on the Trials page.` : summary,
     url: '/tutor/trials', tag: `trial-invite-${invite.id}`,
   }).catch(() => {})
 

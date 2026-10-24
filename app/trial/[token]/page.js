@@ -8,7 +8,7 @@ import { normaliseSections, optionTitle, optionDetail } from '../../../lib/trial
  * /trial/<token> — the family's trial class form, linked from the trial
  * invitation email (and the level test results email). No login: the token is
  * the key, checked by /api/trial-invite. Picking a class books the trial
- * straight away; a 1:1 time is passed to CUBE to set up. "None of these suit"
+ * straight away; an "other" option (a 1:1, …) is passed to CUBE to set up. "None of these suit"
  * sends the times that do. Afterwards the same link shows the booking and
  * lets them change it until the trial starts.
  *
@@ -120,7 +120,7 @@ function TrialForm() {
   const optionCard = (o) => (
     <>
       <p className="text-sm font-bold text-[#062E63]">{optionTitle(o)}</p>
-      <p className="text-xs text-[#2A2035]/65 mt-0.5">{optionDetail(o)}</p>
+      {optionDetail(o) && <p className="text-xs text-[#2A2035]/65 mt-0.5">{optionDetail(o)}</p>}
     </>
   )
 

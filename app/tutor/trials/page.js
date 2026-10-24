@@ -1400,7 +1400,7 @@ export default function TrialsPage() {
     }
 
     // Trial invitation class pickers: what the family chose on the form (a
-    // class books itself; a 1:1 time is for staff to set up) or the times
+    // class books itself; an "other" option is for staff to set up) or the times
     // they gave when nothing suited. The newest invite for each request wins.
     const { data: trialInvites } = await supabase.from('trial_invites')
       .select('submission_ids, sections, picks, note, responded_at, created_at').order('created_at')
