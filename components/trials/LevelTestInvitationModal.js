@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
 import EmailWording from './EmailWording'
+import EmailPreviewFrame from '../EmailPreviewFrame'
 import { subjectCode } from '../../lib/format'
 import { fillTrialVars, firstWeekdayOnOrAfter } from '../../lib/trialInvitationEmail'
 import {
@@ -227,7 +228,7 @@ export default function LevelTestInvitationModal({ sub, onClose, onSent }) {
             <p className="text-[11px] text-[#2A2035]/50 mb-3">
               Subject: <span className="font-semibold text-[#2A2035]/70">{fillTrialVars(content.subject, vars)}</span>
             </p>
-            <iframe title="Level test invitation preview" srcDoc={html} className="w-full h-[52vh] bg-white border border-[#DEE7FF] rounded-xl" />
+            <EmailPreviewFrame title="Level test invitation preview" html={html} className="w-full h-[52vh] bg-white border border-[#DEE7FF] rounded-xl" />
           </div>
         </div>
 

@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { authedFetch } from '../../lib/authedFetch'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
 import EmailWording from './EmailWording'
+import EmailPreviewFrame from '../EmailPreviewFrame'
 import {
   buildTrialInvitationEmailHtml, classTimeLabel, mergeTrialInvitationContent, joinNames,
   fillTrialVars, firstWeekdayOnOrAfter, fmtLessonDate, matchTrialClasses,
@@ -322,9 +323,9 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
             <p className="text-[11px] text-[#2A2035]/50 mb-3">
               Subject: <span className="font-semibold text-[#2A2035]/70">{fillTrialVars(content.subject, vars)}</span>
             </p>
-            <iframe
+            <EmailPreviewFrame
               title="Trial invitation email preview"
-              srcDoc={html}
+              html={html}
               className="w-full h-[52vh] bg-white border border-[#DEE7FF] rounded-xl"
             />
           </div>

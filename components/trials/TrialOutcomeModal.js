@@ -5,6 +5,7 @@ import { authedFetch } from '../../lib/authedFetch'
 import { TEST_RECIPIENT } from '../../lib/emailConfig'
 import { buildTrialOutcomeEmailHtml, fillTrialVars, stageGroups, nextLessonText, TRIAL_EMAIL_STAGES } from '../../lib/trialOutcomeEmail'
 import EmailWording from './EmailWording'
+import EmailPreviewFrame from '../EmailPreviewFrame'
 
 /*
  * Trial feedback emails — composed per student from the trial pipeline. One
@@ -244,9 +245,9 @@ export default function TrialOutcomeModal({ sub, stage = 'outcome', classId = nu
             <p className="text-[11px] text-[#2A2035]/50 mb-3">
               Subject: <span className="font-semibold text-[#2A2035]/70">{fillTrialVars(content.subject, vars)}</span>
             </p>
-            <iframe
+            <EmailPreviewFrame
               title="Trial outcome email preview"
-              srcDoc={html}
+              html={html}
               className="w-full h-[52vh] bg-white border border-[#DEE7FF] rounded-xl"
             />
           </div>
