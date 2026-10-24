@@ -25,8 +25,9 @@ import { levelTestEmailBody, levelTestEmailSubject, levelTestEmailText, levelTes
  * class picker (lib/trialInvite). A real send marks those requests invited.
  */
 // The family's requests still waiting for a trial class. picks: classes the
-// director chose by hand per enquiry ({ submission_id: [class ids] }), any year.
-async function trialOffer(db, lessonIds, picks = {}) {
+// director chose by hand per enquiry ({ submission_id: [class ids] }), any year;
+// others: "other" options typed by hand ({ submission_id: [{ label, date, start, end }] }).
+async function trialOffer(db, lessonIds, picks = {}, others = {}) {
   const { data: lts } = await db.from('level_test_invites').select('submission_id').in('lesson_id', lessonIds)
   const linked = [...new Set((lts || []).map(r => r.submission_id).filter(Boolean))]
   if (!linked.length) return null
@@ -36,7 +37,7 @@ async function trialOffer(db, lessonIds, picks = {}) {
   q = emails.length ? q.or([`id.in.(${linked.join(',')})`, ...emails.map(e => `parent_email.ilike.${e}`)].join(',')) : q.in('id', linked)
   const { data: subs } = await q
   if (!subs?.length) return null
-  const sections = await autoTrialSections(db, subs, sydneyToday(), picks)
+  const sections = await autoTrialSections(db, subs, sydneyToday(), picks, others)
   const candidates = await trialClassCandidates(db, subs)
   return { subs: subs.filter(s => sections.some(x => x.submission_id === s.id)), sections, candidates, allSubs: subs }
 }
@@ -50,7 +51,8 @@ const MAX_ATTACHMENTS = 6
  * The trial-invitation section the results email for these lessons would
  * carry, rendered for the lesson page's preview (the button links to the
  * class picker's preview page, nothing is created or sent). ?picks= is the
- * director's hand-picked classes as JSON ({ submission_id: [class ids] }).
+ * director's hand-picked classes as JSON ({ submission_id: [class ids] });
+ * ?others= the "other" options typed by hand ({ submission_id: [{ label, … }] }).
  * { html, sections, candidates } — html is '' when no invitation would ride
  * along; candidates lists every class that could be offered, per enquiry.
  */
@@ -61,10 +63,11 @@ export async function GET(req) {
     const url = new URL(req.url)
     const ids = String(url.searchParams.get('lesson_ids') || '').split(',').map(Number).filter(Number.isInteger)
     if (!ids.length) return NextResponse.json({ html: '', sections: [], candidates: [] })
-    let picks = {}
+    let picks = {}, others = {}
     try { picks = JSON.parse(url.searchParams.get('picks') || '{}') || {} } catch { picks = {} }
+    try { others = JSON.parse(url.searchParams.get('others') || '{}') || {} } catch { others = {} }
     const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-    const offer = await trialOffer(db, ids, picks)
+    const offer = await trialOffer(db, ids, picks, others)
     if (!offer) return NextResponse.json({ html: '', sections: [], candidates: [] })
     const studentName = (offer.subs[0] || offer.allSubs[0])?.student_name || ''
     return NextResponse.json({
@@ -85,7 +88,7 @@ export async function POST(req) {
 
     const {
       email_to, student_name, test_title, comment, teacher_name, email_subject, email_body,
-      pdf_base64, pdf_filename, attachments, lesson_id, lesson_ids, test, offer_classes,
+      pdf_base64, pdf_filename, attachments, lesson_id, lesson_ids, test, offer_classes, offer_others,
     } = await req.json()
 
     const files = Array.isArray(attachments) && attachments.length
@@ -116,7 +119,8 @@ export async function POST(req) {
     let offer = null, offerLink = ''
     if (lessonIds.length) {
       try {
-        offer = await trialOffer(db, lessonIds, offer_classes && typeof offer_classes === 'object' ? offer_classes : {})
+        offer = await trialOffer(db, lessonIds, offer_classes && typeof offer_classes === 'object' ? offer_classes : {},
+          offer_others && typeof offer_others === 'object' ? offer_others : {})
         if (offer && !offer.sections.length) offer = null
         if (offer) {
           const s0 = offer.subs[0]

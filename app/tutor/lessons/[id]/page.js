@@ -58,6 +58,15 @@ export default function LevelTestLessonPage() {
   // automatic match applies to any enquiry not in here. Any year is allowed.
   const [offerPicks, setOfferPicks] = useState({})
   const [showOtherYears, setShowOtherYears] = useState({})   // submission_id → true
+  // "Other" options typed by hand per enquiry (e.g. "Y7 English 1:1"):
+  // { submission_id: [{ label, date, start, end }] }. The preview follows the
+  // typing a moment later (offerOthers), not on every keystroke.
+  const [othersDraft, setOthersDraft] = useState({})
+  const [offerOthers, setOfferOthers] = useState({})
+  useEffect(() => {
+    const t = setTimeout(() => setOfferOthers(othersDraft), 450)
+    return () => clearTimeout(t)
+  }, [othersDraft])
   const commentTimer = useRef(null)
   const commentLatest = useRef({ overall: '', byTest: {} })   // what the debounced save writes
   const [template, setTemplate] = useState(DEFAULT_LEVEL_TEST_TEMPLATE)
@@ -210,13 +219,17 @@ export default function LevelTestLessonPage() {
   useEffect(() => {
     if (!previewOpen || !previewLessonKey) return
     let dead = false
+    // A different send starts from "Checking…"; ticking a class or typing an
+    // other option keeps the current preview (and the picker) up while the new
+    // one loads — clearing it made the whole list vanish on every tick.
     // Reset off the render tick (the React Compiler rule), then fetch.
-    Promise.resolve().then(() => { if (!dead) setOfferPreview(null) })
-    authedFetch(`/api/send-level-test-report?lesson_ids=${previewLessonKey}&picks=${encodeURIComponent(JSON.stringify(offerPicks))}`)
-      .then(r => r.json()).then(d => { if (!dead) setOfferPreview({ html: d?.html || '', sections: d?.sections || [], candidates: d?.candidates || [] }) })
-      .catch(() => { if (!dead) setOfferPreview({ html: '', sections: [], candidates: [], failed: true }) })
+    Promise.resolve().then(() => { if (!dead) setOfferPreview(p => (p?.key === previewLessonKey ? p : null)) })
+    authedFetch(`/api/send-level-test-report?lesson_ids=${previewLessonKey}&picks=${encodeURIComponent(JSON.stringify(offerPicks))}&others=${encodeURIComponent(JSON.stringify(offerOthers))}`)
+      .then(r => r.json()).then(d => { if (!dead) setOfferPreview({ key: previewLessonKey, html: d?.html || '', sections: d?.sections || [], candidates: d?.candidates || [] }) })
+      .catch(() => { if (!dead) setOfferPreview({ key: previewLessonKey, html: '', sections: [], candidates: [], failed: true }) })
     return () => { dead = true }
-  }, [previewOpen, previewLessonKey, offerPicks])
+  }, [previewOpen, previewLessonKey, offerPicks, offerOthers])
+  const setOther = (subId, list) => setOthersDraft(m => ({ ...m, [subId]: list }))
   const togglePick = (subId, cand, classId, on) => {
     setOfferPicks(p => {
       const cur = p[subId] || cand.classes.filter(c => c.auto).map(c => c.id)   // start from the automatic offer
@@ -312,6 +325,7 @@ export default function LevelTestLessonPage() {
           email_body: pv.body,
           attachments,
           offer_classes: offerPicks,
+          offer_others: othersDraft,
         }),
       })
       const out = await res.json()
@@ -522,7 +536,29 @@ export default function LevelTestLessonPage() {
                                     {c.otherYear && <span className="text-[9px] uppercase tracking-wider text-amber-700">other year</span>}
                                   </label>
                                 ))}
+                                <button type="button" onClick={() => setOther(cand.submission_id, [...(othersDraft[cand.submission_id] || []), { label: '', date: '', start: '', end: '' }])}
+                                  className="text-[11px] rounded-full border border-dashed border-[#325099]/50 px-2.5 py-1 font-semibold text-[#325099] hover:bg-[#F0F4FF]">
+                                  + Other option
+                                </button>
                               </div>
+                              {(othersDraft[cand.submission_id] || []).map((o, i, list) => {
+                                const set = (patch) => setOther(cand.submission_id, list.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+                                const field = 'border border-[#DEE7FF] rounded-lg px-2 py-1 text-[11px] text-[#2A2035] bg-white focus:outline-none focus:border-[#325099]'
+                                return (
+                                  <div key={i} className="mt-1.5 flex items-center gap-1.5 flex-wrap rounded-xl border border-[#9DBBF5] bg-[#EEF4FF] px-2.5 py-1.5">
+                                    <span className="text-[9px] font-bold uppercase tracking-wider text-[#325099]">Other</span>
+                                    <input type="text" value={o.label} placeholder="e.g. Y7 English 1:1" autoFocus={!o.label}
+                                      onChange={e => set({ label: e.target.value })} className={`${field} font-semibold w-48`} />
+                                    <span className="text-[10px] text-[#2A2035]/45">optional:</span>
+                                    <input type="date" value={o.date} onChange={e => set({ date: e.target.value })} className={field} />
+                                    <input type="time" value={o.start} onChange={e => set({ start: e.target.value })} className={field} />
+                                    <span className="text-[10px] text-[#2A2035]/40">to</span>
+                                    <input type="time" value={o.end} onChange={e => set({ end: e.target.value })} className={field} />
+                                    <button type="button" title="Remove" onClick={() => setOther(cand.submission_id, list.filter((_, j) => j !== i))}
+                                      className="text-[11px] text-rose-500 px-1">✕</button>
+                                  </div>
+                                )
+                              })}
                             </div>
                           )
                         })}

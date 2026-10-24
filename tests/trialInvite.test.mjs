@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normaliseSections, planTrialPicks, optionDetail, optionTitle, trialOfferHtml, buildTrialBookedEmailHtml } from '../lib/trialInvite.js'
+import { normaliseSections, planTrialPicks, optionDetail, optionTitle, trialOfferHtml, buildTrialBookedEmailHtml, otherOptions } from '../lib/trialInvite.js'
 
 const offered = [{
   submission_id: '12', label: 'Maths · Year 9',
@@ -62,4 +62,12 @@ test('an "other" option staff typed in: a name, with a date and time only if giv
   const booked = buildTrialBookedEmailHtml({ parentName: 'Jo', studentName: 'Sam', chosen: [{ section: sec, option: plain }] })
   assert.match(booked, /Y7 English 1:1/)
   assert.match(booked, /in touch shortly to confirm the details/)
+})
+
+test('other options typed on the results email become offered options; unnamed ones are dropped', () => {
+  const opts = otherOptions([{ label: ' Y7 Maths 1:1 ', date: '2026-11-01', start: '10:00', end: '11:00' }, { label: '  ' }, null])
+  assert.deepEqual(opts, [{ kind: 'slot', label: 'Y7 Maths 1:1', date: '2026-11-01', start: '10:00', end: '11:00' }])
+  assert.deepEqual(otherOptions(undefined), [])
+  const sections = normaliseSections([{ submission_id: 10, label: 'Maths · Year 7', options: opts }])
+  assert.match(trialOfferHtml({ link: 'https://x/t', sections }), /Y7 Maths 1:1<\/strong> — Sunday 1 November · 10:00am – 11:00am/)
 })
