@@ -729,8 +729,8 @@ function SubjectActions({ sub, classes, onUpdate, onReload, onConvertDrop, onOut
         className={`text-xs border border-[#DEE7FF] rounded-full px-3 py-1.5 bg-white text-[#062E63] focus:outline-none focus:border-[#325099] ${hl.includes('assign') ? NEXT_BTN : ''}`}
       >
         <option value="">Assign a class…</option>
-        {classes.map(c => (
-          <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week})</option>
+        {classes.filter(c => !c._otherTerm || c.id === sub.trial_class_id).map(c => (
+          <option key={c.id} value={c.id}>{c.class_name} ({c.day_of_week}{c._otherTerm ? ` · ${c._otherTerm} — not this term` : ''})</option>
         ))}
       </select>
 
@@ -1178,6 +1178,9 @@ export default function TrialsPage() {
   const [isAdmin,     setIsAdmin]     = useState(false)
   const [submissions, setSubmissions] = useState([])
   const [classes,     setClasses]     = useState([])
+  // What a trial can be offered: this term's classes (another term's, kept
+  // only so a card can name the class it already has, are left out).
+  const termClasses = useMemo(() => classes.filter(c => !c._otherTerm), [classes])
   const [students,    setStudents]    = useState([])
   const [loading,     setLoading]     = useState(true)
   const [filterStage, setFilterStage] = useState('all')
@@ -1213,12 +1216,13 @@ export default function TrialsPage() {
     // holiday workshops) but a trial belongs to a REAL term's classes: during
     // the break getEnrolmentTerm would otherwise return the holiday row and
     // starve the class list.
-    const realTerms = (await fetchAllTerms()).filter(t => !/holiday/i.test(t.name || ''))
+    const allTerms = await fetchAllTerms()
+    const realTerms = allTerms.filter(t => !/holiday/i.test(t.name || ''))
     const term = getEnrolmentTerm(realTerms)
     setEnrolTerm(term)
     const todayIso = isoDate(new Date())
     setNextTermStart(realTerms.map(t => t.start_date).filter(d => d && d > todayIso).sort()[0] || null)
-    const classCols = 'id, class_name, day_of_week, start_time, end_time, course_id'
+    const classCols = 'id, class_name, day_of_week, start_time, end_time, course_id, term_id'
     const classQuery = term?.id ? classesForTerm(term.id, classCols) : classesAllTerms(classCols)
     const [subRes, classRes, studentRes] = await Promise.all([
       supabase
@@ -1308,12 +1312,16 @@ export default function TrialsPage() {
     }
 
     // A live class can sit outside the enrolment-term list (assigned in the
-    // explorer for another term) — fetch those so the dropdown can show them.
+    // explorer for another term) — fetch those so the card can name it. They
+    // are marked with their term: only the card that has one shows it, never
+    // as a choice for other cards or the invitation (the same class name runs
+    // every term — Term 3's Y8 Maths was Mondays, Term 4's is Thursdays).
     const known = new Set(classList.map(c => c.id))
     const missing = [...new Set(merged.map(s => s.trial_class_id).filter(id => id != null && !known.has(id)))]
     if (missing.length) {
       const { data: extra } = await supabase.from('classes').select(classCols).in('id', missing)
-      classList = [...classList, ...(extra || [])]
+      const termName = (id) => allTerms.find(t => t.id === id)?.name || 'another term'
+      classList = [...classList, ...(extra || []).map(c => ({ ...c, _otherTerm: termName(c.term_id) }))]
     }
 
     // The pipeline follows what actually happened: an untouched enquiry (still
@@ -1727,7 +1735,7 @@ export default function TrialsPage() {
             && (x.parent_email || '').trim().toLowerCase() === (invitationSub.parent_email || '').trim().toLowerCase()
             && (invitationSub.parent_email || '').trim()
             && !['enrolled', 'declined'].includes(x.status))}
-          classes={classes}
+          classes={termClasses}
           term={enrolTerm}
           onClose={() => setInvitationSub(null)}
           onSent={(sentIds, stampedIds) => {
