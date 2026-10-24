@@ -66,8 +66,14 @@ test('an "other" option staff typed in: a name, with a date and time only if giv
 
 test('other options typed on the results email become offered options; unnamed ones are dropped', () => {
   const opts = otherOptions([{ label: ' Y7 Maths 1:1 ', date: '2026-11-01', start: '10:00', end: '11:00' }, { label: '  ' }, null])
-  assert.deepEqual(opts, [{ kind: 'slot', label: 'Y7 Maths 1:1', date: '2026-11-01', start: '10:00', end: '11:00' }])
+  assert.deepEqual(opts, [{ kind: 'slot', label: 'Y7 Maths 1:1', date: '2026-11-01', start: '10:00', end: '11:00', note: '' }])
   assert.deepEqual(otherOptions(undefined), [])
   const sections = normaliseSections([{ submission_id: 10, label: 'Maths · Year 7', options: opts }])
   assert.match(trialOfferHtml({ link: 'https://x/t', sections }), /Y7 Maths 1:1<\/strong> — Sunday 1 November · 10:00am – 11:00am/)
+})
+
+test('an other option’s note shows after it in the emails and on the form', () => {
+  const [sec] = normaliseSections([{ submission_id: 9, label: 'English', options: otherOptions([{ label: 'Y7 English 1:1', note: ' times can be discussed ' }]) }])
+  assert.equal(optionDetail(sec.options[0]), 'times can be discussed')
+  assert.match(trialOfferHtml({ link: 'https://x/t', sections: [sec] }), /Y7 English 1:1<\/strong> — times can be discussed/)
 })

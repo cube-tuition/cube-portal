@@ -59,7 +59,7 @@ export default function LevelTestLessonPage() {
   const [offerPicks, setOfferPicks] = useState({})
   const [showOtherYears, setShowOtherYears] = useState({})   // submission_id → true
   // "Other" options typed by hand per enquiry (e.g. "Y7 English 1:1"):
-  // { submission_id: [{ label, date, start, end }] }. The preview follows the
+  // { submission_id: [{ label, date, start, end, note }] }. The preview follows the
   // typing a moment later (offerOthers), not on every keystroke.
   const [othersDraft, setOthersDraft] = useState({})
   const [offerOthers, setOfferOthers] = useState({})
@@ -536,7 +536,7 @@ export default function LevelTestLessonPage() {
                                     {c.otherYear && <span className="text-[9px] uppercase tracking-wider text-amber-700">other year</span>}
                                   </label>
                                 ))}
-                                <button type="button" onClick={() => setOther(cand.submission_id, [...(othersDraft[cand.submission_id] || []), { label: '', date: '', start: '', end: '' }])}
+                                <button type="button" onClick={() => setOther(cand.submission_id, [...(othersDraft[cand.submission_id] || []), { label: '', date: '', start: '', end: '', note: '' }])}
                                   className="text-[11px] rounded-full border border-dashed border-[#325099]/50 px-2.5 py-1 font-semibold text-[#325099] hover:bg-[#F0F4FF]">
                                   + Other option
                                 </button>
@@ -554,6 +554,8 @@ export default function LevelTestLessonPage() {
                                     <input type="time" value={o.start} onChange={e => set({ start: e.target.value })} className={field} />
                                     <span className="text-[10px] text-[#2A2035]/40">to</span>
                                     <input type="time" value={o.end} onChange={e => set({ end: e.target.value })} className={field} />
+                                    <input type="text" value={o.note || ''} placeholder="Note, e.g. times can be discussed"
+                                      onChange={e => set({ note: e.target.value })} className={`${field} flex-1 min-w-[10rem]`} />
                                     <button type="button" title="Remove" onClick={() => setOther(cand.submission_id, list.filter((_, j) => j !== i))}
                                       className="text-[11px] text-rose-500 px-1">✕</button>
                                   </div>

@@ -65,9 +65,11 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const studentName = joinNames(subs.map(s => s.student_name)) || sub.student_name || ''
   const oneChild    = new Set(subs.map(s => (s.student_name || '').trim().toLowerCase())).size <= 1
   const content     = useMemo(() => mergeTrialInvitationContent(edits, multi), [edits, multi])
+  // Each section's heading in the email: the subject (no year — the classes
+  // offered can be another year's), with the child's name for siblings.
   const labelOf = useCallback((s) => (oneChild
-    ? `${firstSubjectOf(s)} · Year ${s.student_year || '?'}`
-    : `${s.student_name || 'Student'} — Year ${s.student_year || '?'} ${firstSubjectOf(s)}`), [oneChild])
+    ? firstSubjectOf(s)
+    : `${s.student_name || 'Student'} — ${firstSubjectOf(s)}`), [oneChild])
 
   // Match + rank classes for every candidate request, then attach each class's
   // next scheduled lesson (one query for all of them).
@@ -131,7 +133,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const otherCard = useCallback((t) => ({
     className: t.label.trim(),
     time: t.start ? classTimeLabel({ start_time: t.start, end_time: t.end }) : '',
-    date: t.date ? fmtLessonDate(t.date) : '', once: true,
+    date: t.date ? fmtLessonDate(t.date) : '', note: (t.note || '').trim(), once: true,
   }), [])
   const timesOf = useCallback((s) => (slots[s.id] || []).filter(t => t.label?.trim()), [slots])
   const pick = useCallback((s) => {
@@ -153,7 +155,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
       options: [
         ...(prop ? [asOption(prop, ch.dates?.[prop.id] || prop.nextDate)] : []),
         ...list.filter(c => c.id !== ch.proposalId && ch.altIds.has(c.id)).map(c => asOption(c, c.nextDate)),
-        ...timesOf(s).map(t => ({ kind: 'slot', label: t.label.trim(), date: t.date, start: t.start, end: t.end })),
+        ...timesOf(s).map(t => ({ kind: 'slot', label: t.label.trim(), date: t.date, start: t.start, end: t.end, note: (t.note || '').trim() })),
       ].filter(o => o.kind === 'slot' || o.date),
     }
   }), [subs, bySub, choice, labelOf, timesOf])
@@ -403,10 +405,12 @@ function OtherOptions({ options, onChange }) {
             <input type="time" value={t.start} onChange={e => set(i, { start: e.target.value, end: !t.end || t.end === plusHour(t.start) ? plusHour(e.target.value) : t.end })} className={field} />
             <span className="text-[11px] text-[#2A2035]/40">to</span>
             <input type="time" value={t.end} onChange={e => set(i, { end: e.target.value })} className={field} />
+            <input type="text" value={t.note || ''} placeholder="Note, e.g. times can be discussed"
+              onChange={e => set(i, { note: e.target.value })} className={`${field} flex-1 min-w-[10rem]`} />
           </div>
         </div>
       ))}
-      <button type="button" onClick={() => onChange([...options, { label: '', date: '', start: '', end: '' }])}
+      <button type="button" onClick={() => onChange([...options, { label: '', date: '', start: '', end: '', note: '' }])}
         className="w-full text-left border border-dashed border-[#325099]/50 rounded-xl px-3 py-2.5 text-xs font-semibold text-[#325099] hover:bg-[#F0F4FF] transition">
         + Other option <span className="font-normal text-[#2A2035]/45">— type your own, e.g. “Y7 English 1:1”</span>
       </button>
