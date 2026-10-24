@@ -28,11 +28,11 @@ const itemKey = (item) => `${item.section ?? 'Operations'}|${item.label}|${item.
 // The Operations card (every check without a section: stale trials, the
 // invoice queue, unsaved sessions, …) was retired on 2026-10-23 — those checks
 // still run for the morning push and the System page, but the home page shows
-// only the to-do lists and the email cadence.
+// only the to-do lists and the Actionables (cadence emails + trial next steps).
 const SECTIONS = [
   { id: 'Todo:Ryan',  icon: '📋', title: 'Ryan’s to-do', clearText: 'Nothing on Ryan’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
   { id: 'Todo:Aiden', icon: '📋', title: 'Aiden’s to-do', clearText: 'Nothing on Aiden’s list — add tasks on the Work page.', addHref: '/tutor/admin/work' },
-  { id: 'Emails',     icon: '📧', title: 'Emails', clearText: 'No campaign due this week — see the cadence on the Emails page.' },
+  { id: 'Actionables', icon: '⚡', title: 'Actionables', clearText: 'Nothing to action — no emails due this week and no trial steps waiting.' },
 ]
 
 const SEV = {
