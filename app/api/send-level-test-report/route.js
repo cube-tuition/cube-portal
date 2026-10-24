@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireApiRole } from '../../../lib/apiAuth'
 import { PORTAL_BCC, applyEmailTestMode } from '../../../lib/emailConfig'
 import { trialOfferHtml, trialOfferText } from '../../../lib/trialInvite'
-import { autoTrialSections, createTrialInvite, trialPreviewLink, sydneyToday } from '../../../lib/trialInviteServer'
+import { autoTrialSections, createTrialInvite, trialPreviewLink, sydneyToday, trialClassCandidates } from '../../../lib/trialInviteServer'
 import { levelTestEmailBody, levelTestEmailSubject, levelTestEmailText, levelTestEmailHtml } from '../../../lib/levelTestEmail'
 
 /*
@@ -24,8 +24,9 @@ import { levelTestEmailBody, levelTestEmailSubject, levelTestEmailText, levelTes
  * get classes matched on year, subject and availability, and a link to the
  * class picker (lib/trialInvite). A real send marks those requests invited.
  */
-// The family's requests still waiting for a trial class.
-async function trialOffer(db, lessonIds) {
+// The family's requests still waiting for a trial class. picks: classes the
+// director chose by hand per enquiry ({ submission_id: [class ids] }), any year.
+async function trialOffer(db, lessonIds, picks = {}) {
   const { data: lts } = await db.from('level_test_invites').select('submission_id').in('lesson_id', lessonIds)
   const linked = [...new Set((lts || []).map(r => r.submission_id).filter(Boolean))]
   if (!linked.length) return null
@@ -35,8 +36,9 @@ async function trialOffer(db, lessonIds) {
   q = emails.length ? q.or([`id.in.(${linked.join(',')})`, ...emails.map(e => `parent_email.ilike.${e}`)].join(',')) : q.in('id', linked)
   const { data: subs } = await q
   if (!subs?.length) return null
-  const sections = await autoTrialSections(db, subs, sydneyToday())
-  return sections.length ? { subs: subs.filter(s => sections.some(x => x.submission_id === s.id)), sections } : null
+  const sections = await autoTrialSections(db, subs, sydneyToday(), picks)
+  const candidates = await trialClassCandidates(db, subs)
+  return { subs: subs.filter(s => sections.some(x => x.submission_id === s.id)), sections, candidates, allSubs: subs }
 }
 
 // A report PDF is ~300–350 KB (≈450 KB as base64); six stays well inside
@@ -47,22 +49,28 @@ const MAX_ATTACHMENTS = 6
  * GET /api/send-level-test-report?lesson_ids=1,2
  * The trial-invitation section the results email for these lessons would
  * carry, rendered for the lesson page's preview (the button links to the
- * class picker's preview page, nothing is created or sent). { html, sections }
- * — html is '' when no invitation would ride along.
+ * class picker's preview page, nothing is created or sent). ?picks= is the
+ * director's hand-picked classes as JSON ({ submission_id: [class ids] }).
+ * { html, sections, candidates } — html is '' when no invitation would ride
+ * along; candidates lists every class that could be offered, per enquiry.
  */
 export async function GET(req) {
   try {
     const auth = await requireApiRole(req, ['admin', 'director', 'tutor'])
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
-    const ids = String(new URL(req.url).searchParams.get('lesson_ids') || '').split(',').map(Number).filter(Number.isInteger)
-    if (!ids.length) return NextResponse.json({ html: '', sections: [] })
+    const url = new URL(req.url)
+    const ids = String(url.searchParams.get('lesson_ids') || '').split(',').map(Number).filter(Number.isInteger)
+    if (!ids.length) return NextResponse.json({ html: '', sections: [], candidates: [] })
+    let picks = {}
+    try { picks = JSON.parse(url.searchParams.get('picks') || '{}') || {} } catch { picks = {} }
     const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-    const offer = await trialOffer(db, ids)
-    if (!offer) return NextResponse.json({ html: '', sections: [] })
-    const studentName = offer.subs[0]?.student_name || ''
+    const offer = await trialOffer(db, ids, picks)
+    if (!offer) return NextResponse.json({ html: '', sections: [], candidates: [] })
+    const studentName = (offer.subs[0] || offer.allSubs[0])?.student_name || ''
     return NextResponse.json({
-      html: trialOfferHtml({ link: trialPreviewLink(offer.sections), sections: offer.sections, studentName }),
+      html: offer.sections.length ? trialOfferHtml({ link: trialPreviewLink(offer.sections), sections: offer.sections, studentName }) : '',
       sections: offer.sections.map(s => s.label),
+      candidates: offer.candidates,
     })
   } catch (e) {
     console.error('[send-level-test-report GET]', e)
@@ -77,7 +85,7 @@ export async function POST(req) {
 
     const {
       email_to, student_name, test_title, comment, teacher_name, email_subject, email_body,
-      pdf_base64, pdf_filename, attachments, lesson_id, lesson_ids, test,
+      pdf_base64, pdf_filename, attachments, lesson_id, lesson_ids, test, offer_classes,
     } = await req.json()
 
     const files = Array.isArray(attachments) && attachments.length
@@ -108,7 +116,8 @@ export async function POST(req) {
     let offer = null, offerLink = ''
     if (lessonIds.length) {
       try {
-        offer = await trialOffer(db, lessonIds)
+        offer = await trialOffer(db, lessonIds, offer_classes && typeof offer_classes === 'object' ? offer_classes : {})
+        if (offer && !offer.sections.length) offer = null
         if (offer) {
           const s0 = offer.subs[0]
           offerLink = test ? trialPreviewLink(offer.sections) : (await createTrialInvite(db, {

@@ -53,7 +53,11 @@ export default function LevelTestLessonPage() {
   const [previewOpen, setPreviewOpen] = useState(false)
   // The trial-invitation section the send would add (server-side match of the
   // family's open enquiries to classes), fetched when the preview opens.
-  const [offerPreview, setOfferPreview] = useState(null)   // { html, sections } | null while loading
+  const [offerPreview, setOfferPreview] = useState(null)   // { html, sections, candidates } | null while loading
+  // Classes chosen by hand per enquiry ({ submission_id: [class ids] }); the
+  // automatic match applies to any enquiry not in here. Any year is allowed.
+  const [offerPicks, setOfferPicks] = useState({})
+  const [showOtherYears, setShowOtherYears] = useState({})   // submission_id → true
   const commentTimer = useRef(null)
   const commentLatest = useRef({ overall: '', byTest: {} })   // what the debounced save writes
   const [template, setTemplate] = useState(DEFAULT_LEVEL_TEST_TEMPLATE)
@@ -208,11 +212,18 @@ export default function LevelTestLessonPage() {
     let dead = false
     // Reset off the render tick (the React Compiler rule), then fetch.
     Promise.resolve().then(() => { if (!dead) setOfferPreview(null) })
-    authedFetch(`/api/send-level-test-report?lesson_ids=${previewLessonKey}`)
-      .then(r => r.json()).then(d => { if (!dead) setOfferPreview({ html: d?.html || '', sections: d?.sections || [] }) })
-      .catch(() => { if (!dead) setOfferPreview({ html: '', sections: [], failed: true }) })
+    authedFetch(`/api/send-level-test-report?lesson_ids=${previewLessonKey}&picks=${encodeURIComponent(JSON.stringify(offerPicks))}`)
+      .then(r => r.json()).then(d => { if (!dead) setOfferPreview({ html: d?.html || '', sections: d?.sections || [], candidates: d?.candidates || [] }) })
+      .catch(() => { if (!dead) setOfferPreview({ html: '', sections: [], candidates: [], failed: true }) })
     return () => { dead = true }
-  }, [previewOpen, previewLessonKey])
+  }, [previewOpen, previewLessonKey, offerPicks])
+  const togglePick = (subId, cand, classId, on) => {
+    setOfferPicks(p => {
+      const cur = p[subId] || cand.classes.filter(c => c.auto).map(c => c.id)   // start from the automatic offer
+      const next = on ? [...cur, classId] : cur.filter(id => id !== classId)
+      return { ...p, [subId]: next }
+    })
+  }
 
   const emailTestTitle = () => (tests.length === 1 ? testName(tests[0].build) : `${tests.length} level tests`)
   const reportFilename = (st) => `${(st?.full_name || 'student').trim()} - Level Test Report.pdf`
@@ -300,6 +311,7 @@ export default function LevelTestLessonPage() {
           email_subject: pv.subject,
           email_body: pv.body,
           attachments,
+          offer_classes: offerPicks,
         }),
       })
       const out = await res.json()
@@ -476,8 +488,46 @@ export default function LevelTestLessonPage() {
                       {offerPreview === null ? 'Checking for a trial invitation to include…'
                         : offerPreview.failed ? 'Could not check for a trial invitation — it is still added when sending if the family has an open enquiry.'
                         : offerPreview.html ? `Includes the trial invitation and class picker for: ${offerPreview.sections.join(' · ')}. Sending stamps those enquiries as invited.`
-                        : 'No trial invitation rides along: the family has no open enquiry waiting for a class (or no class matched).'}
+                        : offerPreview.candidates?.length ? 'No classes are offered yet — tick some below and the invitation will ride along.'
+                        : 'No trial invitation rides along: the family has no open enquiry waiting for a class.'}
                     </div>
+                    {/* Which classes the invitation offers, per enquiry. The automatic
+                        match is the student's own year; other years can be ticked too. */}
+                    {offerPreview?.candidates?.length > 0 && (
+                      <div className="px-4 py-3 border-t border-[#EEF2FF] bg-white space-y-3">
+                        <p className="text-[11px] font-bold text-[#062E63]">Classes offered in the invitation</p>
+                        {offerPreview.candidates.map(cand => {
+                          const picked = new Set(offerPicks[cand.submission_id] || cand.classes.filter(c => c.auto).map(c => c.id))
+                          const other = !!showOtherYears[cand.submission_id]
+                          const shown = cand.classes.filter(c => !c.otherYear || other || picked.has(c.id))
+                          return (
+                            <div key={cand.submission_id}>
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <p className="text-[11px] font-semibold text-[#325099]">{cand.label}</p>
+                                {cand.classes.some(c => c.otherYear) && (
+                                  <label className="text-[11px] text-[#2A2035]/60 flex items-center gap-1.5 select-none">
+                                    <input type="checkbox" className="accent-[#325099]" checked={other}
+                                      onChange={e => setShowOtherYears(m => ({ ...m, [cand.submission_id]: e.target.checked }))} />
+                                    Show other years
+                                  </label>
+                                )}
+                              </div>
+                              {shown.length === 0 && <p className="text-[11px] text-[#2A2035]/45">No {cand.label.split(' · ')[0]} class this term.</p>}
+                              <div className="flex flex-wrap gap-1.5">
+                                {shown.map(c => (
+                                  <label key={c.id} className={`text-[11px] rounded-full border px-2.5 py-1 flex items-center gap-1.5 cursor-pointer ${picked.has(c.id) ? 'bg-[#EEF4FF] border-[#9DBBF5] text-[#062E63]' : 'bg-white border-[#DEE7FF] text-[#2A2035]/70 hover:border-[#325099]/50'}`}>
+                                    <input type="checkbox" className="accent-[#325099]" checked={picked.has(c.id)} onChange={e => togglePick(cand.submission_id, cand, c.id, e.target.checked)} />
+                                    <span className="font-semibold">{c.class_name}</span>
+                                    <span className="text-[#2A2035]/50">{c.day ? `${c.day.slice(0, 3)} ${c.start}` : ''}</span>
+                                    {c.otherYear && <span className="text-[9px] uppercase tracking-wider text-amber-700">other year</span>}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )
               })()}

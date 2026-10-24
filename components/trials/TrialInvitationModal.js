@@ -49,6 +49,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
   const [choice, setChoice]     = useState({})      // sub id → { proposalId, altIds: Set }
   const [slots, setSlots]       = useState({})      // sub id → [{ date, start, end }] — 1:1 times offered by hand
   const [loading, setLoading]   = useState(true)
+  const [showOther, setShowOther] = useState({})     // sub id → list classes from other years too
   const [edits, setEdits]       = useState({})      // wording the user changed (else the defaults)
   const [sending, setSending]   = useState(false)
   const [result,  setResult]    = useState(null)
@@ -74,8 +75,10 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
     let active = true
     ;(async () => {
       setLoading(true)
+      // Every year's classes for the subject; the student's own year sorts
+      // first and is all the default picks use. Other years show on request.
       const ranked = Object.fromEntries(candidates.map(s => [s.id, matchTrialClasses(
-        { year: s.student_year, subject: firstSubjectOf(s), availability: s.availability }, classes || [])]))
+        { year: s.student_year, subject: firstSubjectOf(s), availability: s.availability }, classes || [], { anyYear: true })]))
       const ids = [...new Set(Object.values(ranked).flat().map(c => c.id))]
       const nextByClass = {}
       if (ids.length) {
@@ -102,10 +105,13 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
         ...c, nextDate: nextByClass[c.id] || firstWeekdayOnOrAfter(from, c.day_of_week),
       }))]))
       setBySub(withDates)
-      setChoice(Object.fromEntries(Object.entries(withDates).map(([id, list]) => [id, {
-        proposalId: list[0]?.id ?? null,
-        altIds: new Set(list.slice(1, 4).map(c => c.id)),   // up to 3 alternatives by default
-      }])))
+      setChoice(Object.fromEntries(Object.entries(withDates).map(([id, list]) => {
+        const own = list.filter(c => !c.otherYear)
+        return [id, {
+          proposalId: own[0]?.id ?? null,
+          altIds: new Set(own.slice(1, 4).map(c => c.id)),   // up to 3 alternatives by default
+        }]
+      })))
       setLoading(false)
     })()
     return () => { active = false }
@@ -239,11 +245,23 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
             {loading ? (
               <p className="text-xs text-[#2A2035]/40 py-6 text-center">Matching classes…</p>
             ) : subs.map(s => {
-              const list = bySub[s.id] || []
+              const all = bySub[s.id] || []
               const ch = choice[s.id] || { proposalId: null, altIds: new Set() }
+              // Other years' classes show when asked for, or when already chosen.
+              const list = all.filter(c => !c.otherYear || showOther[s.id] || ch.proposalId === c.id || ch.altIds.has(c.id))
+              const hasOther = all.some(c => c.otherYear)
               return (
                 <div key={s.id} className="space-y-2">
-                  {multi && <p className="text-xs font-bold text-[#062E63]">{labelOf(s)}</p>}
+                  <div className="flex items-center justify-between gap-2">
+                    {multi ? <p className="text-xs font-bold text-[#062E63]">{labelOf(s)}</p> : <span />}
+                    {hasOther && (
+                      <label className="text-[11px] text-[#2A2035]/60 flex items-center gap-1.5 select-none cursor-pointer">
+                        <input type="checkbox" className="accent-[#325099]" checked={!!showOther[s.id]}
+                          onChange={e => setShowOther(m => ({ ...m, [s.id]: e.target.checked }))} />
+                        Show classes from other years
+                      </label>
+                    )}
+                  </div>
                   {list.length === 0 ? (
                     <div className="text-center py-6 px-4 bg-[#F8FAFF] border border-[#DEE7FF] rounded-xl">
                       <p className="text-sm text-[#2A2035]/50">No Year {s.student_year || '?'} {firstSubjectOf(s)} class found this term.</p>
@@ -255,7 +273,7 @@ export default function TrialInvitationModal({ sub, related = [], classes, term,
                       <input type="radio" name={`proposal-${s.id}`} checked={ch.proposalId === c.id}
                         onChange={() => setProposal(s.id, c.id)} className="accent-[#325099]" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-[#062E63] truncate">{c.class_name}</p>
+                        <p className="text-xs font-bold text-[#062E63] truncate">{c.class_name}{c.otherYear && <span className="ml-2 text-[9px] font-bold uppercase tracking-wider text-amber-700">other year</span>}</p>
                         <p className="text-[11px] text-[#2A2035]/60">
                           {c.day_of_week}s · {classTimeLabel(c)}
                           {c.nextDate ? <> · next lesson <span className="font-semibold">{fmtLessonDate(c.nextDate)}</span></> : <> · <span className="text-amber-600">no scheduled lesson found</span></>}
