@@ -1,6 +1,6 @@
 import { Resend } from 'resend'
 import { serviceClient, sydneyToday, trialInviteByToken, trialInviteLink, bookTrialClass } from '../../../../lib/trialInviteServer'
-import { isOpen, openOptions, planTrialPicks, buildTrialBookedEmailHtml, optionTitle, optionDetail } from '../../../../lib/trialInvite'
+import { isOpen, openOptions, planTrialPicks, planTrialNotes, inviteAnswer, buildTrialBookedEmailHtml, optionTitle, optionDetail } from '../../../../lib/trialInvite'
 import { PORTAL_BCC } from '../../../../lib/emailConfig'
 import { sendPushToAll } from '../../../../lib/push'
 
@@ -10,11 +10,14 @@ import { sendPushToAll } from '../../../../lib/push'
  * No login: the token in the invitation email is the credential.
  *   GET  → each subject's offered classes still open, what's already picked,
  *          and whether it can still change.
- *   POST { picks: { <submission_id>: <option_id> } } → book them. A class
- *          books the trial (its enrolment gets the class and first lesson, the
- *          card moves to Trial scheduled); an "other" option staff typed in is
- *          recorded for them to set up. The family gets a confirmation; the directors get a push.
- *        { none: true, note } → none of them suit; record what does.
+ *   POST { picks: { <submission_id>: <option_id> }, notes: { <submission_id>: text } }
+ *          picks book: a class books the trial (its enrolment gets the class
+ *          and first lesson, the card moves to Trial scheduled); an "other"
+ *          option staff typed in is recorded for them to set up. notes are the
+ *          subjects where none of the times suit, with what does — so a family
+ *          can book English and tell us about Maths in one go. The family gets
+ *          a confirmation (when something was booked); the directors a push.
+ *        { none: true, note } → (older forms) none suit for the whole invite.
  */
 export const dynamic = 'force-dynamic'
 
@@ -41,9 +44,9 @@ export async function GET(_request, { params }) {
     firstName: firstName(invite.student_name),
     sections: (invite.sections || []).map(sec => {
       const sub = subs.find(s => s.id === sec.submission_id)
-      const pickedId = invite.picks?.[sec.submission_id]?.option_id || null
-      const picked = (sec.options || []).find(o => o.id === pickedId) || null
-      return { submission_id: sec.submission_id, label: sec.label, options: openOptions(sec, today), picked, locked: !changeable(sub, picked, today) }
+      const { pick: picked } = inviteAnswer(invite, sec.submission_id)
+      const noted = invite.picks?.[sec.submission_id]?.none ? (invite.picks[sec.submission_id].note || '') : ''
+      return { submission_id: sec.submission_id, label: sec.label, options: openOptions(sec, today), picked, noted, locked: !changeable(sub, picked, today) }
     }),
     note: invite.note || '',
     responded: !!invite.responded_at,
@@ -70,12 +73,17 @@ export async function POST(request, { params }) {
     return Response.json({ ok: true, action: 'note' })
   }
 
-  const plan = planTrialPicks({ invite, picks: body?.picks, today })
+  const notePlan = planTrialNotes({ invite, notes: body?.notes })
+  if (notePlan.error) return Response.json({ error: notePlan.error }, { status: 400 })
+  const notedIds = new Set(notePlan.noted.map(n => n.section.submission_id))
+  const pickBody = Object.fromEntries(Object.entries(body?.picks || {}).filter(([k]) => !notedIds.has(Number(k))))
+  const plan = planTrialPicks({ invite, picks: pickBody, today })
   if (plan.error) return Response.json({ error: plan.error }, { status: 409 })
   // Only what changed, and only where the trial hasn't started yet.
   const chosen = plan.chosen.filter(({ section, option }) => invite.picks?.[section.submission_id]?.option_id !== option.id)
-  if (!chosen.length) return Response.json({ ok: true, action: 'keep' })
-  for (const { section } of chosen) {
+  const noted = notePlan.noted.filter(({ section, note }) => invite.picks?.[section.submission_id]?.note !== note)
+  if (!chosen.length && !noted.length) return Response.json({ ok: true, action: 'keep' })
+  for (const { section } of [...chosen, ...noted]) {
     const sub = subs.find(s => s.id === section.submission_id)
     const prev = (section.options || []).find(o => o.id === invite.picks?.[section.submission_id]?.option_id)
     if (!changeable(sub, prev, today)) return Response.json({ error: 'This trial has already started — please contact CUBE to change it.' }, { status: 409 })
@@ -85,7 +93,7 @@ export async function POST(request, { params }) {
   let moved = false
   for (const { section, option } of chosen) {
     const sub = subs.find(s => s.id === section.submission_id)
-    if (picks[section.submission_id]) moved = true
+    if (picks[section.submission_id]?.option_id) moved = true
     if (option.kind === 'class') {
       try { await bookTrialClass(sb, sub, { classId: option.class_id, firstDate: option.date }) }
       catch (e) {
@@ -95,16 +103,21 @@ export async function POST(request, { params }) {
     }
     picks[section.submission_id] = { option_id: option.id, picked_at: now }
   }
+  for (const { section, note } of noted) picks[section.submission_id] = { none: true, note, picked_at: now }
   await sb.from('trial_invites').update({ picks, responded_at: now }).eq('id', invite.id)
-  await sb.from('trial_submissions').update({ last_activity_at: now, stale_notified_at: null }).in('id', chosen.map(c => c.section.submission_id))
+  await sb.from('trial_submissions').update({ last_activity_at: now, stale_notified_at: null })
+    .in('id', [...chosen, ...noted].map(c => c.section.submission_id))
 
-  const summary = chosen.map(({ section, option }) => `${optionTitle(option)} (${optionDetail(option)})`).join('; ')
+  const multi = (invite.sections || []).length > 1
+  const booked = chosen.map(({ option }) => [optionTitle(option), optionDetail(option)].filter(Boolean).join(' — ')).join('; ')
+  const asked = noted.map(({ section, note }) => `${multi && section.label ? `${section.label}: ` : ''}none of the times suit — “${note}”`).join('; ')
   await sendPushToAll({
-    title: `Trial ${moved ? 'changed' : 'booked'} — ${who}`,
-    body: chosen.some(c => c.option.kind === 'slot') ? `${summary}. Set it up on the Trials page.` : summary,
+    title: chosen.length ? `Trial ${moved ? 'changed' : 'booked'} — ${who}` : `Trial times — ${who}`,
+    body: [booked && (chosen.some(c => c.option.kind === 'slot') ? `${booked}. Set it up on the Trials page.` : booked), asked].filter(Boolean).join(' · '),
     url: '/tutor/trials', tag: `trial-invite-${invite.id}`,
   }).catch(() => {})
 
+  if (!chosen.length) return Response.json({ ok: true, action: 'note' })
   if (invite.parent_email && process.env.RESEND_API_KEY) {
     const resend = new Resend(process.env.RESEND_API_KEY)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
@@ -113,7 +126,7 @@ export async function POST(request, { params }) {
       to: [invite.parent_email],
       bcc: [PORTAL_BCC],
       subject: `${firstName(invite.student_name) || 'Your child'}’s trial ${moved ? 'has been updated' : 'is booked'}`,
-      html: buildTrialBookedEmailHtml({ parentName: invite.parent_name, studentName: invite.student_name, chosen, link: trialInviteLink(token), moved }),
+      html: buildTrialBookedEmailHtml({ parentName: invite.parent_name, studentName: invite.student_name, chosen, noted, link: trialInviteLink(token), moved }),
     }).catch(() => {})
   }
   return Response.json({ ok: true, action: moved ? 'move' : 'book' })

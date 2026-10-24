@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normaliseSections, planTrialPicks, optionDetail, optionTitle, trialOfferHtml, buildTrialBookedEmailHtml, otherOptions } from '../lib/trialInvite.js'
+import { normaliseSections, planTrialPicks, optionDetail, optionTitle, trialOfferHtml, buildTrialBookedEmailHtml, otherOptions, planTrialNotes, inviteAnswer } from '../lib/trialInvite.js'
 
 const offered = [{
   submission_id: '12', label: 'Maths · Year 9',
@@ -76,4 +76,28 @@ test('an other option’s note shows after it in the emails and on the form', ()
   const [sec] = normaliseSections([{ submission_id: 9, label: 'English', options: otherOptions([{ label: 'Y7 English 1:1', note: ' times can be discussed ' }]) }])
   assert.equal(optionDetail(sec.options[0]), 'times can be discussed')
   assert.match(trialOfferHtml({ link: 'https://x/t', sections: [sec] }), /Y7 English 1:1<\/strong> — times can be discussed/)
+})
+
+test('"none of these suit" is per subject: book English, tell us about Maths', () => {
+  const sections = normaliseSections([
+    { submission_id: 1, label: 'English', options: [{ kind: 'class', class_id: 5, class_name: 'Y7 English', date: '2026-10-31' }] },
+    { submission_id: 2, label: 'Maths', options: [{ kind: 'class', class_id: 6, class_name: 'Y7 Maths', date: '2026-10-29' }] },
+  ])
+  const invite = { sections, picks: {} }
+  assert.deepEqual(planTrialNotes({ invite, notes: { 2: ' Weekdays after 5pm ' } }).noted.map(n => [n.section.label, n.note]), [['Maths', 'Weekdays after 5pm']])
+  assert.match(planTrialNotes({ invite, notes: { 2: '  ' } }).error, /which days and times/)
+  assert.deepEqual(planTrialNotes({ invite, notes: { 99: 'x' } }).noted, [], 'not on this invite')
+  // a booked subject is changed by replying, not switched to "none" here
+  assert.match(planTrialNotes({ invite: { ...invite, picks: { 1: { option_id: 'c5' } } }, notes: { 1: 'x' } }).error, /already booked/)
+
+  const answered = { ...invite, responded_at: '2026-10-24', picks: { 1: { option_id: 'c5' }, 2: { none: true, note: 'Weekdays after 5pm' } } }
+  assert.deepEqual(inviteAnswer(answered, 1), { pick: sections[0].options[0], note: '' })
+  assert.deepEqual(inviteAnswer(answered, 2), { pick: null, note: 'Weekdays after 5pm' })
+  // an older form's one note covers whatever wasn't picked
+  assert.deepEqual(inviteAnswer({ sections, picks: {}, responded_at: 'x', note: 'Sundays' }, 2), { pick: null, note: 'Sundays' })
+
+  const html = buildTrialBookedEmailHtml({ parentName: 'Yoon', studentName: 'Luke Hong',
+    chosen: [{ section: sections[0], option: sections[0].options[0] }], noted: [{ section: sections[1], note: 'x' }] })
+  assert.match(html, /Y7 English/)
+  assert.match(html, /For Maths, thanks for letting us know what suits — we’ll be in touch with a time/)
 })

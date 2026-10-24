@@ -18,6 +18,7 @@ import LevelTestInvitationModal from '../../../components/trials/LevelTestInvita
 import PipelineFlow from '../../../components/trials/PipelineFlow'
 import { nextStep, trialStage, ACTION_BUTTON, sydneyClock } from '../../../lib/trialNextStep'
 import { earliestTrialStart, trialDatesFor } from '../../../lib/trialDates'
+import { inviteAnswer } from '../../../lib/trialInvite'
 
 // Students who can be picked as a referrer (an enrolled CUBE family member).
 const REFERRER_EXCLUDED_STATUSES = ['quit', 'quit trial', 'disenrolled', 'declined']
@@ -1407,12 +1408,7 @@ export default function TrialsPage() {
     const trialInviteBySub = {}
     for (const inv of trialInvites || []) {
       for (const sid of inv.submission_ids || []) {
-        const sec = (inv.sections || []).find(x => x.submission_id === sid)
-        const pickedId = inv.picks?.[sid]?.option_id
-        trialInviteBySub[sid] = {
-          pick: pickedId ? (sec?.options || []).find(o => o.id === pickedId) || null : null,
-          note: inv.responded_at && !pickedId ? (inv.note || '') : '',
-        }
+        trialInviteBySub[sid] = inviteAnswer(inv, sid)
       }
     }
     for (const s of merged) s._trialInvite = trialInviteBySub[s.id] || null
